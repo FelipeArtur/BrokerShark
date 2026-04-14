@@ -1,0 +1,38 @@
+# Ambiente virtual Python
+.venv/
+venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+
+# Variáveis de ambiente (credenciais sensíveis)
+.env
+.env.*
+!.env.example
+
+# Banco de dados
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+
+# Backups
+backups/
+
+# Logs
+logs/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
