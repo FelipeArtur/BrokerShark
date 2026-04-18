@@ -1,85 +1,100 @@
-# BrokerShark — Guia para o Claude
+# BrokerShark — Claude Reference Guide
 
-## Visão Geral do Projeto
+## Overview
 
-Assistente financeiro pessoal acessível via **Telegram**, rodando **100% local** no Linux.
-O registro é feito por botões — sem digitar comandos, sem linguagem natural.
-Todo gasto registrado é persistido no SQLite local e imediatamente espelhado no **Google Sheets**,
-que funciona como backup permanente: apenas adições, nunca deleções.
+BrokerShark is a personal finance assistant accessible via **Telegram**, running **100% locally** on Linux.
+All registration is done through buttons — no commands to memorize, no natural language parsing required.
+Every transaction is persisted in a local SQLite database and immediately mirrored to **Google Sheets**,
+which serves as a permanent append-only backup.
 
-**Usuário:** homem, 24 anos, contas no Nubank e Inter (corrente + crédito), caixinha/cofrinho e Tesouro Direto.
+**User profile:** 24-year-old male, accounts at Nubank and Inter (checking + credit card), Nubank savings account, and Tesouro Direto.
 
 ---
 
-## Arquitetura
+## Repository Structure
 
 ```
 brokershark/
 ├── backend/
-│   ├── main.py            # Ponto de entrada — inicia bot (polling) + scheduler
-│   ├── bot.py             # Lógica do bot — ConversationHandler, InlineKeyboard, comandos
-│   ├── database.py        # Camada de dados — SQLite, criação de tabelas, queries
-│   ├── sheets.py          # Google Sheets — append-only após cada INSERT no banco
-│   ├── backup.py          # Backup local do SQLite (cópia diária)
-│   ├── scheduler.py       # APScheduler — backup diário + relatório semanal
+│   ├── main.py            # Entry point — starts bot (polling) + scheduler
+│   ├── bot.py             # Bot logic — ConversationHandlers, InlineKeyboard, commands
+│   ├── database.py        # Data layer — SQLite, table creation, queries
+│   ├── sheets.py          # Google Sheets — append-only mirror after each INSERT
+│   ├── backup.py          # Local SQLite backup (daily copy)
+│   ├── scheduler.py       # APScheduler — daily backup + weekly report
 │   └── parsers/
-│       ├── nubank_cc.py   # Parser CSV Nubank crédito
-│       ├── nubank_db.py   # Parser CSV Nubank débito
-│       ├── inter_cc.py    # Parser CSV Inter crédito
-│       └── inter_db.py    # Parser CSV Inter débito
-├── data/                  # Banco de dados SQLite (não versionado)
-├── logs/                  # Logs de execução (não versionados)
-├── backups/               # Backups locais automáticos (não versionados)
+│       ├── nubank_cc.py   # Nubank credit card CSV parser
+│       ├── nubank_db.py   # Nubank checking account CSV parser
+│       ├── inter_cc.py    # Inter credit card CSV parser
+│       └── inter_db.py    # Inter checking account CSV parser
+├── data/                  # SQLite database (not versioned)
+├── logs/                  # Runtime logs (not versioned)
+├── backups/               # Local automatic backups (not versioned)
 ├── credentials/
-│   └── service_account.json  # Credenciais Google API (não versionado)
+│   └── service_account.json  # Google API credentials (not versioned)
 ├── requirements.txt
-├── .env                   # Credenciais (não versionado — ver .env.example)
+├── .env                   # Secrets (not versioned — see .env.example)
 └── .env.example
 ```
 
-### Fluxo principal — registro de gasto
+---
+
+## Architecture
+
+### Core data flow
 
 ```
-Usuário toca /novo no Telegram
+User taps /novo in Telegram
       ↓
-ConversationHandler (bot.py) — conduz o fluxo passo a passo via botões
+ConversationHandler (bot.py) — guides the user step-by-step via inline buttons
       ↓
-Ao confirmar: database.py — INSERT na tabela transacoes (SQLite)
+On confirmation: database.py — INSERT into transactions table (SQLite)
       ↓
-sheets.py — append_transacao() em thread separada (não bloqueia o bot)
+sheets.py — append row in a background thread (non-blocking)
       ↓
-bot.py — envia confirmação formatada ao usuário
+bot.py — sends formatted confirmation to the user
 ```
+
+### Key architectural principles
+
+- **SQLite is the single source of truth.** Sheets is an output — it is never read back.
+- **Sheets rows are immutable.** Nothing is ever edited or deleted in the spreadsheet.
+- **Sheets failures never surface to the user.** Errors are logged; the bot continues normally.
+- **No AI in the registration flow.** Buttons eliminate the need for language model parsing at record time.
 
 ---
 
-## Stack
+## Tech Stack
 
-- **Linguagem:** Python 3.12
-- **Bot:** python-telegram-bot v21
-- **Banco de dados:** SQLite (WAL mode) — fonte de verdade
-- **Google Sheets:** gspread + google-auth (Service Account) — backup append-only
-- **Agendamento:** APScheduler
-- **HTTP:** httpx
+| Component | Technology |
+|---|---|
+| Language | Python 3.12 |
+| Bot framework | python-telegram-bot v21 |
+| Database | SQLite (WAL mode) |
+| Sheets integration | gspread + google-auth (Service Account) |
+| Scheduler | APScheduler |
+| HTTP client | httpx |
 
-> Ollama (Phi-3.5 Mini / ROCm) reservado para consultas em linguagem natural — **não** é usado no fluxo de registro.
+> **Ollama (Phi-3.5 Mini / ROCm)** is reserved for future natural language queries and is **not** part of the registration flow.
 
 ---
 
-## Como rodar
+## Running Locally
 
 ```bash
 cp .env.example .env
-# edite .env com suas credenciais
+# fill in your credentials
 pip install -r requirements.txt
 python backend/main.py
 ```
 
 ---
 
-## Menu Principal
+## Bot Interaction Design
 
-Toda interação começa com `/novo` ou o bot exibe este menu:
+### Main menu
+
+Every session starts with `/novo` or the bot presents this menu:
 
 ```
 O que você quer registrar?
@@ -88,67 +103,63 @@ O que você quer registrar?
 [ Investimento ]
 ```
 
-Cada opção entra num `ConversationHandler` próprio.
+Each option enters its own dedicated `ConversationHandler`.
 
 ---
 
-## Fluxo 1 — Registro de Gasto
+### Flow 1 — Expense Registration
 
-### Estados da conversa
-
+**Conversation states:**
 ```
-TIPO_PAGAMENTO → BANCO → VALOR → PARCELADO → NUM_PARCELAS → DESCRICAO → CATEGORIA → CONFIRMACAO
+PAYMENT_TYPE → BANK → AMOUNT → INSTALLMENTS → NUM_INSTALLMENTS → DESCRIPTION → CATEGORY → CONFIRMATION
 ```
+`NUM_INSTALLMENTS` is only visited when the user answers "Sim" in `INSTALLMENTS`.
 
-`NUM_PARCELAS` só é visitado se o usuário responder "Sim" em `PARCELADO`.
-
-### Passo a passo
-
-**1. Tipo de pagamento**
-Gatilho: `/novo` ou botão "Novo gasto" no menu principal.
+**Step 1 — Payment type**
 ```
 Como foi o pagamento?
 [ PIX ]  [ Crédito ]
 [ Débito ]  [ TED ]
 ```
 
-**2. Banco**
+**Step 2 — Bank**
 ```
 Qual banco?
 [ Nubank ]  [ Inter ]
 ```
-Isso determina o `conta_id` final:
-- PIX/Débito/TED + Nubank → `nu-db`
-- PIX/Débito/TED + Inter  → `inter-db`
-- Crédito + Nubank         → `nu-cc`
-- Crédito + Inter          → `inter-cc`
+This resolves the `account_id`:
+| Payment type | Bank | `account_id` |
+|---|---|---|
+| PIX / Débito / TED | Nubank | `nu-db` |
+| PIX / Débito / TED | Inter | `inter-db` |
+| Crédito | Nubank | `nu-cc` |
+| Crédito | Inter | `inter-cc` |
 
-**3. Valor**
+**Step 3 — Amount**
 ```
 Qual o valor? (ex: 45,90)
 ```
-Aceitar tanto vírgula quanto ponto como separador decimal.
+Accept both comma and dot as decimal separators.
 
-**4. Parcelado?** (só para Crédito)
+**Step 4 — Installments?** *(credit card only)*
 ```
 Foi parcelado?
 [ Sim ]  [ Não ]
 ```
-Para PIX, Débito e TED este passo é pulado (parcelas = 1).
+Skipped for PIX, Débito, and TED (defaults to 1).
 
-**5. Número de parcelas** (só se Sim)
+**Step 5 — Number of installments** *(only if Sim)*
 ```
 Em quantas vezes?
 ```
-Usuário digita um número inteiro.
 
-**6. Descrição do gasto**
+**Step 6 — Description**
 ```
 Como você quer chamar esse gasto?
 ```
-Usuário digita livremente (ex: "iFood", "Ingresso show", "PS Store").
+Free text (e.g., "iFood", "Ingresso show", "PS Store").
 
-**7. Categoria**
+**Step 7 — Category**
 ```
 Qual a categoria?
 [ Alimentação ]        [ Carro ]
@@ -158,7 +169,7 @@ Qual a categoria?
 [ Dízimo ]             [ Outro ]
 ```
 
-**8. Resumo + Confirmação**
+**Step 8 — Confirmation summary**
 ```
 Confirma o registro?
 
@@ -170,7 +181,7 @@ Categoria: Jogos
 [ Confirmar ]  [ Cancelar ]
 ```
 
-**9. Após confirmação**
+**After confirmation**
 ```
 Gasto registrado!
 
@@ -179,23 +190,16 @@ Nubank Crédito · Jogos
 17/04/2026
 ```
 
-### Cancelamento a qualquer momento
-
-Qualquer mensagem `/cancelar` ou botão "Cancelar" aborta o `ConversationHandler` e limpa o estado.
-
 ---
 
-## Fluxo 2 — Registro de Recebimento
+### Flow 2 — Income Registration
 
-### Estados da conversa
-
+**Conversation states:**
 ```
-TIPO_RECEBIMENTO → BANCO → VALOR → DESCRICAO → CONFIRMACAO
+INCOME_TYPE → BANK → AMOUNT → DESCRIPTION → CONFIRMATION
 ```
 
-### Passo a passo
-
-**1. Tipo de recebimento**
+**Step 1 — Income type**
 ```
 O que você recebeu?
 
@@ -204,25 +208,24 @@ O que você recebeu?
 [ Outro ]
 ```
 
-**2. Banco**
+**Step 2 — Bank**
 ```
 Em qual conta caiu?
 [ Nubank ]  [ Inter ]
 ```
-Determina `conta_id`: Nubank → `nu-db`, Inter → `inter-db`.
-Recebimentos sempre entram na conta corrente.
+Income always goes into checking accounts: Nubank → `nu-db`, Inter → `inter-db`.
 
-**3. Valor**
+**Step 3 — Amount**
 ```
 Qual o valor recebido? (ex: 3500,00)
 ```
 
-**4. Descrição**
+**Step 4 — Description**
 ```
 De onde veio? (ex: "Empresa X", "João", "Projeto site")
 ```
 
-**5. Resumo + Confirmação**
+**Step 5 — Confirmation summary**
 ```
 Confirma o registro?
 
@@ -234,7 +237,7 @@ Conta:   Nubank Débito
 [ Confirmar ]  [ Cancelar ]
 ```
 
-**6. Após confirmação**
+**After confirmation**
 ```
 Recebimento registrado!
 
@@ -245,42 +248,39 @@ Empresa X · Nubank Débito
 
 ---
 
-## Fluxo 3 — Investimento (Caixinha / Tesouro Direto)
+### Flow 3 — Investment (Savings / Tesouro Direto)
 
-### Estados da conversa
-
+**Conversation states:**
 ```
-OPERACAO_INVEST → RESERVA → VALOR → DESCRICAO → CONFIRMACAO
+OPERATION → DESTINATION → AMOUNT → DESCRIPTION → CONFIRMATION
 ```
 
-### Passo a passo
-
-**1. Operação**
+**Step 1 — Operation**
 ```
 O que você quer fazer?
 
 [ Investir (aporte) ]  [ Resgatar ]
 ```
 
-**2. Onde**
+**Step 2 — Destination**
 ```
 Em qual investimento?
 
-[ Caixinha Nubank ]  [ Tesouro Direto ]
+[ Caixinha Nubank ] [ Tesouro Direto ]
+[ Porquuinho Inter ]
 ```
 
-**3. Valor**
+**Step 3 — Amount**
 ```
 Qual o valor? (ex: 500,00)
 ```
 
-**4. Descrição** *(opcional)*
+**Step 4 — Description**
 ```
 Alguma observação? (ex: "reserva emergência", "férias")
-Ou envie /pular para continuar sem.
 ```
 
-**5. Resumo + Confirmação**
+**Step 5 — Confirmation summary**
 ```
 Confirma o investimento?
 
@@ -292,7 +292,7 @@ Obs:        reserva emergência
 [ Confirmar ]  [ Cancelar ]
 ```
 
-**6. Após confirmação**
+**After confirmation**
 ```
 Investimento registrado!
 
@@ -303,191 +303,149 @@ Caixinha Nubank
 
 ---
 
-## Google Sheets — Backup Append-Only
+### Cancellation
 
-### Princípio
+`/cancelar` or the "Cancelar" button at any step aborts the active `ConversationHandler` and clears all collected state.
 
-O Sheets é um **espelho imutável** do banco local. Cada INSERT no SQLite gera um append no Sheets.
-Nenhuma linha é jamais editada ou deletada na planilha.
-Se o banco local for apagado, o Sheets contém o histórico completo para restauração manual.
+---
 
-### Abas da planilha
+## Google Sheets Integration
 
-| Aba | Colunas | Preenchida quando |
-|-----|---------|-------------------|
-| Gastos | id, data, meio, banco, conta_id, valor, parcelas, descricao, categoria, data_registro | A cada despesa confirmada |
-| Recebimentos | id, data, meio, banco, conta_id, valor, descricao, data_registro | A cada receita confirmada |
-| Investimentos | id, data, reserva, operacao, valor, descricao, data_registro | A cada aporte/resgate confirmado |
+### Design
 
-> Não há abas de resumo automáticas — isso fica para fórmulas nativas no próprio Google Sheets.
+Google Sheets acts as an **immutable mirror** of the local database. Every INSERT generates one `append_row` call. Rows are never edited or deleted.
 
-### `sheets.py` — contrato de funções
+If the local database is lost, the spreadsheet contains the complete transaction history and can be used for manual restoration.
+
+### Sheets layout
+
+| Sheet | Columns | Written when |
+|---|---|---|
+| Gastos | id, data, meio, banco, conta_id, valor, parcelas, descricao, categoria, data_registro | Each confirmed expense |
+| Recebimentos | id, data, meio, banco, conta_id, valor, descricao, data_registro | Each confirmed income |
+| Investimentos | id, data, reserva, operacao, valor, descricao, data_registro | Each confirmed investment move |
+
+Summary sheets are not automated — native Google Sheets formulas handle aggregation on the spreadsheet side.
+
+### `sheets.py` public interface
 
 ```python
-def append_despesa(transacao: dict) -> None: ...
-def append_receita(transacao: dict) -> None: ...
-def append_investimento(mov: dict) -> None: ...
+def append_expense(transaction: dict) -> None: ...
+def append_income(transaction: dict) -> None: ...
+def append_investment(movement: dict) -> None: ...
 ```
 
-- Autenticar via `gspread.service_account(filename=CREDENTIALS_PATH)`
-- Append: `worksheet.append_row(row, value_input_option="USER_ENTERED")`
-- Executar em `asyncio.get_event_loop().run_in_executor(None, ...)` para não bloquear o bot
-- Falhas logadas em `logs/sheets_errors.log` — **nunca** propagadas para o usuário
+Implementation notes:
+- Authenticate with `gspread.service_account(filename=CREDENTIALS_PATH)`
+- Use `worksheet.append_row(row, value_input_option="USER_ENTERED")`
+- Run in a thread via `asyncio.get_event_loop().run_in_executor(None, ...)` — never block the bot event loop
+- Log failures to `logs/sheets_errors.log` — never raise or notify the user
 
-### Setup (feito uma vez)
+### One-time setup
 
 ```
-1. Google Cloud Console → criar projeto → ativar Google Sheets API + Google Drive API
-2. Criar Service Account → baixar JSON → salvar em credentials/service_account.json
-3. Criar planilha no Google Sheets → copiar o ID da URL
-4. Compartilhar a planilha com o e-mail da Service Account (permissão: Editor)
-5. Preencher SHEETS_ID no .env
+1. Google Cloud Console → create project → enable Google Sheets API + Google Drive API
+2. Create a Service Account → download JSON → save to credentials/service_account.json
+3. Create a Google Sheets spreadsheet → copy the ID from the URL
+4. Share the spreadsheet with the Service Account email (Editor permission)
+5. Set SHEETS_ID in .env
 ```
 
 ---
 
-## Notas para o Claude
-
-### Comportamentos esperados
-
-- Sempre use **type hints** em todas as funções
-- Prefira **funções pequenas e com responsabilidade única**
-- Todo acesso ao banco passa por `database.py` — nunca SQL inline em outros módulos
-- O bot **nunca salva direto no banco** — dados coletados no ConversationHandler são validados antes do INSERT
-- Use `python-dotenv` para carregar variáveis de ambiente
-- Toda mensagem recebida pelo bot deve ter o `chat_id` verificado antes de qualquer processamento
-- `PRAGMA journal_mode=WAL` e `PRAGMA foreign_keys=ON` obrigatórios na criação do banco
-- **Nunca** usar SQL inline fora de `database.py`
-- Erros no Google Sheets **nunca** devem interromper o fluxo principal
-
-### Padrões técnicos
-
-**python-telegram-bot v21:**
-- `Application.builder()` para configuração
-- `ConversationHandler` para o fluxo de registro (estados listados acima)
-- `InlineKeyboardMarkup` + `CallbackQueryHandler` para todos os botões
-- `CommandHandler` para `/novo`, `/saldo`, `/resumo`, `/reservas`, `/ajuda`
-- `MessageHandler(filters.Document.ALL)` para arquivos CSV
-
-**SQLite:**
-- Context manager: `with sqlite3.connect(DB_PATH) as conn`
-- `PRAGMA journal_mode=WAL` — executar na criação
-- `PRAGMA foreign_keys=ON` — executar na criação
-
-**Google Sheets / gspread:**
-- Autenticar via Service Account: `gspread.service_account(filename=CREDENTIALS_PATH)`
-- Append: `worksheet.append_row(valores, value_input_option="USER_ENTERED")`
-- Executar em thread separada para não bloquear o event loop do bot
-
-### Variáveis de ambiente (.env.example)
-
-```env
-# Telegram
-TELEGRAM_TOKEN=SEU_TOKEN_AQUI
-TELEGRAM_CHAT_ID=SEU_CHAT_ID_AQUI
-
-# Banco
-DB_PATH=/home/SEU_USUARIO/brokershark/data/brokershark.db
-BACKUP_DIR=/home/SEU_USUARIO/brokershark/backups
-
-# Google Sheets
-SHEETS_ID=ID_DA_SUA_PLANILHA_AQUI
-SHEETS_CREDENTIALS=/home/SEU_USUARIO/brokershark/credentials/service_account.json
-```
-
-### Modelo de dados
+## Data Model
 
 ```sql
-CREATE TABLE contas (
-  id TEXT PRIMARY KEY,       -- nu-cc | nu-db | inter-cc | inter-db
-  banco TEXT NOT NULL,       -- nubank | inter
-  tipo TEXT NOT NULL,        -- corrente | credito
-  nome TEXT NOT NULL,
-  dia_corte INTEGER,
-  dia_vencimento INTEGER,
-  saldo_inicial REAL DEFAULT 0
+CREATE TABLE accounts (
+  id TEXT PRIMARY KEY,         -- nu-cc | nu-db | inter-cc | inter-db
+  bank TEXT NOT NULL,          -- nubank | inter
+  type TEXT NOT NULL,          -- checking | credit
+  name TEXT NOT NULL,
+  billing_day INTEGER,         -- credit cards only
+  due_day INTEGER,             -- credit cards only
+  initial_balance REAL DEFAULT 0
 );
 
-CREATE TABLE categorias (
+CREATE TABLE categories (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  nome TEXT NOT NULL,
-  tipo TEXT NOT NULL         -- despesa | receita
+  name TEXT NOT NULL,
+  flow TEXT NOT NULL           -- expense | income
 );
 
-CREATE TABLE transacoes (
+CREATE TABLE transactions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  data TEXT NOT NULL,
-  fluxo TEXT NOT NULL,           -- despesa | receita
-  meio TEXT NOT NULL,            -- despesa: pix|credito|debito|ted  receita: salario|freela|pix_recebido|transferencia|outro
-  conta_id TEXT NOT NULL,
-  valor REAL NOT NULL,
-  parcelas INTEGER DEFAULT 1,    -- sempre 1 para receitas
-  descricao TEXT NOT NULL,
-  categoria_id INTEGER,          -- obrigatório para despesas, null para receitas
-  conta_dest TEXT,               -- só em transferências internas
-  contraparte TEXT,              -- quem enviou/recebeu (PIX externo)
-  FOREIGN KEY (conta_id) REFERENCES contas(id),
-  FOREIGN KEY (conta_dest) REFERENCES contas(id),
-  FOREIGN KEY (categoria_id) REFERENCES categorias(id)
+  date TEXT NOT NULL,
+  flow TEXT NOT NULL,          -- expense | income
+  method TEXT NOT NULL,        -- expense: pix|credit|debit|ted  income: salary|freelance|pix_received|transfer|other
+  account_id TEXT NOT NULL,
+  amount REAL NOT NULL,
+  installments INTEGER DEFAULT 1,
+  description TEXT NOT NULL,
+  category_id INTEGER,         -- required for expenses, null for income
+  dest_account_id TEXT,        -- internal transfers only
+  counterpart TEXT,            -- sender/recipient name (external PIX)
+  FOREIGN KEY (account_id) REFERENCES accounts(id),
+  FOREIGN KEY (dest_account_id) REFERENCES accounts(id),
+  FOREIGN KEY (category_id) REFERENCES categories(id)
 );
 
-CREATE TABLE reservas (
+CREATE TABLE investments (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  nome TEXT NOT NULL,
-  tipo TEXT NOT NULL,        -- caixinha | cofrinho | tesouro
-  banco TEXT NOT NULL,
-  saldo_atual REAL DEFAULT 0
+  name TEXT NOT NULL,          -- "Caixinha Nubank" | "Tesouro Direto"
+  type TEXT NOT NULL,          -- savings | treasury
+  bank TEXT NOT NULL,          -- nubank | inter
+  current_balance REAL DEFAULT 0
 );
 
-CREATE TABLE movimentacoes_reserva (
+CREATE TABLE investment_movements (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  data TEXT NOT NULL,
-  reserva_id INTEGER NOT NULL,
-  operacao TEXT NOT NULL,    -- aporte | resgate
-  valor REAL NOT NULL,
-  descricao TEXT,
-  FOREIGN KEY (reserva_id) REFERENCES reservas(id)
+  date TEXT NOT NULL,
+  investment_id INTEGER NOT NULL,
+  operation TEXT NOT NULL,     -- deposit | withdrawal
+  amount REAL NOT NULL,
+  description TEXT,
+  FOREIGN KEY (investment_id) REFERENCES investments(id)
 );
 
-CREATE TABLE log_nao_reconhecidas (
+CREATE TABLE unrecognized_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  data TEXT NOT NULL,
-  mensagem TEXT NOT NULL
+  date TEXT NOT NULL,
+  message TEXT NOT NULL
 );
 ```
 
-**Seed obrigatório das contas:**
+### Required seed — accounts
 
 ```python
-contas = [
-    ("nu-cc",    "nubank", "credito",  "Nubank Crédito"),
-    ("nu-db",    "nubank", "corrente", "Nubank Débito"),
-    ("inter-cc", "inter",  "credito",  "Inter Crédito"),
-    ("inter-db", "inter",  "corrente", "Inter Débito"),
+accounts = [
+    ("nu-cc",    "nubank", "credit",   "Nubank Crédito"),
+    ("nu-db",    "nubank", "checking", "Nubank Débito"),
+    ("inter-cc", "inter",  "credit",   "Inter Crédito"),
+    ("inter-db", "inter",  "checking", "Inter Débito"),
 ]
 ```
 
-**Seed das categorias de despesa:**
+### Required seed — expense categories
 
 ```python
-categorias_despesa = [
-    "Alimentação",      # mercado, restaurante, lanche
-    "Carro",            # combustível, manutenção, seguro
-    "Jogos",            # PS Store, Steam, assinaturas gaming
-    "Lazer",            # cinema, passeios, hobbies
-    "Atividade física", # academia, suplementos, equipamentos
-    "Eletrônicos",      # gadgets, acessórios, reparos
-    "Educação",         # faculdade, cursos, livros
-    "Igreja",           # eventos, viagens, contribuições da Igreja
-    "Dízimo",           # dízimo mensal
+expense_categories = [
+    "Alimentação",      # groceries, restaurants, snacks
+    "Carro",            # fuel, maintenance, insurance
+    "Jogos",            # PS Store, Steam, gaming subscriptions
+    "Lazer",            # cinema, outings, hobbies
+    "Atividade física", # gym, supplements, equipment
+    "Eletrônicos",      # gadgets, accessories, repairs
+    "Educação",         # college, courses, books
+    "Igreja",           # church events, trips, contributions
+    "Dízimo",           # monthly tithe
     "Outro",
 ]
 ```
 
-**Seed das categorias de receita** (usadas no fluxo de Recebimento):
+### Required seed — income categories
 
 ```python
-categorias_receita = [
+income_categories = [
     "Salário",
     "Freela",
     "PIX recebido",
@@ -496,37 +454,97 @@ categorias_receita = [
 ]
 ```
 
-### Importação de CSV
+---
 
-Fluxo ao receber arquivo `.csv` no bot:
+## CSV Import
 
-1. Bot detecta arquivo CSV recebido
-2. Exibe InlineKeyboard: qual conta? (nu-cc / nu-db / inter-cc / inter-db)
-3. Chama o parser correspondente
-4. Exibe prévia: quantidade de transações, período, total
-5. Aguarda [Confirmar] ou [Cancelar]
-6. Salva e informa quantas duplicatas foram ignoradas
-7. Appenda as novas transações no Sheets em background
+Flow when a `.csv` file is received by the bot:
 
-Detectar duplicatas por: `(data, valor, nome, conta_id)`.
+1. Bot detects incoming CSV file
+2. Displays InlineKeyboard: which account? (`nu-cc` / `nu-db` / `inter-cc` / `inter-db`)
+3. Calls the corresponding parser
+4. Displays preview: transaction count, date range, total amount
+5. Waits for `[Confirmar]` or `[Cancelar]`
+6. Saves records and reports how many duplicates were skipped
+7. Appends new transactions to Sheets in a background thread
 
-### Segurança
+Duplicate detection key: `(date, amount, description, account_id)`.
 
-```python
-# Primeiro handler em toda mensagem recebida
-if update.effective_chat.id != int(os.getenv("TELEGRAM_CHAT_ID")):
-    return
+---
+
+## Development Guidelines
+
+### Code standards
+
+- **Type hints are mandatory** on every function signature
+- **Single-responsibility functions** — keep functions small and focused
+- **All database access goes through `database.py`** — no inline SQL in any other module
+- **The bot never writes directly to the database** — data collected by the `ConversationHandler` is validated before any INSERT
+- Use `python-dotenv` to load environment variables
+- Every incoming message must have its `chat_id` verified before any processing
+- `PRAGMA journal_mode=WAL` and `PRAGMA foreign_keys=ON` are mandatory at database creation
+- **Google Sheets errors must never propagate to the user or interrupt the main flow**
+
+### python-telegram-bot v21
+
+- Use `Application.builder()` for setup
+- Use `ConversationHandler` for all multi-step flows
+- Use `InlineKeyboardMarkup` + `CallbackQueryHandler` for all buttons
+- Register `CommandHandler` for `/novo`, `/saldo`, `/resumo`, `/reservas`, `/ajuda`
+- Use `MessageHandler(filters.Document.ALL)` for CSV uploads
+
+### SQLite
+
+- Use context manager: `with sqlite3.connect(DB_PATH) as conn`
+- Execute `PRAGMA journal_mode=WAL` and `PRAGMA foreign_keys=ON` at connection time
+
+### gspread
+
+- Authenticate: `gspread.service_account(filename=CREDENTIALS_PATH)`
+- Append: `worksheet.append_row(row, value_input_option="USER_ENTERED")`
+- Always run in a thread pool — never call synchronously from an async handler
+
+---
+
+## Configuration
+
+### Environment variables (`.env.example`)
+
+```env
+# Telegram
+TELEGRAM_TOKEN=YOUR_TOKEN_HERE
+TELEGRAM_CHAT_ID=YOUR_CHAT_ID_HERE
+
+# Database
+DB_PATH=/home/YOUR_USER/brokershark/data/brokershark.db
+BACKUP_DIR=/home/YOUR_USER/brokershark/backups
+
+# Google Sheets
+SHEETS_ID=YOUR_SPREADSHEET_ID_HERE
+SHEETS_CREDENTIALS=/home/YOUR_USER/brokershark/credentials/service_account.json
 ```
 
-### Backup local
+### Security
 
-- Cópia diária de `brokershark.db` → `backups/brokershark_YYYY-MM-DD.db`
-- Manter apenas os últimos 30 arquivos
-- Executado às 03:00 via APScheduler
+```python
+# First check in every message handler
+if update.effective_chat.id != int(os.getenv("TELEGRAM_CHAT_ID")):
+    return  # silently ignore
+```
 
-### Relatório semanal automático
+---
 
-Toda segunda-feira às 08:00, enviar no Telegram:
+## Automated Jobs
+
+### Weekly backup
+
+- Copies `brokershark.db` to `backups/brokershark_YYYY-MM-DD.db`
+- Retains only the last 30 files
+- Scheduled via APScheduler in `scheduler.py`
+
+### Weekly report (Monday 08:00)
+
+Sends the following message on Telegram:
 
 ```
 Resumo da semana passada
@@ -541,62 +559,63 @@ Reservas: R$ X
 
 ---
 
-### Decisões de design
+## Design Decisions
 
-| Decisão | Motivo |
+| Decision | Rationale |
 |---|---|
-| Registro 100% por botões | Elimina erros de digitação e torna o registro instantâneo no celular |
-| Três fluxos separados (gasto/recebimento/investimento) | Cada fluxo tem campos específicos — unificar criaria lógica condicional complexa |
-| Receita sempre cai na conta corrente | Salário, freela e PIX recebido não entram no crédito — simplifica a escolha de conta |
-| Investimentos apenas Caixinha e Tesouro | São os únicos ativos usados atualmente — evitar complexidade prematura |
-| Sheets append-only com 3 abas separadas | Cada tipo de transação tem colunas diferentes; separar facilita filtros no Sheets |
-| Sheets nunca é fonte de verdade | SQLite é o único estado consistente — Sheets é output imutável |
-| Falha no Sheets não bloqueia o bot | Registrar localmente é sempre mais importante que espelhar |
-| SQLite WAL em vez de PostgreSQL | Uso pessoal, zero config, arquivo único, fácil de backupear |
-| Ollama fora do fluxo de registro | Botões eliminam a necessidade de parsing de linguagem natural para o MVP |
-| Categorias baseadas nos gastos reais do usuário | Categorias genéricas não refletem o padrão de consumo específico do usuário |
-| Autenticação por chat_id | Bot pessoal — simples e suficiente |
+| Button-only registration | Eliminates typos and makes recording instant on mobile |
+| Three separate flows (expense / income / investment) | Each flow has distinct fields — merging them would require complex conditional branching |
+| Income always goes to checking accounts | Salary, freelance, and received PIX never land on a credit card — simplifies bank selection |
+| Only Caixinha and Tesouro Direto as investments | These are the only active instruments — avoids premature complexity |
+| Sheets as append-only backup with three separate sheets | Each transaction type has different columns; separate sheets make filtering straightforward |
+| SQLite is the single source of truth | Sheets is write-only output — it is never read back by the application |
+| Sheets failures are silent | Recording locally is always more important than mirroring; errors are logged only |
+| SQLite WAL over PostgreSQL | Personal use, zero configuration, single file, trivial to back up |
+| Ollama excluded from the registration flow | Buttons replace language model parsing for the MVP |
+| Categories reflect the user's actual spending patterns | Generic categories don't map to real-world usage |
+| Authentication by chat_id | Single-user personal bot — simple and sufficient |
+| Investments limited to current instruments | Stocks, REITs, and crypto require live pricing APIs — out of scope for now |
 
 ---
 
-### Tarefas em aberto
+## Roadmap
 
-**Fase 1 — Fundação** ← atual
-- [ ] `database.py` — criar tabelas, PRAGMAs, seed de contas/categorias, queries
-- [ ] `sheets.py` — append_despesa, append_receita, append_investimento (thread separada)
-- [ ] `bot.py` — menu principal + 3 ConversationHandlers (gasto / recebimento / investimento)
-- [ ] `main.py` — iniciar bot (polling) + scheduler
-- [ ] `backup.py` + `scheduler.py` — backup diário local + relatório semanal
+### Phase 1 — Foundation ← current
+- [ ] `database.py` — table creation, PRAGMAs, account and category seeds, query functions
+- [ ] `sheets.py` — `append_expense`, `append_income`, `append_investment` (background thread)
+- [ ] `bot.py` — main menu + 3 ConversationHandlers (expense / income / investment)
+- [ ] `main.py` — start bot (polling) + scheduler
+- [ ] `backup.py` + `scheduler.py` — daily local backup + weekly report
 
-**Fase 2 — Importação histórica**
-- [ ] Saldo inicial de cada conta como âncora antes de importar
-- [ ] `parsers/nubank_cc.py` e `parsers/nubank_db.py`
-- [ ] `parsers/inter_cc.py` e `parsers/inter_db.py`
-- [ ] Detecção de duplicatas por `(data, valor, nome, conta_id)`
-- [ ] Prévia antes de confirmar importação
-- [ ] Append das novas transações no Sheets após importação
+### Phase 2 — Historical import
+- [ ] Initial balance per account as an anchor before importing
+- [ ] `parsers/nubank_cc.py` and `parsers/nubank_db.py`
+- [ ] `parsers/inter_cc.py` and `parsers/inter_db.py`
+- [ ] Duplicate detection by `(date, amount, description, account_id)`
+- [ ] Import preview before confirmation
+- [ ] Append imported transactions to Sheets after confirmation
 
-**Fase 3 — Consultas rápidas**
-- [ ] `/saldo` — saldo por conta
-- [ ] `/resumo` — resumo do mês atual por categoria
-- [ ] `/fatura` — fatura atual dos cartões (Nubank e Inter)
-- [ ] `/reservas` — saldo das reservas
+### Phase 3 — Quick queries
+- [ ] `/saldo` — balance per account
+- [ ] `/resumo` — current month summary by category
+- [ ] `/fatura` — current statement for credit cards (Nubank and Inter)
+- [ ] `/reservas` — investment balances
 
-**Fase 4 — Reservas**
-- [ ] Caixinha Nubank, Cofrinho Inter, Tesouro Direto
-- [ ] Fluxo de aporte e resgate via botões
+### Phase 4 — Investment management
+- [ ] Caixinha Nubank, Tesouro Direto
+- [ ] Deposit and withdrawal flow via buttons
 
-**Fase 5 — Consultas inteligentes (Ollama)**
-- [ ] Perguntas em linguagem natural: "quanto gastei em delivery esse mês?"
-- [ ] Patrimônio consolidado (contas + reservas)
-- [ ] Metas de gastos com alerta ao atingir 80%
+### Phase 5 — Smart queries (Ollama)
+- [ ] Natural language questions: "quanto gastei em jogos esse mês?"
+- [ ] Consolidated net worth (accounts + investments)
+- [ ] Spending goals with 80% threshold alerts
 
-**Fase 6 — Automações**
-- [ ] Relatório semanal automático via APScheduler
+### Phase 6 — Automation
+- [ ] Automated weekly report via APScheduler
 
-**Fase 7 — Dashboard local**
-- [ ] Página HTML + Chart.js com visão por conta, reservas e patrimônio
+### Phase 7 — Local dashboard
+- [ ] HTML page + Chart.js with account, investment, and net worth views
 
-**Fase 8 — Investimentos (futuro)**
-- [ ] Ações, FIIs, Cripto
-- [ ] Cotações via yfinance + CoinGecko
+### Phase 8 — Extended investments (future)
+- [ ] Stocks, REITs, Crypto
+- [ ] Live pricing via yfinance + CoinGecko
