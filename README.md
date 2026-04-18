@@ -1,5 +1,7 @@
 # BrokerShark
 
+![BrokerShark](img/logo.png)
+
 A personal finance assistant built as a Telegram bot, running entirely on my local Linux machine.
 
 ## About
