@@ -15,10 +15,11 @@ build/
 .env.*
 !.env.example
 
+# Google API credentials
+credentials/
+
 # Banco de dados
-data/*.db
-data/*.sqlite
-data/*.sqlite3
+data/
 
 # Backups
 backups/
