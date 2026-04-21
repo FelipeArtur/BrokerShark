@@ -5,141 +5,23 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>BrokerShark</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-    :root {
-      --bg:       #0f1117;
-      --surface:  #1a1d27;
-      --border:   #2a2d3a;
-      --text:     #e2e8f0;
-      --muted:    #7c8494;
-      --green:    #22c55e;
-      --red:      #ef4444;
-      --blue:     #3b82f6;
-      --purple:   #a855f7;
-      --yellow:   #eab308;
-      --radius:   12px;
-    }
-
-    body {
-      background: var(--bg);
-      color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      font-size: 14px;
-      min-height: 100vh;
-      padding: 24px;
-    }
-
-    header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 28px;
-    }
-
-    header h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.5px; }
-    header h1 span { color: var(--blue); }
-    #last-updated { color: var(--muted); font-size: 12px; }
-
-    /* ── Cards ── */
-    .cards {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-      gap: 16px;
-      margin-bottom: 28px;
-    }
-
-    .card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 20px;
-    }
-
-    .card-label {
-      color: var(--muted);
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.8px;
-      margin-bottom: 8px;
-    }
-
-    .card-value {
-      font-size: 22px;
-      font-weight: 700;
-    }
-
-    .card-value.green  { color: var(--green); }
-    .card-value.red    { color: var(--red); }
-    .card-value.blue   { color: var(--blue); }
-    .card-value.purple { color: var(--purple); }
-
-    .card-sub { color: var(--muted); font-size: 12px; margin-top: 4px; }
-
-    /* ── Charts grid ── */
-    .grid-2 {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 16px;
-      margin-bottom: 16px;
-    }
-
-    .grid-3 {
-      display: grid;
-      grid-template-columns: 2fr 1fr 1fr;
-      gap: 16px;
-      margin-bottom: 16px;
-    }
-
-    @media (max-width: 900px) {
-      .grid-2, .grid-3 { grid-template-columns: 1fr; }
-    }
-
-    .panel {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 20px;
-    }
-
-    .panel-title {
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--muted);
-      text-transform: uppercase;
-      letter-spacing: 0.6px;
-      margin-bottom: 16px;
-    }
-
-    .chart-wrap {
-      position: relative;
-      height: 220px;
-    }
-
-    .chart-wrap.tall { height: 280px; }
-
-    /* ── Faturas ── */
-    .fatura-item {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 12px 0;
-      border-bottom: 1px solid var(--border);
-    }
-
-    .fatura-item:last-child { border-bottom: none; }
-
-    .fatura-name { font-weight: 600; }
-    .fatura-due  { font-size: 12px; color: var(--muted); margin-top: 2px; }
-    .fatura-val  { font-size: 18px; font-weight: 700; color: var(--red); }
-  </style>
+  <link rel="stylesheet" href="/static/css/style.css" />
 </head>
 <body>
 
 <header>
-  <h1>Broker<span>Shark</span></h1>
-  <span id="last-updated">—</span>
+  <h1 class="brand">Broker<span>Shark</span></h1>
+
+  <nav class="tabs">
+    <button class="tab active" data-bank="">Todos</button>
+    <button class="tab" data-bank="nubank">Nubank</button>
+    <button class="tab" data-bank="inter">Inter</button>
+  </nav>
+
+  <div class="status">
+    <span class="sse-dot" id="sse-dot"></span>
+    <span id="last-updated">—</span>
+  </div>
 </header>
 
 <div class="cards">
@@ -163,213 +45,36 @@
   </div>
 </div>
 
-<div class="grid-3">
+<div class="main-grid">
   <div class="panel">
     <div class="panel-title">Evolução — últimos 6 meses</div>
-    <div class="chart-wrap tall"><canvas id="chart-monthly"></canvas></div>
+    <div class="chart-wrap lg"><canvas id="chart-monthly"></canvas></div>
   </div>
-  <div class="panel">
-    <div class="panel-title">Faturas abertas</div>
-    <div id="faturas-list"></div>
-  </div>
-  <div class="panel">
-    <div class="panel-title">Investimentos</div>
-    <div class="chart-wrap"><canvas id="chart-investments"></canvas></div>
+  <div class="side-stack">
+    <div class="panel">
+      <div class="panel-title">Faturas abertas</div>
+      <div id="faturas-list"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">Investimentos</div>
+      <div class="chart-wrap md"><canvas id="chart-investments"></canvas></div>
+    </div>
   </div>
 </div>
 
-<div class="grid-2">
+<div class="bottom-grid">
   <div class="panel">
     <div class="panel-title">Gastos por categoria</div>
-    <div class="chart-wrap tall"><canvas id="chart-categories"></canvas></div>
+    <div class="chart-wrap lg"><canvas id="chart-categories"></canvas></div>
   </div>
   <div class="panel">
     <div class="panel-title">Saldo por conta</div>
-    <div class="chart-wrap tall"><canvas id="chart-accounts"></canvas></div>
+    <div class="chart-wrap lg"><canvas id="chart-accounts"></canvas></div>
   </div>
 </div>
 
-<script>
-  const PT_MONTHS = ["","Janeiro","Fevereiro","Março","Abril","Maio","Junho",
-                     "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
-
-  const fmt = v => "R$ " + Math.abs(v).toLocaleString("pt-BR", {minimumFractionDigits: 2});
-
-  const CHART_DEFAULTS = {
-    plugins: { legend: { labels: { color: "#7c8494", font: { size: 12 } } } },
-    scales: {
-      x: { ticks: { color: "#7c8494" }, grid: { color: "#2a2d3a" } },
-      y: { ticks: { color: "#7c8494" }, grid: { color: "#2a2d3a" } },
-    },
-  };
-
-  let charts = {};
-
-  function destroyChart(id) {
-    if (charts[id]) { charts[id].destroy(); delete charts[id]; }
-  }
-
-  async function loadSummary() {
-    const d = await fetch("/api/summary").then(r => r.json());
-
-    document.getElementById("c-income").textContent   = fmt(d.income);
-    document.getElementById("c-expenses").textContent = fmt(d.expenses);
-    document.getElementById("c-reservas").textContent = fmt(d.reservas);
-    document.getElementById("c-month").textContent    = PT_MONTHS[d.month] + " " + d.year;
-
-    const bal = document.getElementById("c-balance");
-    bal.textContent = (d.balance >= 0 ? "+" : "−") + fmt(d.balance);
-    bal.className   = "card-value " + (d.balance >= 0 ? "green" : "red");
-
-    if (d.top_category)
-      document.getElementById("c-top-cat").textContent = "Top: " + d.top_category.name;
-  }
-
-  async function loadMonthly() {
-    const data = await fetch("/api/monthly").then(r => r.json());
-    destroyChart("monthly");
-    charts["monthly"] = new Chart(document.getElementById("chart-monthly"), {
-      type: "line",
-      data: {
-        labels: data.map(d => d.label),
-        datasets: [
-          {
-            label: "Receitas",
-            data: data.map(d => d.income),
-            borderColor: "#22c55e",
-            backgroundColor: "rgba(34,197,94,0.1)",
-            tension: 0.3,
-            fill: true,
-          },
-          {
-            label: "Gastos",
-            data: data.map(d => d.expenses),
-            borderColor: "#ef4444",
-            backgroundColor: "rgba(239,68,68,0.1)",
-            tension: 0.3,
-            fill: true,
-          },
-        ],
-      },
-      options: {
-        ...CHART_DEFAULTS,
-        plugins: { ...CHART_DEFAULTS.plugins },
-        scales: CHART_DEFAULTS.scales,
-      },
-    });
-  }
-
-  async function loadCategories() {
-    const data = await fetch("/api/categories").then(r => r.json());
-    destroyChart("categories");
-    if (!data.length) return;
-    charts["categories"] = new Chart(document.getElementById("chart-categories"), {
-      type: "bar",
-      data: {
-        labels: data.map(d => d.name),
-        datasets: [{
-          label: "Gasto",
-          data: data.map(d => d.total),
-          backgroundColor: [
-            "#3b82f6","#a855f7","#22c55e","#ef4444","#eab308",
-            "#06b6d4","#f97316","#ec4899","#84cc16","#64748b",
-          ],
-          borderRadius: 6,
-        }],
-      },
-      options: {
-        indexAxis: "y",
-        plugins: { legend: { display: false } },
-        scales: {
-          x: { ticks: { color: "#7c8494" }, grid: { color: "#2a2d3a" } },
-          y: { ticks: { color: "#e2e8f0" }, grid: { display: false } },
-        },
-      },
-    });
-  }
-
-  async function loadAccounts() {
-    const data = await fetch("/api/accounts").then(r => r.json());
-    destroyChart("accounts");
-    charts["accounts"] = new Chart(document.getElementById("chart-accounts"), {
-      type: "bar",
-      data: {
-        labels: data.map(d => d.name),
-        datasets: [{
-          label: "Saldo",
-          data: data.map(d => d.balance),
-          backgroundColor: data.map(d => d.balance >= 0 ? "#3b82f6" : "#ef4444"),
-          borderRadius: 6,
-        }],
-      },
-      options: {
-        plugins: { legend: { display: false } },
-        scales: {
-          x: { ticks: { color: "#7c8494" }, grid: { display: false } },
-          y: { ticks: { color: "#7c8494" }, grid: { color: "#2a2d3a" } },
-        },
-      },
-    });
-  }
-
-  async function loadInvestments() {
-    const data = await fetch("/api/investments").then(r => r.json());
-    destroyChart("investments");
-    if (!data.length) return;
-    charts["investments"] = new Chart(document.getElementById("chart-investments"), {
-      type: "doughnut",
-      data: {
-        labels: data.map(d => d.name),
-        datasets: [{
-          data: data.map(d => d.balance),
-          backgroundColor: ["#a855f7","#3b82f6","#22c55e"],
-          borderWidth: 0,
-          hoverOffset: 8,
-        }],
-      },
-      options: {
-        cutout: "65%",
-        plugins: {
-          legend: { position: "bottom", labels: { color: "#7c8494", font: { size: 12 }, padding: 12 } },
-        },
-      },
-    });
-  }
-
-  async function loadFaturas() {
-    const data = await fetch("/api/faturas").then(r => r.json());
-    const el = document.getElementById("faturas-list");
-    el.innerHTML = data.map(f => {
-      const d = f.days_until_due;
-      const dueStr = d > 0 ? `vence em ${d} dias (${f.due_date})`
-                   : d === 0 ? `vence hoje (${f.due_date})`
-                   : `vencida há ${Math.abs(d)} dias`;
-      return `
-        <div class="fatura-item">
-          <div>
-            <div class="fatura-name">${f.label}</div>
-            <div class="fatura-due">${dueStr}</div>
-          </div>
-          <div class="fatura-val">${fmt(f.total)}</div>
-        </div>`;
-    }).join("");
-  }
-
-  async function refresh() {
-    await Promise.all([
-      loadSummary(),
-      loadMonthly(),
-      loadCategories(),
-      loadAccounts(),
-      loadInvestments(),
-      loadFaturas(),
-    ]);
-    document.getElementById("last-updated").textContent =
-      "Atualizado às " + new Date().toLocaleTimeString("pt-BR", {hour:"2-digit", minute:"2-digit"});
-  }
-
-  refresh();
-  setInterval(refresh, 60_000);
-</script>
+<script src="/static/js/api.js"></script>
+<script src="/static/js/charts.js"></script>
+<script src="/static/js/main.js"></script>
 </body>
 </html>

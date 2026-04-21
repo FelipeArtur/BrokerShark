@@ -23,7 +23,8 @@ brokershark/
 │   ├── sheets.py          # Google Sheets — append-only mirror after each INSERT
 │   ├── backup.py          # Local SQLite backup (daily copy)
 │   ├── scheduler.py       # APScheduler — daily backup, weekly report, monthly closing
-│   ├── dashboard.py       # Flask API server (background thread, port 8080)
+│   ├── dashboard.py       # Flask API server (background thread, port 8080, waitress WSGI)
+│   ├── events.py          # SSE pub/sub — notify() after DB writes, subscribe()/unsubscribe() for clients
 │   ├── bot/               # Telegram bot subpackage
 │   │   ├── __init__.py    # Re-exports build_application
 │   │   ├── application.py # build_application(), scheduler lifecycle hooks
@@ -40,7 +41,13 @@ brokershark/
 │       ├── nubank_cc.py   # Nubank credit card CSV parser
 │       └── inter_cc.py    # Inter credit card CSV parser
 ├── frontend/
-│   └── index.html         # Local dashboard — Chart.js, dark theme, auto-refresh 60s
+│   ├── index.html         # Markup only — refs to css/ and js/
+│   ├── css/
+│   │   └── style.css      # All styles — dark theme, CSS variables, responsive grid
+│   └── js/
+│       ├── api.js         # fetch wrappers for every endpoint (accepts optional ?bank=)
+│       ├── charts.js      # Chart.js create/update functions (monthly, categories, accounts, investments)
+│       └── main.js        # Init, tab switching, SSE connection, refresh loop
 ├── data/                  # SQLite database (not versioned)
 ├── logs/                  # Runtime logs (not versioned)
 ├── backups/               # Local automatic backups (not versioned)
@@ -64,6 +71,8 @@ ConversationHandler (bot/handlers/) — guides the user step-by-step via inline 
       ↓
 On confirmation: database.py — INSERT into transactions table (SQLite)
       ↓
+events.notify() — SSE push to all connected dashboard clients (< 1s latency)
+      ↓
 sheets.py — append row in a background thread (non-blocking)
       ↓
 bot/handlers/ — sends formatted confirmation to the user
@@ -78,6 +87,7 @@ bot/handlers/expense.py — checks if monthly expenses ≥ income → sends aler
 - **Sheets failures never surface to the user.** Errors are logged; the bot continues normally.
 - **No AI in the registration flow.** Buttons eliminate the need for language model parsing at record time.
 - **Dashboard is read-only.** It only reads from SQLite via Flask API — never writes.
+- **Dashboard updates in real-time via SSE.** `events.py` broadcasts after every DB write; the browser reacts immediately without polling.
 
 ---
 
@@ -90,8 +100,9 @@ bot/handlers/expense.py — checks if monthly expenses ≥ income → sends aler
 | Database | SQLite (WAL mode) |
 | Sheets integration | gspread + google-auth (Service Account) |
 | Scheduler | APScheduler |
-| Dashboard API | Flask 3.1 (background thread) |
-| Dashboard frontend | Chart.js 4.4 (CDN) |
+| Dashboard API | Flask 3.1 + Waitress 3.0 (8 threads, background thread) |
+| Dashboard frontend | Chart.js 4.4 (CDN), vanilla JS (api.js / charts.js / main.js) |
+| Real-time updates | SSE via `events.py` — no polling, < 1s latency |
 | HTTP client | httpx |
 
 > **Ollama (Phi-3.5 Mini / ROCm)** is reserved for future natural language queries and is **not** part of the registration flow.
@@ -383,29 +394,33 @@ Implementation notes:
 
 ## Local Dashboard
 
-Flask server runs as a daemon thread on port 8080 (configurable via `DASHBOARD_PORT`).
+Flask/Waitress server runs as a daemon thread on port 8080 (configurable via `DASHBOARD_PORT`), 8 threads.
 
 ### API endpoints
 
+All data endpoints accept an optional `?bank=nubank|inter` query parameter to filter by bank.
+
 | Endpoint | Returns |
 |---|---|
-| `GET /api/summary` | Current month: income, expenses, balance, reservas, top category |
-| `GET /api/accounts` | All accounts with current balance |
-| `GET /api/investments` | All investments with current balance |
-| `GET /api/monthly` | Last 6 months of income vs expenses |
-| `GET /api/categories` | Current month expenses grouped by category |
-| `GET /api/faturas` | Credit card billing info (total, due date, days remaining) |
+| `GET /api/events` | SSE stream — sends `update` event after every DB write, `heartbeat` every 30s |
+| `GET /api/summary[?bank=]` | Current month: income, expenses, balance, reservas, top category |
+| `GET /api/accounts[?bank=]` | All (or filtered) accounts with current balance |
+| `GET /api/investments[?bank=]` | All (or filtered) investments with current balance |
+| `GET /api/monthly[?bank=]` | Last 6 months of income vs expenses |
+| `GET /api/categories[?bank=]` | Current month expenses grouped by category |
+| `GET /api/faturas[?bank=]` | Credit card billing info (total, due date, days remaining) |
 
 ### Dashboard panels
 
-- **Cards** — receitas, gastos, saldo líquido, reservas (current month)
+- **Tabs** — Todos | Nubank | Inter (filters all panels simultaneously)
+- **Cards** — receitas, gastos, saldo líquido, reservas (current month, filtered)
 - **Evolução 6 meses** — line chart: receitas vs gastos
-- **Faturas abertas** — Nubank Crédito and Inter Crédito with days until due
-- **Investimentos** — doughnut chart: distribution across Caixinha / Porquinho / Tesouro
-- **Gastos por categoria** — horizontal bar chart (current month)
-- **Saldo por conta** — vertical bar chart
+- **Faturas abertas** — Nubank Crédito and/or Inter Crédito with cycle dates and days until due
+- **Investimentos** — doughnut chart: distribution across Caixinha / Porquinho / Tesouro (filtered by bank)
+- **Gastos por categoria** — horizontal bar chart (current month, filtered)
+- **Saldo por conta** — vertical bar chart (filtered)
 
-Auto-refresh every 60 seconds.
+Updates in real-time via SSE — dashboard reacts to any DB write in < 1s. Debounced 300ms to handle bulk CSV imports.
 
 ---
 
@@ -712,7 +727,21 @@ Receitas: R$ X
 - [x] Faturas abertas com dias até vencimento
 - [x] Auto-refresh a cada 60 segundos
 
-### Phase 7 — Histórico comparativo ← next
+### Phase 6b — Dashboard v2 ✅ DONE
+- [x] Frontend separado em `css/style.css` + `js/api.js` + `js/charts.js` + `js/main.js`
+- [x] Tabs por banco: Todos | Nubank | Inter (filtra todos os painéis)
+- [x] Parâmetro `?bank=nubank|inter` em todos os endpoints de dados
+- [x] SSE real-time via `events.py` — dashboard atualiza em < 1s após cada registro
+- [x] Debounce 300ms no frontend (evita multi-refresh em imports CSV)
+- [x] Servidor Flask substituído por Waitress (produção, 8 threads)
+- [x] SQLite otimizado: `synchronous=NORMAL`, `cache_size=-8000`, `temp_store=MEMORY`
+- [x] N+1 eliminado em `/api/accounts` (1 query JOIN)
+- [x] `get_monthly_history()` reescrito: 18 queries → 1 query
+- [x] Cache do cliente gspread (1 autenticação por processo)
+- [x] Job de backup async via `asyncio.to_thread()`
+
+### Phase 7 — Serviço systemd + Histórico comparativo ← next
+- [ ] Serviço systemd para autostart no boot (brokershark.service)
 - [ ] `/historico` — evolução mensal de gastos e receitas (últimos N meses)
 - [ ] `/comparar` — comparação lado a lado de dois períodos
 - [ ] Tendência de gastos por categoria ao longo do tempo

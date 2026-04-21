@@ -1,0 +1,189 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:      #0f1117;
+  --surface: #1a1d27;
+  --border:  #2a2d3a;
+  --text:    #e2e8f0;
+  --muted:   #7c8494;
+  --green:   #22c55e;
+  --red:     #ef4444;
+  --blue:    #3b82f6;
+  --purple:  #a855f7;
+  --radius:  12px;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 14px;
+  min-height: 100vh;
+  padding: 24px;
+}
+
+/* ── Header ──────────────────────────────────────────────────────────────── */
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.brand { font-size: 22px; font-weight: 700; letter-spacing: -0.5px; }
+.brand span { color: var(--blue); }
+
+/* ── Bank tabs ───────────────────────────────────────────────────────────── */
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px;
+}
+
+.tab {
+  padding: 5px 18px;
+  border-radius: 6px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: background 0.15s, color 0.15s;
+}
+
+.tab:hover  { color: var(--text); }
+.tab.active { background: var(--bg); color: var(--text); }
+
+/* ── Live indicator ──────────────────────────────────────────────────────── */
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.sse-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex-shrink: 0;
+  transition: background 0.3s;
+}
+
+.sse-dot.live { background: var(--green); }
+
+/* ── Summary cards ───────────────────────────────────────────────────────── */
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+@media (max-width: 700px) { .cards { grid-template-columns: repeat(2, 1fr); } }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 20px;
+}
+
+.card-label {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-bottom: 6px;
+}
+
+.card-value {
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.card-value.green  { color: var(--green); }
+.card-value.red    { color: var(--red); }
+.card-value.purple { color: var(--purple); }
+
+.card-sub {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 4px;
+  min-height: 16px;
+}
+
+/* ── Layout grids ────────────────────────────────────────────────────────── */
+
+.main-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.side-stack { display: flex; flex-direction: column; gap: 12px; }
+
+.bottom-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 900px) {
+  .main-grid, .bottom-grid { grid-template-columns: 1fr; }
+}
+
+/* ── Panels ──────────────────────────────────────────────────────────────── */
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 20px;
+}
+
+.panel-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin-bottom: 14px;
+}
+
+/* ── Chart containers ────────────────────────────────────────────────────── */
+
+.chart-wrap          { position: relative; height: 200px; }
+.chart-wrap.md       { height: 180px; }
+.chart-wrap.lg       { height: 260px; }
+
+/* ── Faturas ─────────────────────────────────────────────────────────────── */
+
+.fatura-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.fatura-item:last-child { border-bottom: none; }
+
+.fatura-name  { font-weight: 600; font-size: 13px; }
+.fatura-meta  { font-size: 11px; color: var(--muted); margin-top: 3px; }
+.fatura-val   { font-size: 16px; font-weight: 700; color: var(--red); flex-shrink: 0; }

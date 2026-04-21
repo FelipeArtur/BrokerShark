@@ -1,4 +1,5 @@
 """APScheduler jobs — daily backup, weekly report, and monthly closing report."""
+import asyncio
 import logging
 from datetime import datetime, timedelta
 
@@ -100,11 +101,15 @@ async def _send_monthly_closing_report(bot: Bot) -> None:
     )
 
 
+async def _run_backup_async() -> None:
+    await asyncio.to_thread(backup.run_backup)
+
+
 def build_scheduler(bot: Bot) -> AsyncIOScheduler:
     scheduler = AsyncIOScheduler()
 
     scheduler.add_job(
-        backup.run_backup,
+        _run_backup_async,
         trigger="cron",
         hour=3,
         minute=0,
