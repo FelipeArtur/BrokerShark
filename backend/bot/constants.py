@@ -2,21 +2,35 @@
 
 All state numbers are defined here to prevent collisions across flows.
 Every handler module imports its required constants from this file.
-"""
-from parsers import nubank_cc, inter_cc
 
-# ── Expense flow (0–8) ────────────────────────────────────────────────────────
+Expense flow states (0–6):
+    ACCOUNT → AMOUNT → INSTALLMENTS → DESCRIPTION → DATE → CATEGORY → CONFIRMATION
+
+Income flow states (10–15):
+    TYPE → BANK → AMOUNT → DESCRIPTION → DATE → CONFIRMATION
+
+Investment flow states (20–25):
+    OPERATION → DESTINATION → AMOUNT → DESCRIPTION → DATE → CONFIRMATION
+"""
+from bot.parsers import nubank_cc, inter_cc
+
+# ── Expense flow (0–6) ────────────────────────────────────────────────────────
+# Step 1: account+method selection (combined)
+# Step 2: amount
+# Step 3: installments (credit only — À vista / 2x / 3x / ...)
+# Step 4: description
+# Step 5: date (Hoje / Ontem / Outra data)
+# Step 6: category
+# Step 7: confirmation
 (
-    EXP_PAYMENT_TYPE,
-    EXP_BANK,
+    EXP_ACCOUNT,
     EXP_AMOUNT,
     EXP_INSTALLMENTS,
-    EXP_NUM_INSTALLMENTS,
     EXP_DESCRIPTION,
     EXP_DATE,
     EXP_CATEGORY,
     EXP_CONFIRMATION,
-) = range(9)
+) = range(7)
 
 # ── Income flow (10–15) ───────────────────────────────────────────────────────
 (
@@ -44,14 +58,15 @@ from parsers import nubank_cc, inter_cc
     CSV_CONFIRMATION,
 ) = range(30, 32)
 
-# ── Account routing: (payment_method, bank) → account_id ─────────────────────
-ACCOUNT_MAP: dict[tuple[str, str], str] = {
-    ("pix",    "nubank"): "nu-db",
-    ("ted",    "nubank"): "nu-db",
-    ("credit", "nubank"): "nu-cc",
-    ("pix",    "inter"):  "inter-db",
-    ("ted",    "inter"):  "inter-db",
-    ("credit", "inter"):  "inter-cc",
+# ── Account choices: callback key → (account_id, method) ─────────────────────
+# Used by the combined payment+bank selection step in expense flow.
+ACCOUNT_CHOICES: dict[str, tuple[str, str]] = {
+    "nu-cc_credit":    ("nu-cc",    "credit"),
+    "inter-cc_credit": ("inter-cc", "credit"),
+    "nu-db_pix":       ("nu-db",    "pix"),
+    "inter-db_pix":    ("inter-db", "pix"),
+    "nu-db_ted":       ("nu-db",    "ted"),
+    "inter-db_ted":    ("inter-db", "ted"),
 }
 
 # ── Investment metadata: name → (type, bank) ─────────────────────────────────

@@ -12,10 +12,10 @@
 <header>
   <h1 class="brand">Broker<span>Shark</span></h1>
 
-  <nav class="tabs">
-    <button class="tab active" data-bank="">Todos</button>
-    <button class="tab" data-bank="nubank">Nubank</button>
-    <button class="tab" data-bank="inter">Inter</button>
+  <nav class="section-nav">
+    <button class="section-pill active" data-section="overview">Visão Geral</button>
+    <button class="section-pill" data-section="accounts">Contas</button>
+    <button class="section-pill" data-section="investments">Investimentos</button>
   </nav>
 
   <div class="status">
@@ -24,54 +24,103 @@
   </div>
 </header>
 
-<div class="cards">
-  <div class="card">
-    <div class="card-label">Receitas do mês</div>
-    <div class="card-value green" id="c-income">—</div>
-    <div class="card-sub" id="c-month">—</div>
-  </div>
-  <div class="card">
-    <div class="card-label">Gastos do mês</div>
-    <div class="card-value red" id="c-expenses">—</div>
-    <div class="card-sub" id="c-top-cat">—</div>
-  </div>
-  <div class="card">
-    <div class="card-label">Saldo líquido</div>
-    <div class="card-value" id="c-balance">—</div>
-  </div>
-  <div class="card">
-    <div class="card-label">Reservas</div>
-    <div class="card-value purple" id="c-reservas">—</div>
-  </div>
-</div>
+<!-- ── SEÇÃO: VISÃO GERAL ──────────────────────────────────────────────── -->
 
-<div class="main-grid">
-  <div class="panel">
+<section id="section-overview" class="section active">
+
+  <nav class="bank-tabs">
+    <button class="bank-tab active" data-bank="">Todos</button>
+    <button class="bank-tab" data-bank="nubank">Nubank</button>
+    <button class="bank-tab" data-bank="inter">Inter</button>
+  </nav>
+
+  <div class="cards">
+    <div class="card">
+      <div class="card-label">Receitas do mês</div>
+      <div class="card-value green" id="c-income">—</div>
+      <div class="card-sub" id="c-month">—</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Gastos do mês</div>
+      <div class="card-value red" id="c-expenses">—</div>
+      <div class="card-sub" id="c-top-cat">—</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Saldo líquido</div>
+      <div class="card-value" id="c-balance">—</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Reservas</div>
+      <div class="card-value purple" id="c-reservas">—</div>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-bottom:12px">
     <div class="panel-title">Evolução — últimos 6 meses</div>
     <div class="chart-wrap lg"><canvas id="chart-monthly"></canvas></div>
   </div>
-  <div class="side-stack">
+
+  <div class="bottom-grid">
+    <div class="panel">
+      <div class="panel-title">Gastos por categoria</div>
+      <div class="chart-wrap lg"><canvas id="chart-categories"></canvas></div>
+    </div>
     <div class="panel">
       <div class="panel-title">Faturas abertas</div>
-      <div id="faturas-list"></div>
-    </div>
-    <div class="panel">
-      <div class="panel-title">Investimentos</div>
-      <div class="chart-wrap md"><canvas id="chart-investments"></canvas></div>
+      <div id="overview-faturas"></div>
     </div>
   </div>
-</div>
 
-<div class="bottom-grid">
-  <div class="panel">
-    <div class="panel-title">Gastos por categoria</div>
-    <div class="chart-wrap lg"><canvas id="chart-categories"></canvas></div>
+</section>
+
+<!-- ── SEÇÃO: CONTAS ──────────────────────────────────────────────────── -->
+
+<section id="section-accounts" class="section">
+
+  <nav class="account-pills">
+    <button class="account-pill active" data-account="">Todas as contas</button>
+    <button class="account-pill" data-account="nu-cc">Nubank Crédito</button>
+    <button class="account-pill" data-account="nu-db">Nubank Conta</button>
+    <button class="account-pill" data-account="inter-cc">Inter Crédito</button>
+    <button class="account-pill" data-account="inter-db">Inter Conta</button>
+  </nav>
+
+  <!-- Visão geral de todas as contas -->
+  <div id="accounts-all-grid" class="accounts-grid"></div>
+
+  <!-- Visão de conta específica -->
+  <div id="account-hero" class="account-hero" style="display:none"></div>
+
+  <div id="account-charts" style="display:none">
+    <div id="chart-panel-categories" class="panel" style="margin-bottom:12px;display:none">
+      <div class="panel-title">Gastos por categoria — mês atual</div>
+      <div class="chart-wrap lg"><canvas id="chart-account-categories"></canvas></div>
+    </div>
+    <div id="chart-panel-monthly" class="panel" style="margin-bottom:12px;display:none">
+      <div class="panel-title">Evolução — últimos 6 meses</div>
+      <div class="chart-wrap lg"><canvas id="chart-account-monthly"></canvas></div>
+    </div>
   </div>
-  <div class="panel">
-    <div class="panel-title">Saldo por conta</div>
-    <div class="chart-wrap lg"><canvas id="chart-accounts"></canvas></div>
+
+  <div id="account-transactions" class="panel" style="display:none">
+    <div class="panel-title">Últimas transações</div>
+    <div id="transactions-list"></div>
   </div>
-</div>
+
+</section>
+
+<!-- ── SEÇÃO: INVESTIMENTOS ───────────────────────────────────────────── -->
+
+<section id="section-investments" class="section">
+
+  <div id="investments-cards" class="investment-cards"></div>
+
+  <div class="panel">
+    <div class="panel-title">Distribuição</div>
+    <div class="chart-wrap md"><canvas id="chart-investments"></canvas></div>
+  </div>
+
+</section>
 
 <script src="/static/js/api.js"></script>
 <script src="/static/js/charts.js"></script>

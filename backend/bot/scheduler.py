@@ -1,4 +1,10 @@
-"""APScheduler jobs — daily backup, weekly report, and monthly closing report."""
+"""APScheduler jobs — daily backup, weekly report, and monthly closing report.
+
+Jobs registered:
+- ``daily_backup``   — 03:00 every day via :func:`core.backup.run_backup`
+- ``weekly_report``  — Monday 08:00 with income/expense summary and fatura info
+- ``monthly_closing``— 1st of each month 08:00 with full previous-month breakdown
+"""
 import asyncio
 import logging
 from datetime import datetime, timedelta
@@ -6,10 +12,9 @@ from datetime import datetime, timedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from telegram import Bot
 
-import backup
-import config
-import database
+from core import backup, database
 from bot.utils import _fmt_brl as _fmt, _PT_MONTHS
+import config
 
 TELEGRAM_CHAT_ID = config.TELEGRAM_CHAT_ID
 
@@ -17,6 +22,15 @@ _logger = logging.getLogger(__name__)
 
 
 async def _send_weekly_report(bot: Bot) -> None:
+    """Compose and send the weekly financial summary to the configured chat.
+
+    Covers the calendar week that ended last Sunday (i.e., the previous full
+    Monday-to-Sunday period).  Includes total expenses, income, top category,
+    total reserves, and credit card due-date information for both banks.
+
+    Args:
+        bot: The :class:`telegram.Bot` instance used to send the message.
+    """
     today = datetime.now()
     last_monday = today - timedelta(days=today.weekday() + 7)
 
@@ -54,8 +68,16 @@ async def _send_weekly_report(bot: Bot) -> None:
 
 
 async def _send_monthly_closing_report(bot: Bot) -> None:
+    """Compose and send the monthly closing report for the previous month.
+
+    Sent on the 1st of each month at 08:00. Covers the entire previous calendar
+    month: income, expenses, balance, category breakdown, investment movements,
+    and total accumulated reserves.
+
+    Args:
+        bot: The :class:`telegram.Bot` instance used to send the message.
+    """
     today = datetime.now()
-    # Report covers the previous month
     if today.month == 1:
         year, month = today.year - 1, 12
     else:
@@ -102,10 +124,20 @@ async def _send_monthly_closing_report(bot: Bot) -> None:
 
 
 async def _run_backup_async() -> None:
+    """Run the synchronous backup in a thread pool to avoid blocking the event loop."""
     await asyncio.to_thread(backup.run_backup)
 
 
 def build_scheduler(bot: Bot) -> AsyncIOScheduler:
+    """Create and configure the APScheduler with all recurring jobs.
+
+    Args:
+        bot: The :class:`telegram.Bot` instance passed to report jobs.
+
+    Returns:
+        A configured :class:`~apscheduler.schedulers.asyncio.AsyncIOScheduler`
+        (not yet started — the caller must call ``.start()``).
+    """
     scheduler = AsyncIOScheduler()
 
     scheduler.add_job(

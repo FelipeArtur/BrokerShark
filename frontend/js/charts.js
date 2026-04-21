@@ -1,6 +1,7 @@
 /**
  * charts.js — Chart.js instance management.
  * Each create* function destroys any existing instance before recreating.
+ * All functions accept an optional canvasId to allow reuse in multiple sections.
  */
 
 const GRID_COLOR  = "#2a2d3a";
@@ -23,9 +24,12 @@ function _destroy(id) {
   if (_charts[id]) { _charts[id].destroy(); delete _charts[id]; }
 }
 
-function createMonthlyChart(data) {
-  _destroy("monthly");
-  _charts["monthly"] = new Chart(document.getElementById("chart-monthly"), {
+function createMonthlyChart(data, canvasId = "chart-monthly") {
+  const key = canvasId;
+  _destroy(key);
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  _charts[key] = new Chart(canvas, {
     type: "line",
     data: {
       labels: data.map(d => d.label),
@@ -58,10 +62,12 @@ function createMonthlyChart(data) {
   });
 }
 
-function createCategoriesChart(data) {
-  _destroy("categories");
-  if (!data.length) return;
-  _charts["categories"] = new Chart(document.getElementById("chart-categories"), {
+function createCategoriesChart(data, canvasId = "chart-categories") {
+  const key = canvasId;
+  _destroy(key);
+  const canvas = document.getElementById(canvasId);
+  if (!canvas || !data.length) return;
+  _charts[key] = new Chart(canvas, {
     type: "bar",
     data: {
       labels: data.map(d => d.name),
@@ -84,16 +90,28 @@ function createCategoriesChart(data) {
   });
 }
 
-function createAccountsChart(data) {
-  _destroy("accounts");
-  _charts["accounts"] = new Chart(document.getElementById("chart-accounts"), {
+function createAccountsChart(data, canvasId = "chart-accounts") {
+  const key = canvasId;
+  _destroy(key);
+  const canvas = document.getElementById(canvasId);
+  if (!canvas || !data.length) return;
+
+  const BANK_LABEL   = { nubank: "Nubank", inter: "Inter" };
+  const METHOD_LABEL = { credit: "Crédito", pix: "PIX", ted: "TED" };
+  const METHOD_COLOR = { credit: "#3b82f6", pix: "#a855f7", ted: "#22c55e" };
+
+  const labels = data.map(d => `${BANK_LABEL[d.bank] ?? d.bank} ${METHOD_LABEL[d.method] ?? d.method}`);
+  const values = data.map(d => d.total);
+  const colors = data.map(d => METHOD_COLOR[d.method] ?? "#64748b");
+
+  _charts[key] = new Chart(canvas, {
     type: "bar",
     data: {
-      labels: data.map(d => d.name),
+      labels,
       datasets: [{
-        label: "Saldo",
-        data: data.map(d => d.balance),
-        backgroundColor: data.map(d => d.balance >= 0 ? "#3b82f6" : "#ef4444"),
+        label: "Gastos",
+        data: values,
+        backgroundColor: colors,
         borderRadius: 5,
       }],
     },
@@ -108,11 +126,34 @@ function createAccountsChart(data) {
   });
 }
 
-function createInvestmentsChart(data) {
-  _destroy("investments");
-  if (!data.length) return;
-  _charts["investments"] = new Chart(document.getElementById("chart-investments"), {
+function createInvestmentsChart(data, canvasId = "chart-investments") {
+  const key = canvasId;
+  _destroy(key);
+  const canvas = document.getElementById(canvasId);
+  if (!canvas || !data.length) return;
+
+  const total = data.reduce((s, d) => s + d.balance, 0);
+  const fmt   = v => "R$ " + v.toLocaleString("pt-BR", { minimumFractionDigits: 2 });
+
+  const centerTextPlugin = {
+    id: "centerText",
+    beforeDraw(chart) {
+      const { width, height, ctx } = chart;
+      ctx.save();
+      ctx.font        = `700 16px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+      ctx.fillStyle   = TEXT_COLOR;
+      ctx.textAlign   = "center";
+      ctx.textBaseline = "middle";
+      const cx = width  / 2;
+      const cy = height / 2 + (chart.legend?.height ? chart.legend.height / 2 : 10);
+      ctx.fillText(fmt(total), cx, cy);
+      ctx.restore();
+    },
+  };
+
+  _charts[key] = new Chart(canvas, {
     type: "doughnut",
+    plugins: [centerTextPlugin],
     data: {
       labels: data.map(d => d.name),
       datasets: [{
@@ -133,4 +174,8 @@ function createInvestmentsChart(data) {
       },
     },
   });
+}
+
+function createAccountMonthlyChart(data, canvasId = "chart-account-monthly") {
+  createMonthlyChart(data, canvasId);
 }

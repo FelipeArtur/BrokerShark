@@ -19,27 +19,34 @@ brokershark/
 ├── backend/
 │   ├── main.py            # Entry point — starts bot (polling) + scheduler + dashboard
 │   ├── config.py          # Centralised env vars — only file that calls os.getenv()
-│   ├── database.py        # Data layer — SQLite, table creation, queries
-│   ├── sheets.py          # Google Sheets — append-only mirror after each INSERT
-│   ├── backup.py          # Local SQLite backup (daily copy)
-│   ├── scheduler.py       # APScheduler — daily backup, weekly report, monthly closing
-│   ├── dashboard.py       # Flask API server (background thread, port 8080, waitress WSGI)
-│   ├── events.py          # SSE pub/sub — notify() after DB writes, subscribe()/unsubscribe() for clients
-│   ├── bot/               # Telegram bot subpackage
-│   │   ├── __init__.py    # Re-exports build_application
-│   │   ├── application.py # build_application(), scheduler lifecycle hooks
-│   │   ├── constants.py   # State ints, ACCOUNT_MAP, INVESTMENT_META, *_LABELS
-│   │   ├── utils.py       # _authorized, _fmt_brl, _fmt_date, _parse_*, _PT_MONTHS
-│   │   └── handlers/
-│   │       ├── __init__.py    # Re-exports all build_*_handler functions
-│   │       ├── commands.py    # /novo, /saldo, /resumo, /fatura, /reservas, /ajuda, /cancelar
-│   │       ├── expense.py     # Expense registration flow
-│   │       ├── income.py      # Income registration flow
-│   │       ├── investment.py  # Investment deposit/withdrawal flow
-│   │       └── csv_import.py  # CSV import flow
-│   └── parsers/
-│       ├── nubank_cc.py   # Nubank credit card CSV parser
-│       └── inter_cc.py    # Inter credit card CSV parser
+│   ├── core/              # Infrastructure package
+│   │   ├── __init__.py
+│   │   ├── database.py    # Data layer — SQLite, table creation, all queries
+│   │   ├── events.py      # SSE pub/sub — notify() after writes, subscribe()/unsubscribe()
+│   │   └── backup.py      # Local SQLite backup (timestamped copy, prune old files)
+│   ├── integrations/      # External services package
+│   │   ├── __init__.py
+│   │   └── sheets.py      # Google Sheets — append-only mirror after each INSERT
+│   ├── dashboard/         # Flask dashboard package
+│   │   ├── __init__.py    # Re-exports start_dashboard
+│   │   └── server.py      # Flask routes + Waitress WSGI (8 threads, SSE endpoint)
+│   └── bot/               # Telegram bot package
+│       ├── __init__.py    # Re-exports build_application
+│       ├── application.py # build_application(), scheduler lifecycle hooks
+│       ├── constants.py   # State ints, ACCOUNT_MAP, INVESTMENT_META, *_LABELS, PARSER_MAP
+│       ├── scheduler.py   # APScheduler — daily backup, weekly report, monthly closing
+│       ├── utils.py       # _authorized, _fmt_brl, _fmt_date, _parse_*, _PT_MONTHS
+│       ├── handlers/
+│       │   ├── __init__.py    # Re-exports all build_*_handler functions
+│       │   ├── commands.py    # /novo, /saldo, /resumo, /fatura, /reservas, /ajuda, /cancelar
+│       │   ├── expense.py     # Expense registration flow
+│       │   ├── income.py      # Income registration flow
+│       │   ├── investment.py  # Investment deposit/withdrawal flow
+│       │   └── csv_import.py  # CSV import flow
+│       └── parsers/
+│           ├── __init__.py
+│           ├── nubank_cc.py   # Nubank credit card CSV parser
+│           └── inter_cc.py    # Inter credit card CSV parser
 ├── frontend/
 │   ├── index.html         # Markup only — refs to css/ and js/
 │   ├── css/
@@ -48,6 +55,14 @@ brokershark/
 │       ├── api.js         # fetch wrappers for every endpoint (accepts optional ?bank=)
 │       ├── charts.js      # Chart.js create/update functions (monthly, categories, accounts, investments)
 │       └── main.js        # Init, tab switching, SSE connection, refresh loop
+├── .claude/
+│   └── commands/          # Claude Code project skills
+│       ├── db-reset.md    # /db-reset  — wipe transaction data, keep seeds
+│       ├── add-category.md# /add-category — add expense or income category
+│       ├── new-parser.md  # /new-parser  — scaffold a new CSV bank parser
+│       ├── check-health.md# /check-health — verify DB, config, and dashboard
+│       ├── month-report.md# /month-report — formatted monthly financial report
+│       └── venv.md        # /venv        — create, activate, verify virtualenv
 ├── data/                  # SQLite database (not versioned)
 ├── logs/                  # Runtime logs (not versioned)
 ├── backups/               # Local automatic backups (not versioned)
@@ -69,11 +84,11 @@ User taps /novo in Telegram
       ↓
 ConversationHandler (bot/handlers/) — guides the user step-by-step via inline buttons
       ↓
-On confirmation: database.py — INSERT into transactions table (SQLite)
+On confirmation: core/database.py — INSERT into transactions table (SQLite)
       ↓
-events.notify() — SSE push to all connected dashboard clients (< 1s latency)
+core/events.notify() — SSE push to all connected dashboard clients (< 1s latency)
       ↓
-sheets.py — append row in a background thread (non-blocking)
+integrations/sheets.py — append row in a background thread (non-blocking)
       ↓
 bot/handlers/ — sends formatted confirmation to the user
       ↓ (after each expense)
@@ -111,9 +126,37 @@ bot/handlers/expense.py — checks if monthly expenses ≥ income → sends aler
 
 ## Running Locally
 
+### Virtualenv
+
+The project uses a virtualenv at `.venv/` (Python 3.14.4).
+
+```bash
+# Create (first time only)
+python -m venv .venv
+
+# Activate (fish shell)
+source .venv/bin/activate.fish
+
+# Activate (bash/zsh)
+source .venv/bin/activate
+
+# Install / sync dependencies
+.venv/bin/pip install -r requirements.txt
+```
+
+Always run Python through the venv:
+```bash
+.venv/bin/python backend/main.py
+```
+
+Or activate first and then use `python` directly.
+
+### First run
+
 ```bash
 cp .env.example .env
 # fill in your credentials
+source .venv/bin/activate.fish
 pip install -r requirements.txt
 python backend/main.py
 # Dashboard available at http://localhost:8080
@@ -150,54 +193,58 @@ Each option enters its own dedicated `ConversationHandler`.
 
 **Conversation states:**
 ```
-PAYMENT_TYPE → BANK → AMOUNT → INSTALLMENTS → NUM_INSTALLMENTS → DESCRIPTION → DATE → CATEGORY → CONFIRMATION
+ACCOUNT → AMOUNT → INSTALLMENTS → DESCRIPTION → DATE → CATEGORY → CONFIRMATION
 ```
-`NUM_INSTALLMENTS` is only visited when the user answers "Sim" in `INSTALLMENTS`.
+`INSTALLMENTS` is only visited for credit card payments (skipped for PIX and TED).
+`DATE` accepts quick buttons (Hoje/Ontem) or typed input after selecting "Outra data".
 
-**Step 1 — Payment type**
+**Step 1 — Payment method + bank (combined)**
 ```
 Como foi o pagamento?
-[ PIX ]  [ Crédito ]  [ TED ]
+[ Nubank Crédito ]  [ Inter Crédito ]
+[ Nubank PIX     ]  [ Inter PIX     ]
+[ Nubank TED     ]  [ Inter TED     ]
 ```
+One tap resolves both `account_id` and `method`.
 
-**Step 2 — Bank**
-```
-Qual banco?
-[ Nubank ]  [ Inter ]
-```
-This resolves the `account_id`:
-| Payment type | Bank | `account_id` |
+| Button | `account_id` | `method` |
 |---|---|---|
-| PIX / TED | Nubank | `nu-db` |
-| PIX / TED | Inter | `inter-db` |
-| Crédito | Nubank | `nu-cc` |
-| Crédito | Inter | `inter-cc` |
+| Nubank Crédito | `nu-cc` | `credit` |
+| Inter Crédito | `inter-cc` | `credit` |
+| Nubank PIX | `nu-db` | `pix` |
+| Inter PIX | `inter-db` | `pix` |
+| Nubank TED | `nu-db` | `ted` |
+| Inter TED | `inter-db` | `ted` |
 
-**Step 3 — Amount**
+**Step 2 — Amount**
 ```
 Qual o valor? (ex: 45,90)
 ```
 Accepts both comma and dot as decimal separators.
 
-**Step 4 — Installments?** *(credit card only)*
-```
-Foi parcelado?
-[ Sim ]  [ Não ]
-```
-Skipped for PIX and TED (defaults to 1).
-
-**Step 5 — Number of installments** *(only if Sim)*
+**Step 3 — Installments** *(credit card only)*
 ```
 Em quantas vezes?
+[ À vista ]  [ 2x ]   [ 3x ]
+[ 4x ]       [ 6x ]   [ 12x ]
+[ Outro número ]
 ```
+Skipped for PIX and TED (defaults to 1). "Outro número" prompts for free-text entry.
 
-**Step 6 — Description**
+**Step 4 — Description**
 ```
 Como você quer chamar esse gasto?
 ```
 Free text (e.g., "iFood", "Ingresso show", "PS Store").
 
-**Step 7 — Category**
+**Step 5 — Date**
+```
+Quando foi a compra?
+[ Hoje ]  [ Ontem ]  [ Outra data ]
+```
+"Outra data" prompts: `Qual a data? (ex: 19/04/2026 ou 19/04/2026 14:30)`
+
+**Step 6 — Category**
 ```
 Qual a categoria?
 [ Alimentação ]        [ Carro ]
@@ -207,7 +254,7 @@ Qual a categoria?
 [ Dízimo ]             [ Outro ]
 ```
 
-**Step 8 — Confirmation summary**
+**Step 7 — Confirmation summary**
 ```
 Confirma o registro?
 
@@ -215,6 +262,7 @@ Tipo:      Crédito — Nubank
 Valor:     R$ 89,90 (3x de R$ 29,97)
 Gasto:     PS Store
 Categoria: Jogos
+Data:      17/04/2026
 
 [ Confirmar ]  [ Cancelar ]
 ```
@@ -236,8 +284,9 @@ If monthly expenses ≥ income, the bot immediately follows with a proactive ale
 
 **Conversation states:**
 ```
-INCOME_TYPE → BANK → AMOUNT → DESCRIPTION → CONFIRMATION
+INCOME_TYPE → BANK → AMOUNT → DESCRIPTION → DATE → CONFIRMATION
 ```
+`DATE` accepts quick buttons (Hoje/Ontem) or typed input after "Outra data".
 
 **Step 1 — Income type**
 ```
@@ -265,14 +314,21 @@ Qual o valor recebido? (ex: 3500,00)
 De onde veio? (ex: "Empresa X", "João", "Projeto site")
 ```
 
-**Step 5 — Confirmation summary**
+**Step 5 — Date**
+```
+Quando o valor foi recebido?
+[ Hoje ]  [ Ontem ]  [ Outra data ]
+```
+
+**Step 6 — Confirmation summary**
 ```
 Confirma o registro?
 
-Tipo:    Salário
-Valor:   R$ 3.500,00
-De:      Empresa X
-Conta:   Nubank Conta
+Tipo:  Salário
+Valor: R$ 3.500,00
+De:    Empresa X
+Conta: Nubank Conta
+Data:  17/04/2026
 
 [ Confirmar ]  [ Cancelar ]
 ```
@@ -292,8 +348,10 @@ Empresa X · Nubank Conta
 
 **Conversation states:**
 ```
-OPERATION → DESTINATION → AMOUNT → DESCRIPTION → CONFIRMATION
+OPERATION → DESTINATION → AMOUNT → DESCRIPTION → DATE → CONFIRMATION
 ```
+`DESCRIPTION` is optional — the user can tap "Pular" to skip it.
+`DATE` accepts quick buttons (Hoje/Ontem) or typed input after "Outra data".
 
 **Step 1 — Operation**
 ```
@@ -315,19 +373,28 @@ Em qual investimento?
 Qual o valor? (ex: 500,00)
 ```
 
-**Step 4 — Description**
+**Step 4 — Observation (optional)**
 ```
 Alguma observação? (ex: "reserva emergência", "férias")
+[ Pular ]
+```
+Tapping "Pular" saves `description=None` and goes directly to the date step.
+
+**Step 5 — Date**
+```
+Quando foi realizado?
+[ Hoje ]  [ Ontem ]  [ Outra data ]
 ```
 
-**Step 5 — Confirmation summary**
+**Step 6 — Confirmation summary**
 ```
 Confirma o investimento?
 
-Operação:   Aporte
-Onde:       Caixinha Nubank
-Valor:      R$ 500,00
-Obs:        reserva emergência
+Operação: Aporte
+Onde:     Caixinha Nubank
+Valor:    R$ 500,00
+Obs:      reserva emergência
+Data:     17/04/2026
 
 [ Confirmar ]  [ Cancelar ]
 ```
@@ -376,7 +443,7 @@ Google Sheets acts as an **immutable mirror** of the local database. Every INSER
 | Recebimentos | id, data, meio, banco, conta_id, valor, descricao, data_registro | Each confirmed income |
 | Investimentos | id, data, reserva, operacao, valor, descricao, data_registro | Each confirmed investment move |
 
-### `sheets.py` public interface
+### `integrations/sheets.py` public interface
 
 ```python
 def append_expense(transaction: dict) -> None: ...
@@ -553,7 +620,7 @@ Duplicate detection key: `(date, amount, description, account_id)`.
 
 - **Type hints are mandatory** on every function signature
 - **Single-responsibility functions** — keep functions small and focused
-- **All database access goes through `database.py`** — no inline SQL in any other module
+- **All database access goes through `core/database.py`** — no inline SQL in any other module
 - **The bot never writes directly to the database** — data collected by the `ConversationHandler` is validated before any INSERT
 - Use `python-dotenv` to load environment variables
 - Every incoming message must have its `chat_id` verified before any processing
@@ -740,13 +807,28 @@ Receitas: R$ X
 - [x] Cache do cliente gspread (1 autenticação por processo)
 - [x] Job de backup async via `asyncio.to_thread()`
 
-### Phase 7 — Serviço systemd + Histórico comparativo ← next
+### Phase 6c — Reorganização de arquitetura + documentação ✅ DONE
+- [x] Código separado em pacotes: `core/`, `integrations/`, `dashboard/`, `bot/parsers/`, `bot/scheduler.py`
+- [x] Docstrings Google-style completas em todas as funções públicas
+- [x] Skills Claude Code em `.claude/commands/`: db-reset, add-category, new-parser, check-health, month-report, venv
+- [x] CLAUDE.md atualizado com nova estrutura
+
+### Phase 6d — Simplificação dos fluxos de registro ✅ DONE
+- [x] Pagamento + banco unidos em 1 tela (6 botões diretos → resolve `account_id` e `method`)
+- [x] Parcelamento reescrito: 2 passos (Sim/Não + nº) → 1 tela (À vista / 2x / 3x / 4x / 6x / 12x / Outro)
+- [x] Data com atalhos Hoje / Ontem / Outra data nos 3 fluxos (gasto, recebimento, investimento)
+- [x] Observação do investimento opcional — botão "Pular"
+- [x] `ACCOUNT_CHOICES` substitui `ACCOUNT_MAP` em `constants.py`
+
+### Phase 7 — Reestruturação do dashboard
+
+### Phase 8 — Serviço systemd + Histórico comparativo
 - [ ] Serviço systemd para autostart no boot (brokershark.service)
 - [ ] `/historico` — evolução mensal de gastos e receitas (últimos N meses)
 - [ ] `/comparar` — comparação lado a lado de dois períodos
 - [ ] Tendência de gastos por categoria ao longo do tempo
 
-### Phase 8 — Smart queries (Ollama)
+### Phase 9 — Smart queries (Ollama)
 - [ ] Natural language questions: "quanto gastei em jogos esse mês?"
 - [ ] Consolidated net worth (accounts + investments)
 - [ ] Spending goals with 80% threshold alerts

@@ -1,6 +1,6 @@
 """Income registration flow and ConversationHandler builder."""
 import asyncio
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
@@ -12,8 +12,8 @@ from telegram.ext import (
     filters,
 )
 
-import database
-import sheets
+from core import database
+from integrations import sheets
 from bot.constants import (
     INC_AMOUNT,
     INC_BANK,
@@ -32,6 +32,12 @@ _METHOD_LABELS: dict[str, str] = {
     "transfer":     "Transferência",
     "other":        "Outro",
 }
+
+_DATE_KB = InlineKeyboardMarkup([[
+    InlineKeyboardButton("Hoje",       callback_data="date_hoje"),
+    InlineKeyboardButton("Ontem",      callback_data="date_ontem"),
+    InlineKeyboardButton("Outra data", callback_data="date_outra"),
+]])
 
 
 async def income_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -88,16 +94,31 @@ async def income_description(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def income_date(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Save description and show date shortcut buttons."""
     if not _authorized(update):
         return ConversationHandler.END
     context.user_data["inc_description"] = update.message.text.strip()
-    await update.message.reply_text(
-        "Quando o valor foi recebido?\n(ex: 19/04/2026 ou 19/04/2026 14:30)"
-    )
+    await update.message.reply_text("Quando o valor foi recebido?", reply_markup=_DATE_KB)
     return INC_DATE
 
 
+async def income_date_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle Hoje/Ontem/Outra data buttons."""
+    query = update.callback_query
+    await query.answer()
+    if query.data == "date_outra":
+        await query.edit_message_text("Qual a data? (ex: 19/04/2026 ou 19/04/2026 14:30)")
+        return INC_DATE
+    today = date.today()
+    d = today if query.data == "date_hoje" else today - timedelta(days=1)
+    context.user_data["inc_date"] = d.strftime("%Y-%m-%d")
+    context.user_data["inc_date_display"] = d.strftime("%d/%m/%Y")
+    await _show_income_confirmation_edit(query, context)
+    return INC_CONFIRMATION
+
+
 async def income_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle typed date after 'Outra data', then show confirmation."""
     if not _authorized(update):
         return ConversationHandler.END
     parsed = _parse_purchase_date(update.message.text)
@@ -107,12 +128,36 @@ async def income_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return INC_DATE
     context.user_data["inc_date"], context.user_data["inc_date_display"] = parsed
-    d = context.user_data
+    await _show_income_confirmation_reply(update, context)
+    return INC_CONFIRMATION
 
+
+async def _show_income_confirmation_edit(query, context: ContextTypes.DEFAULT_TYPE) -> None:
+    d = context.user_data
     method_label = _METHOD_LABELS.get(d["inc_method"], d["inc_method"])
     account_label = "Nubank Conta" if d["inc_bank"] == "nubank" else "Inter Conta"
+    text = _income_confirm_text(d, method_label, account_label)
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton("Confirmar", callback_data="inc_confirm"),
+        InlineKeyboardButton("Cancelar",  callback_data="inc_cancel"),
+    ]])
+    await query.edit_message_text(text, reply_markup=keyboard)
 
-    text = (
+
+async def _show_income_confirmation_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    d = context.user_data
+    method_label = _METHOD_LABELS.get(d["inc_method"], d["inc_method"])
+    account_label = "Nubank Conta" if d["inc_bank"] == "nubank" else "Inter Conta"
+    text = _income_confirm_text(d, method_label, account_label)
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton("Confirmar", callback_data="inc_confirm"),
+        InlineKeyboardButton("Cancelar",  callback_data="inc_cancel"),
+    ]])
+    await update.message.reply_text(text, reply_markup=keyboard)
+
+
+def _income_confirm_text(d: dict, method_label: str, account_label: str) -> str:
+    return (
         f"Confirma o registro?\n\n"
         f"Tipo:  {method_label}\n"
         f"Valor: {_fmt_brl(d['inc_amount'])}\n"
@@ -120,15 +165,10 @@ async def income_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
         f"Conta: {account_label}\n"
         f"Data:  {d['inc_date_display']}"
     )
-    keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton("Confirmar", callback_data="inc_confirm"),
-        InlineKeyboardButton("Cancelar",  callback_data="inc_cancel"),
-    ]])
-    await update.message.reply_text(text, reply_markup=keyboard)
-    return INC_CONFIRMATION
 
 
 async def income_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Persist the income and notify the user."""
     query = update.callback_query
     await query.answer()
 
@@ -164,7 +204,6 @@ async def income_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 
     method_label = _METHOD_LABELS.get(d["inc_method"], d["inc_method"])
     account_label = "Nubank Conta" if d["inc_bank"] == "nubank" else "Inter Conta"
-
     text = (
         f"Recebimento registrado!\n\n"
         f"{method_label} — {_fmt_brl(d['inc_amount'])}\n"
@@ -197,6 +236,7 @@ def build_income_handler() -> ConversationHandler:
                 MessageHandler(filters.TEXT & ~filters.COMMAND, income_date),
             ],
             INC_DATE: [
+                CallbackQueryHandler(income_date_choice, pattern="^date_(hoje|ontem|outra)$"),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, income_confirmation),
             ],
             INC_CONFIRMATION: [

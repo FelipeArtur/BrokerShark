@@ -4,7 +4,7 @@ from datetime import datetime
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes, ConversationHandler
 
-import database
+from core import database
 from bot.utils import _authorized, _fmt_brl, _PT_MONTHS
 
 
