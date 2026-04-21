@@ -48,8 +48,9 @@ brokershark/
 │           ├── nubank_cc.py   # Nubank credit card CSV parser
 │           └── inter_cc.py    # Inter credit card CSV parser
 ├── frontend/
-│   ├── index.html         # Markup only — refs to css/ and js/
-│   ├── favicon.ico
+│   ├── index.html         # Markup only — refs to css/, js/, and img/
+│   ├── img/
+│   │   └── favicon.ico
 │   ├── css/
 │   │   └── style.css      # All styles — dark theme, CSS variables, responsive grid
 │   └── js/
