@@ -284,10 +284,15 @@ def api_transactions() -> Response:
     if not account_id or account_id not in _VALID_ACCOUNTS:
         return jsonify({"error": "valid ?account= required"}), 400
     try:
-        limit = min(int(request.args.get("limit", 20)), 50)
+        limit = min(int(request.args.get("limit", 100)), 200)
     except ValueError:
-        limit = 20
-    return jsonify(database.get_recent_transactions(account_id, limit))
+        limit = 100
+    try:
+        month = int(request.args.get("month")) if request.args.get("month") else None
+        year  = int(request.args.get("year"))  if request.args.get("year")  else None
+    except ValueError:
+        month, year = None, None
+    return jsonify(database.get_recent_transactions(account_id, limit, month, year))
 
 
 def start_dashboard() -> None:

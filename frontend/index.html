@@ -104,7 +104,16 @@
   </div>
 
   <div id="account-transactions" class="panel" style="display:none">
-    <div class="panel-title">Últimas transações</div>
+    <div class="panel-header">
+      <div class="panel-title">Transações</div>
+      <div class="tx-filters">
+        <select id="tx-month-select" class="tx-filter-select"></select>
+        <select id="tx-cat-select" class="tx-filter-select">
+          <option value="">Todas as categorias</option>
+        </select>
+      </div>
+    </div>
+    <div class="tx-count" id="tx-count"></div>
     <div id="transactions-list"></div>
   </div>
 

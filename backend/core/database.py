@@ -822,28 +822,42 @@ def get_expenses_by_category_account(account_id: str, year: int, month: int) -> 
     return [{"name": r["name"], "total": r["total"]} for r in rows]
 
 
-def get_recent_transactions(account_id: str, limit: int = 20) -> list[dict]:
-    """Return the most recent transactions for a given account.
+def get_recent_transactions(
+    account_id: str,
+    limit: int = 100,
+    month: int | None = None,
+    year: int | None = None,
+) -> list[dict]:
+    """Return transactions for a given account with optional month/year filter.
 
     Args:
         account_id: Account primary key.
-        limit: Maximum number of rows to return (default 20, cap at 50).
+        limit: Maximum number of rows to return (default 100, cap at 200).
+        month: Calendar month (1–12) to filter by. Requires year.
+        year: Calendar year to filter by.
 
     Returns:
         List of dicts ordered newest first, each containing
         ``date``, ``description``, ``category``, ``amount``, ``flow``.
     """
-    limit = min(limit, 50)
+    limit = min(limit, 200)
+    query = """
+        SELECT t.date, t.description, t.amount, t.flow, c.name AS category
+        FROM transactions t
+        LEFT JOIN categories c ON c.id = t.category_id
+        WHERE t.account_id = ?
+    """
+    params: list = [account_id]
+    if month and year:
+        query += " AND strftime('%Y-%m', t.date) = ?"
+        params.append(f"{year:04d}-{month:02d}")
+    elif year:
+        query += " AND strftime('%Y', t.date) = ?"
+        params.append(f"{year:04d}")
+    query += " ORDER BY t.date DESC, t.id DESC LIMIT ?"
+    params.append(limit)
     with _connect() as conn:
-        rows = conn.execute(
-            """SELECT t.date, t.description, t.amount, t.flow, c.name AS category
-               FROM transactions t
-               LEFT JOIN categories c ON c.id = t.category_id
-               WHERE t.account_id=?
-               ORDER BY t.date DESC, t.id DESC
-               LIMIT ?""",
-            (account_id, limit),
-        ).fetchall()
+        rows = conn.execute(query, params).fetchall()
     return [
         {
             "date": r["date"],
