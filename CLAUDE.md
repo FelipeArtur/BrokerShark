@@ -94,13 +94,21 @@ python backend/main.py
 
 ### Main menu
 
-Every session starts with `/novo` or the bot presents this menu:
+Every session starts with `/start` or `/novo`. The bot displays a financial snapshot for the current month before the action menu:
 
 ```
-O que você quer registrar?
+BrokerShark — 21/04/2026
 
-[ Gasto ]           [ Recebimento ]
-[ Investimento ]
+Abril 2026
+Gastos:        R$ X
+Receitas:      R$ X
+Top categoria: Alimentação — R$ X
+Reservas:      R$ X
+
+O que você quer fazer?
+
+[ 💸 Gasto ]        [ 💰 Recebimento ]
+[ 📈 Investimento ]
 ```
 
 Each option enters its own dedicated `ConversationHandler`.
@@ -111,7 +119,7 @@ Each option enters its own dedicated `ConversationHandler`.
 
 **Conversation states:**
 ```
-PAYMENT_TYPE → BANK → AMOUNT → INSTALLMENTS → NUM_INSTALLMENTS → DESCRIPTION → CATEGORY → CONFIRMATION
+PAYMENT_TYPE → BANK → AMOUNT → INSTALLMENTS → NUM_INSTALLMENTS → DESCRIPTION → DATE → CATEGORY → CONFIRMATION
 ```
 `NUM_INSTALLMENTS` is only visited when the user answers "Sim" in `INSTALLMENTS`.
 
@@ -490,7 +498,7 @@ Duplicate detection key: `(date, amount, description, account_id)`.
 - Use `Application.builder()` for setup
 - Use `ConversationHandler` for all multi-step flows
 - Use `InlineKeyboardMarkup` + `CallbackQueryHandler` for all buttons
-- Register `CommandHandler` for `/novo`, `/saldo`, `/resumo`, `/reservas`, `/ajuda`
+- Register `CommandHandler` for `/novo`, `/start`, `/saldo`, `/resumo`, `/fatura`, `/reservas`, `/ajuda`
 - Use `MessageHandler(filters.Document.ALL)` for CSV uploads
 
 ### SQLite
@@ -552,10 +560,10 @@ Resumo da semana passada
 Gastos: R$ X
 Receitas: R$ X
 Top categoria: X — R$ X
-Fatura Nubank: R$ X (vence em N dias)
-Fatura Inter: R$ X (vence em N dias)
 Reservas: R$ X
 ```
+
+> Note: fatura info is available on demand via `/fatura` — the weekly report currently does not include it.
 
 ---
 
@@ -580,42 +588,50 @@ Reservas: R$ X
 
 ## Roadmap
 
-### Phase 1 — Foundation ← current
-- [ ] `database.py` — table creation, PRAGMAs, account and category seeds, query functions
-- [ ] `sheets.py` — `append_expense`, `append_income`, `append_investment` (background thread)
-- [ ] `bot.py` — main menu + 3 ConversationHandlers (expense / income / investment)
-- [ ] `main.py` — start bot (polling) + scheduler
-- [ ] `backup.py` + `scheduler.py` — daily local backup + weekly report
+### Phase 1 — Foundation ✅ DONE
+- [x] `database.py` — table creation, PRAGMAs, account and category seeds, query functions
+- [x] `sheets.py` — `append_expense`, `append_income`, `append_investment` (background thread)
+- [x] `bot.py` — main menu + 3 ConversationHandlers (expense / income / investment)
+- [x] `main.py` — start bot (polling) + scheduler
+- [x] `backup.py` + `scheduler.py` — daily local backup + weekly report
 
-### Phase 2 — Historical import
-- [ ] Initial balance per account as an anchor before importing
-- [ ] `parsers/nubank_cc.py` and `parsers/nubank_db.py`
-- [ ] `parsers/inter_cc.py` and `parsers/inter_db.py`
-- [ ] Duplicate detection by `(date, amount, description, account_id)`
-- [ ] Import preview before confirmation
-- [ ] Append imported transactions to Sheets after confirmation
+### Phase 2 — Historical import ✅ DONE
+- [x] `parsers/nubank_cc.py` and `parsers/nubank_db.py`
+- [x] `parsers/inter_cc.py` and `parsers/inter_db.py`
+- [x] Duplicate detection by `(date, amount, description, account_id)`
+- [x] Import preview before confirmation
+- [x] Append imported transactions to Sheets after confirmation
 
-### Phase 3 — Quick queries
-- [ ] `/saldo` — balance per account
-- [ ] `/resumo` — current month summary by category
-- [ ] `/fatura` — current statement for credit cards (Nubank and Inter)
-- [ ] `/reservas` — investment balances
+### Phase 3 — Quick queries ✅ DONE
+- [x] `/saldo` — balance per account
+- [x] `/resumo` — current month summary by category
+- [x] `/fatura` — current billing cycle for credit cards (Nubank and Inter), with due date and days remaining
+- [x] `/reservas` — investment balances
+- [x] `/start` and `/novo` — financial snapshot on the home screen
 
-### Phase 4 — Investment management
-- [ ] Caixinha Nubank, Tesouro Direto
-- [ ] Deposit and withdrawal flow via buttons
+### Phase 4 — Investment management ✅ DONE
+- [x] Caixinha Nubank, Tesouro Direto, Porquinho Inter
+- [x] Deposit and withdrawal flow via buttons
 
-### Phase 5 — Smart queries (Ollama)
+### Phase 5 — Automation ✅ DONE
+- [x] Include `/fatura` data in the weekly report
+- [x] Monthly closing report (sent on the 1st of each month)
+- [x] Proactive alert: sends warning when monthly expenses ≥ monthly income
+
+### Phase 6 — Local dashboard ✅ DONE
+- [x] Flask API server (background thread, port 8080) with endpoints: `/api/summary`, `/api/accounts`, `/api/investments`, `/api/monthly`, `/api/categories`, `/api/faturas`
+- [x] Single-page dashboard (`frontend/index.html`) with Chart.js — dark theme
+- [x] Cards: receitas, gastos, saldo líquido, reservas
+- [x] Charts: evolução 6 meses (line), gastos por categoria (horizontal bar), saldo por conta (bar), distribuição investimentos (doughnut)
+- [x] Faturas abertas com dias até vencimento
+- [x] Auto-refresh a cada 60 segundos
+
+### Phase 7 — Histórico comparativo ← next
+- [ ] `/historico` — evolução mensal de gastos e receitas (últimos N meses)
+- [ ] `/comparar` — comparação lado a lado de dois períodos
+- [ ] Tendência de gastos por categoria ao longo do tempo
+
+### Phase 8 — Smart queries (Ollama)
 - [ ] Natural language questions: "quanto gastei em jogos esse mês?"
 - [ ] Consolidated net worth (accounts + investments)
 - [ ] Spending goals with 80% threshold alerts
-
-### Phase 6 — Automation
-- [ ] Automated weekly report via APScheduler
-
-### Phase 7 — Local dashboard
-- [ ] HTML page + Chart.js with account, investment, and net worth views
-
-### Phase 8 — Extended investments (future)
-- [ ] Stocks, REITs, Crypto
-- [ ] Live pricing via yfinance + CoinGecko

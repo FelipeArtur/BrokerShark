@@ -1,6 +1,6 @@
 import sqlite3
 import os
-from datetime import datetime
+from datetime import datetime, date, timedelta
 from typing import Optional
 
 DB_PATH = os.getenv("DB_PATH", "data/brokershark.db")
@@ -81,9 +81,9 @@ def init_db() -> None:
 def _seed_accounts(conn: sqlite3.Connection) -> None:
     accounts = [
         ("nu-cc",    "nubank", "credit",   "Nubank Crédito",  None, None),
-        ("nu-db",    "nubank", "checking", "Nubank Débito",    None, None),
+        ("nu-db",    "nubank", "checking", "Nubank Conta",     None, None),
         ("inter-cc", "inter",  "credit",   "Inter Crédito",   None, None),
-        ("inter-db", "inter",  "checking", "Inter Débito",    None, None),
+        ("inter-db", "inter",  "checking", "Inter Conta",      None, None),
     ]
     conn.executemany(
         "INSERT OR IGNORE INTO accounts (id, bank, type, name, billing_day, due_day) VALUES (?,?,?,?,?,?)",
@@ -310,6 +310,105 @@ def get_credit_card_statement(account_id: str, start_date: str, end_date: str) -
             (account_id, start_date, end_date),
         ).fetchone()
         return row[0]
+
+
+def get_credit_card_billing_info(account_id: str) -> dict:
+    """Return current billing period total and days until due for a credit card."""
+    with _connect() as conn:
+        acc = conn.execute(
+            "SELECT billing_day, due_day FROM accounts WHERE id=?", (account_id,)
+        ).fetchone()
+
+    billing_day: int = acc["billing_day"] or 1
+    due_day: int = acc["due_day"] or (billing_day + 7)
+
+    today = date.today()
+
+    # Compute current cycle start
+    if today.day >= billing_day:
+        cycle_start = today.replace(day=billing_day)
+    else:
+        first_of_month = today.replace(day=1)
+        prev_month_last = first_of_month - timedelta(days=1)
+        cycle_start = prev_month_last.replace(day=min(billing_day, prev_month_last.day))
+
+    # Cycle end = day before billing_day next month
+    if cycle_start.month == 12:
+        next_billing = cycle_start.replace(year=cycle_start.year + 1, month=1, day=billing_day)
+    else:
+        next_billing = cycle_start.replace(month=cycle_start.month + 1, day=billing_day)
+    cycle_end = next_billing - timedelta(days=1)
+
+    # Due date for the current cycle
+    if next_billing.month == 12:
+        due_date = next_billing.replace(year=next_billing.year + 1, month=1, day=min(due_day, 28))
+    else:
+        due_date = next_billing.replace(month=next_billing.month + 1, day=min(due_day, 28))
+    # Clamp due date to same month as next_billing if due_day < billing_day
+    if due_day < billing_day:
+        due_date = next_billing.replace(day=min(due_day, 28))
+
+    days_until_due = (due_date - today).days
+
+    total = get_credit_card_statement(
+        account_id,
+        cycle_start.strftime("%Y-%m-%d"),
+        cycle_end.strftime("%Y-%m-%d"),
+    )
+
+    return {
+        "total": total,
+        "cycle_start": cycle_start.strftime("%d/%m/%Y"),
+        "cycle_end": cycle_end.strftime("%d/%m/%Y"),
+        "due_date": due_date.strftime("%d/%m/%Y"),
+        "days_until_due": days_until_due,
+    }
+
+
+def get_monthly_history(months: int = 6) -> list[dict]:
+    today = date.today()
+    result = []
+    for i in range(months - 1, -1, -1):
+        month = today.month - i
+        year = today.year
+        while month <= 0:
+            month += 12
+            year -= 1
+        summary = get_monthly_summary(year, month)
+        result.append({
+            "label": f"{month:02d}/{year}",
+            "expenses": summary["expenses"],
+            "income": summary["income"],
+        })
+    return result
+
+
+def get_expenses_by_category(year: int, month: int) -> list[dict]:
+    start = f"{year:04d}-{month:02d}-01"
+    end   = f"{year:04d}-{month:02d}-31"
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT c.name, SUM(t.amount) AS total
+               FROM transactions t
+               JOIN categories c ON c.id = t.category_id
+               WHERE t.flow='expense' AND t.date BETWEEN ? AND ?
+               GROUP BY c.id ORDER BY total DESC""",
+            (start, end),
+        ).fetchall()
+    return [{"name": r["name"], "total": r["total"]} for r in rows]
+
+
+def get_investment_movements_by_period(start_date: str, end_date: str) -> list[dict]:
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT i.name, im.operation, SUM(im.amount) AS total
+               FROM investment_movements im
+               JOIN investments i ON i.id = im.investment_id
+               WHERE im.date BETWEEN ? AND ?
+               GROUP BY i.id, im.operation ORDER BY i.name""",
+            (start_date, end_date),
+        ).fetchall()
+    return [{"name": r["name"], "operation": r["operation"], "total": r["total"]} for r in rows]
 
 
 # ── Logging ───────────────────────────────────────────────────────────────────

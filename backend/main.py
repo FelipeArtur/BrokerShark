@@ -9,6 +9,7 @@ load_dotenv()
 import database
 import sheets
 from bot import build_application
+from dashboard import start_dashboard
 
 logging.basicConfig(
     level=logging.INFO,
@@ -25,6 +26,7 @@ def main() -> None:
 
     database.init_db()
     sheets.setup_headers()
+    start_dashboard()
     app = build_application()
     logging.getLogger(__name__).info("BrokerShark is running...")
     app.run_polling(drop_pending_updates=True)

@@ -22,7 +22,7 @@ from telegram.ext import (
 
 import database
 import sheets
-from parsers import nubank_cc, nubank_db, inter_cc, inter_db
+from parsers import nubank_cc, inter_cc
 
 TELEGRAM_CHAT_ID = int(os.getenv("TELEGRAM_CHAT_ID", "0"))
 _logger = logging.getLogger(__name__)
@@ -70,11 +70,9 @@ _logger = logging.getLogger(__name__)
 
 ACCOUNT_MAP = {
     ("pix",    "nubank"): "nu-db",
-    ("debit",  "nubank"): "nu-db",
     ("ted",    "nubank"): "nu-db",
     ("credit", "nubank"): "nu-cc",
     ("pix",    "inter"):  "inter-db",
-    ("debit",  "inter"):  "inter-db",
     ("ted",    "inter"):  "inter-db",
     ("credit", "inter"):  "inter-cc",
 }
@@ -87,22 +85,19 @@ INVESTMENT_META = {
 
 PARSER_MAP = {
     "nu-cc":    nubank_cc,
-    "nu-db":    nubank_db,
     "inter-cc": inter_cc,
-    "inter-db": inter_db,
 }
 
 ACCOUNT_LABELS = {
     "nu-cc":    "Nubank Crédito",
-    "nu-db":    "Nubank Débito",
+    "nu-db":    "Nubank Conta",
     "inter-cc": "Inter Crédito",
-    "inter-db": "Inter Débito",
+    "inter-db": "Inter Conta",
 }
 
 METHOD_LABELS = {
     "pix":    "PIX",
     "credit": "Crédito",
-    "debit":  "Débito",
     "ted":    "TED",
 }
 
@@ -166,14 +161,33 @@ def _parse_amount(text: str) -> Optional[float]:
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not _authorized(update):
         return
+
+    now = datetime.now()
+    summary = database.get_monthly_summary(now.year, now.month)
+    investments = database.get_all_investments()
+    reservas_total = sum(inv["current_balance"] for inv in investments)
+
+    top = summary.get("top_category")
+    top_str = f"{top['name']} — {_fmt_brl(top['total'])}" if top else "—"
+
+    greeting = (
+        f"*BrokerShark* — {now.strftime('%d/%m/%Y')}\n\n"
+        f"*{_PT_MONTHS[now.month]} {now.year}*\n"
+        f"Gastos:        {_fmt_brl(summary['expenses'])}\n"
+        f"Receitas:      {_fmt_brl(summary['income'])}\n"
+        f"Top categoria: {top_str}\n"
+        f"Reservas:      {_fmt_brl(reservas_total)}\n\n"
+        "O que você quer fazer?"
+    )
+
     keyboard = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("Gasto",        callback_data="menu_expense"),
-            InlineKeyboardButton("Recebimento",  callback_data="menu_income"),
+            InlineKeyboardButton("💸 Gasto",        callback_data="menu_expense"),
+            InlineKeyboardButton("💰 Recebimento",  callback_data="menu_income"),
         ],
-        [InlineKeyboardButton("Investimento", callback_data="menu_investment")],
+        [InlineKeyboardButton("📈 Investimento", callback_data="menu_investment")],
     ])
-    await update.message.reply_text("O que você quer registrar?", reply_markup=keyboard)
+    await update.message.reply_text(greeting, reply_markup=keyboard, parse_mode="Markdown")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -187,9 +201,6 @@ async def expense_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         [
             InlineKeyboardButton("PIX",     callback_data="exp_pix"),
             InlineKeyboardButton("Crédito", callback_data="exp_credit"),
-        ],
-        [
-            InlineKeyboardButton("Débito",  callback_data="exp_debit"),
             InlineKeyboardButton("TED",     callback_data="exp_ted"),
         ],
     ])
@@ -386,7 +397,27 @@ async def expense_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     )
     await query.edit_message_text(text)
     context.user_data.clear()
+
+    await _check_spending_alert(query.message.chat_id, context)
+
     return ConversationHandler.END
+
+
+async def _check_spending_alert(chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> None:
+    now = datetime.now()
+    summary = database.get_monthly_summary(now.year, now.month)
+    if summary["income"] > 0 and summary["expenses"] >= summary["income"]:
+        pct = int(summary["expenses"] / summary["income"] * 100)
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=(
+                f"⚠️ *Atenção!* Seus gastos em {_PT_MONTHS[now.month]} já representam "
+                f"*{pct}%* das suas receitas.\n\n"
+                f"Gastos:   {_fmt_brl(summary['expenses'])}\n"
+                f"Receitas: {_fmt_brl(summary['income'])}"
+            ),
+            parse_mode="Markdown",
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -473,7 +504,7 @@ async def income_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
         "pix_received": "PIX recebido", "transfer": "Transferência", "other": "Outro",
     }
     method_label = method_labels.get(d["inc_method"], d["inc_method"])
-    account_label = "Nubank Débito" if d["inc_bank"] == "nubank" else "Inter Débito"
+    account_label = "Nubank Conta" if d["inc_bank"] == "nubank" else "Inter Conta"
 
     text = (
         f"Confirma o registro?\n\n"
@@ -530,7 +561,7 @@ async def income_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         "pix_received": "PIX recebido", "transfer": "Transferência", "other": "Outro",
     }
     method_label = method_labels.get(d["inc_method"], d["inc_method"])
-    account_label = "Nubank Débito" if d["inc_bank"] == "nubank" else "Inter Débito"
+    account_label = "Nubank Conta" if d["inc_bank"] == "nubank" else "Inter Conta"
 
     text = (
         f"Recebimento registrado!\n\n"
@@ -715,6 +746,27 @@ async def cmd_resumo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     await update.message.reply_text(text, parse_mode="Markdown")
 
 
+async def cmd_fatura(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _authorized(update):
+        return
+
+    lines = ["*Fatura dos cartões*\n"]
+    for account_id, label in (("nu-cc", "Nubank Crédito"), ("inter-cc", "Inter Crédito")):
+        info = database.get_credit_card_billing_info(account_id)
+        due_str = (
+            f"vence em {info['days_until_due']} dias ({info['due_date']})"
+            if info["days_until_due"] >= 0
+            else f"vencida há {abs(info['days_until_due'])} dias"
+        )
+        lines.append(
+            f"*{label}*\n"
+            f"  {_fmt_brl(info['total'])} — {due_str}\n"
+            f"  Período: {info['cycle_start']} a {info['cycle_end']}"
+        )
+
+    await update.message.reply_text("\n\n".join(lines), parse_mode="Markdown")
+
+
 async def cmd_reservas(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not _authorized(update):
         return
@@ -739,6 +791,7 @@ async def cmd_ajuda(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/novo — registrar gasto, recebimento ou investimento\n"
         "/saldo — saldo por conta\n"
         "/resumo — resumo do mês atual por categoria\n"
+        "/fatura — fatura atual dos cartões de crédito\n"
         "/reservas — saldo dos investimentos\n"
         "/ajuda — esta mensagem\n\n"
         "Envie um arquivo .csv para importar extratos bancários."
@@ -764,12 +817,8 @@ async def csv_received(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
     keyboard = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("Nubank Crédito",  callback_data="csv_nu-cc"),
-            InlineKeyboardButton("Nubank Débito",   callback_data="csv_nu-db"),
-        ],
-        [
-            InlineKeyboardButton("Inter Crédito",   callback_data="csv_inter-cc"),
-            InlineKeyboardButton("Inter Débito",    callback_data="csv_inter-db"),
+            InlineKeyboardButton("Nubank Crédito", callback_data="csv_nu-cc"),
+            InlineKeyboardButton("Inter Crédito",  callback_data="csv_inter-cc"),
         ],
     ])
     await update.message.reply_text(
@@ -898,7 +947,7 @@ def build_csv_handler() -> ConversationHandler:
         states={
             CSV_ACCOUNT: [
                 CallbackQueryHandler(
-                    csv_preview, pattern="^csv_(nu-cc|nu-db|inter-cc|inter-db)$"
+                    csv_preview, pattern="^csv_(nu-cc|inter-cc)$"
                 ),
             ],
             CSV_CONFIRMATION: [
@@ -926,7 +975,7 @@ def build_expense_handler() -> ConversationHandler:
         entry_points=[CallbackQueryHandler(expense_start, pattern="^menu_expense$")],
         states={
             EXP_PAYMENT_TYPE: [
-                CallbackQueryHandler(expense_bank, pattern="^exp_(pix|credit|debit|ted)$"),
+                CallbackQueryHandler(expense_bank, pattern="^exp_(pix|credit|ted)$"),
             ],
             EXP_BANK: [
                 CallbackQueryHandler(expense_amount, pattern="^bank_(nubank|inter)$"),
@@ -1055,6 +1104,7 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("start",    start))
     app.add_handler(CommandHandler("saldo",    cmd_saldo))
     app.add_handler(CommandHandler("resumo",   cmd_resumo))
+    app.add_handler(CommandHandler("fatura",   cmd_fatura))
     app.add_handler(CommandHandler("reservas", cmd_reservas))
     app.add_handler(CommandHandler("ajuda",    cmd_ajuda))
 
