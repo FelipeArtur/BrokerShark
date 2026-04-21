@@ -10,6 +10,8 @@
   --red:     #ef4444;
   --blue:    #3b82f6;
   --purple:  #a855f7;
+  --yellow:  #eab308;
+  --orange:  #f97316;
   --radius:  12px;
 }
 
@@ -187,3 +189,299 @@ header {
 .fatura-name  { font-weight: 600; font-size: 13px; }
 .fatura-meta  { font-size: 11px; color: var(--muted); margin-top: 3px; }
 .fatura-val   { font-size: 16px; font-weight: 700; color: var(--red); flex-shrink: 0; }
+
+.fatura-item.urgent  { border-left: 3px solid var(--red);    padding-left: 10px; }
+.fatura-item.warning { border-left: 3px solid var(--yellow); padding-left: 10px; }
+
+/* ── Section navigation ──────────────────────────────────────────────────── */
+
+.section-nav {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 20px;
+}
+
+.section-pill {
+  padding: 10px 20px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.section-pill:hover  { color: var(--text); }
+.section-pill.active { color: var(--text); border-bottom-color: var(--blue); }
+
+/* ── Section visibility ──────────────────────────────────────────────────── */
+
+.section         { display: none; }
+.section.active  { display: block; }
+
+/* ── Bank tabs (inside overview) ─────────────────────────────────────────── */
+
+.bank-tabs {
+  display: flex;
+  gap: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px;
+  margin-bottom: 16px;
+  width: fit-content;
+}
+
+.bank-tab {
+  padding: 5px 18px;
+  border-radius: 6px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: background 0.15s, color 0.15s;
+}
+
+.bank-tab:hover  { color: var(--text); }
+.bank-tab.active { background: var(--bg); color: var(--text); }
+
+/* ── Account pills ───────────────────────────────────────────────────────── */
+
+.account-pills {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.account-pill {
+  padding: 7px 16px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.account-pill:hover  { color: var(--text); border-color: var(--text); }
+.account-pill.active { background: var(--blue); color: #fff; border-color: var(--blue); }
+
+/* ── Account hero card ───────────────────────────────────────────────────── */
+
+.account-hero {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px 28px;
+  margin-bottom: 12px;
+}
+
+.account-hero-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.account-hero-name { font-size: 18px; font-weight: 700; }
+
+.account-type-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.account-type-badge.credit   { background: rgba(59,130,246,0.15); color: var(--blue); }
+.account-type-badge.checking { background: rgba(34,197,94,0.15);  color: var(--green); }
+
+.account-hero-balance {
+  font-size: 36px;
+  font-weight: 700;
+  line-height: 1.1;
+  margin-bottom: 4px;
+}
+
+.account-hero-meta {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.account-hero-stats {
+  display: flex;
+  gap: 32px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.account-hero-stat-label {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin-bottom: 4px;
+}
+
+.account-hero-stat-value { font-size: 16px; font-weight: 600; }
+
+.urgency-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 4px;
+  margin-left: 8px;
+}
+
+.urgency-badge.ok      { background: rgba(34,197,94,0.15);  color: var(--green); }
+.urgency-badge.warning { background: rgba(234,179,8,0.15);  color: var(--yellow); }
+.urgency-badge.urgent  { background: rgba(239,68,68,0.15);  color: var(--red); }
+
+/* ── Accounts overview grid ──────────────────────────────────────────────── */
+
+.accounts-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.account-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.account-card:hover { border-color: var(--blue); }
+
+.account-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.account-card-name  { font-weight: 600; font-size: 14px; }
+.account-card-bank  { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+.account-card-balance {
+  font-size: 22px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.account-card-sub { font-size: 11px; color: var(--muted); }
+
+/* ── Investment cards ────────────────────────────────────────────────────── */
+
+.investment-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.investment-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 22px;
+}
+
+.investment-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.investment-card-name { font-weight: 600; font-size: 14px; }
+
+.investment-bank-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.investment-bank-badge.nubank { background: rgba(168,85,247,0.15); color: var(--purple); }
+.investment-bank-badge.inter  { background: rgba(249,115,22,0.15); color: var(--orange); }
+
+.investment-card-balance { font-size: 24px; font-weight: 700; margin-bottom: 4px; color: var(--purple); }
+.investment-card-pct     { font-size: 12px; color: var(--muted); }
+
+/* ── Transaction list ────────────────────────────────────────────────────── */
+
+.tx-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.tx-row:last-child { border-bottom: none; }
+
+.tx-date {
+  color: var(--muted);
+  font-size: 11px;
+  width: 58px;
+  flex-shrink: 0;
+}
+
+.tx-info { flex: 1; margin: 0 12px; min-width: 0; }
+
+.tx-desc {
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tx-cat { font-size: 11px; color: var(--muted); margin-top: 1px; }
+
+.tx-amount {
+  font-size: 13px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.tx-amount.expense { color: var(--red); }
+.tx-amount.income  { color: var(--green); }
+
+.tx-empty { color: var(--muted); font-size: 13px; padding: 16px 0; text-align: center; }
+
+/* ── Responsive ──────────────────────────────────────────────────────────── */
+
+@media (max-width: 1100px) {
+  .accounts-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 900px) {
+  .investment-cards { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 600px) {
+  .investment-cards   { grid-template-columns: 1fr; }
+  .accounts-grid      { grid-template-columns: 1fr; }
+  .section-nav        { flex-wrap: wrap; }
+  .account-hero-stats { flex-wrap: wrap; gap: 16px; }
+}

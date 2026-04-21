@@ -14,8 +14,8 @@ from telegram.ext import (
     filters,
 )
 
-import database
-import sheets
+from core import database
+from integrations import sheets
 from bot.constants import ACCOUNT_LABELS, CSV_ACCOUNT, CSV_CONFIRMATION, PARSER_MAP
 from bot.handlers.commands import cancel
 from bot.utils import _authorized, _fmt_brl, _fmt_date

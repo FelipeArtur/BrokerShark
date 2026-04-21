@@ -118,10 +118,10 @@ def init_db() -> None:
 
 def _seed_accounts(conn: sqlite3.Connection) -> None:
     accounts = [
-        ("nu-cc",    "nubank", "credit",   "Nubank Crédito", None, None),
-        ("nu-db",    "nubank", "checking", "Nubank Conta",    None, None),
-        ("inter-cc", "inter",  "credit",   "Inter Crédito",  None, None),
-        ("inter-db", "inter",  "checking", "Inter Conta",     None, None),
+        ("nu-cc",    "nubank", "credit",   "Nubank Crédito", 18, 25),
+        ("nu-db",    "nubank", "checking", "Nubank Conta",   None, None),
+        ("inter-cc", "inter",  "credit",   "Inter Crédito",  18, 25),
+        ("inter-db", "inter",  "checking", "Inter Conta",    None, None),
     ]
     conn.executemany(
         "INSERT OR IGNORE INTO accounts (id, bank, type, name, billing_day, due_day) VALUES (?,?,?,?,?,?)",
@@ -513,6 +513,36 @@ def get_monthly_summary(year: int, month: int, bank: Optional[str] = None) -> di
     }
 
 
+def get_expenses_by_method(year: int, month: int, bank: Optional[str] = None) -> list[dict]:
+    """Return current month expenses grouped by bank and payment method.
+
+    Args:
+        year:  Four-digit year.
+        month: Month number (1–12).
+        bank:  Optional filter — ``"nubank"`` or ``"inter"``.  ``None`` = all banks.
+
+    Returns:
+        List of dicts with keys ``bank``, ``method``, ``total``, sorted by bank
+        then method.  Only includes rows where ``total > 0``.
+    """
+    start = f"{year:04d}-{month:02d}-01"
+    end   = f"{year:04d}-{month:02d}-31"
+    b = "AND a.bank = ?" if bank else ""
+    p = (bank,) if bank else ()
+    with _connect() as conn:
+        rows = conn.execute(
+            f"""SELECT a.bank, t.method, COALESCE(SUM(t.amount), 0) AS total
+               FROM transactions t
+               JOIN accounts a ON a.id = t.account_id
+               WHERE t.flow = 'expense' AND t.date BETWEEN ? AND ? {b}
+               GROUP BY a.bank, t.method
+               HAVING total > 0
+               ORDER BY a.bank, t.method""",
+            (start, end, *p),
+        ).fetchall()
+    return [{"bank": r[0], "method": r[1], "total": r[2]} for r in rows]
+
+
 def get_credit_card_statement(account_id: str, start_date: str, end_date: str) -> float:
     """Sum all expenses on a credit card account within a date range.
 
@@ -680,6 +710,150 @@ def get_expenses_by_category(year: int, month: int, bank: Optional[str] = None) 
             (start, end, *p),
         ).fetchall()
     return [{"name": r["name"], "total": r["total"]} for r in rows]
+
+
+def get_account_monthly_summary(account_id: str, year: int, month: int) -> dict:
+    """Return total income, expenses, and top expense category for one account in a month.
+
+    Args:
+        account_id: Account primary key (e.g. ``"nu-cc"``).
+        year:  Four-digit year.
+        month: Month number (1–12).
+
+    Returns:
+        dict with keys ``expenses``, ``income``, ``top_category``.
+    """
+    start = f"{year:04d}-{month:02d}-01"
+    end   = f"{year:04d}-{month:02d}-31"
+    with _connect() as conn:
+        expenses = conn.execute(
+            "SELECT COALESCE(SUM(amount),0) FROM transactions WHERE account_id=? AND flow='expense' AND date BETWEEN ? AND ?",
+            (account_id, start, end),
+        ).fetchone()[0]
+        income = conn.execute(
+            "SELECT COALESCE(SUM(amount),0) FROM transactions WHERE account_id=? AND flow='income' AND date BETWEEN ? AND ?",
+            (account_id, start, end),
+        ).fetchone()[0]
+        top_category = conn.execute(
+            """SELECT c.name, SUM(t.amount) AS total
+               FROM transactions t
+               JOIN categories c ON c.id = t.category_id
+               WHERE t.account_id=? AND t.flow='expense' AND t.date BETWEEN ? AND ?
+               GROUP BY c.id ORDER BY total DESC LIMIT 1""",
+            (account_id, start, end),
+        ).fetchone()
+    return {
+        "expenses": expenses,
+        "income": income,
+        "top_category": dict(top_category) if top_category else None,
+    }
+
+
+def get_monthly_history_by_account(account_id: str, months: int = 6) -> list[dict]:
+    """Return income and expense totals for the last N months filtered by account.
+
+    Args:
+        account_id: Account primary key.
+        months: Number of months to return (default 6).
+
+    Returns:
+        List of dicts ordered oldest to newest, each containing
+        ``label``, ``expenses``, ``income``.
+    """
+    today   = date.today()
+    periods: list[tuple[int, int]] = []
+    for i in range(months - 1, -1, -1):
+        m = today.month - i
+        y = today.year
+        while m <= 0:
+            m += 12
+            y -= 1
+        periods.append((y, m))
+
+    start_y, start_m = periods[0]
+    end_y,   end_m   = periods[-1]
+    start = f"{start_y:04d}-{start_m:02d}-01"
+    end   = f"{end_y:04d}-{end_m:02d}-31"
+
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT
+                   strftime('%Y-%m', date) AS ym,
+                   COALESCE(SUM(CASE WHEN flow='expense' THEN amount ELSE 0 END), 0) AS expenses,
+                   COALESCE(SUM(CASE WHEN flow='income'  THEN amount ELSE 0 END), 0) AS income
+               FROM transactions
+               WHERE account_id=? AND date BETWEEN ? AND ?
+               GROUP BY ym""",
+            (account_id, start, end),
+        ).fetchall()
+
+    by_month = {r["ym"]: {"expenses": r["expenses"], "income": r["income"]} for r in rows}
+    return [
+        {
+            "label": f"{m:02d}/{y}",
+            **by_month.get(f"{y:04d}-{m:02d}", {"expenses": 0.0, "income": 0.0}),
+        }
+        for y, m in periods
+    ]
+
+
+def get_expenses_by_category_account(account_id: str, year: int, month: int) -> list[dict]:
+    """Return expense totals grouped by category for one account in a given month.
+
+    Args:
+        account_id: Account primary key.
+        year:  Four-digit year.
+        month: Month number (1–12).
+
+    Returns:
+        List of ``{"name": str, "total": float}`` dicts ordered by total descending.
+    """
+    start = f"{year:04d}-{month:02d}-01"
+    end   = f"{year:04d}-{month:02d}-31"
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT c.name, SUM(t.amount) AS total
+               FROM transactions t
+               JOIN categories c ON c.id = t.category_id
+               WHERE t.account_id=? AND t.flow='expense' AND t.date BETWEEN ? AND ?
+               GROUP BY c.id ORDER BY total DESC""",
+            (account_id, start, end),
+        ).fetchall()
+    return [{"name": r["name"], "total": r["total"]} for r in rows]
+
+
+def get_recent_transactions(account_id: str, limit: int = 20) -> list[dict]:
+    """Return the most recent transactions for a given account.
+
+    Args:
+        account_id: Account primary key.
+        limit: Maximum number of rows to return (default 20, cap at 50).
+
+    Returns:
+        List of dicts ordered newest first, each containing
+        ``date``, ``description``, ``category``, ``amount``, ``flow``.
+    """
+    limit = min(limit, 50)
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT t.date, t.description, t.amount, t.flow, c.name AS category
+               FROM transactions t
+               LEFT JOIN categories c ON c.id = t.category_id
+               WHERE t.account_id=?
+               ORDER BY t.date DESC, t.id DESC
+               LIMIT ?""",
+            (account_id, limit),
+        ).fetchall()
+    return [
+        {
+            "date": r["date"],
+            "description": r["description"],
+            "amount": r["amount"],
+            "flow": r["flow"],
+            "category": r["category"],
+        }
+        for r in rows
+    ]
 
 
 def get_investment_movements_by_period(start_date: str, end_date: str) -> list[dict]:

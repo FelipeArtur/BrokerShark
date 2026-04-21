@@ -8,8 +8,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import config
-import database
-import sheets
+from core import database
+from integrations import sheets
 from bot import build_application
 from dashboard import start_dashboard
 

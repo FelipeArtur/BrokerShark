@@ -22,7 +22,7 @@ from bot.handlers.commands import (
 
 
 async def _post_init(app: Application) -> None:
-    from scheduler import build_scheduler
+    from bot.scheduler import build_scheduler
     scheduler = build_scheduler(app.bot)
     scheduler.start()
     app.bot_data["scheduler"] = scheduler

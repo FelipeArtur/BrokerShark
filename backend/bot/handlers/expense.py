@@ -1,6 +1,6 @@
 """Expense registration flow and ConversationHandler builder."""
 import asyncio
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
@@ -12,63 +12,66 @@ from telegram.ext import (
     filters,
 )
 
-import database
-import sheets
+from core import database
+from integrations import sheets
 from bot.constants import (
-    ACCOUNT_MAP,
+    ACCOUNT_CHOICES,
+    EXP_ACCOUNT,
     EXP_AMOUNT,
-    EXP_BANK,
+    EXP_INSTALLMENTS,
+    EXP_DESCRIPTION,
+    EXP_DATE,
     EXP_CATEGORY,
     EXP_CONFIRMATION,
-    EXP_DATE,
-    EXP_DESCRIPTION,
-    EXP_INSTALLMENTS,
-    EXP_NUM_INSTALLMENTS,
-    EXP_PAYMENT_TYPE,
     METHOD_LABELS,
 )
 from bot.handlers.commands import cancel
 from bot.utils import _authorized, _fmt_brl, _parse_amount, _parse_purchase_date, _PT_MONTHS
 
+_DATE_KB = InlineKeyboardMarkup([[
+    InlineKeyboardButton("Hoje",       callback_data="date_hoje"),
+    InlineKeyboardButton("Ontem",      callback_data="date_ontem"),
+    InlineKeyboardButton("Outra data", callback_data="date_outra"),
+]])
+
 
 async def expense_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Entry point: show combined payment-method + bank selection."""
     query = update.callback_query
     await query.answer()
     keyboard = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("PIX",     callback_data="exp_pix"),
-            InlineKeyboardButton("Crédito", callback_data="exp_credit"),
-            InlineKeyboardButton("TED",     callback_data="exp_ted"),
+            InlineKeyboardButton("Nubank Crédito", callback_data="acc_nu-cc_credit"),
+            InlineKeyboardButton("Inter Crédito",  callback_data="acc_inter-cc_credit"),
+        ],
+        [
+            InlineKeyboardButton("Nubank PIX", callback_data="acc_nu-db_pix"),
+            InlineKeyboardButton("Inter PIX",  callback_data="acc_inter-db_pix"),
+        ],
+        [
+            InlineKeyboardButton("Nubank TED", callback_data="acc_nu-db_ted"),
+            InlineKeyboardButton("Inter TED",  callback_data="acc_inter-db_ted"),
         ],
     ])
     await query.edit_message_text("Como foi o pagamento?", reply_markup=keyboard)
-    return EXP_PAYMENT_TYPE
-
-
-async def expense_bank(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    query = update.callback_query
-    await query.answer()
-    method = query.data.replace("exp_", "")
-    context.user_data["exp_method"] = method
-    keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton("Nubank", callback_data="bank_nubank"),
-        InlineKeyboardButton("Inter",  callback_data="bank_inter"),
-    ]])
-    await query.edit_message_text("Qual banco?", reply_markup=keyboard)
-    return EXP_BANK
+    return EXP_ACCOUNT
 
 
 async def expense_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Store account+method from selection, ask for amount."""
     query = update.callback_query
     await query.answer()
-    bank = query.data.replace("bank_", "")
-    context.user_data["exp_bank"] = bank
-    context.user_data["exp_account_id"] = ACCOUNT_MAP[(context.user_data["exp_method"], bank)]
+    key = query.data.replace("acc_", "")
+    account_id, method = ACCOUNT_CHOICES[key]
+    context.user_data["exp_account_id"] = account_id
+    context.user_data["exp_method"] = method
+    context.user_data["exp_bank"] = "nubank" if account_id.startswith("nu") else "inter"
     await query.edit_message_text("Qual o valor? (ex: 45,90)")
     return EXP_AMOUNT
 
 
 async def expense_installments(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Parse amount; show installment buttons for credit, skip to description for PIX/TED."""
     if not _authorized(update):
         return ConversationHandler.END
     amount = _parse_amount(update.message.text)
@@ -79,30 +82,40 @@ async def expense_installments(update: Update, context: ContextTypes.DEFAULT_TYP
 
     if context.user_data["exp_method"] != "credit":
         context.user_data["exp_installments"] = 1
-        return await _ask_description(update, context)
+        await update.message.reply_text("Como você quer chamar esse gasto?")
+        return EXP_DESCRIPTION
 
-    keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton("Sim", callback_data="inst_yes"),
-        InlineKeyboardButton("Não", callback_data="inst_no"),
-    ]])
-    await update.message.reply_text("Foi parcelado?", reply_markup=keyboard)
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("À vista", callback_data="inst_1"),
+            InlineKeyboardButton("2x",      callback_data="inst_2"),
+            InlineKeyboardButton("3x",      callback_data="inst_3"),
+        ],
+        [
+            InlineKeyboardButton("4x",      callback_data="inst_4"),
+            InlineKeyboardButton("6x",      callback_data="inst_6"),
+            InlineKeyboardButton("12x",     callback_data="inst_12"),
+        ],
+        [InlineKeyboardButton("Outro número", callback_data="inst_other")],
+    ])
+    await update.message.reply_text("Em quantas vezes?", reply_markup=keyboard)
     return EXP_INSTALLMENTS
 
 
-async def expense_num_installments(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def expense_installments_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle installment button: store count and proceed, or ask for custom number."""
     query = update.callback_query
     await query.answer()
-    if query.data == "inst_no":
-        context.user_data["exp_installments"] = 1
-        await query.edit_message_text("Como você quer chamar esse gasto?")
-        return EXP_DESCRIPTION
-    await query.edit_message_text("Em quantas vezes?")
-    return EXP_NUM_INSTALLMENTS
+    if query.data == "inst_other":
+        await query.edit_message_text("Em quantas vezes? (mínimo 2)")
+        return EXP_INSTALLMENTS
+    context.user_data["exp_installments"] = int(query.data.replace("inst_", ""))
+    await query.edit_message_text("Como você quer chamar esse gasto?")
+    return EXP_DESCRIPTION
 
 
-async def expense_description_from_installments(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> int:
+async def expense_installments_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle typed installment count after 'Outro número'."""
     if not _authorized(update):
         return ConversationHandler.END
     try:
@@ -111,28 +124,37 @@ async def expense_description_from_installments(
             raise ValueError
     except ValueError:
         await update.message.reply_text("Digite um número válido (mínimo 2).")
-        return EXP_NUM_INSTALLMENTS
+        return EXP_INSTALLMENTS
     context.user_data["exp_installments"] = n
     await update.message.reply_text("Como você quer chamar esse gasto?")
     return EXP_DESCRIPTION
 
 
-async def _ask_description(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.message.reply_text("Como você quer chamar esse gasto?")
-    return EXP_DESCRIPTION
-
-
 async def expense_date(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Save description and show date shortcut buttons."""
     if not _authorized(update):
         return ConversationHandler.END
     context.user_data["exp_description"] = update.message.text.strip()
-    await update.message.reply_text(
-        "Quando foi a compra?\n(ex: 19/04/2026 ou 19/04/2026 14:30)"
-    )
+    await update.message.reply_text("Quando foi a compra?", reply_markup=_DATE_KB)
     return EXP_DATE
 
 
-async def expense_category(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def expense_date_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle Hoje/Ontem/Outra data buttons."""
+    query = update.callback_query
+    await query.answer()
+    if query.data == "date_outra":
+        await query.edit_message_text("Qual a data? (ex: 19/04/2026 ou 19/04/2026 14:30)")
+        return EXP_DATE
+    today = date.today()
+    d = today if query.data == "date_hoje" else today - timedelta(days=1)
+    context.user_data["exp_date"] = d.strftime("%Y-%m-%d")
+    context.user_data["exp_date_display"] = d.strftime("%d/%m/%Y")
+    return await _ask_category_edit(query, context)
+
+
+async def expense_date_typed(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle typed date after 'Outra data' selection."""
     if not _authorized(update):
         return ConversationHandler.END
     parsed = _parse_purchase_date(update.message.text)
@@ -148,12 +170,23 @@ async def expense_category(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         for cat in categories
     ]
     rows = [buttons[i:i + 2] for i in range(0, len(buttons), 2)]
-    keyboard = InlineKeyboardMarkup(rows)
-    await update.message.reply_text("Qual a categoria?", reply_markup=keyboard)
+    await update.message.reply_text("Qual a categoria?", reply_markup=InlineKeyboardMarkup(rows))
+    return EXP_CATEGORY
+
+
+async def _ask_category_edit(query, context: ContextTypes.DEFAULT_TYPE) -> int:
+    categories = database.get_categories("expense")
+    buttons = [
+        InlineKeyboardButton(cat["name"], callback_data=f"cat_{cat['id']}")
+        for cat in categories
+    ]
+    rows = [buttons[i:i + 2] for i in range(0, len(buttons), 2)]
+    await query.edit_message_text("Qual a categoria?", reply_markup=InlineKeyboardMarkup(rows))
     return EXP_CATEGORY
 
 
 async def expense_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Show confirmation summary after category selection."""
     query = update.callback_query
     await query.answer()
     cat_id = int(query.data.replace("cat_", ""))
@@ -189,6 +222,7 @@ async def expense_confirmation(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def expense_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Persist the expense and notify the user."""
     query = update.callback_query
     await query.answer()
 
@@ -238,12 +272,11 @@ async def expense_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     context.user_data.clear()
 
     await _check_spending_alert(query.message.chat_id, context)
-
     return ConversationHandler.END
 
 
 async def _check_spending_alert(chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send a warning message if monthly expenses have reached or exceeded income."""
+    """Send a warning if monthly expenses have reached or exceeded income."""
     now = datetime.now()
     summary = database.get_monthly_summary(now.year, now.month)
     if summary["income"] > 0 and summary["expenses"] >= summary["income"]:
@@ -265,31 +298,25 @@ def build_expense_handler() -> ConversationHandler:
     return ConversationHandler(
         entry_points=[CallbackQueryHandler(expense_start, pattern="^menu_expense$")],
         states={
-            EXP_PAYMENT_TYPE: [
-                CallbackQueryHandler(expense_bank, pattern="^exp_(pix|credit|ted)$"),
-            ],
-            EXP_BANK: [
-                CallbackQueryHandler(expense_amount, pattern="^bank_(nubank|inter)$"),
+            EXP_ACCOUNT: [
+                CallbackQueryHandler(expense_amount, pattern="^acc_.+$"),
             ],
             EXP_AMOUNT: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, expense_installments),
             ],
             EXP_INSTALLMENTS: [
-                CallbackQueryHandler(expense_num_installments, pattern="^inst_(yes|no)$"),
-            ],
-            EXP_NUM_INSTALLMENTS: [
-                MessageHandler(
-                    filters.TEXT & ~filters.COMMAND, expense_description_from_installments
-                ),
+                CallbackQueryHandler(expense_installments_choice, pattern=r"^inst_(\d+|other)$"),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, expense_installments_text),
             ],
             EXP_DESCRIPTION: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, expense_date),
             ],
             EXP_DATE: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, expense_category),
+                CallbackQueryHandler(expense_date_choice, pattern="^date_(hoje|ontem|outra)$"),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, expense_date_typed),
             ],
             EXP_CATEGORY: [
-                CallbackQueryHandler(expense_confirmation, pattern="^cat_\\d+$"),
+                CallbackQueryHandler(expense_confirmation, pattern=r"^cat_\d+$"),
             ],
             EXP_CONFIRMATION: [
                 CallbackQueryHandler(expense_save, pattern="^exp_(confirm|cancel)$"),
