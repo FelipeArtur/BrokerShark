@@ -1,17 +1,17 @@
+"""Flask dashboard server — read-only analytics API on a daemon thread."""
 import logging
-import os
 import threading
 from datetime import datetime
-from pathlib import Path
 
 from flask import Flask, jsonify, send_from_directory
 
+import config
 import database
 
 _logger = logging.getLogger(__name__)
 
-DASHBOARD_PORT = int(os.getenv("DASHBOARD_PORT", "8080"))
-FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
+DASHBOARD_PORT = config.DASHBOARD_PORT
+FRONTEND_DIR = config.FRONTEND_DIR
 
 app = Flask(__name__, static_folder=str(FRONTEND_DIR))
 

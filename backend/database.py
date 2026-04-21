@@ -1,9 +1,11 @@
+"""SQLite data layer — table creation, seeds, and all query functions."""
 import sqlite3
-import os
 from datetime import datetime, date, timedelta
 from typing import Optional
 
-DB_PATH = os.getenv("DB_PATH", "data/brokershark.db")
+import config
+
+DB_PATH = config.DB_PATH
 
 
 def _connect() -> sqlite3.Connection:

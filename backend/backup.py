@@ -1,12 +1,14 @@
+"""Daily SQLite backup — creates timestamped copy and prunes old files."""
 import logging
-import os
 import shutil
 from datetime import datetime
 from pathlib import Path
 
-DB_PATH = os.getenv("DB_PATH", "data/brokershark.db")
-BACKUP_DIR = os.getenv("BACKUP_DIR", "backups")
-MAX_BACKUPS = 30
+import config
+
+DB_PATH = config.DB_PATH
+BACKUP_DIR = config.BACKUP_DIR
+MAX_BACKUPS = config.MAX_BACKUPS
 
 _logger = logging.getLogger(__name__)
 

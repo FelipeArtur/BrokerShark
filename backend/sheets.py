@@ -1,13 +1,15 @@
+"""Google Sheets append-only mirror — never read back, never edited."""
 import logging
-import os
 from pathlib import Path
 from typing import Any
 
 import gspread
 from google.oauth2.service_account import Credentials
 
-CREDENTIALS_PATH = os.getenv("SHEETS_CREDENTIALS", "credentials/service_account.json")
-SHEETS_ID = os.getenv("SHEETS_ID", "")
+import config
+
+CREDENTIALS_PATH = config.SHEETS_CREDENTIALS
+SHEETS_ID = config.SHEETS_ID
 
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",

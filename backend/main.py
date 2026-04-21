@@ -1,3 +1,4 @@
+"""Entry point — initialises the database, starts the dashboard thread, then runs the bot."""
 import asyncio
 import logging
 from pathlib import Path
@@ -6,16 +7,14 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+import config
 import database
 import sheets
 from bot import build_application
 from dashboard import start_dashboard
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
-Path("logs").mkdir(exist_ok=True)
+logging.basicConfig(level=logging.INFO, format=config.LOG_FORMAT)
+Path(config.LOG_DIR).mkdir(exist_ok=True)
 
 
 def main() -> None:

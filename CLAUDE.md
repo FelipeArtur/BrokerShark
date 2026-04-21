@@ -18,12 +18,24 @@ A local web dashboard (Flask + Chart.js) runs alongside the bot for visual analy
 brokershark/
 ├── backend/
 │   ├── main.py            # Entry point — starts bot (polling) + scheduler + dashboard
-│   ├── bot.py             # Bot logic — ConversationHandlers, InlineKeyboard, commands
+│   ├── config.py          # Centralised env vars — only file that calls os.getenv()
 │   ├── database.py        # Data layer — SQLite, table creation, queries
 │   ├── sheets.py          # Google Sheets — append-only mirror after each INSERT
 │   ├── backup.py          # Local SQLite backup (daily copy)
 │   ├── scheduler.py       # APScheduler — daily backup, weekly report, monthly closing
 │   ├── dashboard.py       # Flask API server (background thread, port 8080)
+│   ├── bot/               # Telegram bot subpackage
+│   │   ├── __init__.py    # Re-exports build_application
+│   │   ├── application.py # build_application(), scheduler lifecycle hooks
+│   │   ├── constants.py   # State ints, ACCOUNT_MAP, INVESTMENT_META, *_LABELS
+│   │   ├── utils.py       # _authorized, _fmt_brl, _fmt_date, _parse_*, _PT_MONTHS
+│   │   └── handlers/
+│   │       ├── __init__.py    # Re-exports all build_*_handler functions
+│   │       ├── commands.py    # /novo, /saldo, /resumo, /fatura, /reservas, /ajuda, /cancelar
+│   │       ├── expense.py     # Expense registration flow
+│   │       ├── income.py      # Income registration flow
+│   │       ├── investment.py  # Investment deposit/withdrawal flow
+│   │       └── csv_import.py  # CSV import flow
 │   └── parsers/
 │       ├── nubank_cc.py   # Nubank credit card CSV parser
 │       └── inter_cc.py    # Inter credit card CSV parser
@@ -48,15 +60,15 @@ brokershark/
 ```
 User taps /novo in Telegram
       ↓
-ConversationHandler (bot.py) — guides the user step-by-step via inline buttons
+ConversationHandler (bot/handlers/) — guides the user step-by-step via inline buttons
       ↓
 On confirmation: database.py — INSERT into transactions table (SQLite)
       ↓
 sheets.py — append row in a background thread (non-blocking)
       ↓
-bot.py — sends formatted confirmation to the user
+bot/handlers/ — sends formatted confirmation to the user
       ↓ (after each expense)
-bot.py — checks if monthly expenses ≥ income → sends alert if true
+bot/handlers/expense.py — checks if monthly expenses ≥ income → sends alert if true
 ```
 
 ### Key architectural principles

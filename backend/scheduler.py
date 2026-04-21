@@ -1,25 +1,18 @@
+"""APScheduler jobs — daily backup, weekly report, and monthly closing report."""
 import logging
-import os
 from datetime import datetime, timedelta
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from telegram import Bot
 
 import backup
+import config
 import database
+from bot.utils import _fmt_brl as _fmt, _PT_MONTHS
 
-TELEGRAM_CHAT_ID = int(os.getenv("TELEGRAM_CHAT_ID", "0"))
+TELEGRAM_CHAT_ID = config.TELEGRAM_CHAT_ID
 
 _logger = logging.getLogger(__name__)
-
-_PT_MONTHS = [
-    "", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
-    "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
-]
-
-
-def _fmt(value: float) -> str:
-    return f"R$ {value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
 async def _send_weekly_report(bot: Bot) -> None:
