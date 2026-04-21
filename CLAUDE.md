@@ -49,6 +49,7 @@ brokershark/
 │           └── inter_cc.py    # Inter credit card CSV parser
 ├── frontend/
 │   ├── index.html         # Markup only — refs to css/ and js/
+│   ├── favicon.ico
 │   ├── css/
 │   │   └── style.css      # All styles — dark theme, CSS variables, responsive grid
 │   └── js/
@@ -470,12 +471,15 @@ All data endpoints accept an optional `?bank=nubank|inter` query parameter to fi
 | Endpoint | Returns |
 |---|---|
 | `GET /api/events` | SSE stream — sends `update` event after every DB write, `heartbeat` every 30s |
-| `GET /api/summary[?bank=]` | Current month: income, expenses, balance, reservas, top category |
+| `GET /api/summary[?bank=][?account=]` | Current month: income, expenses, balance, reservas, top category |
 | `GET /api/accounts[?bank=]` | All (or filtered) accounts with current balance |
 | `GET /api/investments[?bank=]` | All (or filtered) investments with current balance |
-| `GET /api/monthly[?bank=]` | Last 6 months of income vs expenses |
-| `GET /api/categories[?bank=]` | Current month expenses grouped by category |
+| `GET /api/monthly[?bank=][?account=]` | Last 6 months of income vs expenses |
+| `GET /api/categories[?bank=][?account=]` | Current month expenses grouped by category |
+| `GET /api/expenses-by-method[?bank=]` | Current month expenses grouped by bank and payment method |
 | `GET /api/faturas[?bank=]` | Credit card billing info (total, due date, days remaining) |
+| `GET /api/account/<account_id>` | Full account detail: balance, monthly summary, billing info (credit only) |
+| `GET /api/transactions?account=<id>[&limit=<n>]` | Recent transactions for an account (max 50, default 20) |
 
 ### Dashboard panels
 
@@ -821,6 +825,8 @@ Receitas: R$ X
 - [x] `ACCOUNT_CHOICES` substitui `ACCOUNT_MAP` em `constants.py`
 
 ### Phase 7 — Reestruturação do dashboard
+- [ ] Visão por conta individual com drill-down (saldo + evolução mensal + últimas transações)
+- [ ] Histórico de transações com filtros na interface web
 
 ### Phase 8 — Serviço systemd + Histórico comparativo
 - [ ] Serviço systemd para autostart no boot (brokershark.service)
