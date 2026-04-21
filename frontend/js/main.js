@@ -21,6 +21,14 @@ const state = {
   activeAccount: null,   // null | "nu-cc" | "nu-db" | "inter-cc" | "inter-db"
 };
 
+const txFilters = {
+  month:    new Date().getMonth() + 1,
+  year:     new Date().getFullYear(),
+  category: "",
+};
+
+let _txAll = [];  // full fetched list for current account+month, before category filter
+
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 function show(id) {
@@ -66,6 +74,81 @@ function renderOverviewFaturas(data) {
         <div class="fatura-val">${fmt(f.total)}</div>
       </div>`;
   }).join("");
+}
+
+// ── Transaction filters ────────────────────────────────────────────────────────
+
+function initTxFilters() {
+  const monthSel = document.getElementById("tx-month-select");
+  const now      = new Date();
+  let html = `<option value="">Todos os meses</option>`;
+  for (let i = 0; i < 12; i++) {
+    const d   = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const m   = d.getMonth() + 1;
+    const y   = d.getFullYear();
+    const val = `${y}-${String(m).padStart(2, "0")}`;
+    html += `<option value="${val}"${i === 0 ? " selected" : ""}>${PT_MONTHS[m]} ${y}</option>`;
+  }
+  monthSel.innerHTML = html;
+
+  monthSel.addEventListener("change", () => {
+    const val = monthSel.value;
+    if (val) {
+      const [y, m]    = val.split("-").map(Number);
+      txFilters.month = m;
+      txFilters.year  = y;
+    } else {
+      txFilters.month = null;
+      txFilters.year  = null;
+    }
+    txFilters.category = "";
+    document.getElementById("tx-cat-select").value = "";
+    if (state.activeAccount) refreshTransactions();
+  });
+
+  document.getElementById("tx-cat-select").addEventListener("change", e => {
+    txFilters.category = e.target.value;
+    renderFilteredTransactions();
+  });
+}
+
+function resetTxFilters() {
+  const now       = new Date();
+  txFilters.month = now.getMonth() + 1;
+  txFilters.year  = now.getFullYear();
+  txFilters.category = "";
+  const monthSel = document.getElementById("tx-month-select");
+  if (monthSel) {
+    const val = `${txFilters.year}-${String(txFilters.month).padStart(2, "0")}`;
+    monthSel.value = val;
+  }
+  const catSel = document.getElementById("tx-cat-select");
+  if (catSel) catSel.value = "";
+}
+
+async function refreshTransactions() {
+  _txAll = await fetchRecentTransactions(state.activeAccount, {
+    month: txFilters.month,
+    year:  txFilters.year,
+  });
+  const cats    = [...new Set(_txAll.map(t => t.category).filter(Boolean))].sort();
+  const catSel  = document.getElementById("tx-cat-select");
+  const prevCat = catSel.value;
+  catSel.innerHTML = `<option value="">Todas as categorias</option>` +
+    cats.map(c => `<option value="${c}"${c === prevCat ? " selected" : ""}>${c}</option>`).join("");
+  if (!cats.includes(prevCat)) txFilters.category = "";
+  renderFilteredTransactions();
+}
+
+function renderFilteredTransactions() {
+  const filtered = txFilters.category
+    ? _txAll.filter(t => t.category === txFilters.category)
+    : _txAll;
+  const countEl = document.getElementById("tx-count");
+  countEl.textContent = filtered.length > 0
+    ? `${filtered.length} transaç${filtered.length === 1 ? "ão" : "ões"}`
+    : "";
+  renderTransactionList(filtered);
 }
 
 // ── Accounts renderers ─────────────────────────────────────────────────────────
@@ -233,13 +316,12 @@ async function refreshAccounts() {
     return;
   }
 
-  const [detail, transactions] = await Promise.all([
+  const [detail] = await Promise.all([
     fetchAccountDetail(account),
-    fetchRecentTransactions(account, 20),
+    refreshTransactions(),
   ]);
 
   renderAccountHero(detail);
-  renderTransactionList(transactions);
 
   hide("accounts-all-grid");
   show("account-hero");
@@ -318,22 +400,18 @@ function initBankTabs() {
 
 function initAccountPills() {
   document.querySelectorAll(".account-pill").forEach(btn => {
-    btn.addEventListener("click", () => {
-      document.querySelectorAll(".account-pill").forEach(b => b.classList.remove("active"));
-      btn.classList.add("active");
-      state.activeAccount = btn.dataset.account || null;
-      if (state.activeSection === "accounts") refresh();
-    });
+    btn.addEventListener("click", () => selectAccount(btn.dataset.account || null));
   });
 }
 
-// Programmatic account selection (called from account cards onclick)
+// Programmatic account selection (called from account cards onclick and pills)
 function selectAccount(accountId) {
   state.activeAccount = accountId;
+  resetTxFilters();
   document.querySelectorAll(".account-pill").forEach(b => {
     b.classList.toggle("active", (b.dataset.account || null) === accountId);
   });
-  refreshAccounts();
+  if (state.activeSection === "accounts") refreshAccounts();
 }
 
 // ── SSE ────────────────────────────────────────────────────────────────────────
@@ -365,5 +443,6 @@ function initSSE() {
 initSectionNav();
 initBankTabs();
 initAccountPills();
+initTxFilters();
 initSSE();
 refresh();

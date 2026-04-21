@@ -480,7 +480,7 @@ All data endpoints accept an optional `?bank=nubank|inter` query parameter to fi
 | `GET /api/expenses-by-method[?bank=]` | Current month expenses grouped by bank and payment method |
 | `GET /api/faturas[?bank=]` | Credit card billing info (total, due date, days remaining) |
 | `GET /api/account/<account_id>` | Full account detail: balance, monthly summary, billing info (credit only) |
-| `GET /api/transactions?account=<id>[&limit=<n>]` | Recent transactions for an account (max 50, default 20) |
+| `GET /api/transactions?account=<id>[&limit=<n>][&month=<m>&year=<y>]` | Transactions for an account — filtered by month/year (max 200, default 100) |
 
 ### Dashboard panels
 
@@ -825,9 +825,9 @@ Receitas: R$ X
 - [x] Observação do investimento opcional — botão "Pular"
 - [x] `ACCOUNT_CHOICES` substitui `ACCOUNT_MAP` em `constants.py`
 
-### Phase 7 — Reestruturação do dashboard
-- [ ] Visão por conta individual com drill-down (saldo + evolução mensal + últimas transações)
-- [ ] Histórico de transações com filtros na interface web
+### Phase 7 — Reestruturação do dashboard ✅ DONE
+- [x] Visão por conta individual com drill-down (saldo + evolução mensal + últimas transações)
+- [x] Histórico de transações com filtros: mês/ano (backend) e categoria (frontend)
 
 ### Phase 8 — Serviço systemd + Histórico comparativo
 - [ ] Serviço systemd para autostart no boot (brokershark.service)
