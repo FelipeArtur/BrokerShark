@@ -17,7 +17,7 @@ This project also serves as a practical testbed for using **Claude** as an engin
 - **Track investments** — deposits and withdrawals for Caixinha Nubank, Porquinho Inter, and Tesouro Direto
 - **Import CSV statements** from Nubank and Inter credit cards, with duplicate detection
 - **Mirror all records to Google Sheets** as an append-only backup — if the local database is lost, the spreadsheet holds the full history
-- **Local web dashboard** at `http://localhost:8080` — dark theme, Chart.js charts, bank filter tabs (Todos / Nubank / Inter), updates in real-time via SSE (< 1s latency)
+- **Local web dashboard** at `http://localhost:8080` — dark theme, Chart.js charts, bank filter tabs (Todos / Nubank / Inter), per-account drill-down with month/category filters on transaction history, updates in real-time via SSE (< 1s latency)
 - **Automated reports** — weekly summary every Monday and monthly closing report on the 1st of each month
 - **Proactive spending alert** — bot sends a warning when monthly expenses reach or exceed income
 
