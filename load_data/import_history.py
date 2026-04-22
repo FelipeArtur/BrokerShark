@@ -89,9 +89,17 @@ def _classify_nubank_extrato(description: str, valor: float) -> dict | None:
     """
     desc_lower = description.lower()
 
-    # Skip credit card payments
+    # Credit card payments — transfer from nu-db to nu-cc (not a spending expense)
     if "pagamento de fatura" in desc_lower or "pagamento da fatura" in desc_lower:
-        return None
+        return {
+            "flow": "expense",
+            "method": "transfer",
+            "account_id": "nu-db",
+            "amount": abs(valor),
+            "dest_account_id": "nu-cc",
+            "category_name": None,
+            "category_flow": None,
+        }
 
     # Investment movements
     if description == "Aplicação RDB":
@@ -187,14 +195,17 @@ def import_nubank_extrato(data_dir: Path) -> tuple[int, int, int]:
                         skipped += 1
                     continue
 
-                flow = result["flow"]
-                method = result["method"]
-                account_id = result["account_id"]
-                amount = result["amount"]
-                cat_key = (result["category_name"], result["category_flow"])
-                if cat_key not in cat_cache:
-                    cat_cache[cat_key] = _get_category_id(*cat_key)
-                category_id = cat_cache[cat_key]
+                flow          = result["flow"]
+                method        = result["method"]
+                account_id    = result["account_id"]
+                amount        = result["amount"]
+                dest_account  = result.get("dest_account_id")
+                cat_key       = (result["category_name"], result["category_flow"])
+                category_id   = None
+                if cat_key != (None, None):
+                    if cat_key not in cat_cache:
+                        cat_cache[cat_key] = _get_category_id(*cat_key)
+                    category_id = cat_cache[cat_key]
 
                 if database.transaction_exists(date, amount, description, account_id):
                     skipped += 1
@@ -209,6 +220,7 @@ def import_nubank_extrato(data_dir: Path) -> tuple[int, int, int]:
                     description=description,
                     installments=1,
                     category_id=category_id,
+                    dest_account_id=dest_account,
                 )
                 imported += 1
 
@@ -264,14 +276,23 @@ def _classify_inter_extrato(description: str, valor: float) -> dict | None:
     """Classify a single Inter extrato row."""
     desc_lower = description.lower()
 
-    # Skip credit card payments
+    # Credit card payments — transfer from inter-db to inter-cc
     if desc_lower.startswith("pagamento efetuado") and "fatura" in desc_lower:
-        return None
+        return {
+            "flow": "expense",
+            "method": "transfer",
+            "account_id": "inter-db",
+            "amount": abs(valor),
+            "dest_account_id": "inter-cc",
+            "category_name": None,
+            "category_flow": None,
+        }
 
     # Investment movements — Porquinho Inter
-    if "aplicacao" in desc_lower and "porquinho" in desc_lower:
+    is_porquinho = "porquinho" in desc_lower or "cdb porq" in desc_lower
+    if ("aplicacao" in desc_lower or "cdb porq" in desc_lower) and is_porquinho and "resgate" not in desc_lower and "estorno" not in desc_lower:
         return {"investment": True, "operation": "deposit", "amount": abs(valor)}
-    if "resgate" in desc_lower and "porquinho" in desc_lower:
+    if ("resgate" in desc_lower or "estorno" in desc_lower) and is_porquinho:
         return {"investment": True, "operation": "withdrawal", "amount": abs(valor)}
 
     if valor > 0:
@@ -373,14 +394,17 @@ def import_inter_extrato(data_dir: Path) -> tuple[int, int, int]:
                         skipped += 1
                     continue
 
-                flow = result["flow"]
-                method = result["method"]
-                account_id = result["account_id"]
-                amount = result["amount"]
-                cat_key = (result["category_name"], result["category_flow"])
-                if cat_key not in cat_cache:
-                    cat_cache[cat_key] = _get_category_id(*cat_key)
-                category_id = cat_cache[cat_key]
+                flow         = result["flow"]
+                method       = result["method"]
+                account_id   = result["account_id"]
+                amount       = result["amount"]
+                dest_account = result.get("dest_account_id")
+                cat_key      = (result["category_name"], result["category_flow"])
+                category_id  = None
+                if cat_key != (None, None):
+                    if cat_key not in cat_cache:
+                        cat_cache[cat_key] = _get_category_id(*cat_key)
+                    category_id = cat_cache[cat_key]
 
                 if database.transaction_exists(date, amount, description, account_id):
                     skipped += 1
@@ -395,6 +419,7 @@ def import_inter_extrato(data_dir: Path) -> tuple[int, int, int]:
                     description=description,
                     installments=1,
                     category_id=category_id,
+                    dest_account_id=dest_account,
                 )
                 imported += 1
 

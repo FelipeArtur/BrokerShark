@@ -176,9 +176,9 @@ def get_all_accounts() -> list[sqlite3.Row]:
 def get_all_accounts_with_balance() -> list[sqlite3.Row]:
     """Return all accounts with a computed ``balance`` column.
 
-    Uses a single JOIN query instead of N+1 calls to :func:`get_account_balance`.
-    Balance = ``initial_balance`` + sum of income transactions − sum of expense
-    transactions for that account.
+    For checking accounts the balance also subtracts the net amount currently
+    held in investments for the same bank (deposits − withdrawals), since those
+    flows are stored in ``investment_movements`` rather than ``transactions``.
 
     Returns:
         List of ``sqlite3.Row`` objects, each containing all account columns
@@ -191,9 +191,20 @@ def get_all_accounts_with_balance() -> list[sqlite3.Row]:
                    a.initial_balance
                        + COALESCE(SUM(CASE WHEN t.flow='income'  THEN t.amount ELSE 0 END), 0)
                        - COALESCE(SUM(CASE WHEN t.flow='expense' THEN t.amount ELSE 0 END), 0)
+                       - CASE WHEN a.type='checking'
+                             THEN COALESCE(inv.net, 0)
+                             ELSE 0
+                         END
                    AS balance
                FROM accounts a
                LEFT JOIN transactions t ON t.account_id = a.id
+               LEFT JOIN (
+                   SELECT i.bank,
+                          SUM(CASE WHEN im.operation='deposit' THEN im.amount ELSE -im.amount END) AS net
+                   FROM investment_movements im
+                   JOIN investments i ON i.id = im.investment_id
+                   GROUP BY i.bank
+               ) inv ON inv.bank = a.bank
                GROUP BY a.id"""
         ).fetchall()
 
@@ -490,7 +501,7 @@ def get_monthly_summary(year: int, month: int, bank: Optional[str] = None) -> di
     p = (bank,) if bank else ()
     with _connect() as conn:
         expenses = conn.execute(
-            f"SELECT COALESCE(SUM(t.amount),0) FROM transactions t {j} WHERE t.flow='expense' AND t.date BETWEEN ? AND ? {b}",
+            f"SELECT COALESCE(SUM(t.amount),0) FROM transactions t {j} WHERE t.flow='expense' AND t.dest_account_id IS NULL AND t.date BETWEEN ? AND ? {b}",
             (start, end, *p),
         ).fetchone()[0]
         income = conn.execute(
@@ -502,7 +513,7 @@ def get_monthly_summary(year: int, month: int, bank: Optional[str] = None) -> di
                FROM transactions t
                JOIN categories c ON c.id = t.category_id
                {j}
-               WHERE t.flow='expense' AND t.date BETWEEN ? AND ? {b}
+               WHERE t.flow='expense' AND t.dest_account_id IS NULL AND t.date BETWEEN ? AND ? {b}
                GROUP BY c.id ORDER BY total DESC LIMIT 1""",
             (start, end, *p),
         ).fetchone()
@@ -534,7 +545,7 @@ def get_expenses_by_method(year: int, month: int, bank: Optional[str] = None) ->
             f"""SELECT a.bank, t.method, COALESCE(SUM(t.amount), 0) AS total
                FROM transactions t
                JOIN accounts a ON a.id = t.account_id
-               WHERE t.flow = 'expense' AND t.date BETWEEN ? AND ? {b}
+               WHERE t.flow = 'expense' AND t.dest_account_id IS NULL AND t.date BETWEEN ? AND ? {b}
                GROUP BY a.bank, t.method
                HAVING total > 0
                ORDER BY a.bank, t.method""",
@@ -664,7 +675,7 @@ def get_monthly_history(months: int = 6, bank: Optional[str] = None) -> list[dic
         rows = conn.execute(
             f"""SELECT
                    strftime('%Y-%m', t.date) AS ym,
-                   COALESCE(SUM(CASE WHEN t.flow='expense' THEN t.amount ELSE 0 END), 0) AS expenses,
+                   COALESCE(SUM(CASE WHEN t.flow='expense' AND t.dest_account_id IS NULL THEN t.amount ELSE 0 END), 0) AS expenses,
                    COALESCE(SUM(CASE WHEN t.flow='income'  THEN t.amount ELSE 0 END), 0) AS income
                FROM transactions t
                {j}
@@ -705,7 +716,7 @@ def get_expenses_by_category(year: int, month: int, bank: Optional[str] = None) 
                FROM transactions t
                JOIN categories c ON c.id = t.category_id
                {j}
-               WHERE t.flow='expense' AND t.date BETWEEN ? AND ? {b}
+               WHERE t.flow='expense' AND t.dest_account_id IS NULL AND t.date BETWEEN ? AND ? {b}
                GROUP BY c.id ORDER BY total DESC""",
             (start, end, *p),
         ).fetchall()
@@ -727,7 +738,7 @@ def get_account_monthly_summary(account_id: str, year: int, month: int) -> dict:
     end   = f"{year:04d}-{month:02d}-31"
     with _connect() as conn:
         expenses = conn.execute(
-            "SELECT COALESCE(SUM(amount),0) FROM transactions WHERE account_id=? AND flow='expense' AND date BETWEEN ? AND ?",
+            "SELECT COALESCE(SUM(amount),0) FROM transactions WHERE account_id=? AND flow='expense' AND dest_account_id IS NULL AND date BETWEEN ? AND ?",
             (account_id, start, end),
         ).fetchone()[0]
         income = conn.execute(
@@ -738,7 +749,7 @@ def get_account_monthly_summary(account_id: str, year: int, month: int) -> dict:
             """SELECT c.name, SUM(t.amount) AS total
                FROM transactions t
                JOIN categories c ON c.id = t.category_id
-               WHERE t.account_id=? AND t.flow='expense' AND t.date BETWEEN ? AND ?
+               WHERE t.account_id=? AND t.flow='expense' AND t.dest_account_id IS NULL AND t.date BETWEEN ? AND ?
                GROUP BY c.id ORDER BY total DESC LIMIT 1""",
             (account_id, start, end),
         ).fetchone()
@@ -779,7 +790,7 @@ def get_monthly_history_by_account(account_id: str, months: int = 6) -> list[dic
         rows = conn.execute(
             """SELECT
                    strftime('%Y-%m', date) AS ym,
-                   COALESCE(SUM(CASE WHEN flow='expense' THEN amount ELSE 0 END), 0) AS expenses,
+                   COALESCE(SUM(CASE WHEN flow='expense' AND dest_account_id IS NULL THEN amount ELSE 0 END), 0) AS expenses,
                    COALESCE(SUM(CASE WHEN flow='income'  THEN amount ELSE 0 END), 0) AS income
                FROM transactions
                WHERE account_id=? AND date BETWEEN ? AND ?
@@ -815,7 +826,7 @@ def get_full_monthly_history_by_account(account_id: str) -> list[dict]:
             """SELECT
                    strftime('%Y-%m', date) AS ym,
                    COALESCE(SUM(CASE WHEN flow='income'  THEN amount ELSE 0 END), 0) AS income,
-                   COALESCE(SUM(CASE WHEN flow='expense' THEN amount ELSE 0 END), 0) AS expenses
+                   COALESCE(SUM(CASE WHEN flow='expense' AND dest_account_id IS NULL THEN amount ELSE 0 END), 0) AS expenses
                FROM transactions
                WHERE account_id = ?
                GROUP BY ym
@@ -854,7 +865,7 @@ def get_expenses_by_category_account(account_id: str, year: int, month: int) -> 
             """SELECT c.name, SUM(t.amount) AS total
                FROM transactions t
                JOIN categories c ON c.id = t.category_id
-               WHERE t.account_id=? AND t.flow='expense' AND t.date BETWEEN ? AND ?
+               WHERE t.account_id=? AND t.flow='expense' AND t.dest_account_id IS NULL AND t.date BETWEEN ? AND ?
                GROUP BY c.id ORDER BY total DESC""",
             (account_id, start, end),
         ).fetchall()
