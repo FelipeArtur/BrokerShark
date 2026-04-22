@@ -8,13 +8,28 @@ Amount format examples::
     "R$ 230,80"      →  230.80  (expense — kept)
     "-R$ 766,75"     → -766.75  (payment/credit — skipped)
 
+Installment handling: when "Tipo" is "Parcela N/M" and N > 1, the transaction
+date is shifted forward by (N-1) months so each installment falls in its own
+billing cycle and has a unique dedup key.
+
 The file may include a UTF-8 BOM (``\\ufeff``), which is stripped before parsing.
 Date formats accepted: ``%d/%m/%Y``, ``%Y-%m-%d``, ``%d/%m/%y``.
 """
 import csv
 import io
-from datetime import datetime
+import re
+from datetime import datetime, timedelta
 from typing import Any
+
+# These descriptions are revolving-credit charges posted by Inter on the day
+# AFTER the billing cycle closes. They belong to the cycle that just closed,
+# so backdate them by 1 day to keep them in the correct fatura range.
+_PREV_CYCLE_CHARGES = frozenset({
+    "IOF ADICIONAL DB PF",
+    "IOF DIARIO DB PF",
+    "ROTATIVO SALDO FINANCIADO",
+    "ENCARGOS ROTATIVO",
+})
 
 
 def parse(content: str) -> list[dict[str, Any]]:
@@ -63,6 +78,28 @@ def parse(content: str) -> list[dict[str, Any]]:
             ).strip()
             if not description:
                 continue
+
+            # Revolving-credit charges belong to the cycle that just closed —
+            # backdate by 1 day so they stay outside the new cycle's range.
+            if description in _PREV_CYCLE_CHARGES:
+                dt = datetime.strptime(date, "%Y-%m-%d")
+                date = (dt - timedelta(days=1)).strftime("%Y-%m-%d")
+
+            # Shift date for installments N/M where N > 1 so each installment
+            # falls in its own billing cycle with a unique dedup key.
+            else:
+                tipo = (row.get("Tipo") or "").strip()
+                m = re.match(r"Parcela\s+(\d+)/\d+", tipo)
+                if m:
+                    n = int(m.group(1))
+                    if n > 1:
+                        dt = datetime.strptime(date, "%Y-%m-%d")
+                        total_months = dt.month + (n - 1)
+                        dt = dt.replace(
+                            year=dt.year + (total_months - 1) // 12,
+                            month=((total_months - 1) % 12) + 1,
+                        )
+                        date = dt.strftime("%Y-%m-%d")
 
             transactions.append({
                 "date":         date,

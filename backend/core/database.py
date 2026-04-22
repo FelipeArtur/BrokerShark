@@ -179,6 +179,9 @@ def get_all_accounts_with_balance() -> list[sqlite3.Row]:
     For checking accounts the balance also subtracts the net amount currently
     held in investments for the same bank (deposits − withdrawals), since those
     flows are stored in ``investment_movements`` rather than ``transactions``.
+    For credit accounts, inbound fatura payments (stored as transfers with
+    ``dest_account_id``) are added back so the balance reflects what is
+    currently owed rather than cumulative lifetime purchases.
 
     Returns:
         List of ``sqlite3.Row`` objects, each containing all account columns
@@ -191,6 +194,7 @@ def get_all_accounts_with_balance() -> list[sqlite3.Row]:
                    a.initial_balance
                        + COALESCE(SUM(CASE WHEN t.flow='income'  THEN t.amount ELSE 0 END), 0)
                        - COALESCE(SUM(CASE WHEN t.flow='expense' THEN t.amount ELSE 0 END), 0)
+                       + COALESCE(inb.total, 0)
                        - CASE WHEN a.type='checking'
                              THEN COALESCE(inv.net, 0)
                              ELSE 0
@@ -198,6 +202,12 @@ def get_all_accounts_with_balance() -> list[sqlite3.Row]:
                    AS balance
                FROM accounts a
                LEFT JOIN transactions t ON t.account_id = a.id
+               LEFT JOIN (
+                   SELECT dest_account_id, SUM(amount) AS total
+                   FROM transactions
+                   WHERE dest_account_id IS NOT NULL
+                   GROUP BY dest_account_id
+               ) inb ON inb.dest_account_id = a.id
                LEFT JOIN (
                    SELECT i.bank,
                           SUM(CASE WHEN im.operation='deposit' THEN im.amount ELSE -im.amount END) AS net
@@ -212,17 +222,25 @@ def get_all_accounts_with_balance() -> list[sqlite3.Row]:
 def get_account_balance(account_id: str) -> float:
     """Compute the running balance for a single account.
 
+    For checking accounts the investment net (deposits − withdrawals) is
+    subtracted because investment flows live in ``investment_movements``.
+    For credit accounts inbound fatura payments are added back so the result
+    reflects current outstanding debt rather than cumulative purchases.
+
     Args:
         account_id: Account primary key.
 
     Returns:
-        ``initial_balance + income_total − expense_total`` as a float.
+        Computed balance as a float.
     """
     with _connect() as conn:
         acc = conn.execute(
-            "SELECT initial_balance FROM accounts WHERE id = ?", (account_id,)
+            "SELECT initial_balance, type, bank FROM accounts WHERE id = ?",
+            (account_id,),
         ).fetchone()
-        initial = acc["initial_balance"] if acc else 0.0
+        if not acc:
+            return 0.0
+        initial = acc["initial_balance"]
         income = conn.execute(
             "SELECT COALESCE(SUM(amount),0) FROM transactions WHERE account_id=? AND flow='income'",
             (account_id,),
@@ -231,7 +249,23 @@ def get_account_balance(account_id: str) -> float:
             "SELECT COALESCE(SUM(amount),0) FROM transactions WHERE account_id=? AND flow='expense'",
             (account_id,),
         ).fetchone()[0]
-        return initial + income - expense
+        balance = initial + income - expense
+        if acc["type"] == "checking":
+            inv_net = conn.execute(
+                """SELECT COALESCE(SUM(CASE WHEN im.operation='deposit' THEN im.amount ELSE -im.amount END), 0)
+                   FROM investment_movements im
+                   JOIN investments i ON i.id = im.investment_id
+                   WHERE i.bank = ?""",
+                (acc["bank"],),
+            ).fetchone()[0]
+            balance -= inv_net
+        else:
+            inbound = conn.execute(
+                "SELECT COALESCE(SUM(amount),0) FROM transactions WHERE dest_account_id=?",
+                (account_id,),
+            ).fetchone()[0]
+            balance += inbound
+        return balance
 
 
 # ── Categories ────────────────────────────────────────────────────────────────
@@ -600,18 +634,22 @@ def get_credit_card_billing_info(account_id: str) -> dict:
     due_day: int     = acc["due_day"] or (billing_day + 7)
     today            = date.today()
 
+    # Find the most recent past billing date (the last closing day)
     if today.day >= billing_day:
-        cycle_start = today.replace(day=billing_day)
+        prev_billing = today.replace(day=billing_day)
     else:
         first_of_month  = today.replace(day=1)
         prev_month_last = first_of_month - timedelta(days=1)
-        cycle_start     = prev_month_last.replace(day=min(billing_day, prev_month_last.day))
+        prev_billing    = prev_month_last.replace(day=min(billing_day, prev_month_last.day))
 
-    if cycle_start.month == 12:
-        next_billing = cycle_start.replace(year=cycle_start.year + 1, month=1, day=billing_day)
+    # Cycle starts the day AFTER the previous closing day, ends ON the next closing day
+    cycle_start = prev_billing + timedelta(days=1)
+
+    if prev_billing.month == 12:
+        next_billing = prev_billing.replace(year=prev_billing.year + 1, month=1, day=billing_day)
     else:
-        next_billing = cycle_start.replace(month=cycle_start.month + 1, day=billing_day)
-    cycle_end = next_billing - timedelta(days=1)
+        next_billing = prev_billing.replace(month=prev_billing.month + 1, day=billing_day)
+    cycle_end = next_billing
 
     if next_billing.month == 12:
         due_date = next_billing.replace(year=next_billing.year + 1, month=1, day=min(due_day, 28))
