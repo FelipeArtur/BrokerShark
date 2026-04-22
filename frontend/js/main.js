@@ -266,6 +266,66 @@ function renderTransactionList(transactions) {
   }).join("");
 }
 
+// ── Monthly history table ──────────────────────────────────────────────────────
+
+function renderMonthlyHistoryTable(months) {
+  const tbody = document.getElementById("monthly-history-body");
+  const now   = new Date();
+  const curY  = now.getFullYear();
+  const curM  = now.getMonth() + 1;
+
+  tbody.innerHTML = months.map(r => {
+    const netCls  = r.net >= 0 ? "green" : "red";
+    const netSign = r.net >= 0 ? "+" : "−";
+    const isCur   = r.year === curY && r.month === curM;
+    return `
+      <tr class="mh-row${isCur ? " mh-current" : ""}"
+          data-year="${r.year}" data-month="${r.month}" tabindex="0">
+        <td class="mh-label">${r.label}${isCur ? ' <span class="mh-badge">atual</span>' : ""}</td>
+        <td class="num green">${r.income  > 0 ? fmt(r.income)  : "—"}</td>
+        <td class="num red">${r.expenses > 0 ? fmt(r.expenses) : "—"}</td>
+        <td class="num ${netCls}">${netSign}${fmt(r.net)}</td>
+      </tr>`;
+  }).join("");
+
+  tbody.querySelectorAll(".mh-row").forEach(row => {
+    row.addEventListener("click", () => {
+      const y = parseInt(row.dataset.year,  10);
+      const m = parseInt(row.dataset.month, 10);
+      jumpToMonth(y, m);
+    });
+    row.addEventListener("keydown", e => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        row.click();
+      }
+    });
+  });
+}
+
+function jumpToMonth(year, month) {
+  txFilters.year     = year;
+  txFilters.month    = month;
+  txFilters.category = "";
+
+  const val = `${year}-${String(month).padStart(2, "0")}`;
+  const monthSel = document.getElementById("tx-month-select");
+  // Add the option if it doesn't exist yet (older months beyond the initial 12)
+  if (!monthSel.querySelector(`option[value="${val}"]`)) {
+    const PT_MONTHS_SHORT = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
+    const opt = document.createElement("option");
+    opt.value       = val;
+    opt.textContent = `${PT_MONTHS_SHORT[month - 1]} ${year}`;
+    monthSel.appendChild(opt);
+  }
+  monthSel.value = val;
+
+  document.getElementById("tx-cat-select").value = "";
+  if (state.activeAccount) refreshTransactions();
+
+  document.getElementById("account-transactions").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 // ── Investments renderers ──────────────────────────────────────────────────────
 
 function renderInvestmentCards(investments) {
@@ -312,20 +372,24 @@ async function refreshAccounts() {
     show("accounts-all-grid");
     hide("account-hero");
     hide("account-charts");
+    hide("account-monthly-history");
     hide("account-transactions");
     return;
   }
 
-  const [detail] = await Promise.all([
+  const [detail, history] = await Promise.all([
     fetchAccountDetail(account),
+    fetchAccountHistory(account),
     refreshTransactions(),
   ]);
 
   renderAccountHero(detail);
+  renderMonthlyHistoryTable(history);
 
   hide("accounts-all-grid");
   show("account-hero");
   show("account-charts");
+  show("account-monthly-history");
   show("account-transactions");
 
   if (detail.type === "credit") {

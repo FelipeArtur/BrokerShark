@@ -33,3 +33,7 @@ async function fetchMonthlyByAccount(accountId) {
 async function fetchRecentTransactions(accountId, { limit = 100, month = null, year = null } = {}) {
   return fetch(`/api/transactions${_params({ account: accountId, limit, month, year })}`).then(r => r.json());
 }
+
+async function fetchAccountHistory(accountId) {
+  return fetch(`/api/account-history${_params({ account: accountId })}`).then(r => r.json());
+}

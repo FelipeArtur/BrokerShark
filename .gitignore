@@ -21,6 +21,8 @@ credentials/
 # Banco de dados
 data/
 
+load_data/
+
 # Backups
 backups/
 
