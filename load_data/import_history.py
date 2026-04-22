@@ -106,6 +106,8 @@ def _classify_nubank_extrato(description: str, valor: float) -> dict | None:
         return {"investment": True, "operation": "deposit", "amount": abs(valor)}
     if description == "Resgate RDB":
         return {"investment": True, "operation": "withdrawal", "amount": abs(valor)}
+    if "dinheiro guardado" in desc_lower:
+        return {"investment": True, "operation": "deposit", "amount": abs(valor)}
 
     if valor > 0:
         if desc_lower.startswith("transferência recebida"):
