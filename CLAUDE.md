@@ -845,6 +845,10 @@ Receitas: R$ X
 - [ ] `/comparar` — comparação lado a lado de dois períodos
 - [ ] Tendência de gastos por categoria ao longo do tempo
 
+### Phase 8b — Edição e correção de dados históricos
+- [ ] Edição de categoria por transação no dashboard (clique inline na lista de transações)
+- [ ] Ajuste manual de saldo de investimento no dashboard — necessário porque RDB/CDB rendem juros diários que não aparecem no extrato como movimentos; o saldo importado do CSV reflete apenas aportes e resgates explícitos
+
 ### Phase 9 — Smart queries (Ollama)
 - [ ] Natural language questions: "quanto gastei em jogos esse mês?"
 - [ ] Consolidated net worth (accounts + investments)

@@ -269,6 +269,23 @@ def api_account_detail(account_id: str) -> Response:
     return jsonify(result)
 
 
+@app.route("/api/account-history")
+def api_account_history() -> Response:
+    """Return the full month-by-month breakdown for a single account.
+
+    Query params:
+        account: account id (required)
+
+    Returns:
+        JSON array ordered newest first, each with
+        ``year``, ``month``, ``label``, ``income``, ``expenses``, ``net``.
+    """
+    account_id = request.args.get("account") or None
+    if not account_id or account_id not in _VALID_ACCOUNTS:
+        return jsonify({"error": "valid ?account= required"}), 400
+    return jsonify(database.get_full_monthly_history_by_account(account_id))
+
+
 @app.route("/api/transactions")
 def api_transactions() -> Response:
     """Return recent transactions for a given account.

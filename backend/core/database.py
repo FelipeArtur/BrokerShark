@@ -797,6 +797,45 @@ def get_monthly_history_by_account(account_id: str, months: int = 6) -> list[dic
     ]
 
 
+_PT_MONTHS_SHORT = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"]
+
+
+def get_full_monthly_history_by_account(account_id: str) -> list[dict]:
+    """Return income, expenses, and net for every month that has transactions.
+
+    Args:
+        account_id: Account primary key.
+
+    Returns:
+        List of dicts ordered newest first, each with
+        ``year``, ``month``, ``label``, ``income``, ``expenses``, ``net``.
+    """
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT
+                   strftime('%Y-%m', date) AS ym,
+                   COALESCE(SUM(CASE WHEN flow='income'  THEN amount ELSE 0 END), 0) AS income,
+                   COALESCE(SUM(CASE WHEN flow='expense' THEN amount ELSE 0 END), 0) AS expenses
+               FROM transactions
+               WHERE account_id = ?
+               GROUP BY ym
+               ORDER BY ym DESC""",
+            (account_id,),
+        ).fetchall()
+    result = []
+    for r in rows:
+        y, m = int(r["ym"][:4]), int(r["ym"][5:])
+        result.append({
+            "year":     y,
+            "month":    m,
+            "label":    f"{_PT_MONTHS_SHORT[m - 1]} {y}",
+            "income":   r["income"],
+            "expenses": r["expenses"],
+            "net":      r["income"] - r["expenses"],
+        })
+    return result
+
+
 def get_expenses_by_category_account(account_id: str, year: int, month: int) -> list[dict]:
     """Return expense totals grouped by category for one account in a given month.
 
