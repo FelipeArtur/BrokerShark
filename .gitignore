@@ -21,7 +21,10 @@ credentials/
 # Banco de dados
 data/
 
-load_data/
+load_data/Extrato completo Inter
+load_data/Extrato completo Nubank
+load_data/Fatura banco Inter
+load_data/Fatura Nubank
 
 # Backups
 backups/
