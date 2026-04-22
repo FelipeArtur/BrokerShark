@@ -484,13 +484,23 @@ All data endpoints accept an optional `?bank=nubank|inter` query parameter to fi
 
 ### Dashboard panels
 
-- **Tabs** — Todos | Nubank | Inter (filters all panels simultaneously)
-- **Cards** — receitas, gastos, saldo líquido, reservas (current month, filtered)
-- **Evolução 6 meses** — line chart: receitas vs gastos
-- **Faturas abertas** — Nubank Crédito and/or Inter Crédito with cycle dates and days until due
-- **Investimentos** — doughnut chart: distribution across Caixinha / Porquinho / Tesouro (filtered by bank)
-- **Gastos por categoria** — horizontal bar chart (current month, filtered)
-- **Saldo por conta** — vertical bar chart (filtered)
+**Visão Geral** (bank filter tabs: Todos | Nubank | Inter)
+- Cards: receitas, gastos, saldo líquido, reservas (current month, filtered by bank)
+- Evolução 6 meses — line chart: receitas vs gastos
+- Gastos por categoria — horizontal bar chart (current month, filtered)
+- Faturas abertas — Nubank Crédito and/or Inter Crédito with cycle dates and days until due
+
+**Contas**
+- Account pills: Todas | Nubank Crédito | Nubank Conta | Inter Crédito | Inter Conta
+- Grid view (default): all account cards with balance and type badge — clickable to drill down
+- Drill-down view (single account):
+  - Hero card: balance, monthly summary stats, billing cycle info (credit only)
+  - Chart: gastos por categoria (credit) or evolução 6 meses (checking)
+  - Transaction list with **month filter** (last 12 months, default current) and **category filter** (populated from fetched data)
+
+**Investimentos**
+- Investment cards: balance and % of total per product
+- Distribuição — doughnut chart across Caixinha / Porquinho / Tesouro
 
 Updates in real-time via SSE — dashboard reacts to any DB write in < 1s. Debounced 300ms to handle bulk CSV imports.
 
