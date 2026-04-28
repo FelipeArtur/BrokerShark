@@ -25,7 +25,13 @@ const bankFilters = {
   inter:  { month: new Date().getMonth() + 1, year: new Date().getFullYear(), category: "" }
 };
 
+const bankCcFilters = {
+  nubank: { month: new Date().getMonth() + 1, year: new Date().getFullYear(), category: "" },
+  inter:  { month: new Date().getMonth() + 1, year: new Date().getFullYear(), category: "" }
+};
+
 let _txBankCache = { nubank: [], inter: [] };
+let _txBankCcCache = { nubank: [], inter: [] };
 let _expenseCategories = [];
 
 // ── Navigation & Visibility ────────────────────────────────────────────────────
@@ -267,8 +273,11 @@ async function loadBankTransactions(bankName) {
   // Gather accounts for this bank to fetch transactions. We fetch generic 'bank' filter
   const accounts = await fetchAccounts(bankName);
   
+  // Filter for checking accounts
+  const checkingAccounts = accounts.filter(acc => acc.type === "checking");
+  
   let allTx = [];
-  for (const acc of accounts) {
+  for (const acc of checkingAccounts) {
     const txs = await fetchRecentTransactions(acc.id, { month: f.month, year: f.year });
     allTx = allTx.concat(txs);
   }
@@ -359,6 +368,7 @@ async function openCategoryEditor(el) {
   const txId  = el.dataset.txId;
   const catId = el.dataset.catId;
   const bank  = el.dataset.bank;
+  const isCc  = el.dataset.isCc === "true";
 
   const select = document.createElement("select");
   select.className = "bg-surface text-text border border-border rounded text-[11px] py-0.5 px-1 outline-none focus:border-brandBlue";
@@ -388,12 +398,14 @@ async function openCategoryEditor(el) {
     newEl.dataset.txId = txId;
     newEl.dataset.catId = String(newCatId);
     newEl.dataset.bank = bank;
+    if (isCc) newEl.dataset.isCc = "true";
     newEl.textContent = newCat?.name ?? "";
     newEl.addEventListener("click", () => openCategoryEditor(newEl));
     select.replaceWith(newEl);
 
     // Update Cache
-    const tx = _txBankCache[bank].find(t => String(t.id) === String(txId));
+    const cacheToUpdate = isCc ? _txBankCcCache[bank] : _txBankCache[bank];
+    const tx = cacheToUpdate.find(t => String(t.id) === String(txId));
     if (tx) { tx.category = newCat?.name ?? ""; tx.category_id = newCatId; }
   });
 
@@ -407,8 +419,158 @@ async function openCategoryEditor(el) {
   }
 }
 
+function renderBankFaturasTable(bankName, faturas) {
+  const tbody = document.getElementById(`${bankName}-faturas-table`);
+  if (!tbody) return;
+
+  if (!faturas.length) {
+    tbody.innerHTML = `<tr><td colspan="5" class="py-4 text-center text-muted text-sm">Nenhuma fatura encontrada.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = faturas.map(f => {
+    const d    = f.days_until_due;
+    const dueStr = d > 0  ? `Vence em ${d} dia${d > 1 ? "s" : ""}`
+                 : d === 0 ? "Vence hoje"
+                 : `Vencida há ${Math.abs(d)} dias`;
+                 
+    let statusBadge = "";
+    if (d <= 3) {
+      statusBadge = `<span class="bg-red-500/20 text-red-500 px-2 py-0.5 rounded text-xs font-bold uppercase">${dueStr}</span>`;
+    } else if (d <= 7) {
+      statusBadge = `<span class="bg-yellow-500/20 text-yellow-500 px-2 py-0.5 rounded text-xs font-bold uppercase">${dueStr}</span>`;
+    } else {
+      statusBadge = `<span class="text-muted text-xs">${dueStr}</span>`;
+    }
+
+    return `
+      <tr class="border-b border-border last:border-0 hover:bg-white/[0.02] transition-colors">
+        <td class="py-3 px-2 font-medium text-text">${f.label}</td>
+        <td class="py-3 px-2 text-muted text-xs">${f.cycle_start} - ${f.cycle_end}</td>
+        <td class="py-3 px-2 text-muted text-sm">${f.due_date}</td>
+        <td class="py-3 px-2 text-right">${statusBadge}</td>
+        <td class="py-3 px-2 text-right font-bold text-text">${fmt(f.total)}</td>
+      </tr>
+    `;
+  }).join("");
+}
+
+
+
+function renderCreditCardTransactions(bankName) {
+  const f = bankCcFilters[bankName];
+  const txs = _txBankCcCache[bankName];
+  const filtered = f.category ? txs.filter(t => t.category === f.category) : txs;
+
+  const countEl = document.getElementById(`${bankName}-cc-tx-count`);
+  if (countEl) {
+    countEl.textContent = filtered.length > 0
+      ? `${filtered.length} gasto${filtered.length === 1 ? "" : "s"}`
+      : "";
+  }
+
+  const container = document.getElementById(`${bankName}-cc-transactions-list`);
+  if (!container) return;
+
+  if (!filtered.length) {
+    container.innerHTML = `<div class="text-muted text-sm py-4 text-center">Nenhum gasto no cartão registrado</div>`;
+    return;
+  }
+
+  container.innerHTML = filtered.map(t => {
+    const amtCls = t.flow === "expense" ? "text-brandRed" : "text-brandGreen";
+    const sign   = t.flow === "expense" ? "−" : "+";
+    let catHtml  = "";
+    
+    if (t.flow === "expense") {
+      const label = t.category || "sem categoria";
+      catHtml = `<div class="text-[11px] text-muted mt-1 tx-cat editable inline-block" data-tx-id="${t.id}" data-cat-id="${t.category_id ?? ""}" data-bank="${bankName}" data-is-cc="true">${label}</div>`;
+    } else if (t.category) {
+      catHtml = `<div class="text-[11px] text-muted mt-1 inline-block bg-white/5 px-1.5 rounded">${t.category}</div>`;
+    }
+
+    return `
+      <div class="flex items-center gap-3 py-3 border-b border-border last:border-0 hover:bg-white/[0.02] transition-colors px-2 -mx-2 rounded-lg">
+        <div class="text-xs text-muted w-12 shrink-0">${fmtDate(t.date)}</div>
+        <div class="flex-1 min-w-0">
+          <div class="text-sm text-text truncate">${t.description}</div>
+          ${catHtml}
+        </div>
+        <div class="text-sm font-semibold shrink-0 ${amtCls}">${sign}${fmt(t.amount)}</div>
+      </div>`;
+  }).join("");
+
+  container.querySelectorAll(".tx-cat.editable").forEach(el => {
+    el.addEventListener("click", () => openCategoryEditor(el));
+  });
+}
+
+async function loadCreditCardTransactions(bankName) {
+  const f = bankCcFilters[bankName];
+  const accounts = await fetchAccounts(bankName);
+  
+  const creditAccounts = accounts.filter(acc => acc.type === "credit");
+  
+  let allTx = [];
+  for (const acc of creditAccounts) {
+    const txs = await fetchRecentTransactions(acc.id, { month: f.month, year: f.year });
+    allTx = allTx.concat(txs);
+  }
+  
+  allTx.sort((a,b) => new Date(b.date) - new Date(a.date));
+  _txBankCcCache[bankName] = allTx;
+
+  const cats = [...new Set(allTx.map(t => t.category).filter(Boolean))].sort();
+  const catSel = document.getElementById(`${bankName}-cc-tx-cat`);
+  if (catSel) {
+    const prevCat = catSel.value;
+    catSel.innerHTML = `<option value="">Todas as categorias</option>` +
+      cats.map(c => `<option value="${c}"${c === prevCat ? " selected" : ""}>${c}</option>`).join("");
+    if (!cats.includes(prevCat)) {
+      f.category = "";
+      catSel.value = "";
+    }
+  }
+
+  renderCreditCardTransactions(bankName);
+}
+
+function initBankCcFilters(bankName) {
+  const monthSel = document.getElementById(`${bankName}-cc-tx-month`);
+  const catSel = document.getElementById(`${bankName}-cc-tx-cat`);
+  if (!monthSel || !catSel) return;
+
+  const now = new Date();
+  let html = "";
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const m = d.getMonth() + 1;
+    const y = d.getFullYear();
+    const val = `${y}-${String(m).padStart(2, "0")}`;
+    html += `<option value="${val}"${i === 0 ? " selected" : ""}>${PT_MONTHS[m]} ${y}</option>`;
+  }
+  monthSel.innerHTML = html;
+
+  monthSel.addEventListener("change", () => {
+    const val = monthSel.value;
+    const f = bankCcFilters[bankName];
+    if (val) {
+      const [y, m] = val.split("-").map(Number);
+      f.month = m; f.year = y;
+    }
+    f.category = "";
+    catSel.value = "";
+    loadCreditCardTransactions(bankName);
+  });
+
+  catSel.addEventListener("change", e => {
+    bankCcFilters[bankName].category = e.target.value;
+    renderCreditCardTransactions(bankName);
+  });
+}
 
 // ── Refresh Dispatchers ────────────────────────────────────────────────────────
+
 
 async function refreshOverview() {
   const bank = null;
@@ -453,6 +615,7 @@ async function refreshBank(bankName) {
   renderBankHistoryTable(bankName, historyTableData);
   
   await loadBankTransactions(bankName);
+  await loadCreditCardTransactions(bankName);
 }
 
 async function refreshInvestments() {
@@ -519,5 +682,7 @@ function initSSE() {
 initSectionNav();
 initBankFilters("nubank");
 initBankFilters("inter");
+initBankCcFilters("nubank");
+initBankCcFilters("inter");
 initSSE();
 refresh();

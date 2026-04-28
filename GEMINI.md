@@ -145,13 +145,13 @@ CREATE TABLE transactions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   date TEXT NOT NULL,
   flow TEXT NOT NULL,          -- expense | income
-  method TEXT NOT NULL,        -- expense: pix|credit|ted  income: salary|freelance|pix_received|transfer|other
+  method TEXT NOT NULL,        -- expense: pix|credit|ted|transfer  income: salary|freelance|pix_received|other
   account_id TEXT NOT NULL,
   amount REAL NOT NULL,
   installments INTEGER DEFAULT 1,
   description TEXT NOT NULL,
   category_id INTEGER,         -- required for expenses, null for income
-  dest_account_id TEXT,        -- internal transfers only
+  dest_account_id TEXT,        -- set for internal transfers (fatura payments: nu-db→nu-cc, inter-db→inter-cc; inter-account transfers: nu-db↔inter-db)
   counterpart TEXT,            -- sender/recipient name (external PIX)
   FOREIGN KEY (account_id) REFERENCES accounts(id),
   FOREIGN KEY (dest_account_id) REFERENCES accounts(id),
@@ -235,6 +235,7 @@ Follow these rules strictly when writing or modifying code:
 - **Bot never writes to DB directly:** Data collected by `ConversationHandler` flows are validated before any INSERT is delegated to `core/database.py`.
 - **Authorization check first:** Every incoming Telegram message handler must verify `chat_id` before any processing.
 - **SQLite pragmas:** `PRAGMA journal_mode=WAL` and `PRAGMA foreign_keys=ON` are mandatory at connection time.
+- **Internal transfers are not income:** A transfer between own accounts (Nubank → Inter) is stored as `flow='expense'`, `method='transfer'`, `dest_account_id=<destination>`. The destination balance is credited via the `inbound` subquery in `get_account_balance`. All summary queries filter `AND dest_account_id IS NULL` so transfers never appear in income or expense totals. Never record an internal transfer as `flow='income'`.
 
 ---
 

@@ -111,7 +111,6 @@
 
 </section>
 
-
 <!-- ── SEÇÃO: NUBANK ──────────────────────────────────────────────────── -->
 <section id="section-nubank" class="hidden">
   
@@ -166,8 +165,24 @@
     </div>
   </div>
 
-</section>
+  <!-- Gastos do Cartão (Nubank) -->
+  <div class="grid grid-cols-1 gap-4 mt-6">
+    <div class="bg-surface border border-border rounded-2xl p-5 shadow-sm flex flex-col">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+        <div class="text-xs text-muted uppercase tracking-wider font-semibold">Gastos do Cartão de Crédito</div>
+        <div class="flex flex-wrap gap-2" id="nubank-cc-tx-filters">
+          <select id="nubank-cc-tx-month" class="bg-bg border border-border rounded-lg px-2 py-1.5 text-xs text-text focus:outline-none focus:border-brandBlue"></select>
+          <select id="nubank-cc-tx-cat" class="bg-bg border border-border rounded-lg px-2 py-1.5 text-xs text-text focus:outline-none focus:border-brandBlue">
+            <option value="">Todas as categorias</option>
+          </select>
+        </div>
+      </div>
+      <div class="text-xs text-muted mb-2" id="nubank-cc-tx-count"></div>
+      <div id="nubank-cc-transactions-list" class="flex-1 overflow-y-auto max-h-[400px] pr-2"></div>
+    </div>
+  </div>
 
+</section>
 
 <!-- ── SEÇÃO: INTER ───────────────────────────────────────────────────── -->
 <section id="section-inter" class="hidden">
@@ -223,8 +238,24 @@
     </div>
   </div>
 
-</section>
+  <!-- Gastos do Cartão (Inter) -->
+  <div class="grid grid-cols-1 gap-4 mt-6">
+    <div class="bg-surface border border-border rounded-2xl p-5 shadow-sm flex flex-col">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+        <div class="text-xs text-muted uppercase tracking-wider font-semibold">Gastos do Cartão de Crédito</div>
+        <div class="flex flex-wrap gap-2" id="inter-cc-tx-filters">
+          <select id="inter-cc-tx-month" class="bg-bg border border-border rounded-lg px-2 py-1.5 text-xs text-text focus:outline-none focus:border-brandBlue"></select>
+          <select id="inter-cc-tx-cat" class="bg-bg border border-border rounded-lg px-2 py-1.5 text-xs text-text focus:outline-none focus:border-brandBlue">
+            <option value="">Todas as categorias</option>
+          </select>
+        </div>
+      </div>
+      <div class="text-xs text-muted mb-2" id="inter-cc-tx-count"></div>
+      <div id="inter-cc-transactions-list" class="flex-1 overflow-y-auto max-h-[400px] pr-2"></div>
+    </div>
+  </div>
 
+</section>
 
 <!-- ── SEÇÃO: INVESTIMENTOS ───────────────────────────────────────────── -->
 <section id="section-investments" class="hidden">
