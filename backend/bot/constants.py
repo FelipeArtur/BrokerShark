@@ -6,8 +6,9 @@ Every handler module imports its required constants from this file.
 Expense flow states (0–6):
     ACCOUNT → AMOUNT → INSTALLMENTS → DESCRIPTION → DATE → CATEGORY → CONFIRMATION
 
-Income flow states (10–15):
+Income flow states (10–17):
     TYPE → BANK → AMOUNT → DESCRIPTION → DATE → CONFIRMATION
+    Transfer sub-flow: TYPE → TRANSFER_FROM → TRANSFER_TO → AMOUNT → DATE → CONFIRMATION
 
 Investment flow states (20–25):
     OPERATION → DESTINATION → AMOUNT → DESCRIPTION → DATE → CONFIRMATION
@@ -32,7 +33,7 @@ from bot.parsers import nubank_cc, inter_cc
     EXP_CONFIRMATION,
 ) = range(7)
 
-# ── Income flow (10–15) ───────────────────────────────────────────────────────
+# ── Income flow (10–17) ───────────────────────────────────────────────────────
 (
     INC_TYPE,
     INC_BANK,
@@ -40,7 +41,9 @@ from bot.parsers import nubank_cc, inter_cc
     INC_DESCRIPTION,
     INC_DATE,
     INC_CONFIRMATION,
-) = range(10, 16)
+    INC_TRANSFER_FROM,  # transfer sub-flow: source account selection
+    INC_TRANSFER_TO,    # transfer sub-flow: destination account selection
+) = range(10, 18)
 
 # ── Investment flow (20–25) ───────────────────────────────────────────────────
 (

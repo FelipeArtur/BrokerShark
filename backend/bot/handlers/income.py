@@ -20,6 +20,8 @@ from bot.constants import (
     INC_CONFIRMATION,
     INC_DATE,
     INC_DESCRIPTION,
+    INC_TRANSFER_FROM,
+    INC_TRANSFER_TO,
     INC_TYPE,
 )
 from bot.handlers.commands import cancel
@@ -33,10 +35,20 @@ _METHOD_LABELS: dict[str, str] = {
     "other":        "Outro",
 }
 
+_ACCOUNT_LABELS: dict[str, str] = {
+    "nu-db":    "Nubank Conta",
+    "inter-db": "Inter Conta",
+}
+
 _DATE_KB = InlineKeyboardMarkup([[
     InlineKeyboardButton("Hoje",       callback_data="date_hoje"),
     InlineKeyboardButton("Ontem",      callback_data="date_ontem"),
     InlineKeyboardButton("Outra data", callback_data="date_outra"),
+]])
+
+_CONFIRM_KB = InlineKeyboardMarkup([[
+    InlineKeyboardButton("Confirmar", callback_data="inc_confirm"),
+    InlineKeyboardButton("Cancelar",  callback_data="inc_cancel"),
 ]])
 
 
@@ -45,18 +57,59 @@ async def income_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     await query.answer()
     keyboard = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("Salário",      callback_data="inc_salary"),
-            InlineKeyboardButton("Freela",        callback_data="inc_freelance"),
+            InlineKeyboardButton("Salário",       callback_data="inc_salary"),
+            InlineKeyboardButton("Freela",         callback_data="inc_freelance"),
         ],
         [
-            InlineKeyboardButton("PIX recebido", callback_data="inc_pix_received"),
-            InlineKeyboardButton("Transferência", callback_data="inc_transfer"),
+            InlineKeyboardButton("PIX recebido",  callback_data="inc_pix_received"),
+            InlineKeyboardButton("Transferência",  callback_data="inc_transfer"),
         ],
         [InlineKeyboardButton("Outro", callback_data="inc_other")],
     ])
     await query.edit_message_text("O que você recebeu?", reply_markup=keyboard)
     return INC_TYPE
 
+
+# ── Transfer sub-flow ─────────────────────────────────────────────────────────
+
+async def transfer_from_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """First step of internal transfer: ask for source account."""
+    query = update.callback_query
+    await query.answer()
+    context.user_data["is_transfer"] = True
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton("Nubank Conta", callback_data="tr_from_nubank"),
+        InlineKeyboardButton("Inter Conta",  callback_data="tr_from_inter"),
+    ]])
+    await query.edit_message_text("De qual conta?", reply_markup=keyboard)
+    return INC_TRANSFER_FROM
+
+
+async def transfer_to_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Second step of internal transfer: ask for destination account."""
+    query = update.callback_query
+    await query.answer()
+    from_bank = query.data.replace("tr_from_", "")
+    context.user_data["transfer_from_id"] = "nu-db" if from_bank == "nubank" else "inter-db"
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton("Nubank Conta", callback_data="tr_to_nubank"),
+        InlineKeyboardButton("Inter Conta",  callback_data="tr_to_inter"),
+    ]])
+    await query.edit_message_text("Para qual conta?", reply_markup=keyboard)
+    return INC_TRANSFER_TO
+
+
+async def transfer_amount_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Third step of internal transfer: ask for amount."""
+    query = update.callback_query
+    await query.answer()
+    to_bank = query.data.replace("tr_to_", "")
+    context.user_data["transfer_to_id"] = "nu-db" if to_bank == "nubank" else "inter-db"
+    await query.edit_message_text("Qual o valor? (ex: 1400,00)")
+    return INC_AMOUNT
+
+
+# ── Regular income flow ───────────────────────────────────────────────────────
 
 async def income_bank(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
@@ -89,6 +142,16 @@ async def income_description(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("Valor inválido. Tente novamente.")
         return INC_AMOUNT
     context.user_data["inc_amount"] = amount
+
+    if context.user_data.get("is_transfer"):
+        from_id = context.user_data["transfer_from_id"]
+        to_id   = context.user_data["transfer_to_id"]
+        context.user_data["inc_description"] = (
+            f"Transferência {_ACCOUNT_LABELS[from_id]} → {_ACCOUNT_LABELS[to_id]}"
+        )
+        await update.message.reply_text("Quando foi a transferência?", reply_markup=_DATE_KB)
+        return INC_DATE
+
     await update.message.reply_text('De onde veio? (ex: "Empresa X", "João", "Projeto site")')
     return INC_DESCRIPTION
 
@@ -113,7 +176,7 @@ async def income_date_choice(update: Update, context: ContextTypes.DEFAULT_TYPE)
     d = today if query.data == "date_hoje" else today - timedelta(days=1)
     context.user_data["inc_date"] = d.strftime("%Y-%m-%d")
     context.user_data["inc_date_display"] = d.strftime("%d/%m/%Y")
-    await _show_income_confirmation_edit(query, context)
+    await _show_confirmation_edit(query, context)
     return INC_CONFIRMATION
 
 
@@ -128,35 +191,23 @@ async def income_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return INC_DATE
     context.user_data["inc_date"], context.user_data["inc_date_display"] = parsed
-    await _show_income_confirmation_reply(update, context)
+    await _show_confirmation_reply(update, context)
     return INC_CONFIRMATION
 
 
-async def _show_income_confirmation_edit(query, context: ContextTypes.DEFAULT_TYPE) -> None:
-    d = context.user_data
-    method_label = _METHOD_LABELS.get(d["inc_method"], d["inc_method"])
+# ── Confirmation helpers ──────────────────────────────────────────────────────
+
+def _build_confirm_text(d: dict) -> str:
+    if d.get("is_transfer"):
+        return (
+            f"Confirma a transferência?\n\n"
+            f"De:    {_ACCOUNT_LABELS[d['transfer_from_id']]}\n"
+            f"Para:  {_ACCOUNT_LABELS[d['transfer_to_id']]}\n"
+            f"Valor: {_fmt_brl(d['inc_amount'])}\n"
+            f"Data:  {d['inc_date_display']}"
+        )
+    method_label  = _METHOD_LABELS.get(d["inc_method"], d["inc_method"])
     account_label = "Nubank Conta" if d["inc_bank"] == "nubank" else "Inter Conta"
-    text = _income_confirm_text(d, method_label, account_label)
-    keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton("Confirmar", callback_data="inc_confirm"),
-        InlineKeyboardButton("Cancelar",  callback_data="inc_cancel"),
-    ]])
-    await query.edit_message_text(text, reply_markup=keyboard)
-
-
-async def _show_income_confirmation_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    d = context.user_data
-    method_label = _METHOD_LABELS.get(d["inc_method"], d["inc_method"])
-    account_label = "Nubank Conta" if d["inc_bank"] == "nubank" else "Inter Conta"
-    text = _income_confirm_text(d, method_label, account_label)
-    keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton("Confirmar", callback_data="inc_confirm"),
-        InlineKeyboardButton("Cancelar",  callback_data="inc_cancel"),
-    ]])
-    await update.message.reply_text(text, reply_markup=keyboard)
-
-
-def _income_confirm_text(d: dict, method_label: str, account_label: str) -> str:
     return (
         f"Confirma o registro?\n\n"
         f"Tipo:  {method_label}\n"
@@ -167,8 +218,18 @@ def _income_confirm_text(d: dict, method_label: str, account_label: str) -> str:
     )
 
 
+async def _show_confirmation_edit(query, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await query.edit_message_text(_build_confirm_text(context.user_data), reply_markup=_CONFIRM_KB)
+
+
+async def _show_confirmation_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text(_build_confirm_text(context.user_data), reply_markup=_CONFIRM_KB)
+
+
+# ── Save ──────────────────────────────────────────────────────────────────────
+
 async def income_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Persist the income and notify the user."""
+    """Persist the income (or internal transfer) and notify the user."""
     query = update.callback_query
     await query.answer()
 
@@ -178,6 +239,30 @@ async def income_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         return ConversationHandler.END
 
     d = context.user_data
+
+    if d.get("is_transfer"):
+        # Internal transfer: single expense row on the source account with dest_account_id set.
+        # Balance queries credit the destination via the inbound subquery automatically.
+        # Summary queries exclude it via AND dest_account_id IS NULL — not counted as income or expense.
+        database.insert_transaction(
+            date=d["inc_date"],
+            flow="expense",
+            method="transfer",
+            account_id=d["transfer_from_id"],
+            amount=d["inc_amount"],
+            description=d["inc_description"],
+            dest_account_id=d["transfer_to_id"],
+        )
+        text = (
+            f"Transferência registrada!\n\n"
+            f"{_fmt_brl(d['inc_amount'])}\n"
+            f"{_ACCOUNT_LABELS[d['transfer_from_id']]} → {_ACCOUNT_LABELS[d['transfer_to_id']]}\n"
+            f"{d['inc_date_display']}"
+        )
+        await query.edit_message_text(text)
+        context.user_data.clear()
+        return ConversationHandler.END
+
     tx_id = database.insert_transaction(
         date=d["inc_date"],
         flow="income",
@@ -223,8 +308,15 @@ def build_income_handler() -> ConversationHandler:
             INC_TYPE: [
                 CallbackQueryHandler(
                     income_bank,
-                    pattern="^inc_(salary|freelance|pix_received|transfer|other)$",
+                    pattern="^inc_(salary|freelance|pix_received|other)$",
                 ),
+                CallbackQueryHandler(transfer_from_handler, pattern="^inc_transfer$"),
+            ],
+            INC_TRANSFER_FROM: [
+                CallbackQueryHandler(transfer_to_handler, pattern="^tr_from_(nubank|inter)$"),
+            ],
+            INC_TRANSFER_TO: [
+                CallbackQueryHandler(transfer_amount_handler, pattern="^tr_to_(nubank|inter)$"),
             ],
             INC_BANK: [
                 CallbackQueryHandler(income_amount, pattern="^inc_bank_(nubank|inter)$"),

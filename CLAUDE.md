@@ -299,10 +299,16 @@ If monthly expenses ≥ income, the bot immediately follows with a proactive ale
 
 ### Flow 2 — Income Registration
 
-**Conversation states:**
+**Conversation states (external income):**
 ```
 INCOME_TYPE → BANK → AMOUNT → DESCRIPTION → DATE → CONFIRMATION
 ```
+
+**Conversation states (internal transfer — "Transferência" option):**
+```
+INCOME_TYPE → TRANSFER_FROM → TRANSFER_TO → AMOUNT → DATE → CONFIRMATION
+```
+
 `DATE` accepts quick buttons (Hoje/Ontem) or typed input after "Outra data".
 
 **Step 1 — Income type**
@@ -314,7 +320,10 @@ O que você recebeu?
 [ Outro ]
 ```
 
-**Step 2 — Bank**
+"Transferência" enters a dedicated sub-flow for internal transfers between own accounts (see below).
+All other options continue the regular income flow.
+
+**Step 2 — Bank** *(regular income only)*
 ```
 Em qual conta caiu?
 [ Nubank ]  [ Inter ]
@@ -326,7 +335,7 @@ Income always goes into checking accounts: Nubank → `nu-db` ("Nubank Conta"), 
 Qual o valor recebido? (ex: 3500,00)
 ```
 
-**Step 4 — Description**
+**Step 4 — Description** *(regular income only — skipped for transfers)*
 ```
 De onde veio? (ex: "Empresa X", "João", "Projeto site")
 ```
@@ -358,6 +367,62 @@ Salário — R$ 3.500,00
 Empresa X · Nubank Conta
 17/04/2026
 ```
+
+---
+
+#### Internal Transfer Sub-flow
+
+Transfers between own accounts (e.g., Nubank → Inter) are **not income**. They do not affect
+income or expense totals — they only move balance between accounts.
+
+**Step 2 — Source account**
+```
+De qual conta?
+[ Nubank Conta ]  [ Inter Conta ]
+```
+
+**Step 3 — Destination account**
+```
+Para qual conta?
+[ Nubank Conta ]  [ Inter Conta ]
+```
+
+**Step 4 — Amount**
+```
+Qual o valor? (ex: 1400,00)
+```
+
+**Step 5 — Date**
+```
+Quando foi a transferência?
+[ Hoje ]  [ Ontem ]  [ Outra data ]
+```
+
+**Step 6 — Confirmation**
+```
+Confirma a transferência?
+
+De:    Nubank Conta
+Para:  Inter Conta
+Valor: R$ 1.400,00
+Data:  26/04/2026
+
+[ Confirmar ]  [ Cancelar ]
+```
+
+**After confirmation**
+```
+Transferência registrada!
+
+R$ 1.400,00
+Nubank Conta → Inter Conta
+26/04/2026
+```
+
+Stored as: `flow='expense'`, `method='transfer'`, `account_id=<source>`, `dest_account_id=<destination>`.
+The destination balance is credited automatically by the `inbound` subquery in `get_account_balance`.
+Internal transfers are excluded from income/expense summaries via `AND dest_account_id IS NULL`.
+Not sent to Google Sheets (internal rebalancing, not a real financial event).
 
 ---
 
@@ -544,13 +609,13 @@ CREATE TABLE transactions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   date TEXT NOT NULL,
   flow TEXT NOT NULL,          -- expense | income
-  method TEXT NOT NULL,        -- expense: pix|credit|ted  income: salary|freelance|pix_received|transfer|other
+  method TEXT NOT NULL,        -- expense: pix|credit|ted|transfer  income: salary|freelance|pix_received|other
   account_id TEXT NOT NULL,
   amount REAL NOT NULL,
   installments INTEGER DEFAULT 1,
   description TEXT NOT NULL,
   category_id INTEGER,         -- required for expenses, null for income
-  dest_account_id TEXT,        -- internal transfers only
+  dest_account_id TEXT,        -- set for internal transfers (fatura payments: nu-db→nu-cc, inter-db→inter-cc; inter-account transfers: nu-db↔inter-db)
   counterpart TEXT,            -- sender/recipient name (external PIX)
   FOREIGN KEY (account_id) REFERENCES accounts(id),
   FOREIGN KEY (dest_account_id) REFERENCES accounts(id),
@@ -782,6 +847,8 @@ Receitas: R$ X
 | Dashboard is read-only | Never writes to SQLite — only reads via Flask endpoints |
 | Ollama excluded from the registration flow | Buttons replace language model parsing for the MVP |
 | Authentication by chat_id | Single-user personal bot — simple and sufficient |
+| Internal transfers stored as expense+dest_account_id, not as income | A transfer from Nubank to Inter is not real income — storing it as income would double-count the salary. A single expense row on the source with `dest_account_id` set credits the destination via the `inbound` subquery; all six summary queries already filter `AND dest_account_id IS NULL`, so transfers never appear in income or expense totals. |
+| Internal transfers not sent to Google Sheets | They are internal rebalancing events, not real financial transactions — mirroring them would pollute the Sheets backup with noise. |
 
 ---
 
@@ -853,6 +920,12 @@ Receitas: R$ X
 ### Phase 7 — Reestruturação do dashboard ✅ DONE
 - [x] Visão por conta individual com drill-down (saldo + evolução mensal + últimas transações)
 - [x] Histórico de transações com filtros: mês/ano (backend) e categoria (frontend)
+
+### Phase 7b — Correção de lógica fundamental ✅ DONE
+- [x] Transferências entre contas próprias não computam como receita
+- [x] "Transferência" no menu de recebimentos abre sub-fluxo dedicado: De qual conta? → Para qual conta? → Valor → Data
+- [x] Armazenado como `flow='expense'`, `method='transfer'`, `dest_account_id=<destino>` — excluído de todos os summaries via `AND dest_account_id IS NULL`
+- [x] Saldo da conta destino creditado automaticamente pela subquery `inbound` em `get_account_balance`
 
 ### Phase 8 — Serviço systemd + Histórico comparativo
 - [ ] Serviço systemd para autostart no boot (brokershark.service)
