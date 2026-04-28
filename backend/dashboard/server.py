@@ -286,6 +286,34 @@ def api_account_history() -> Response:
     return jsonify(database.get_full_monthly_history_by_account(account_id))
 
 
+@app.route("/api/expense-categories")
+def api_expense_categories() -> Response:
+    """Return all expense categories for the inline category editor.
+
+    Returns:
+        JSON array of ``{id, name}`` objects ordered by id.
+    """
+    return jsonify(database.get_expense_categories())
+
+
+@app.route("/api/transactions/<int:transaction_id>", methods=["PATCH"])
+def api_patch_transaction(transaction_id: int) -> Response:
+    """Update the category of a single transaction.
+
+    Request body (JSON):
+        category_id: integer — primary key of the target category.
+
+    Returns:
+        ``{"ok": true}`` on success, error JSON on failure.
+    """
+    data = request.get_json(silent=True) or {}
+    category_id = data.get("category_id")
+    if not isinstance(category_id, int):
+        return jsonify({"error": "category_id must be an integer"}), 400
+    database.update_transaction_category(transaction_id, category_id)
+    return jsonify({"ok": True})
+
+
 @app.route("/api/transactions")
 def api_transactions() -> Response:
     """Return recent transactions for a given account.

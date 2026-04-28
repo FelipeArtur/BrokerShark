@@ -249,7 +249,11 @@ def get_account_balance(account_id: str) -> float:
             "SELECT COALESCE(SUM(amount),0) FROM transactions WHERE account_id=? AND flow='expense'",
             (account_id,),
         ).fetchone()[0]
-        balance = initial + income - expense
+        inbound = conn.execute(
+            "SELECT COALESCE(SUM(amount),0) FROM transactions WHERE dest_account_id=?",
+            (account_id,),
+        ).fetchone()[0]
+        balance = initial + income - expense + inbound
         if acc["type"] == "checking":
             inv_net = conn.execute(
                 """SELECT COALESCE(SUM(CASE WHEN im.operation='deposit' THEN im.amount ELSE -im.amount END), 0)
@@ -259,12 +263,6 @@ def get_account_balance(account_id: str) -> float:
                 (acc["bank"],),
             ).fetchone()[0]
             balance -= inv_net
-        else:
-            inbound = conn.execute(
-                "SELECT COALESCE(SUM(amount),0) FROM transactions WHERE dest_account_id=?",
-                (account_id,),
-            ).fetchone()[0]
-            balance += inbound
         return balance
 
 
@@ -539,7 +537,7 @@ def get_monthly_summary(year: int, month: int, bank: Optional[str] = None) -> di
             (start, end, *p),
         ).fetchone()[0]
         income = conn.execute(
-            f"SELECT COALESCE(SUM(t.amount),0) FROM transactions t {j} WHERE t.flow='income' AND t.date BETWEEN ? AND ? {b}",
+            f"SELECT COALESCE(SUM(t.amount),0) FROM transactions t {j} WHERE t.flow='income' AND t.dest_account_id IS NULL AND (t.counterpart IS NULL OR t.counterpart != 'SELF') AND t.date BETWEEN ? AND ? {b}",
             (start, end, *p),
         ).fetchone()[0]
         top_category = conn.execute(
@@ -714,7 +712,7 @@ def get_monthly_history(months: int = 6, bank: Optional[str] = None) -> list[dic
             f"""SELECT
                    strftime('%Y-%m', t.date) AS ym,
                    COALESCE(SUM(CASE WHEN t.flow='expense' AND t.dest_account_id IS NULL THEN t.amount ELSE 0 END), 0) AS expenses,
-                   COALESCE(SUM(CASE WHEN t.flow='income'  THEN t.amount ELSE 0 END), 0) AS income
+                   COALESCE(SUM(CASE WHEN t.flow='income' AND t.dest_account_id IS NULL AND (t.counterpart IS NULL OR t.counterpart != 'SELF') THEN t.amount ELSE 0 END), 0) AS income
                FROM transactions t
                {j}
                WHERE t.date BETWEEN ? AND ? {b}
@@ -780,7 +778,7 @@ def get_account_monthly_summary(account_id: str, year: int, month: int) -> dict:
             (account_id, start, end),
         ).fetchone()[0]
         income = conn.execute(
-            "SELECT COALESCE(SUM(amount),0) FROM transactions WHERE account_id=? AND flow='income' AND date BETWEEN ? AND ?",
+            "SELECT COALESCE(SUM(amount),0) FROM transactions WHERE account_id=? AND flow='income' AND dest_account_id IS NULL AND (counterpart IS NULL OR counterpart != 'SELF') AND date BETWEEN ? AND ?",
             (account_id, start, end),
         ).fetchone()[0]
         top_category = conn.execute(
@@ -829,7 +827,7 @@ def get_monthly_history_by_account(account_id: str, months: int = 6) -> list[dic
             """SELECT
                    strftime('%Y-%m', date) AS ym,
                    COALESCE(SUM(CASE WHEN flow='expense' AND dest_account_id IS NULL THEN amount ELSE 0 END), 0) AS expenses,
-                   COALESCE(SUM(CASE WHEN flow='income'  THEN amount ELSE 0 END), 0) AS income
+                   COALESCE(SUM(CASE WHEN flow='income' AND dest_account_id IS NULL AND (counterpart IS NULL OR counterpart != 'SELF') THEN amount ELSE 0 END), 0) AS income
                FROM transactions
                WHERE account_id=? AND date BETWEEN ? AND ?
                GROUP BY ym""",
@@ -863,7 +861,7 @@ def get_full_monthly_history_by_account(account_id: str) -> list[dict]:
         rows = conn.execute(
             """SELECT
                    strftime('%Y-%m', date) AS ym,
-                   COALESCE(SUM(CASE WHEN flow='income'  THEN amount ELSE 0 END), 0) AS income,
+                   COALESCE(SUM(CASE WHEN flow='income' AND dest_account_id IS NULL AND (counterpart IS NULL OR counterpart != 'SELF') THEN amount ELSE 0 END), 0) AS income,
                    COALESCE(SUM(CASE WHEN flow='expense' AND dest_account_id IS NULL THEN amount ELSE 0 END), 0) AS expenses
                FROM transactions
                WHERE account_id = ?
@@ -926,11 +924,13 @@ def get_recent_transactions(
 
     Returns:
         List of dicts ordered newest first, each containing
-        ``date``, ``description``, ``category``, ``amount``, ``flow``.
+        ``id``, ``date``, ``description``, ``category``, ``category_id``,
+        ``amount``, ``flow``.
     """
     limit = min(limit, 200)
     query = """
-        SELECT t.date, t.description, t.amount, t.flow, c.name AS category
+        SELECT t.id, t.date, t.description, t.amount, t.flow,
+               t.category_id, c.name AS category
         FROM transactions t
         LEFT JOIN categories c ON c.id = t.category_id
         WHERE t.account_id = ?
@@ -948,14 +948,43 @@ def get_recent_transactions(
         rows = conn.execute(query, params).fetchall()
     return [
         {
-            "date": r["date"],
+            "id":          r["id"],
+            "date":        r["date"],
             "description": r["description"],
-            "amount": r["amount"],
-            "flow": r["flow"],
-            "category": r["category"],
+            "amount":      r["amount"],
+            "flow":        r["flow"],
+            "category_id": r["category_id"],
+            "category":    r["category"],
         }
         for r in rows
     ]
+
+
+def get_expense_categories() -> list[dict]:
+    """Return all expense categories ordered by id.
+
+    Returns:
+        List of ``{"id": int, "name": str}`` dicts.
+    """
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT id, name FROM categories WHERE flow = 'expense' ORDER BY id",
+        ).fetchall()
+    return [{"id": r["id"], "name": r["name"]} for r in rows]
+
+
+def update_transaction_category(transaction_id: int, category_id: int) -> None:
+    """Update the category of a single transaction.
+
+    Args:
+        transaction_id: Primary key of the transaction to update.
+        category_id:    Primary key of the target category.
+    """
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE transactions SET category_id = ? WHERE id = ?",
+            (category_id, transaction_id),
+        )
 
 
 def get_investment_movements_by_period(start_date: str, end_date: str) -> list[dict]:

@@ -110,6 +110,24 @@ def _classify_nubank_extrato(description: str, valor: float) -> dict | None:
         return {"investment": True, "operation": "deposit", "amount": abs(valor)}
 
     if valor > 0:
+        # Self-transfer received from own Inter account — skip (inb.total handles balance)
+        if "felipe artur macedo" in desc_lower and "banco inter" in desc_lower:
+            return None
+        # Self-transfer from any own account — keep as income for balance, mark counterpart
+        if "felipe artur macedo" in desc_lower:
+            if desc_lower.startswith("transferência recebida"):
+                method = "pix_received"
+            else:
+                method = "other"
+            return {
+                "flow": "income",
+                "method": method,
+                "account_id": "nu-db",
+                "amount": valor,
+                "category_name": "PIX recebido",
+                "category_flow": "income",
+                "counterpart": "SELF",
+            }
         if desc_lower.startswith("transferência recebida"):
             method = "pix_received"
             category = "PIX recebido"
@@ -126,6 +144,17 @@ def _classify_nubank_extrato(description: str, valor: float) -> dict | None:
         }
 
     if valor < 0:
+        # Self-transfer sent to own Inter account
+        if "felipe artur macedo" in desc_lower and "banco inter" in desc_lower:
+            return {
+                "flow": "expense",
+                "method": "transfer",
+                "account_id": "nu-db",
+                "amount": abs(valor),
+                "dest_account_id": "inter-db",
+                "category_name": None,
+                "category_flow": None,
+            }
         if desc_lower.startswith("transferência enviada pelo pix"):
             method = "pix"
         elif desc_lower.startswith("transferência enviada"):
@@ -202,6 +231,7 @@ def import_nubank_extrato(data_dir: Path) -> tuple[int, int, int]:
                 account_id    = result["account_id"]
                 amount        = result["amount"]
                 dest_account  = result.get("dest_account_id")
+                counterpart   = result.get("counterpart")
                 cat_key       = (result["category_name"], result["category_flow"])
                 category_id   = None
                 if cat_key != (None, None):
@@ -223,6 +253,7 @@ def import_nubank_extrato(data_dir: Path) -> tuple[int, int, int]:
                     installments=1,
                     category_id=category_id,
                     dest_account_id=dest_account,
+                    counterpart=counterpart,
                 )
                 imported += 1
 
@@ -298,6 +329,9 @@ def _classify_inter_extrato(description: str, valor: float) -> dict | None:
         return {"investment": True, "operation": "withdrawal", "amount": abs(valor)}
 
     if valor > 0:
+        # Self-transfer received from own Nubank account — skip (inb.total handles balance)
+        if "felipe artur macedo" in desc_lower:
+            return None
         if desc_lower.startswith("pix recebido"):
             method = "pix_received"
             category = "PIX recebido"
@@ -314,6 +348,17 @@ def _classify_inter_extrato(description: str, valor: float) -> dict | None:
         }
 
     if valor < 0:
+        # Self-transfer sent to own Nubank account
+        if "felipe artur macedo" in desc_lower:
+            return {
+                "flow": "expense",
+                "method": "transfer",
+                "account_id": "inter-db",
+                "amount": abs(valor),
+                "dest_account_id": "nu-db",
+                "category_name": None,
+                "category_flow": None,
+            }
         if desc_lower.startswith("pix enviado"):
             method = "pix"
         else:

@@ -1,5 +1,20 @@
 # BrokerShark — Claude Reference Guide
 
+## AI Development Tools
+
+This project is co-developed using **Claude Code CLI** and **Gemini CLI**.
+
+| File | Purpose |
+|---|---|
+| `CLAUDE.md` | Full source of truth — architecture, flows, roadmap, design decisions (Claude Code) |
+| `GEMINI.md` | Concise context guide for Gemini CLI — architecture summary + engineering directives |
+| `.claude/commands/` | Claude Code slash-command skills (`/db-reset`, `/add-category`, etc.) |
+| `.gemini/commands/` | Gemini CLI slash-command skills (mirrors `.claude/commands/`) |
+
+When making permanent changes (new categories, new accounts, schema changes), update **both** `CLAUDE.md` and `GEMINI.md` to keep them in sync.
+
+---
+
 ## Overview
 
 BrokerShark is a personal finance assistant accessible via **Telegram**, running **100% locally** on Linux.

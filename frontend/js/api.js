@@ -37,3 +37,17 @@ async function fetchRecentTransactions(accountId, { limit = 100, month = null, y
 async function fetchAccountHistory(accountId) {
   return fetch(`/api/account-history${_params({ account: accountId })}`).then(r => r.json());
 }
+
+async function fetchExpenseCategories() {
+  return fetch("/api/expense-categories").then(r => r.json());
+}
+
+async function patchTransactionCategory(txId, categoryId) {
+  const res = await fetch(`/api/transactions/${txId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ category_id: categoryId }),
+  });
+  if (!res.ok) throw new Error("failed");
+  return res.json();
+}
