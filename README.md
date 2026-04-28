@@ -8,7 +8,7 @@ BrokerShark is a personal project I built to simplify how I track my daily finan
 
 A local web dashboard (Flask + Chart.js) runs alongside the bot for visual analysis and real-time updates.
 
-This project also serves as a practical testbed for using **Claude** as an engineering assistant throughout the entire development process, from architecture decisions to code generation.
+This project also serves as a practical testbed for using **Claude** and **Gemini** as engineering assistants throughout the entire development process, from architecture decisions to code generation.
 
 ## What it does
 
@@ -58,4 +58,4 @@ python backend/main.py
 
 ## Development
 
-This project was developed with [Claude](https://claude.ai/claude-code) as a coding assistant. Architecture decisions, data models, conversation flows, and implementation details are documented in [`CLAUDE.md`](./CLAUDE.md).
+This project was developed with [Claude](https://claude.ai/claude-code) and [Gemini CLI](https://github.com/google-gemini/gemini-cli) as coding assistants. Architecture decisions, data models, and implementation details are documented in [`CLAUDE.md`](./CLAUDE.md) (Claude) and [`GEMINI.md`](./GEMINI.md) (Gemini).

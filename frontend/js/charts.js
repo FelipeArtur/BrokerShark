@@ -8,9 +8,23 @@ const GRID_COLOR  = "#2a2d3a";
 const MUTED_COLOR = "#7c8494";
 const TEXT_COLOR  = "#e2e8f0";
 
+// Register ChartDataLabels plugin globally
+if (typeof ChartDataLabels !== 'undefined') {
+  Chart.register(ChartDataLabels);
+}
+
+const fmtCurrency = v => "R$ " + v.toLocaleString("pt-BR", { minimumFractionDigits: 2 });
+const fmtCurrencyAbs = v => "R$ " + Math.abs(v).toLocaleString("pt-BR", { minimumFractionDigits: 2 });
+
 const AXIS_DEFAULTS = {
   x: { ticks: { color: MUTED_COLOR }, grid: { color: GRID_COLOR } },
-  y: { ticks: { color: MUTED_COLOR }, grid: { color: GRID_COLOR } },
+  y: { 
+    ticks: { 
+      color: MUTED_COLOR,
+      callback: function(value) { return fmtCurrency(value); }
+    }, 
+    grid: { color: GRID_COLOR } 
+  },
 };
 
 const CAT_COLORS = [
@@ -41,7 +55,8 @@ function createMonthlyChart(data, canvasId = "chart-monthly") {
           backgroundColor: "rgba(34,197,94,0.07)",
           tension: 0.35,
           fill: true,
-          pointRadius: 3,
+          pointRadius: 4,
+          pointBackgroundColor: "#22c55e",
         },
         {
           label: "Gastos",
@@ -50,13 +65,46 @@ function createMonthlyChart(data, canvasId = "chart-monthly") {
           backgroundColor: "rgba(239,68,68,0.07)",
           tension: 0.35,
           fill: true,
-          pointRadius: 3,
+          pointRadius: 4,
+          pointBackgroundColor: "#ef4444",
         },
       ],
     },
     options: {
       maintainAspectRatio: false,
-      plugins: { legend: { labels: { color: MUTED_COLOR, font: { size: 12 } } } },
+      plugins: { 
+        legend: { labels: { color: MUTED_COLOR, font: { size: 12 } } },
+        tooltip: {
+          callbacks: {
+            label: function(context) {
+              let label = context.dataset.label || '';
+              if (label) { label += ': '; }
+              if (context.parsed.y !== null) { label += fmtCurrency(context.parsed.y); }
+              return label;
+            },
+            afterBody: function(tooltipItems) {
+              const idx = tooltipItems[0].dataIndex;
+              const d = data[idx];
+              const net = d.income - d.expenses;
+              const sign = net >= 0 ? "+" : "−";
+              return `\nSaldo Líquido: ${sign}${fmtCurrencyAbs(net)}`;
+            }
+          }
+        },
+        datalabels: {
+          color: TEXT_COLOR,
+          align: 'top',
+          offset: 4,
+          font: { size: 10 },
+          formatter: function(value) {
+            if (value === 0) return '';
+            if (value >= 1000) {
+              return (value / 1000).toFixed(1).replace('.', ',') + 'k';
+            }
+            return value;
+          }
+        }
+      },
       scales: AXIS_DEFAULTS,
     },
   });
@@ -75,52 +123,37 @@ function createCategoriesChart(data, canvasId = "chart-categories") {
         label: "Gasto",
         data: data.map(d => d.total),
         backgroundColor: CAT_COLORS,
-        borderRadius: 5,
+        borderRadius: 8,
       }],
     },
     options: {
       indexAxis: "y",
       maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
+      layout: {
+        padding: { right: 60 } // make room for datalabels
+      },
+      plugins: { 
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: function(context) {
+              return fmtCurrency(context.parsed.x);
+            }
+          }
+        },
+        datalabels: {
+          color: TEXT_COLOR,
+          anchor: 'end',
+          align: 'right',
+          font: { size: 11, weight: 'bold' },
+          formatter: function(value) {
+            return fmtCurrency(value);
+          }
+        }
+      },
       scales: {
         x: { ticks: { color: MUTED_COLOR }, grid: { color: GRID_COLOR } },
         y: { ticks: { color: TEXT_COLOR }, grid: { display: false } },
-      },
-    },
-  });
-}
-
-function createAccountsChart(data, canvasId = "chart-accounts") {
-  const key = canvasId;
-  _destroy(key);
-  const canvas = document.getElementById(canvasId);
-  if (!canvas || !data.length) return;
-
-  const BANK_LABEL   = { nubank: "Nubank", inter: "Inter" };
-  const METHOD_LABEL = { credit: "Crédito", pix: "PIX", ted: "TED" };
-  const METHOD_COLOR = { credit: "#3b82f6", pix: "#a855f7", ted: "#22c55e" };
-
-  const labels = data.map(d => `${BANK_LABEL[d.bank] ?? d.bank} ${METHOD_LABEL[d.method] ?? d.method}`);
-  const values = data.map(d => d.total);
-  const colors = data.map(d => METHOD_COLOR[d.method] ?? "#64748b");
-
-  _charts[key] = new Chart(canvas, {
-    type: "bar",
-    data: {
-      labels,
-      datasets: [{
-        label: "Gastos",
-        data: values,
-        backgroundColor: colors,
-        borderRadius: 5,
-      }],
-    },
-    options: {
-      maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { ticks: { color: MUTED_COLOR }, grid: { display: false } },
-        y: { ticks: { color: MUTED_COLOR }, grid: { color: GRID_COLOR } },
       },
     },
   });
@@ -133,7 +166,6 @@ function createInvestmentsChart(data, canvasId = "chart-investments") {
   if (!canvas || !data.length) return;
 
   const total = data.reduce((s, d) => s + d.balance, 0);
-  const fmt   = v => "R$ " + v.toLocaleString("pt-BR", { minimumFractionDigits: 2 });
 
   const centerTextPlugin = {
     id: "centerText",
@@ -146,7 +178,7 @@ function createInvestmentsChart(data, canvasId = "chart-investments") {
       ctx.textBaseline = "middle";
       const cx = width  / 2;
       const cy = height / 2 + (chart.legend?.height ? chart.legend.height / 2 : 10);
-      ctx.fillText(fmt(total), cx, cy);
+      ctx.fillText(fmtCurrency(total), cx, cy);
       ctx.restore();
     },
   };
@@ -158,7 +190,7 @@ function createInvestmentsChart(data, canvasId = "chart-investments") {
       labels: data.map(d => d.name),
       datasets: [{
         data: data.map(d => d.balance),
-        backgroundColor: ["#a855f7","#3b82f6","#22c55e"],
+        backgroundColor: ["#a855f7","#3b82f6","#22c55e", "#f97316", "#eab308"],
         borderWidth: 0,
         hoverOffset: 8,
       }],
@@ -166,16 +198,31 @@ function createInvestmentsChart(data, canvasId = "chart-investments") {
     options: {
       cutout: "68%",
       maintainAspectRatio: false,
+      layout: {
+        padding: 20
+      },
       plugins: {
         legend: {
           position: "bottom",
           labels: { color: MUTED_COLOR, font: { size: 11 }, padding: 10 },
         },
+        tooltip: {
+          callbacks: {
+            label: function(context) {
+              return ' ' + fmtCurrency(context.parsed);
+            }
+          }
+        },
+        datalabels: {
+          color: '#ffffff',
+          font: { size: 11, weight: 'bold' },
+          formatter: function(value) {
+            const pct = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
+            if (pct < 5) return ''; // Hide small percentages
+            return pct + '%';
+          }
+        }
       },
     },
   });
-}
-
-function createAccountMonthlyChart(data, canvasId = "chart-account-monthly") {
-  createMonthlyChart(data, canvasId);
 }
