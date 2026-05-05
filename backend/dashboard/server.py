@@ -222,7 +222,7 @@ def api_faturas() -> Response:
     result = []
     for account_id, label in cards:
         info = database.get_credit_card_billing_info(account_id)
-        result.append({"label": label, **info})
+        result.append({"accountId": account_id, "label": label, **info})
     return jsonify(result)
 
 
