@@ -34,86 +34,241 @@ function yesterdayISO() {
 
 /* ── Sparkline ──────────────────────────────────────────────────────────── */
 function Sparkline({ data, color = "var(--info)", width = 100, height = 28, fill = true, strokeWidth = 1.5 }) {
-  if (!data || !data.length) return null;
-  const min = Math.min(...data), max = Math.max(...data);
-  const range = max - min || 1;
-  const stepX = width / (data.length - 1 || 1);
-  const points = data.map((v, i) => [i * stepX, height - ((v - min) / range) * (height - 4) - 2]);
-  const linePath = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(" ");
-  const fillPath = `${linePath} L ${width} ${height} L 0 ${height} Z`;
-  return React.createElement("svg", { width, height, style: { display: "block", overflow: "visible" } },
-    fill && React.createElement("path", { d: fillPath, fill: color, style: { opacity: 0.18 } }),
-    React.createElement("path", { d: linePath, stroke: color, strokeWidth, fill: "none", strokeLinejoin: "round", strokeLinecap: "round" })
+  const canvasRef = _useRef(null);
+  const chartRef = _useRef(null);
+
+  _useEffect(() => {
+    if (!canvasRef.current || !data || !data.length) return;
+    if (chartRef.current) chartRef.current.destroy();
+    
+    let resolvedColor = color;
+    if (color.startsWith("var(")) {
+      const match = color.match(/var\(([^)]+)\)/);
+      if (match) resolvedColor = getComputedStyle(document.documentElement).getPropertyValue(match[1]).trim();
+    }
+
+    const ctx = canvasRef.current.getContext("2d");
+    chartRef.current = new Chart(ctx, {
+      type: "line",
+      data: {
+        labels: data.map((_, i) => i),
+        datasets: [{
+          data: data,
+          borderColor: resolvedColor || color,
+          borderWidth: strokeWidth,
+          tension: 0.3,
+          pointRadius: 0,
+          pointHoverRadius: 0,
+          fill: fill,
+          backgroundColor: fill ? (resolvedColor ? resolvedColor.replace(')', ' / 0.18)') : color) : 'transparent',
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        plugins: { legend: { display: false }, tooltip: { enabled: false } },
+        scales: {
+          x: { display: false },
+          y: { display: false, min: Math.min(...data), max: Math.max(...data) }
+        },
+        layout: { padding: 0 }
+      }
+    });
+
+    return () => { if (chartRef.current) chartRef.current.destroy(); };
+  }, [data, color, fill, strokeWidth]);
+
+  return React.createElement("div", { style: { width, height } },
+    React.createElement("canvas", { ref: canvasRef })
   );
 }
 
 /* ── BarChart ───────────────────────────────────────────────────────────── */
 function BarChart({ data, height = 140, valueKey = "value", labelKey = "day", color = "var(--info)" }) {
-  if (!data || !data.length) return null;
-  const max = Math.max(...data.map(d => d[valueKey])) || 1;
-  return React.createElement("div", { style: { display: "flex", alignItems: "flex-end", gap: 3, height, padding: "4px 0" } },
-    data.map((d, i) => {
-      const h = Math.max(2, (d[valueKey] / max) * (height - 18));
-      return React.createElement("div", { key: i, style: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, minWidth: 0 } },
-        React.createElement("div", {
-          title: fmtBRL(d[valueKey]),
-          style: { width: "100%", height: h, background: color, borderRadius: "2px 2px 0 0", opacity: 0.85 }
-        }),
-        React.createElement("div", { style: { fontSize: 9, color: "var(--fg-2)", whiteSpace: "nowrap" } }, d[labelKey])
-      );
-    })
+  const canvasRef = _useRef(null);
+  const chartRef = _useRef(null);
+
+  _useEffect(() => {
+    if (!canvasRef.current || !data || !data.length) return;
+    if (chartRef.current) chartRef.current.destroy();
+
+    let resolvedColor = color;
+    if (color.startsWith("var(")) {
+      const match = color.match(/var\(([^)]+)\)/);
+      if (match) resolvedColor = getComputedStyle(document.documentElement).getPropertyValue(match[1]).trim();
+    }
+
+    const ctx = canvasRef.current.getContext("2d");
+    chartRef.current = new Chart(ctx, {
+      type: "bar",
+      data: {
+        labels: data.map(d => d[labelKey]),
+        datasets: [{
+          data: data.map(d => d[valueKey]),
+          backgroundColor: resolvedColor || color,
+          borderRadius: { topLeft: 2, topRight: 2 },
+          barPercentage: 0.8,
+          categoryPercentage: 0.9
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: (context) => fmtBRL(context.raw)
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: { display: false, drawBorder: false },
+            ticks: { color: getComputedStyle(document.documentElement).getPropertyValue("--fg-2").trim(), font: { size: 9 } }
+          },
+          y: { display: false, beginAtZero: true }
+        }
+      }
+    });
+
+    return () => { if (chartRef.current) chartRef.current.destroy(); };
+  }, [data, color, valueKey, labelKey]);
+
+  return React.createElement("div", { style: { height, width: "100%", padding: "4px 0" } },
+    React.createElement("canvas", { ref: canvasRef })
   );
 }
 
 /* ── DualLine ───────────────────────────────────────────────────────────── */
 function DualLine({ data, height = 180 }) {
-  if (!data || !data.length) return null;
-  const w = 600, padL = 40, padR = 12, padT = 12, padB = 24;
-  const innerW = w - padL - padR, innerH = height - padT - padB;
-  const max = Math.max(...data.flatMap(d => [d.income || 0, d.expenses || 0])) * 1.1 || 1;
-  const stepX = innerW / (data.length - 1 || 1);
-  const pts = (key) => data.map((d, i) => [padL + i * stepX, padT + innerH - ((d[key] || 0) / max) * innerH]);
-  const path = (points) => points.map((p, i) => `${i === 0 ? "M" : "L"} ${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(" ");
-  const fillPath = (points) => `${path(points)} L ${points[points.length - 1][0]} ${padT + innerH} L ${points[0][0]} ${padT + innerH} Z`;
-  const incPts = pts("income"), expPts = pts("expenses");
-  const ticks = [0, max / 2, max];
-  return React.createElement("svg", { viewBox: `0 0 ${w} ${height}`, style: { width: "100%", height, display: "block" }, preserveAspectRatio: "none" },
-    ticks.map((t, i) => {
-      const y = padT + innerH - (t / max) * innerH;
-      return [
-        React.createElement("line", { key: `gl${i}`, x1: padL, x2: w - padR, y1: y, y2: y, stroke: "var(--line-1)", strokeWidth: 1, strokeDasharray: "2 3" }),
-        React.createElement("text", { key: `gt${i}`, x: padL - 4, y: y + 3, fontSize: 9, fill: "var(--fg-2)", textAnchor: "end", fontFamily: "var(--ff-mono)" }, fmtBRLCompact(t)),
-      ];
-    }),
-    data.map((d, i) => React.createElement("text", { key: `xl${i}`, x: padL + i * stepX, y: height - 6, fontSize: 10, fill: "var(--fg-2)", textAnchor: "middle", fontFamily: "var(--ff-mono)" }, d.label)),
-    React.createElement("path", { d: fillPath(incPts), fill: "var(--pos)", opacity: 0.12 }),
-    React.createElement("path", { d: fillPath(expPts), fill: "var(--neg)", opacity: 0.12 }),
-    React.createElement("path", { d: path(incPts), fill: "none", stroke: "var(--pos)", strokeWidth: 1.5, strokeLinejoin: "round" }),
-    React.createElement("path", { d: path(expPts), fill: "none", stroke: "var(--neg)", strokeWidth: 1.5, strokeLinejoin: "round" }),
-    incPts.map((p, i) => React.createElement("circle", { key: `ic${i}`, cx: p[0], cy: p[1], r: 2.5, fill: "var(--pos)" })),
-    expPts.map((p, i) => React.createElement("circle", { key: `ec${i}`, cx: p[0], cy: p[1], r: 2.5, fill: "var(--neg)" }))
+  const canvasRef = _useRef(null);
+  const chartRef = _useRef(null);
+
+  _useEffect(() => {
+    if (!canvasRef.current || !data || !data.length) return;
+    if (chartRef.current) chartRef.current.destroy();
+
+    const rootStyles = getComputedStyle(document.documentElement);
+    const posColor = rootStyles.getPropertyValue("--pos").trim() || "oklch(72% 0.14 155)";
+    const negColor = rootStyles.getPropertyValue("--neg").trim() || "oklch(68% 0.16 25)";
+    const fg2Color = rootStyles.getPropertyValue("--fg-2").trim();
+    const line1Color = rootStyles.getPropertyValue("--line-1").trim();
+
+    const ctx = canvasRef.current.getContext("2d");
+    chartRef.current = new Chart(ctx, {
+      type: "line",
+      data: {
+        labels: data.map(d => d.label),
+        datasets: [
+          {
+            label: "Receita",
+            data: data.map(d => d.income || 0),
+            borderColor: posColor,
+            backgroundColor: posColor.replace(')', ' / 0.12)'),
+            borderWidth: 1.5,
+            tension: 0.4,
+            fill: true,
+            pointRadius: 2.5,
+            pointBackgroundColor: posColor
+          },
+          {
+            label: "Despesa",
+            data: data.map(d => d.expenses || 0),
+            borderColor: negColor,
+            backgroundColor: negColor.replace(')', ' / 0.12)'),
+            borderWidth: 1.5,
+            tension: 0.4,
+            fill: true,
+            pointRadius: 2.5,
+            pointBackgroundColor: negColor
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: (context) => `${context.dataset.label}: ${fmtBRL(context.raw)}`
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: { display: false, drawBorder: false },
+            ticks: { color: fg2Color, font: { size: 10, family: "JetBrains Mono" } }
+          },
+          y: {
+            beginAtZero: true,
+            grid: { color: line1Color, drawBorder: false, tickLength: 0, borderDash: [2, 3] },
+            border: { display: false },
+            ticks: {
+              color: fg2Color,
+              font: { size: 9, family: "JetBrains Mono" },
+              callback: (value) => fmtBRLCompact(value),
+              maxTicksLimit: 4
+            }
+          }
+        }
+      }
+    });
+
+    return () => { if (chartRef.current) chartRef.current.destroy(); };
+  }, [data]);
+
+  return React.createElement("div", { style: { height, width: "100%" } },
+    React.createElement("canvas", { ref: canvasRef })
   );
 }
 
 /* ── Donut ──────────────────────────────────────────────────────────────── */
 function Donut({ data, size = 140, thickness = 18, valueKey = "balance", colors }) {
-  const COLORS = colors || ["oklch(72% 0.12 290)", "oklch(72% 0.13 230)", "oklch(72% 0.14 155)", "oklch(78% 0.13 75)", "oklch(68% 0.16 25)"];
-  const total = data.reduce((s, d) => s + (d[valueKey] || 0), 0);
-  const r = (size - thickness) / 2, cx = size / 2, cy = size / 2;
-  const circ = 2 * Math.PI * r;
-  let offset = 0;
-  return React.createElement("svg", { width: size, height: size, style: { transform: "rotate(-90deg)" } },
-    React.createElement("circle", { cx, cy, r, fill: "none", stroke: "var(--bg-2)", strokeWidth: thickness }),
-    data.map((d, i) => {
-      const len = ((d[valueKey] || 0) / total) * circ;
-      const el = React.createElement("circle", {
-        key: i, cx, cy, r, fill: "none",
-        stroke: COLORS[i % COLORS.length], strokeWidth: thickness,
-        strokeDasharray: `${len} ${circ}`, strokeDashoffset: -offset,
-      });
-      offset += len;
-      return el;
-    })
+  const canvasRef = _useRef(null);
+  const chartRef = _useRef(null);
+
+  _useEffect(() => {
+    if (!canvasRef.current || !data || !data.length) return;
+    if (chartRef.current) chartRef.current.destroy();
+
+    const COLORS = colors || ["oklch(72% 0.12 290)", "oklch(72% 0.13 230)", "oklch(72% 0.14 155)", "oklch(78% 0.13 75)", "oklch(68% 0.16 25)"];
+    
+    const ctx = canvasRef.current.getContext("2d");
+    chartRef.current = new Chart(ctx, {
+      type: "doughnut",
+      data: {
+        labels: data.map(d => d.name || d.label || "Item"),
+        datasets: [{
+          data: data.map(d => d[valueKey] || 0),
+          backgroundColor: COLORS,
+          borderWidth: 0,
+          hoverOffset: 4
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: `${100 - (thickness / size) * 100}%`,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: (context) => `${context.label}: ${fmtBRL(context.raw)}`
+            }
+          }
+        }
+      }
+    });
+
+    return () => { if (chartRef.current) chartRef.current.destroy(); };
+  }, [data, colors, thickness, size, valueKey]);
+
+  return React.createElement("div", { style: { width: size, height: size } },
+    React.createElement("canvas", { ref: canvasRef })
   );
 }
 

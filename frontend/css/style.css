@@ -99,7 +99,16 @@ select.select {
   background-repeat: no-repeat; background-position: right 8px center;
 }
 
-.card { background: var(--bg-1); border: 1px solid var(--line-1); border-radius: var(--r-3); }
+.card { 
+  background: var(--bg-1); 
+  border: 1px solid var(--line-1); 
+  border-radius: var(--r-3); 
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  transition: box-shadow 0.2s ease-in-out, transform 0.2s ease-in-out;
+}
+.card:hover {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+}
 .card-h {
   padding: 10px 12px; border-bottom: 1px solid var(--line-1);
   display: flex; align-items: center; justify-content: space-between; gap: 8px;

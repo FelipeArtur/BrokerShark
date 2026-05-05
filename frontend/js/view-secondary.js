@@ -24,14 +24,15 @@ function CardsView({ onEditCategory, refreshKey }) {
 
   _s2Ef(() => { fetchFaturas().then(setFaturas); }, [refreshKey]);
   _s2Ef(() => {
+    if (!activeAcc) return;
     const [y, m] = filterMonth.split("-").map(Number);
-    fetchRecentTransactions(activeAcc, { limit: 200, month: m, year: y }).then(setTxs);
+    fetchRecentTransactions(activeAcc, { limit: 200, month: m, year: y }).then(data => setTxs(Array.isArray(data) ? data : []));
     fetchMonthlyByAccount(activeAcc).then(setMonthly);
     fetchCategoriesByAccount(activeAcc).then(setCatData);
   }, [activeAcc, filterMonth, refreshKey]);
 
-  const filteredTxs = filterCat ? txs.filter(t => t.category === filterCat) : txs;
-  const cats = [...new Set(txs.map(t => t.category).filter(Boolean))].sort();
+  const filteredTxs = filterCat ? (Array.isArray(txs) ? txs : []).filter(t => t.category === filterCat) : (Array.isArray(txs) ? txs : []);
+  const cats = [...new Set((Array.isArray(txs) ? txs : []).map(t => t.category).filter(Boolean))].sort();
   const catMax = catData.length ? catData[0].total : 1;
 
   const months6 = Array.from({ length: 6 }).map((_, i) => {
@@ -174,11 +175,12 @@ function AccountsView({ onEditCategory, refreshKey }) {
 
   _s2Ef(() => {
     if (!activeAcc) return;
-    fetchRecentTransactions(activeAcc, { limit: 100 }).then(setTxs);
+    fetchRecentTransactions(activeAcc, { limit: 100 }).then(data => setTxs(Array.isArray(data) ? data : []));
   }, [activeAcc, refreshKey]);
 
-  const monthIncome = txs.filter(t => t.flow === "income").reduce((s, t) => s + t.amount, 0);
-  const monthExp    = txs.filter(t => t.flow === "expense").reduce((s, t) => s + t.amount, 0);
+  const safeTxs = Array.isArray(txs) ? txs : [];
+  const monthIncome = safeTxs.filter(t => t.flow === "income").reduce((s, t) => s + t.amount, 0);
+  const monthExp    = safeTxs.filter(t => t.flow === "expense").reduce((s, t) => s + t.amount, 0);
 
   return h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 14 } },
 
@@ -198,11 +200,11 @@ function AccountsView({ onEditCategory, refreshKey }) {
           h("div", { style: { display: "flex", gap: 14, marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--line-1)" } },
             h("div", null,
               h("div", { style: { fontSize: 9, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em" } }, "Entradas"),
-              h("div", { className: "num", style: { fontSize: 13, color: "var(--pos)", fontWeight: 600 } }, `+${fmtBRL(txs.filter(t => t.flow === "income" && t.account_id === a.id).reduce((s, t) => s + t.amount, 0), { decimals: 0 })}`)
+              h("div", { className: "num", style: { fontSize: 13, color: "var(--pos)", fontWeight: 600 } }, `+${fmtBRL(safeTxs.filter(t => t.flow === "income" && t.account_id === a.id).reduce((s, t) => s + t.amount, 0), { decimals: 0 })}`)
             ),
             h("div", null,
               h("div", { style: { fontSize: 9, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em" } }, "Saídas"),
-              h("div", { className: "num", style: { fontSize: 13, color: "var(--neg)", fontWeight: 600 } }, `−${fmtBRL(txs.filter(t => t.flow === "expense" && t.account_id === a.id).reduce((s, t) => s + t.amount, 0), { decimals: 0 })}`)
+              h("div", { className: "num", style: { fontSize: 13, color: "var(--neg)", fontWeight: 600 } }, `−${fmtBRL(safeTxs.filter(t => t.flow === "expense" && t.account_id === a.id).reduce((s, t) => s + t.amount, 0), { decimals: 0 })}`)
             )
           )
         )
@@ -226,7 +228,7 @@ function AccountsView({ onEditCategory, refreshKey }) {
             h("th", { style: { width: 70 } }, "Data"), h("th", null, "Descrição"),
             h("th", null, "Categoria"), h("th", { style: { textAlign: "right", width: 110 } }, "Valor")
           )),
-          h("tbody", null, txs.map(t =>
+          h("tbody", null, safeTxs.map(t =>
             h("tr", { key: t.id },
               h("td", { className: "mono", style: { color: "var(--fg-2)" } }, fmtDateBR(t.date)),
               h("td", null, t.description),
