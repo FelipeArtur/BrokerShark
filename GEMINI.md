@@ -6,7 +6,7 @@ BrokerShark is a personal finance assistant accessible via **Telegram**, running
 All registration is done through buttons — no commands to memorize, no natural language parsing required.
 Every transaction is persisted in a local SQLite database and immediately mirrored to **Google Sheets**,
 which serves as a permanent append-only backup.
-A local web dashboard (Flask + Chart.js) runs alongside the bot for visual analysis.
+A local web dashboard (React 18 + Flask) runs alongside the bot for visual analysis.
 
 **User profile:** 24-year-old male, accounts at Nubank and Inter (credit card + conta corrente). Does **not** use debit card as a payment method. Investments: Caixinha Nubank, Porquinho Inter, Tesouro Direto.
 
@@ -53,7 +53,7 @@ bot/handlers/ — sends formatted confirmation to the user
 - **Sheets rows are immutable.** Nothing is ever edited or deleted in the spreadsheet.
 - **Sheets failures never surface to the user.** Errors are logged; the bot continues normally.
 - **No AI in the registration flow.** Buttons eliminate the need for language model parsing at record time.
-- **Dashboard is read-only.** It only reads from SQLite via Flask API — never writes.
+- **Dashboard supports Quick Entry web forms.** Expense, income, and investment POST endpoints call the same `insert_*` DB functions as the bot — SSE notify + Sheets mirror included.
 - **Dashboard updates in real-time via SSE.** `events.py` broadcasts after every DB write.
 
 ---
@@ -88,12 +88,15 @@ brokershark/
 │           ├── nubank_cc.py   # Nubank credit card CSV parser
 │           └── inter_cc.py    # Inter credit card CSV parser
 ├── frontend/
-│   ├── index.html         # Markup only — refs to css/, js/, and img/
-│   ├── css/style.css      # All styles — dark theme, CSS variables, responsive grid
+│   ├── index.html             # React 18 + Babel standalone shell (no build step)
+│   ├── css/style.css          # Token-based CSS (oklch, light/dark/density variants)
 │   └── js/
-│       ├── api.js         # fetch wrappers for every endpoint (accepts optional ?bank=)
-│       ├── charts.js      # Chart.js create/update functions
-│       └── main.js        # Init, tab switching, SSE connection, refresh loop
+│       ├── api.js             # fetch wrappers for every endpoint (plain JS, no JSX)
+│       ├── primitives.js      # Formatters, SVG charts, shared React components
+│       ├── quick-entry.js     # ExpenseForm, IncomeForm, InvestmentForm, QuickEntry shell
+│       ├── view-overview.js   # OverviewView (patrimônio, faturas, budgets, activity)
+│       ├── view-secondary.js  # CardsView, AccountsView, InvestmentsView, HistoryView
+│       └── app.js             # App shell — sidebar nav, SSE, search, tweaks panel
 ├── .gemini/commands/      # Gemini CLI slash-command skills
 ├── .claude/commands/      # Claude Code slash-command skills
 ├── data/                  # SQLite database (not versioned)
@@ -117,7 +120,7 @@ brokershark/
 | Sheets integration | gspread + google-auth (Service Account) |
 | Scheduler | APScheduler |
 | Dashboard API | Flask 3.1 + Waitress 3.0 (8 threads, background thread) |
-| Dashboard frontend | Chart.js 4.4 (CDN), vanilla JS (api.js / charts.js / main.js) |
+| Dashboard frontend | React 18 + Babel standalone (no build step), custom inline SVG charts |
 | Real-time updates | SSE via `events.py` — no polling, < 1s latency |
 
 ---
@@ -181,6 +184,13 @@ CREATE TABLE unrecognized_log (
   date TEXT NOT NULL,
   message TEXT NOT NULL
 );
+
+CREATE TABLE budgets (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  category_id INTEGER NOT NULL UNIQUE,
+  amount_limit REAL NOT NULL,
+  FOREIGN KEY (category_id) REFERENCES categories(id)
+);
 ```
 
 ### Seed data
@@ -198,6 +208,11 @@ CREATE TABLE unrecognized_log (
 
 # Income categories
 "Salário", "Freela", "PIX recebido", "Transferência", "Outro"
+
+# Budgets (default limits per expense category, in BRL)
+Alimentação: 1500, Carro: 500, Jogos: 200, Lazer: 400,
+Atividade física: 300, Eletrônicos: 300, Educação: 500,
+Igreja: 200, Dízimo: 0, Outro: 300
 ```
 
 ---
@@ -218,6 +233,14 @@ All data endpoints accept an optional `?bank=nubank|inter` query parameter.
 | `GET /api/faturas[?bank=]` | Credit card billing info (total, due date, days remaining) |
 | `GET /api/account/<account_id>` | Full account detail: balance, monthly summary, billing info |
 | `GET /api/transactions?account=<id>[&limit=<n>][&month=<m>&year=<y>]` | Transactions for an account (max 200, default 100) |
+| `GET /api/daily-spend` | Last 30 days of daily expense totals — `[{date, day, value}]` |
+| `GET /api/recent-activity` | 20 most recent transactions across all accounts |
+| `GET /api/patrimonio-history` | 12-month net worth (checking balances + investment movements) |
+| `GET /api/budgets` | All budget rows: `[{id, category_id, category_name, amount_limit}]` |
+| `PATCH /api/budgets/<id>` | Update spending limit for a budget row |
+| `POST /api/transactions` | Insert expense (body: `{account_id, method, amount, installments, description, date, category_id}`) |
+| `POST /api/incomes` | Insert income or internal transfer |
+| `POST /api/investment-movements` | Insert investment deposit or withdrawal |
 
 Dashboard runs at `http://localhost:8080` (configurable via `DASHBOARD_PORT`).
 
