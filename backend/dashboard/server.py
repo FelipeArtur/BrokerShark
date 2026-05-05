@@ -1,24 +1,15 @@
-"""Flask dashboard server — read-only analytics API served on a daemon thread.
+"""Flask dashboard server — analytics API + quick-entry writes, served on a daemon thread.
 
-All endpoints are read-only: they query SQLite via :mod:`core.database` and
-return JSON.  A real-time SSE endpoint (``/api/events``) notifies connected
-browsers whenever the database is written to, replacing the old 60-second poll.
+Read endpoints query SQLite via :mod:`core.database` and return JSON.
+Write endpoints (POST /api/transactions, POST /api/incomes, POST /api/investment-movements)
+insert records using the same database functions as the Telegram bot, triggering
+SSE notifications and Google Sheets mirroring.
+
+A real-time SSE endpoint (``/api/events``) notifies connected browsers whenever
+the database is written to.
 
 The server is started via :func:`start_dashboard`, which launches Waitress
 (production WSGI) in a daemon thread on the configured port.
-
-Endpoints:
-    ``GET /``                — serves ``frontend/index.html``
-    ``GET /api/events``      — SSE stream: ``connected`` | ``update`` | ``heartbeat``
-    ``GET /api/summary``     — current month income, expenses, balance, reservas
-    ``GET /api/accounts``    — all accounts with current balance
-    ``GET /api/investments`` — all investments with current balance
-    ``GET /api/monthly``     — last 6 months of income vs expenses
-    ``GET /api/categories``  — current month expenses by category
-    ``GET /api/faturas``     — credit card billing info
-
-All data endpoints accept an optional ``?bank=nubank|inter`` query parameter
-to filter results to a single bank.
 """
 import logging
 import queue
@@ -31,6 +22,7 @@ from waitress import serve
 import config
 from core import database
 from core import events as _events
+from integrations import sheets as _sheets
 
 _logger = logging.getLogger(__name__)
 
@@ -338,6 +330,257 @@ def api_transactions() -> Response:
     except ValueError:
         month, year = None, None
     return jsonify(database.get_recent_transactions(account_id, limit, month, year))
+
+
+@app.route("/api/daily-spend")
+def api_daily_spend() -> Response:
+    """Return daily expense totals for the last 30 days.
+
+    Returns:
+        JSON array of ``{date, day, value}`` objects ordered oldest first.
+    """
+    return jsonify(database.get_daily_spend(30))
+
+
+@app.route("/api/recent-activity")
+def api_recent_activity() -> Response:
+    """Return the most recent transactions across all accounts.
+
+    Returns:
+        JSON array of ``{id, date, description, category, amount, flow, account_id, bank}``.
+    """
+    return jsonify(database.get_recent_activity(20))
+
+
+@app.route("/api/search")
+def api_search() -> Response:
+    """Full-text transaction search across the entire history.
+
+    Query params:
+        q: Search string (minimum 2 characters).
+
+    Returns:
+        JSON array of ``{id, date, description, amount, flow, account_id, bank, category}``.
+    """
+    q = request.args.get("q", "").strip()
+    if len(q) < 2:
+        return jsonify([])
+    return jsonify(database.search_transactions(q, limit=30))
+
+
+@app.route("/api/patrimonio-history")
+def api_patrimonio_history() -> Response:
+    """Return approximate monthly net worth for the last 12 months.
+
+    Returns:
+        JSON array of ``{label, value}`` objects ordered oldest first.
+    """
+    return jsonify(database.get_patrimonio_history(12))
+
+
+@app.route("/api/budgets")
+def api_budgets() -> Response:
+    """Return all budget limits joined with category names.
+
+    Returns:
+        JSON array of ``{id, category_id, category_name, amount_limit}`` objects.
+    """
+    return jsonify(database.get_budgets())
+
+
+@app.route("/api/budgets/<int:budget_id>", methods=["PATCH"])
+def api_patch_budget(budget_id: int) -> Response:
+    """Update the spending limit for a budget row.
+
+    Request body (JSON):
+        amount_limit: float — new monthly limit in BRL.
+        category_id:  int   — category to update (optional, used if budget_id not found).
+
+    Returns:
+        ``{"ok": true}`` on success.
+    """
+    data = request.get_json(silent=True) or {}
+    amount_limit = data.get("amount_limit")
+    category_id = data.get("category_id")
+    if not isinstance(amount_limit, (int, float)) or not isinstance(category_id, int):
+        return jsonify({"error": "amount_limit (number) and category_id (int) required"}), 400
+    database.upsert_budget(category_id, float(amount_limit))
+    return jsonify({"ok": True})
+
+
+@app.route("/api/transactions", methods=["POST"])
+def api_post_transaction() -> Response:
+    """Insert an expense transaction from the web quick-entry form.
+
+    Request body (JSON):
+        account_id:    str   — e.g. "nu-cc"
+        method:        str   — "credit" | "pix" | "ted"
+        amount:        float — positive value
+        description:   str
+        date:          str   — "YYYY-MM-DD"
+        category_id:   int
+        installments:  int   — default 1
+
+    Returns:
+        ``{"ok": true, "id": int}`` on success.
+    """
+    data = request.get_json(silent=True) or {}
+    account_id  = data.get("account_id", "")
+    method      = data.get("method", "")
+    amount      = data.get("amount")
+    description = data.get("description", "").strip()
+    date_str    = data.get("date", "")
+    category_id = data.get("category_id")
+    installments = int(data.get("installments", 1))
+
+    if account_id not in _VALID_ACCOUNTS:
+        return jsonify({"error": "invalid account_id"}), 400
+    if not isinstance(amount, (int, float)) or amount <= 0:
+        return jsonify({"error": "amount must be a positive number"}), 400
+    if not description:
+        return jsonify({"error": "description required"}), 400
+    if not date_str:
+        return jsonify({"error": "date required"}), 400
+
+    tx_id = database.insert_transaction(
+        date=date_str,
+        flow="expense",
+        method=method,
+        account_id=account_id,
+        amount=float(amount),
+        installments=installments,
+        description=description,
+        category_id=category_id,
+    )
+    tx = database.get_transaction(tx_id)
+    if tx:
+        threading.Thread(
+            target=_sheets.append_expense,
+            args=(dict(tx),),
+            daemon=True,
+        ).start()
+    return jsonify({"ok": True, "id": tx_id})
+
+
+@app.route("/api/incomes", methods=["POST"])
+def api_post_income() -> Response:
+    """Insert an income or transfer transaction from the web quick-entry form.
+
+    Request body (JSON) for income:
+        type:        str   — "salary" | "freelance" | "pix" | "other"
+        account_id:  str   — e.g. "nu-db"
+        amount:      float
+        description: str
+        date:        str   — "YYYY-MM-DD"
+
+    Request body (JSON) for transfer:
+        type:        "transfer"
+        from_account: str
+        to_account:   str
+        amount:       float
+        date:         str
+
+    Returns:
+        ``{"ok": true, "id": int}`` on success.
+    """
+    data = request.get_json(silent=True) or {}
+    tx_type  = data.get("type", "")
+    amount   = data.get("amount")
+    date_str = data.get("date", "")
+
+    if not isinstance(amount, (int, float)) or amount <= 0:
+        return jsonify({"error": "amount must be a positive number"}), 400
+    if not date_str:
+        return jsonify({"error": "date required"}), 400
+
+    METHOD_MAP = {
+        "salary": "salary", "freelance": "freelance",
+        "pix": "pix_received", "other": "other",
+    }
+
+    if tx_type == "transfer":
+        from_acc = data.get("from_account", "")
+        to_acc   = data.get("to_account", "")
+        if from_acc not in _VALID_ACCOUNTS or to_acc not in _VALID_ACCOUNTS:
+            return jsonify({"error": "invalid account"}), 400
+        description = f"Transferência {from_acc} → {to_acc}"
+        tx_id = database.insert_transaction(
+            date=date_str, flow="expense", method="transfer",
+            account_id=from_acc, amount=float(amount), installments=1,
+            description=description, category_id=None,
+            dest_account_id=to_acc,
+        )
+        return jsonify({"ok": True, "id": tx_id})
+
+    account_id  = data.get("account_id", "")
+    description = data.get("description", "").strip() or tx_type
+    method      = METHOD_MAP.get(tx_type, "other")
+
+    if account_id not in _VALID_ACCOUNTS:
+        return jsonify({"error": "invalid account_id"}), 400
+
+    tx_id = database.insert_transaction(
+        date=date_str, flow="income", method=method,
+        account_id=account_id, amount=float(amount), installments=1,
+        description=description, category_id=None,
+    )
+    tx = database.get_transaction(tx_id)
+    if tx:
+        threading.Thread(
+            target=_sheets.append_income,
+            args=(dict(tx),),
+            daemon=True,
+        ).start()
+    return jsonify({"ok": True, "id": tx_id})
+
+
+@app.route("/api/investment-movements", methods=["POST"])
+def api_post_investment_movement() -> Response:
+    """Insert an investment deposit or withdrawal from the web quick-entry form.
+
+    Request body (JSON):
+        investment_name: str   — "Caixinha Nubank" | "Tesouro Direto" | "Porquinho Inter"
+        operation:       str   — "deposit" | "withdrawal"
+        amount:          float
+        date:            str   — "YYYY-MM-DD"
+        description:     str   — optional
+
+    Returns:
+        ``{"ok": true, "id": int}`` on success.
+    """
+    data = request.get_json(silent=True) or {}
+    inv_name    = data.get("investment_name", "").strip()
+    operation   = data.get("operation", "")
+    amount      = data.get("amount")
+    date_str    = data.get("date", "")
+    description = data.get("description", "").strip() or None
+
+    if not isinstance(amount, (int, float)) or amount <= 0:
+        return jsonify({"error": "amount must be a positive number"}), 400
+    if operation not in ("deposit", "withdrawal"):
+        return jsonify({"error": "operation must be deposit or withdrawal"}), 400
+    if not date_str:
+        return jsonify({"error": "date required"}), 400
+
+    investment = database.get_investment_by_name(inv_name)
+    if investment is None:
+        return jsonify({"error": f"investment '{inv_name}' not found"}), 400
+
+    mv_id = database.insert_investment_movement(
+        date=date_str,
+        investment_id=investment["id"],
+        operation=operation,
+        amount=float(amount),
+        description=description,
+    )
+    mv = database.get_investment_movement(mv_id)
+    if mv:
+        threading.Thread(
+            target=_sheets.append_investment,
+            args=(dict(mv),),
+            daemon=True,
+        ).start()
+    return jsonify({"ok": True, "id": mv_id})
 
 
 def start_dashboard() -> None:

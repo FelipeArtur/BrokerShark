@@ -15,6 +15,7 @@ After every write (:func:`insert_transaction`, :func:`insert_investment_movement
 the module calls :func:`core.events.notify` so that connected SSE clients
 refresh the dashboard immediately.
 """
+import calendar
 import sqlite3
 from datetime import datetime, date, timedelta
 from typing import Optional
@@ -111,9 +112,17 @@ def init_db() -> None:
                 date    TEXT NOT NULL,
                 message TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS budgets (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                category_id INTEGER NOT NULL UNIQUE,
+                amount_limit REAL NOT NULL,
+                FOREIGN KEY (category_id) REFERENCES categories(id)
+            );
         """)
         _seed_accounts(conn)
         _seed_categories(conn)
+        _seed_budgets(conn)
 
 
 def _seed_accounts(conn: sqlite3.Connection) -> None:
@@ -127,6 +136,23 @@ def _seed_accounts(conn: sqlite3.Connection) -> None:
         "INSERT OR IGNORE INTO accounts (id, bank, type, name, billing_day, due_day) VALUES (?,?,?,?,?,?)",
         accounts,
     )
+
+
+def _seed_budgets(conn: sqlite3.Connection) -> None:
+    defaults = {
+        "Alimentação": 1500.0, "Carro": 500.0, "Jogos": 200.0,
+        "Lazer": 400.0, "Atividade física": 300.0, "Eletrônicos": 300.0,
+        "Educação": 500.0, "Igreja": 200.0, "Dízimo": 0.0, "Outro": 300.0,
+    }
+    for name, limit in defaults.items():
+        cat = conn.execute(
+            "SELECT id FROM categories WHERE name=? AND flow='expense'", (name,)
+        ).fetchone()
+        if cat:
+            conn.execute(
+                "INSERT OR IGNORE INTO budgets (category_id, amount_limit) VALUES (?,?)",
+                (cat["id"], limit),
+            )
 
 
 def _seed_categories(conn: sqlite3.Connection) -> None:
@@ -1009,6 +1035,165 @@ def get_investment_movements_by_period(start_date: str, end_date: str) -> list[d
             (start_date, end_date),
         ).fetchall()
     return [{"name": r["name"], "operation": r["operation"], "total": r["total"]} for r in rows]
+
+
+# ── Dashboard v2 queries ──────────────────────────────────────────────────────
+
+def get_daily_spend(days: int = 30) -> list[dict]:
+    """Return daily expense totals for the last N days.
+
+    Returns:
+        List of ``{"date": str, "day": int, "value": float}`` ordered by date.
+        Missing days (no spending) are not included.
+    """
+    cutoff = (date.today() - timedelta(days=days - 1)).isoformat()
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT date, SUM(amount) AS value
+               FROM transactions
+               WHERE flow='expense' AND dest_account_id IS NULL AND date >= ?
+               GROUP BY date ORDER BY date""",
+            (cutoff,),
+        ).fetchall()
+    return [{"date": r["date"], "day": int(r["date"].split("-")[2]), "value": r["value"]} for r in rows]
+
+
+def get_recent_activity(limit: int = 20) -> list[dict]:
+    """Return the most recent transactions across all accounts.
+
+    Returns:
+        List of dicts with id, date, description, category, amount, flow,
+        account_id, bank ordered newest first.
+    """
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT t.id, t.date, t.description, t.amount, t.flow,
+                      t.account_id, a.bank,
+                      COALESCE(c.name, '') AS category
+               FROM transactions t
+               JOIN accounts a ON a.id = t.account_id
+               LEFT JOIN categories c ON c.id = t.category_id
+               WHERE t.dest_account_id IS NULL
+               ORDER BY t.date DESC, t.id DESC
+               LIMIT ?""",
+            (limit,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_patrimonio_history(months: int = 12) -> list[dict]:
+    """Return approximate monthly net worth for the last N months.
+
+    Computed as: checking account running balance at month end
+    + investment cumulative deposits minus withdrawals at month end.
+
+    Returns:
+        List of ``{"label": "MM/YY", "value": float}`` ordered oldest first.
+    """
+    PT_SHORT = ["", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
+                "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
+    today_dt = date.today()
+    result = []
+    with _connect() as conn:
+        checking_accounts = conn.execute(
+            "SELECT id, initial_balance FROM accounts WHERE type='checking'"
+        ).fetchall()
+
+        for i in range(months - 1, -1, -1):
+            if today_dt.month - i <= 0:
+                y = today_dt.year - 1
+                m = today_dt.month - i + 12
+            else:
+                y = today_dt.year
+                m = today_dt.month - i
+            if m > 12:
+                y += 1
+                m -= 12
+
+            last_day = calendar.monthrange(y, m)[1]
+            cutoff = f"{y:04d}-{m:02d}-{last_day:02d}"
+
+            checking_bal = 0.0
+            for acc in checking_accounts:
+                row = conn.execute(
+                    """SELECT
+                         COALESCE(SUM(CASE WHEN flow='income' AND dest_account_id IS NULL THEN amount ELSE 0 END), 0)
+                       - COALESCE(SUM(CASE WHEN flow='expense' AND dest_account_id IS NULL THEN amount ELSE 0 END), 0)
+                       AS net
+                       FROM transactions WHERE account_id=? AND date <= ?""",
+                    (acc["id"], cutoff),
+                ).fetchone()
+                checking_bal += acc["initial_balance"] + (row["net"] or 0.0)
+
+            inv_bal = conn.execute(
+                """SELECT COALESCE(SUM(CASE WHEN operation='deposit' THEN amount ELSE -amount END), 0) AS net
+                   FROM investment_movements WHERE date <= ?""",
+                (cutoff,),
+            ).fetchone()["net"] or 0.0
+
+            label = f"{PT_SHORT[m]}/{str(y)[-2:]}"
+            result.append({"label": label, "value": round(checking_bal + inv_bal, 2)})
+
+    return result
+
+
+def get_budgets() -> list[dict]:
+    """Return all budgets joined with category names.
+
+    Returns:
+        List of ``{"id", "category_id", "category_name", "amount_limit"}`` dicts.
+    """
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT b.id, b.category_id, c.name AS category_name, b.amount_limit
+               FROM budgets b JOIN categories c ON c.id = b.category_id
+               ORDER BY c.id""",
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def upsert_budget(category_id: int, amount_limit: float) -> None:
+    """Insert or replace the spending limit for a category.
+
+    Args:
+        category_id:  Primary key of the expense category.
+        amount_limit: Monthly spending limit in BRL.
+    """
+    with _connect() as conn:
+        conn.execute(
+            """INSERT INTO budgets (category_id, amount_limit) VALUES (?,?)
+               ON CONFLICT(category_id) DO UPDATE SET amount_limit=excluded.amount_limit""",
+            (category_id, amount_limit),
+        )
+
+
+def search_transactions(query: str, limit: int = 30) -> list[dict]:
+    """Full-text search across all transactions by description and category.
+
+    Args:
+        query: Search string — matched with LIKE against description and category name.
+        limit: Maximum number of results to return.
+
+    Returns:
+        List of ``{id, date, description, amount, flow, account_id, bank, category}``
+        ordered most recent first.
+    """
+    q = f"%{query}%"
+    with _connect() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """SELECT t.id, t.date, t.description, t.amount, t.flow,
+                      t.account_id, a.bank, c.name AS category
+               FROM transactions t
+               JOIN accounts a ON a.id = t.account_id
+               LEFT JOIN categories c ON c.id = t.category_id
+               WHERE t.dest_account_id IS NULL
+                 AND (t.description LIKE ? OR c.name LIKE ?)
+               ORDER BY t.date DESC
+               LIMIT ?""",
+            (q, q, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
 
 
 # ── Logging ───────────────────────────────────────────────────────────────────

@@ -1,53 +1,56 @@
-/**
- * api.js — fetch wrappers for every dashboard endpoint.
- */
+/* api.js — fetch wrappers for every dashboard endpoint */
 
 function _params(obj) {
   const entries = Object.entries(obj).filter(([, v]) => v != null && v !== "");
   if (!entries.length) return "";
   return "?" + entries.map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
 }
-
 function _qs(bank) { return _params({ bank }); }
 
-async function fetchSummary(bank)           { return fetch(`/api/summary${_qs(bank)}`).then(r => r.json()); }
-async function fetchMonthly(bank)           { return fetch(`/api/monthly${_qs(bank)}`).then(r => r.json()); }
-async function fetchCategories(bank)        { return fetch(`/api/categories${_qs(bank)}`).then(r => r.json()); }
-async function fetchExpensesByMethod(bank)  { return fetch(`/api/expenses-by-method${_qs(bank)}`).then(r => r.json()); }
-async function fetchInvestments(bank)       { return fetch(`/api/investments${_qs(bank)}`).then(r => r.json()); }
-async function fetchFaturas(bank)           { return fetch(`/api/faturas${_qs(bank)}`).then(r => r.json()); }
-async function fetchAccounts(bank)          { return fetch(`/api/accounts${_qs(bank)}`).then(r => r.json()); }
-
-async function fetchAccountDetail(accountId) {
-  return fetch(`/api/account/${encodeURIComponent(accountId)}`).then(r => r.json());
+async function _get(url)  { return fetch(url).then(r => r.json()); }
+async function _post(url, body) {
+  const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || "request failed"); }
+  return r.json();
+}
+async function _patch(url, body) {
+  const r = await fetch(url, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || "request failed"); }
+  return r.json();
 }
 
-async function fetchCategoriesByAccount(accountId) {
-  return fetch(`/api/categories${_params({ account: accountId })}`).then(r => r.json());
-}
+/* ── Read endpoints ─────────────────────────────────────────────────────── */
+async function fetchSummary(bank)          { return _get(`/api/summary${_qs(bank)}`); }
+async function fetchMonthly(bank)          { return _get(`/api/monthly${_qs(bank)}`); }
+async function fetchCategories(bank)       { return _get(`/api/categories${_qs(bank)}`); }
+async function fetchExpensesByMethod(bank) { return _get(`/api/expenses-by-method${_qs(bank)}`); }
+async function fetchInvestments(bank)      { return _get(`/api/investments${_qs(bank)}`); }
+async function fetchFaturas(bank)          { return _get(`/api/faturas${_qs(bank)}`); }
+async function fetchAccounts(bank)         { return _get(`/api/accounts${_qs(bank)}`); }
 
-async function fetchMonthlyByAccount(accountId) {
-  return fetch(`/api/monthly${_params({ account: accountId })}`).then(r => r.json());
+async function fetchAccountDetail(id)      { return _get(`/api/account/${encodeURIComponent(id)}`); }
+async function fetchCategoriesByAccount(id){ return _get(`/api/categories${_params({ account: id })}`); }
+async function fetchMonthlyByAccount(id)   { return _get(`/api/monthly${_params({ account: id })}`); }
+async function fetchAccountHistory(id)     { return _get(`/api/account-history${_params({ account: id })}`); }
+async function fetchRecentTransactions(id, { limit = 100, month = null, year = null } = {}) {
+  return _get(`/api/transactions${_params({ account: id, limit, month, year })}`);
 }
+async function fetchExpenseCategories()    { return _get("/api/expense-categories"); }
 
-async function fetchRecentTransactions(accountId, { limit = 100, month = null, year = null } = {}) {
-  return fetch(`/api/transactions${_params({ account: accountId, limit, month, year })}`).then(r => r.json());
-}
+/* ── New v2 read endpoints ──────────────────────────────────────────────── */
+async function fetchDailySpend()           { return _get("/api/daily-spend"); }
+async function fetchRecentActivity()       { return _get("/api/recent-activity"); }
+async function fetchPatrimonioHistory()    { return _get("/api/patrimonio-history"); }
+async function fetchBudgets()              { return _get("/api/budgets"); }
+async function searchTransactions(q)       { return _get(`/api/search?q=${encodeURIComponent(q)}`); }
 
-async function fetchAccountHistory(accountId) {
-  return fetch(`/api/account-history${_params({ account: accountId })}`).then(r => r.json());
-}
-
-async function fetchExpenseCategories() {
-  return fetch("/api/expense-categories").then(r => r.json());
-}
-
+/* ── Write endpoints ────────────────────────────────────────────────────── */
 async function patchTransactionCategory(txId, categoryId) {
-  const res = await fetch(`/api/transactions/${txId}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ category_id: categoryId }),
-  });
-  if (!res.ok) throw new Error("failed");
-  return res.json();
+  return _patch(`/api/transactions/${txId}`, { category_id: categoryId });
 }
+async function patchBudget(budgetId, categoryId, amountLimit) {
+  return _patch(`/api/budgets/${budgetId}`, { category_id: categoryId, amount_limit: amountLimit });
+}
+async function postTransaction(body)          { return _post("/api/transactions", body); }
+async function postIncome(body)               { return _post("/api/incomes", body); }
+async function postInvestmentMovement(body)   { return _post("/api/investment-movements", body); }

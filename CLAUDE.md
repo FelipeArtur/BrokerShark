@@ -21,7 +21,7 @@ BrokerShark is a personal finance assistant accessible via **Telegram**, running
 All registration is done through buttons — no commands to memorize, no natural language parsing required.
 Every transaction is persisted in a local SQLite database and immediately mirrored to **Google Sheets**,
 which serves as a permanent append-only backup.
-A local web dashboard (Flask + Chart.js) runs alongside the bot for visual analysis.
+A local web dashboard (React 18 + Flask) runs alongside the bot for visual analysis.
 
 **User profile:** 24-year-old male, accounts at Nubank and Inter (credit card + conta corrente). Does **not** use debit card as a payment method. Investments: Caixinha Nubank, Porquinho Inter, Tesouro Direto.
 
@@ -69,9 +69,12 @@ brokershark/
 │   ├── css/
 │   │   └── style.css      # All styles — dark theme, CSS variables, responsive grid
 │   └── js/
-│       ├── api.js         # fetch wrappers for every endpoint (accepts optional ?bank=)
-│       ├── charts.js      # Chart.js create/update functions (monthly, categories, accounts, investments)
-│       └── main.js        # Init, tab switching, SSE connection, refresh loop
+│       ├── api.js             # fetch wrappers for every endpoint (plain JS, no JSX)
+│       ├── primitives.js      # Formatters, SVG charts (Sparkline, BarChart, DualLine, Donut), shared components
+│       ├── quick-entry.js     # ExpenseForm, IncomeForm, InvestmentForm, QuickEntry shell
+│       ├── view-overview.js   # OverviewView — patrimônio, faturas, budgets, recent activity
+│       ├── view-secondary.js  # CardsView, AccountsView, InvestmentsView, HistoryView
+│       └── app.js             # App shell — topbar, sidebar, nav, SSE, search, tweaks panel
 ├── .claude/
 │   └── commands/          # Claude Code project skills
 │       ├── db-reset.md    # /db-reset  — wipe transaction data, keep seeds
@@ -118,7 +121,7 @@ bot/handlers/expense.py — checks if monthly expenses ≥ income → sends aler
 - **Sheets rows are immutable.** Nothing is ever edited or deleted in the spreadsheet.
 - **Sheets failures never surface to the user.** Errors are logged; the bot continues normally.
 - **No AI in the registration flow.** Buttons eliminate the need for language model parsing at record time.
-- **Dashboard is read-only.** It only reads from SQLite via Flask API — never writes.
+- **Dashboard supports Quick Entry web forms.** Expense, income, and investment submissions POST to Flask endpoints, which call the same `insert_*` DB functions as the bot — SSE notify + Sheets mirror included.
 - **Dashboard updates in real-time via SSE.** `events.py` broadcasts after every DB write; the browser reacts immediately without polling.
 
 ---
@@ -133,7 +136,7 @@ bot/handlers/expense.py — checks if monthly expenses ≥ income → sends aler
 | Sheets integration | gspread + google-auth (Service Account) |
 | Scheduler | APScheduler |
 | Dashboard API | Flask 3.1 + Waitress 3.0 (8 threads, background thread) |
-| Dashboard frontend | Chart.js 4.4 (CDN), vanilla JS (api.js / charts.js / main.js) |
+| Dashboard frontend | React 18 + Babel standalone (no build step), custom inline SVG charts, `api.js` / `primitives.js` / `quick-entry.js` / `view-overview.js` / `view-secondary.js` / `app.js` |
 | Real-time updates | SSE via `events.py` — no polling, < 1s latency |
 | HTTP client | httpx |
 
@@ -561,26 +564,43 @@ All data endpoints accept an optional `?bank=nubank|inter` query parameter to fi
 | `GET /api/faturas[?bank=]` | Credit card billing info (total, due date, days remaining) |
 | `GET /api/account/<account_id>` | Full account detail: balance, monthly summary, billing info (credit only) |
 | `GET /api/transactions?account=<id>[&limit=<n>][&month=<m>&year=<y>]` | Transactions for an account — filtered by month/year (max 200, default 100) |
+| `GET /api/daily-spend` | Last 30 days of daily expense totals — `[{date, day, value}]` |
+| `GET /api/recent-activity` | 20 most recent transactions across all accounts (no internal transfers) |
+| `GET /api/patrimonio-history` | 12-month net worth: checking balances + cumulative investment movements |
+| `GET /api/budgets` | All budget rows: `[{id, category_id, category_name, amount_limit}]` |
+| `PATCH /api/budgets/<id>` | Update spending limit for a budget row |
+| `POST /api/transactions` | Insert expense transaction (body: `{account_id, method, amount, installments, description, date, category_id}`) |
+| `POST /api/incomes` | Insert income or internal transfer (body: `{kind, type, account_id, amount, description, date}` or `{kind:"transfer", from_account, to_account, amount, date}`) |
+| `POST /api/investment-movements` | Insert investment deposit or withdrawal (body: `{investment_name, operation, amount, date, description}`) |
 
 ### Dashboard panels
 
-**Visão Geral** (bank filter tabs: Todos | Nubank | Inter)
-- Cards: receitas, gastos, saldo líquido, reservas (current month, filtered by bank)
-- Evolução 6 meses — line chart: receitas vs gastos
-- Gastos por categoria — horizontal bar chart (current month, filtered)
-- Faturas abertas — Nubank Crédito and/or Inter Crédito with cycle dates and days until due
+5-section sidebar navigation. Keyboard shortcuts: `1`–`5` for sections, `N`/`E` for new expense, `R` for income, `I` for investment, `/` for search, `Esc` to close.
 
-**Contas**
-- Account pills: Todas | Nubank Crédito | Nubank Conta | Inter Crédito | Inter Conta
-- Grid view (default): all account cards with balance and type badge — clickable to drill down
-- Drill-down view (single account):
-  - Hero card: balance, monthly summary stats, billing cycle info (credit only)
-  - Chart: gastos por categoria (credit) or evolução 6 meses (checking)
-  - Transaction list with **month filter** (last 12 months, default current) and **category filter** (populated from fetched data)
+**Overview** — `view-overview.js`
+- Patrimônio hero: total net worth (38px number), 12-month sparkline, trend %, accounts+investments breakdown
+- 2-col: DualLine income vs expenses (6m) + category mini-bars with spend amounts
+- 3-col: daily spend BarChart (30d) + open faturas urgency cards + budget bars (editable inline)
+- Recent activity table with inline category reassignment
 
-**Investimentos**
-- Investment cards: balance and % of total per product
-- Distribuição — doughnut chart across Caixinha / Porquinho / Tesouro
+**Cards** — `view-secondary.js`
+- Gradient fatura cards (Nubank purple / Inter orange) with cycle dates and days until due
+- Transaction table with month + category selects, DualLine evolution, category mini-bars
+
+**Accounts** — `view-secondary.js`
+- Checking account tile grid (active tile highlighted), click to view full extract
+
+**Investments** — `view-secondary.js`
+- Total + Donut distribution + per-investment rows with balance
+
+**History** — `view-secondary.js`
+- Bank filter (Todos/Nubank/Inter), DualLine 6m, summary stats, month-by-month table with savings rate
+
+**Quick Entry sidebar** — `quick-entry.js`
+- Expense form: payment method, amount, installments, description, date, category grid
+- Income form: type (salary/freelance/pix/transfer), bank, amount, description, date
+- Investment form: operation (deposit/withdrawal), investment, amount, observation, date
+- Submits POST to Flask; SSE triggers real-time panel refresh
 
 Updates in real-time via SSE — dashboard reacts to any DB write in < 1s. Debounced 300ms to handle bulk CSV imports.
 
@@ -644,6 +664,13 @@ CREATE TABLE unrecognized_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   date TEXT NOT NULL,
   message TEXT NOT NULL
+);
+
+CREATE TABLE budgets (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  category_id INTEGER NOT NULL UNIQUE,
+  amount_limit REAL NOT NULL,
+  FOREIGN KEY (category_id) REFERENCES categories(id)
 );
 ```
 
@@ -844,7 +871,7 @@ Receitas: R$ X
 | Sheets failures are silent | Recording locally is always more important than mirroring |
 | SQLite WAL over PostgreSQL | Personal use, zero configuration, single file, trivial to back up |
 | Flask dashboard in a daemon thread | Runs alongside the async bot without blocking the event loop |
-| Dashboard is read-only | Never writes to SQLite — only reads via Flask endpoints |
+| Dashboard supports web Quick Entry | Same `insert_*` DB functions used by the bot are also called by Flask POST endpoints — SSE notify and Sheets mirror are included automatically |
 | Ollama excluded from the registration flow | Buttons replace language model parsing for the MVP |
 | Authentication by chat_id | Single-user personal bot — simple and sufficient |
 | Internal transfers stored as expense+dest_account_id, not as income | A transfer from Nubank to Inter is not real income — storing it as income would double-count the salary. A single expense row on the source with `dest_account_id` set credits the destination via the `inbound` subquery; all six summary queries already filter `AND dest_account_id IS NULL`, so transfers never appear in income or expense totals. |
@@ -926,6 +953,18 @@ Receitas: R$ X
 - [x] "Transferência" no menu de recebimentos abre sub-fluxo dedicado: De qual conta? → Para qual conta? → Valor → Data
 - [x] Armazenado como `flow='expense'`, `method='transfer'`, `dest_account_id=<destino>` — excluído de todos os summaries via `AND dest_account_id IS NULL`
 - [x] Saldo da conta destino creditado automaticamente pela subquery `inbound` em `get_account_balance`
+
+### Phase 7c — Redesign completo do dashboard ✅ DONE
+- [x] Frontend reescrito: React 18 + Babel standalone (sem build step), substituindo Chart.js e vanilla JS
+- [x] Token-based CSS (oklch colors, light/dark themes, compact/comfortable density via `data-theme`/`data-density`)
+- [x] 5-section sidebar navigation: Overview, Cards, Accounts, Investments, History
+- [x] Gráficos SVG inline: Sparkline, BarChart, DualLine, Donut (substitui Chart.js)
+- [x] Quick Entry sidebar web: lançamento de despesa/receita/investimento direto do dashboard
+- [x] 7 novos endpoints Flask: `/api/daily-spend`, `/api/recent-activity`, `/api/patrimônio-history`, `/api/budgets` (GET/PATCH), `/api/transactions` (POST), `/api/incomes` (POST), `/api/investment-movements` (POST)
+- [x] Tabela `budgets` com limites por categoria (editável inline no dashboard)
+- [x] Patrimônio 12 meses: saldo corrente + movimentos de investimento acumulados
+- [x] Global search, keyboard shortcuts (1-5, N/E/R/I, /, Esc), tweaks panel (tema, density, sidebar)
+- [x] SSE live indicator no topbar; debounce 300ms para imports CSV
 
 ### Phase 8 — Serviço systemd + Histórico comparativo
 - [ ] Serviço systemd para autostart no boot (brokershark.service)
