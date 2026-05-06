@@ -1,7 +1,7 @@
-/* view-overview.js — OverviewView */
+/* view-overview.js — OverviewView + CategoriesPanel */
 /* global React, fetchSummary, fetchMonthly, fetchCategories, fetchFaturas,
           fetchPatrimonioHistory, fetchDailySpend, fetchRecentActivity, fetchBudgets,
-          patchBudget */
+          fetchExpenseCategoriesFull, patchBudget, postCategory, deleteCategory */
 
 const { useState: _ovSt, useEffect: _ovEf } = React;
 const { fmtBRL, fmtBRLCompact, fmtDateBR, BankChip, Sparkline, BarChart, DualLine, Progress } = window.BS;
@@ -256,5 +256,128 @@ function OverviewView({ onJumpToAccount, onEditCategory, refreshKey }) {
   );
 }
 
+// ── CategoriesPanel ───────────────────────────────────────────────────────────
+
+function CategoriesPanel({ refreshKey, onRefresh }) {
+  const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
+  const [cats, setCats] = _ovSt([]);
+  const [newName, setNewName] = _ovSt("");
+  const [adding, setAdding] = _ovSt(false);
+  const [err, setErr] = _ovSt("");
+  const [deleteModal, setDeleteModal] = _ovSt(null); // {id, name, count}
+  const [reassignTo, setReassignTo] = _ovSt("");
+  const [deleting, setDeleting] = _ovSt(false);
+
+  _ovEf(() => {
+    fetchExpenseCategoriesFull().then(setCats);
+  }, [refreshKey]);
+
+  async function handleAdd(e) {
+    e.preventDefault();
+    const name = newName.trim();
+    if (!name) return;
+    setAdding(true); setErr("");
+    try {
+      await postCategory(name, "expense");
+      setNewName("");
+      fetchExpenseCategoriesFull().then(setCats);
+      onRefresh && onRefresh();
+    } catch (ex) {
+      setErr(ex.message);
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!deleteModal || !reassignTo) return;
+    setDeleting(true); setErr("");
+    try {
+      await deleteCategory(deleteModal.id, parseInt(reassignTo));
+      setDeleteModal(null); setReassignTo("");
+      fetchExpenseCategoriesFull().then(setCats);
+      onRefresh && onRefresh();
+    } catch (ex) {
+      setErr(ex.message);
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  const otherCats = deleteModal ? cats.filter(c => c.id !== deleteModal.id) : cats;
+
+  return h("div", { style: { padding: "20px 0" } },
+    h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 } },
+      h("span", { style: { fontWeight: 700, fontSize: 15 } }, "Categorias de Gasto"),
+    ),
+
+    // Add new category
+    h("form", { onSubmit: handleAdd, style: { display: "flex", gap: 8, marginBottom: 20 } },
+      h("input", {
+        type: "text", placeholder: "Nova categoria…", value: newName,
+        onChange: e => setNewName(e.target.value),
+        style: { flex: 1, padding: "6px 10px", borderRadius: 6, border: "1px solid var(--line-2)", background: "var(--bg-1)", color: "var(--fg-0)", fontSize: 13 },
+      }),
+      h("button", {
+        type: "submit", disabled: adding || !newName.trim(),
+        style: { padding: "6px 14px", borderRadius: 6, background: "var(--info)", color: "#fff", border: "none", cursor: "pointer", fontSize: 13 },
+      }, adding ? "…" : "+ Adicionar"),
+    ),
+
+    err ? h("p", { style: { color: "var(--neg)", fontSize: 12, marginBottom: 12 } }, err) : null,
+
+    // Category list
+    h("div", { style: { display: "flex", flexDirection: "column", gap: 6 } },
+      cats.map(cat =>
+        h("div", { key: cat.id, style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", background: "var(--bg-1)", borderRadius: 8, border: "1px solid var(--line-2)" } },
+          h("span", { style: { fontSize: 13, fontWeight: 500 } }, cat.name),
+          h("div", { style: { display: "flex", alignItems: "center", gap: 12 } },
+            h("span", { style: { fontSize: 12, color: "var(--fg-2)" } }, `${cat.transaction_count} transações`),
+            h("button", {
+              onClick: () => { setDeleteModal(cat); setReassignTo(""); setErr(""); },
+              style: { fontSize: 12, color: "var(--neg)", background: "none", border: "none", cursor: "pointer", padding: "2px 6px", borderRadius: 4 },
+            }, "×"),
+          ),
+        )
+      ),
+    ),
+
+    // Delete confirmation modal
+    deleteModal ? h("div", {
+      style: { position: "fixed", inset: 0, background: "rgba(0,0,0,.55)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center" },
+      onClick: e => { if (e.target === e.currentTarget) setDeleteModal(null); },
+    },
+      h("div", { style: { background: "var(--bg-1)", border: "1px solid var(--line-2)", borderRadius: 14, padding: 28, width: 340, boxShadow: "0 12px 40px rgba(0,0,0,.5)" } },
+        h("h3", { style: { margin: "0 0 8px", fontSize: 15 } }, `Deletar "${deleteModal.name}"?`),
+        deleteModal.transaction_count > 0
+          ? h("p", { style: { fontSize: 13, color: "var(--fg-2)", margin: "0 0 16px" } },
+              `${deleteModal.transaction_count} transação(ões) serão reassignadas para:`
+            )
+          : h("p", { style: { fontSize: 13, color: "var(--fg-2)", margin: "0 0 16px" } }, "Sem transações vinculadas."),
+        h("select", {
+          value: reassignTo, onChange: e => setReassignTo(e.target.value),
+          style: { width: "100%", padding: "6px 10px", borderRadius: 6, border: "1px solid var(--line-2)", background: "var(--bg-0)", color: "var(--fg-0)", fontSize: 13, marginBottom: 16 },
+        },
+          h("option", { value: "" }, "Escolher categoria…"),
+          otherCats.map(c => h("option", { key: c.id, value: c.id }, c.name)),
+        ),
+        err ? h("p", { style: { color: "var(--neg)", fontSize: 12, margin: "0 0 12px" } }, err) : null,
+        h("div", { style: { display: "flex", gap: 8, justifyContent: "flex-end" } },
+          h("button", {
+            onClick: () => setDeleteModal(null),
+            style: { padding: "7px 16px", borderRadius: 8, background: "var(--bg-2)", border: "none", color: "var(--fg-1)", cursor: "pointer", fontSize: 13 },
+          }, "Cancelar"),
+          h("button", {
+            onClick: handleDelete,
+            disabled: deleting || (!reassignTo && deleteModal.transaction_count > 0),
+            style: { padding: "7px 16px", borderRadius: 8, background: "var(--neg)", border: "none", color: "#fff", cursor: "pointer", fontSize: 13 },
+          }, deleting ? "…" : "Confirmar"),
+        ),
+      )
+    ) : null,
+  );
+}
+
 window.BS = window.BS || {};
 window.BS.OverviewView = OverviewView;
+window.BS.CategoriesPanel = CategoriesPanel;

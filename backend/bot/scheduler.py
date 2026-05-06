@@ -6,6 +6,7 @@ Jobs registered:
 - ``monthly_closing``— 1st of each month 08:00 with full previous-month breakdown
 """
 import asyncio
+import json
 import logging
 from datetime import datetime, timedelta
 
@@ -14,6 +15,7 @@ from telegram import Bot
 
 from core import backup, database
 from bot.utils import _fmt_brl as _fmt, _PT_MONTHS
+from integrations import ollama
 import config
 
 TELEGRAM_CHAT_ID = config.TELEGRAM_CHAT_ID
@@ -63,6 +65,17 @@ async def _send_weekly_report(bot: Bot) -> None:
         f"Nubank:  {_fmt(nu_info['total'])} — {_due_str(nu_info)}\n"
         f"Inter:   {_fmt(inter_info['total'])} — {_due_str(inter_info)}"
     )
+
+    insight = await ollama.chat([{
+        "role": "user",
+        "content": (
+            f"Gere uma análise em 2 frases do resumo financeiro semanal: "
+            f"gastos={_fmt(summary['expenses'])}, receitas={_fmt(summary['income'])}, "
+            f"top categoria={top_str}"
+        ),
+    }])
+    if insight:
+        text += f"\n\n💡 _{insight}_"
 
     await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=text, parse_mode="Markdown")
 
@@ -115,6 +128,21 @@ async def _send_monthly_closing_report(bot: Bot) -> None:
             lines.append(f"  {mv['name']} — {op}: {_fmt(mv['total'])}")
 
     lines.append(f"\n*Reservas acumuladas:* {_fmt(reservas_total)}")
+
+    data_summary = json.dumps({
+        "mes": f"{_PT_MONTHS[month]}/{year}",
+        "receitas": summary["income"],
+        "gastos": summary["expenses"],
+        "saldo": balance,
+        "reservas": reservas_total,
+        "categorias": [{"nome": c["name"], "total": c["total"]} for c in categories],
+    }, ensure_ascii=False)
+    insight = await ollama.chat([{
+        "role": "user",
+        "content": f"Análise em 2 frases do fechamento financeiro mensal: {data_summary}",
+    }])
+    if insight:
+        lines.append(f"\n💡 _{insight}_")
 
     await bot.send_message(
         chat_id=TELEGRAM_CHAT_ID,

@@ -1,24 +1,12 @@
-"""Application factory — assembles all handlers and wires up scheduler lifecycle hooks."""
+"""Application factory — monta todos os handlers e conecta os lifecycle hooks do scheduler."""
 import warnings
 
-from telegram.ext import Application, CommandHandler
+from telegram.ext import Application, CommandHandler, MessageHandler, filters
 
 import config
-from bot.handlers import (
-    build_csv_handler,
-    build_expense_handler,
-    build_income_handler,
-    build_investment_handler,
-)
-from bot.handlers.commands import (
-    cancel,
-    cmd_ajuda,
-    cmd_fatura,
-    cmd_reservas,
-    cmd_resumo,
-    cmd_saldo,
-    start,
-)
+from bot.handlers import build_csv_handler
+from bot.handlers.commands import cancel, cmd_ajuda, cmd_fatura, cmd_reservas, cmd_resumo, cmd_saldo, start
+from bot.handlers.ai_chat import ai_chat_handler
 
 
 async def _post_init(app: Application) -> None:
@@ -36,11 +24,7 @@ async def _post_shutdown(app: Application) -> None:
 
 def build_application() -> Application:
     """Build and return the fully configured Telegram Application."""
-    warnings.filterwarnings(
-        "ignore",
-        message="If 'per_message=False'",
-        category=UserWarning,
-    )
+    warnings.filterwarnings("ignore", message="If 'per_message=False'", category=UserWarning)
 
     app = (
         Application.builder()
@@ -57,10 +41,15 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("fatura",   cmd_fatura))
     app.add_handler(CommandHandler("reservas", cmd_reservas))
     app.add_handler(CommandHandler("ajuda",    cmd_ajuda))
+    app.add_handler(CommandHandler("cancelar", cancel))
 
-    app.add_handler(build_expense_handler())
-    app.add_handler(build_income_handler())
-    app.add_handler(build_investment_handler())
+    # CSV import (ConversationHandler — tem prioridade sobre o AI handler)
     app.add_handler(build_csv_handler())
+
+    # AI catch-all — deve ser o último handler registrado
+    app.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND & ~filters.UpdateType.EDITED_MESSAGE,
+        ai_chat_handler,
+    ))
 
     return app

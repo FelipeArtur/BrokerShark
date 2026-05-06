@@ -585,6 +585,51 @@ def api_post_investment_movement() -> Response:
     return jsonify({"ok": True, "id": mv_id})
 
 
+@app.route("/api/expense-categories-full")
+def api_expense_categories_full() -> Response:
+    """Return all expense categories with their transaction count."""
+    return jsonify(database.get_all_expense_categories())
+
+
+@app.route("/api/categories", methods=["POST"])
+def api_create_category() -> Response:
+    """Create a new category.
+
+    Body: ``{name: str, flow: "expense"|"income"}``
+    """
+    body = request.get_json(silent=True) or {}
+    name = (body.get("name") or "").strip()
+    flow = body.get("flow", "expense")
+    if not name:
+        return jsonify({"error": "name required"}), 400
+    if flow not in ("expense", "income"):
+        return jsonify({"error": "flow must be expense or income"}), 400
+    try:
+        new_id = database.create_category(name, flow)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 409
+    _events.notify()
+    return jsonify({"id": new_id, "name": name, "flow": flow}), 201
+
+
+@app.route("/api/categories/<int:category_id>", methods=["DELETE"])
+def api_delete_category(category_id: int) -> Response:
+    """Delete a category, reassigning its transactions to another.
+
+    Body: ``{reassign_to_id: int}``
+    """
+    body = request.get_json(silent=True) or {}
+    reassign_to_id = body.get("reassign_to_id")
+    if reassign_to_id is None:
+        return jsonify({"error": "reassign_to_id required"}), 400
+    try:
+        affected = database.delete_category(category_id, int(reassign_to_id))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    _events.notify()
+    return jsonify({"ok": True, "transactions_reassigned": affected})
+
+
 def start_dashboard() -> None:
     """Start the Waitress WSGI server in a daemon thread.
 

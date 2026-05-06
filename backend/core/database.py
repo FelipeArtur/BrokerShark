@@ -345,6 +345,7 @@ def insert_transaction(
     category_id: Optional[int] = None,
     dest_account_id: Optional[str] = None,
     counterpart: Optional[str] = None,
+    is_revenue: int = 0,
 ) -> int:
     """Insert a new transaction and notify the dashboard via SSE.
 
@@ -367,10 +368,10 @@ def insert_transaction(
         cur = conn.execute(
             """INSERT INTO transactions
                (date, flow, method, account_id, amount, installments,
-                description, category_id, dest_account_id, counterpart)
-               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                description, category_id, dest_account_id, counterpart, is_revenue)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
             (date, flow, method, account_id, amount, installments,
-             description, category_id, dest_account_id, counterpart),
+             description, category_id, dest_account_id, counterpart, is_revenue),
         )
         last_id = cur.lastrowid
     events.notify()
@@ -1217,3 +1218,109 @@ def log_unrecognized(message: str) -> None:
             "INSERT INTO unrecognized_log (date, message) VALUES (?,?)",
             (datetime.now().isoformat(), message),
         )
+
+
+# ── AI / Ollama helpers ───────────────────────────────────────────────────────
+
+def get_categorization_patterns(limit: int = 100) -> list[dict]:
+    """Return the most frequent (description, category) pairs from expense history.
+
+    Used as context for Ollama to suggest categories for CSV imports.
+
+    Args:
+        limit: Maximum number of patterns to return.
+
+    Returns:
+        List of ``{description, category, freq}`` ordered by frequency descending.
+    """
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT t.description, c.name AS category, COUNT(*) AS freq
+               FROM transactions t
+               JOIN categories c ON c.id = t.category_id
+               WHERE t.flow = 'expense' AND t.dest_account_id IS NULL
+               GROUP BY t.description, c.name
+               ORDER BY freq DESC
+               LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+# ── Category management ───────────────────────────────────────────────────────
+
+def get_all_expense_categories() -> list[dict]:
+    """Return all expense categories with their transaction count.
+
+    Returns:
+        List of ``{id, name, flow, transaction_count}`` for expense categories.
+    """
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT c.id, c.name, c.flow,
+                      COUNT(t.id) AS transaction_count
+               FROM categories c
+               LEFT JOIN transactions t
+                     ON t.category_id = c.id
+                    AND t.dest_account_id IS NULL
+               WHERE c.flow = 'expense'
+               GROUP BY c.id
+               ORDER BY c.name""",
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def create_category(name: str, flow: str) -> int:
+    """Insert a new category and return its generated id.
+
+    Args:
+        name: Display name for the category.
+        flow: Must be ``'expense'`` or ``'income'``.
+
+    Returns:
+        The ``id`` of the newly created row.
+
+    Raises:
+        ValueError: If a category with the same name+flow already exists.
+    """
+    with _connect() as conn:
+        existing = conn.execute(
+            "SELECT id FROM categories WHERE name=? AND flow=?", (name, flow)
+        ).fetchone()
+        if existing:
+            raise ValueError(f"Categoria '{name}' já existe para o fluxo '{flow}'.")
+        cur = conn.execute(
+            "INSERT INTO categories (name, flow) VALUES (?,?)", (name, flow)
+        )
+        return cur.lastrowid  # type: ignore[return-value]
+
+
+def delete_category(category_id: int, reassign_to_id: int) -> int:
+    """Reassign all transactions from one category to another, then delete it.
+
+    Args:
+        category_id: The id of the category to delete.
+        reassign_to_id: The id of the category that should receive all transactions.
+
+    Returns:
+        Number of transactions that were reassigned.
+
+    Raises:
+        ValueError: If either id is invalid or they are the same.
+    """
+    with _connect() as conn:
+        if category_id == reassign_to_id:
+            raise ValueError("Categoria de origem e destino não podem ser iguais.")
+        target = conn.execute(
+            "SELECT id FROM categories WHERE id=?", (reassign_to_id,)
+        ).fetchone()
+        if not target:
+            raise ValueError(f"Categoria destino id={reassign_to_id} não encontrada.")
+        cur = conn.execute(
+            "UPDATE transactions SET category_id=? WHERE category_id=?",
+            (reassign_to_id, category_id),
+        )
+        affected = cur.rowcount
+        conn.execute("DELETE FROM budgets WHERE category_id=?", (category_id,))
+        conn.execute("DELETE FROM categories WHERE id=?", (category_id,))
+        return affected

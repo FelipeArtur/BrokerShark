@@ -1,11 +1,13 @@
 /* app.js — BrokerShark v2 app shell */
 /* global React, ReactDOM, fetchExpenseCategories, patchTransactionCategory,
-          postTransaction, postIncome, postInvestmentMovement, searchTransactions */
+          postTransaction, postIncome, postInvestmentMovement, searchTransactions,
+          fetchExpenseCategoriesFull, postCategory, deleteCategory */
 
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
 const {
   fmtBRL, fmtDateBR, Modal, useToasts, BankChip, BrokerSharkLogo,
   QuickEntry, OverviewView, CardsView, AccountsView, InvestmentsView, HistoryView,
+  CategoriesPanel,
 } = window.BS;
 
 /* ── Tweaks (localStorage) ──────────────────────────────────────────────── */
@@ -225,7 +227,7 @@ function App() {
 
   // Keyboard shortcuts
   useEffect(() => {
-    const SECTION_MAP = { "1": "overview", "2": "cards", "3": "accounts", "4": "investments", "5": "history" };
+    const SECTION_MAP = { "1": "overview", "2": "cards", "3": "accounts", "4": "investments", "5": "history", "6": "categories" };
     function onKey(e) {
       if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || e.target.tagName === "SELECT") return;
       if (e.key === "Escape") { setSidebarOpen(tw.alwaysOpenSidebar); setSearchModalOpen(false); setTweaksOpen(false); }
@@ -263,6 +265,7 @@ function App() {
     { id: "accounts",     label: "Contas",        key: "3" },
     { id: "investments",  label: "Investimentos", key: "4" },
     { id: "history",      label: "Histórico",     key: "5" },
+    { id: "categories",   label: "Categorias",    key: "6" },
   ];
 
   const sidebarLeft = tw.sidebarSide === "left";
@@ -342,13 +345,14 @@ function App() {
         section === "accounts"    && h(AccountsView,    { onEditCategory: setEditTx, refreshKey }),
         section === "investments" && h(InvestmentsView, { refreshKey }),
         section === "history"     && h(HistoryView,     { refreshKey }),
+        section === "categories"  && h(CategoriesPanel, { refreshKey, onRefresh: () => setRefreshKey(k => k + 1) }),
 
         h("footer", { style: { marginTop: 20, padding: "12px 0", borderTop: "1px solid var(--line-1)", fontSize: 10, color: "var(--fg-3)", display: "flex", justifyContent: "space-between" } },
           h("span", null, "BrokerShark · localhost:8080 · SQLite ▸ Sheets"),
           tw.showKeyboardHints && h("span", { style: { display: "flex", gap: 12 } },
             h("span", null, h("span", { className: "kbd" }, "N"), " novo"),
             h("span", null, h("span", { className: "kbd" }, "/"), " buscar"),
-            h("span", null, h("span", { className: "kbd" }, "1-5"), " seções"),
+            h("span", null, h("span", { className: "kbd" }, "1-6"), " seções"),
             h("span", null, h("span", { className: "kbd" }, "Esc"), " fechar")
           )
         )
