@@ -25,6 +25,11 @@ SHEETS_ID: str = os.getenv("SHEETS_ID", "")
 DASHBOARD_PORT: int = int(os.getenv("DASHBOARD_PORT", "8080"))
 FRONTEND_DIR: Path = Path(__file__).parent.parent / "frontend"
 
+# ── Ollama ────────────────────────────────────────────────────────────────────
+OLLAMA_URL: str = os.getenv("OLLAMA_URL", "http://localhost:11434")
+OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "phi3.5")
+OLLAMA_TIMEOUT: int = int(os.getenv("OLLAMA_TIMEOUT", "90"))
+
 # ── Logging ───────────────────────────────────────────────────────────────────
 LOG_DIR: str = "logs"
 LOG_FORMAT: str = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"

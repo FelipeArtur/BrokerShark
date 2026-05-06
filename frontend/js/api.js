@@ -35,7 +35,8 @@ async function fetchAccountHistory(id)     { return _get(`/api/account-history${
 async function fetchRecentTransactions(id, { limit = 100, month = null, year = null } = {}) {
   return _get(`/api/transactions${_params({ account: id, limit, month, year })}`);
 }
-async function fetchExpenseCategories()    { return _get("/api/expense-categories"); }
+async function fetchExpenseCategories()         { return _get("/api/expense-categories"); }
+async function fetchExpenseCategoriesFull()     { return _get("/api/expense-categories-full"); }
 
 /* ── New v2 read endpoints ──────────────────────────────────────────────── */
 async function fetchDailySpend()           { return _get("/api/daily-spend"); }
@@ -54,3 +55,13 @@ async function patchBudget(budgetId, categoryId, amountLimit) {
 async function postTransaction(body)          { return _post("/api/transactions", body); }
 async function postIncome(body)               { return _post("/api/incomes", body); }
 async function postInvestmentMovement(body)   { return _post("/api/investment-movements", body); }
+async function postCategory(name, flow)       { return _post("/api/categories", { name, flow }); }
+async function deleteCategory(id, reassignToId) {
+  const r = await fetch(`/api/categories/${id}`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reassign_to_id: reassignToId }),
+  });
+  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || "request failed"); }
+  return r.json();
+}

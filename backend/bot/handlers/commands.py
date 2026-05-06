@@ -1,15 +1,15 @@
-"""Command handlers: /novo (start), /saldo, /resumo, /fatura, /reservas, /ajuda, /cancelar."""
+"""Command handlers: /start, /saldo, /resumo, /fatura, /reservas, /ajuda, /cancelar."""
 from datetime import datetime
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import ContextTypes, ConversationHandler
+from telegram import Update
+from telegram.ext import ContextTypes
 
 from core import database
 from bot.utils import _authorized, _fmt_brl, _PT_MONTHS
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Show the main menu with a monthly summary header."""
+    """Show the monthly snapshot and invite the user to chat."""
     if not _authorized(update):
         return
 
@@ -21,32 +21,30 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     top = summary.get("top_category")
     top_str = f"{top['name']} — {_fmt_brl(top['total'])}" if top else "—"
 
-    greeting = (
+    # Sinaliza para o ai_chat_handler limpar histórico na próxima mensagem
+    context.bot_data[f"clear_history_{update.effective_chat.id}"] = True
+
+    text = (
         f"*BrokerShark* — {now.strftime('%d/%m/%Y')}\n\n"
         f"*{_PT_MONTHS[now.month]} {now.year}*\n"
         f"Gastos:        {_fmt_brl(summary['expenses'])}\n"
         f"Receitas:      {_fmt_brl(summary['income'])}\n"
         f"Top categoria: {top_str}\n"
         f"Reservas:      {_fmt_brl(reservas_total)}\n\n"
-        "O que você quer fazer?"
+        "Como posso ajudar? Pode falar livremente — registre gastos, receitas, "
+        "investimentos ou me faça perguntas sobre suas finanças."
     )
-
-    keyboard = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("💸 Gasto",       callback_data="menu_expense"),
-            InlineKeyboardButton("💰 Recebimento", callback_data="menu_income"),
-        ],
-        [InlineKeyboardButton("📈 Investimento", callback_data="menu_investment")],
-    ])
-    await update.message.reply_text(greeting, reply_markup=keyboard, parse_mode="Markdown")
+    await update.message.reply_text(text, parse_mode="Markdown")
 
 
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Abort the current conversation and clear collected state."""
-    context.user_data.clear()
-    if update.message:
-        await update.message.reply_text("Operação cancelada.")
-    return ConversationHandler.END
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Cancel any pending AI registration."""
+    chat_id = update.effective_chat.id
+    pending = context.bot_data.get("pending", {})
+    if pending.pop(chat_id, None):
+        await update.message.reply_text("Registro cancelado.")
+    else:
+        await update.message.reply_text("Nada para cancelar.")
 
 
 async def cmd_saldo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -122,13 +120,19 @@ async def cmd_ajuda(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not _authorized(update):
         return
     text = (
-        "*Comandos disponíveis*\n\n"
-        "/novo — registrar gasto, recebimento ou investimento\n"
+        "*BrokerShark — como usar*\n\n"
+        "Fale livremente para registrar ou consultar:\n"
+        "_\"gastei 45 reais no iFood hoje no crédito nubank\"_\n"
+        "_\"recebi 3500 de salário na nubank\"_\n"
+        "_\"investi 500 na caixinha nubank\"_\n"
+        "_\"quanto gastei esse mês?\"_\n\n"
+        "*Comandos rápidos*\n"
+        "/start — resumo do mês\n"
         "/saldo — saldo por conta\n"
-        "/resumo — resumo do mês atual por categoria\n"
-        "/fatura — fatura atual dos cartões de crédito\n"
+        "/resumo — gastos por categoria\n"
+        "/fatura — faturas dos cartões\n"
         "/reservas — saldo dos investimentos\n"
-        "/ajuda — esta mensagem\n\n"
-        "Envie um arquivo .csv para importar extratos bancários."
+        "/cancelar — cancela registro pendente\n\n"
+        "Envie um arquivo _.csv_ para importar extratos bancários."
     )
     await update.message.reply_text(text, parse_mode="Markdown")

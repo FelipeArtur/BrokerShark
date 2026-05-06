@@ -55,11 +55,12 @@ from bot.parsers import nubank_cc, inter_cc
     INV_CONFIRMATION,
 ) = range(20, 26)
 
-# ── CSV import flow (30–31) ───────────────────────────────────────────────────
+# ── CSV import flow (30–32) ───────────────────────────────────────────────────
 (
     CSV_ACCOUNT,
     CSV_CONFIRMATION,
-) = range(30, 32)
+    CSV_AI_CATEGORIZING,
+) = range(30, 33)
 
 # ── Account choices: callback key → (account_id, method) ─────────────────────
 # Used by the combined payment+bank selection step in expense flow.
