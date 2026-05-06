@@ -130,6 +130,7 @@ function IncomeForm({ onSubmit, onCancel }) {
   const [amount, setAmount] = _qSt(0);
   const [description, setDescription] = _qSt("");
   const [date, setDate] = _qSt(todayISO());
+  const [isRevenue, setIsRevenue] = _qSt(true);
   const [saving, setSaving] = _qSt(false);
 
   const isTransfer = type === "transfer";
@@ -143,7 +144,7 @@ function IncomeForm({ onSubmit, onCancel }) {
       if (isTransfer) {
         await onSubmit({ kind: "transfer", type: "transfer", from_account: bankId, to_account: transferTo, amount, date });
       } else {
-        await onSubmit({ kind: "income", type, account_id: bankId, amount, description: description || type, date });
+        await onSubmit({ kind: "income", type, account_id: bankId, amount, description: description || type, date, is_revenue: isRevenue ? 1 : 0 });
       }
     } finally { setSaving(false); }
   }
@@ -175,6 +176,12 @@ function IncomeForm({ onSubmit, onCancel }) {
       h("input", { className: "input", placeholder: type === "salary" ? "Salário maio" : "Detalhe da entrada", value: description, onChange: e => setDescription(e.target.value), style: { height: 36 } })
     ),
     h(FieldRow, { label: "Data" }, h(DateChooser, { value: date, onChange: setDate })),
+    !isTransfer && h(FieldRow, { label: "" },
+      h("label", { style: { display: "flex", alignItems: "center", gap: 8, fontSize: "var(--fz-7)", cursor: "pointer", color: "var(--fg-1)" } },
+        h("input", { type: "checkbox", checked: isRevenue, onChange: e => setIsRevenue(e.target.checked), style: { width: 16, height: 16, cursor: "pointer" } }),
+        "Contabilizar como receita nos gráficos"
+      )
+    ),
     h("div", { style: { display: "flex", gap: 6, marginTop: 4 } },
       h("button", { type: "button", className: "btn", onClick: onCancel, style: { flex: 1 } }, "Cancelar"),
       h("button", { type: "submit", className: "btn btn-primary", disabled: !amount || saving, style: { flex: 2 } },

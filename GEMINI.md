@@ -259,6 +259,7 @@ Follow these rules strictly when writing or modifying code:
 - **Authorization check first:** Every incoming Telegram message handler must verify `chat_id` before any processing.
 - **SQLite pragmas:** `PRAGMA journal_mode=WAL` and `PRAGMA foreign_keys=ON` are mandatory at connection time.
 - **Internal transfers are not income:** A transfer between own accounts (Nubank → Inter) is stored as `flow='expense'`, `method='transfer'`, `dest_account_id=<destination>`. The destination balance is credited via the `inbound` subquery in `get_account_balance`. All summary queries filter `AND dest_account_id IS NULL` so transfers never appear in income or expense totals. Never record an internal transfer as `flow='income'`.
+- **Explicit Revenue Flag:** Income transactions use an `is_revenue` flag (1 or 0). Only transactions with `flow='income'` and `is_revenue=1` are counted towards monthly income totals. Unmarked incomes are excluded from the main dashboard summaries.
 
 ---
 

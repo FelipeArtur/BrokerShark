@@ -515,6 +515,7 @@ def api_post_income() -> Response:
     account_id  = data.get("account_id", "")
     description = data.get("description", "").strip() or tx_type
     method      = METHOD_MAP.get(tx_type, "other")
+    is_revenue  = 1 if data.get("is_revenue") else 0
 
     if account_id not in _VALID_ACCOUNTS:
         return jsonify({"error": "invalid account_id"}), 400
@@ -523,6 +524,7 @@ def api_post_income() -> Response:
         date=date_str, flow="income", method=method,
         account_id=account_id, amount=float(amount), installments=1,
         description=description, category_id=None,
+        is_revenue=is_revenue,
     )
     tx = database.get_transaction(tx_id)
     if tx:
