@@ -124,6 +124,14 @@ def init_db() -> None:
         _seed_categories(conn)
         _seed_budgets(conn)
 
+        # Migration: add is_revenue if it doesn't exist
+        try:
+            conn.execute("SELECT is_revenue FROM transactions LIMIT 1")
+        except sqlite3.OperationalError:
+            conn.execute("ALTER TABLE transactions ADD COLUMN is_revenue INTEGER DEFAULT 0")
+            conn.execute("UPDATE transactions SET is_revenue = 1 WHERE flow = 'income' AND dest_account_id IS NULL AND (counterpart IS NULL OR counterpart != 'SELF')")
+            conn.commit()
+
 
 def _seed_accounts(conn: sqlite3.Connection) -> None:
     accounts = [
@@ -738,7 +746,7 @@ def get_monthly_history(months: int = 6, bank: Optional[str] = None) -> list[dic
             f"""SELECT
                    strftime('%Y-%m', t.date) AS ym,
                    COALESCE(SUM(CASE WHEN t.flow='expense' AND t.dest_account_id IS NULL THEN t.amount ELSE 0 END), 0) AS expenses,
-                   COALESCE(SUM(CASE WHEN t.flow='income' AND t.dest_account_id IS NULL AND (t.counterpart IS NULL OR t.counterpart != 'SELF') THEN t.amount ELSE 0 END), 0) AS income
+                   COALESCE(SUM(CASE WHEN t.flow='income' AND t.is_revenue=1 THEN t.amount ELSE 0 END), 0) AS income
                FROM transactions t
                {j}
                WHERE t.date BETWEEN ? AND ? {b}
@@ -804,7 +812,7 @@ def get_account_monthly_summary(account_id: str, year: int, month: int) -> dict:
             (account_id, start, end),
         ).fetchone()[0]
         income = conn.execute(
-            "SELECT COALESCE(SUM(amount),0) FROM transactions WHERE account_id=? AND flow='income' AND dest_account_id IS NULL AND (counterpart IS NULL OR counterpart != 'SELF') AND date BETWEEN ? AND ?",
+            "SELECT COALESCE(SUM(amount),0) FROM transactions WHERE account_id=? AND flow='income' AND is_revenue=1 AND date BETWEEN ? AND ?",
             (account_id, start, end),
         ).fetchone()[0]
         top_category = conn.execute(
@@ -853,7 +861,7 @@ def get_monthly_history_by_account(account_id: str, months: int = 6) -> list[dic
             """SELECT
                    strftime('%Y-%m', date) AS ym,
                    COALESCE(SUM(CASE WHEN flow='expense' AND dest_account_id IS NULL THEN amount ELSE 0 END), 0) AS expenses,
-                   COALESCE(SUM(CASE WHEN flow='income' AND dest_account_id IS NULL AND (counterpart IS NULL OR counterpart != 'SELF') THEN amount ELSE 0 END), 0) AS income
+                   COALESCE(SUM(CASE WHEN flow='income' AND is_revenue=1 THEN amount ELSE 0 END), 0) AS income
                FROM transactions
                WHERE account_id=? AND date BETWEEN ? AND ?
                GROUP BY ym""",
@@ -887,7 +895,7 @@ def get_full_monthly_history_by_account(account_id: str) -> list[dict]:
         rows = conn.execute(
             """SELECT
                    strftime('%Y-%m', date) AS ym,
-                   COALESCE(SUM(CASE WHEN flow='income' AND dest_account_id IS NULL AND (counterpart IS NULL OR counterpart != 'SELF') THEN amount ELSE 0 END), 0) AS income,
+                   COALESCE(SUM(CASE WHEN flow='income' AND is_revenue=1 THEN amount ELSE 0 END), 0) AS income,
                    COALESCE(SUM(CASE WHEN flow='expense' AND dest_account_id IS NULL THEN amount ELSE 0 END), 0) AS expenses
                FROM transactions
                WHERE account_id = ?

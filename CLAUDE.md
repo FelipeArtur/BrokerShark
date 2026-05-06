@@ -958,7 +958,7 @@ Receitas: R$ X
 - [x] Frontend reescrito: React 18 + Babel standalone (sem build step), substituindo Chart.js e vanilla JS
 - [x] Token-based CSS (oklch colors, light/dark themes, compact/comfortable density via `data-theme`/`data-density`)
 - [x] 5-section sidebar navigation: Overview, Cards, Accounts, Investments, History
-- [x] Gráficos SVG inline: Sparkline, BarChart, DualLine, Donut (substitui Chart.js)
+- [x] Integração com Chart.js: Sparkline, BarChart, DualLine, Donut (substitui SVGs inline)
 - [x] Quick Entry sidebar web: lançamento de despesa/receita/investimento direto do dashboard
 - [x] 7 novos endpoints Flask: `/api/daily-spend`, `/api/recent-activity`, `/api/patrimônio-history`, `/api/budgets` (GET/PATCH), `/api/transactions` (POST), `/api/incomes` (POST), `/api/investment-movements` (POST)
 - [x] Tabela `budgets` com limites por categoria (editável inline no dashboard)
@@ -975,6 +975,12 @@ Receitas: R$ X
 ### Phase 8b — Edição e correção de dados históricos
 - [ ] Edição de categoria por transação no dashboard (clique inline na lista de transações)
 - [ ] Ajuste manual de saldo de investimento no dashboard — necessário porque RDB/CDB rendem juros diários que não aparecem no extrato como movimentos; o saldo importado do CSV reflete apenas aportes e resgates explícitos
+
+### Phase 9 — Smart queries (Ollama)
+- [ ] Natural language questions: "quanto gastei em jogos esse mês?"
+- [ ] Consolidated net worth (accounts + investments)
+- [ ] Spending goals with 80% threshold alerts
+nas aportes e resgates explícitos
 
 ### Phase 9 — Smart queries (Ollama)
 - [ ] Natural language questions: "quanto gastei em jogos esse mês?"

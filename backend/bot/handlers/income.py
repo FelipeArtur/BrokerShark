@@ -46,11 +46,6 @@ _DATE_KB = InlineKeyboardMarkup([[
     InlineKeyboardButton("Outra data", callback_data="date_outra"),
 ]])
 
-_CONFIRM_KB = InlineKeyboardMarkup([[
-    InlineKeyboardButton("Confirmar", callback_data="inc_confirm"),
-    InlineKeyboardButton("Cancelar",  callback_data="inc_cancel"),
-]])
-
 
 async def income_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
@@ -219,11 +214,23 @@ def _build_confirm_text(d: dict) -> str:
 
 
 async def _show_confirmation_edit(query, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await query.edit_message_text(_build_confirm_text(context.user_data), reply_markup=_CONFIRM_KB)
-
+    await query.edit_message_text(
+        _build_confirm_text(context.user_data),
+        reply_markup=_build_confirm_kb(context.user_data)
+    )
 
 async def _show_confirmation_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(_build_confirm_text(context.user_data), reply_markup=_CONFIRM_KB)
+    await update.message.reply_text(
+        _build_confirm_text(context.user_data),
+        reply_markup=_build_confirm_kb(context.user_data)
+    )
+
+async def income_toggle_revenue(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    context.user_data["inc_is_revenue"] = not context.user_data.get("inc_is_revenue", True)
+    await _show_confirmation_edit(query, context)
+    return INC_CONFIRMATION
 
 
 # ── Save ──────────────────────────────────────────────────────────────────────
@@ -263,6 +270,8 @@ async def income_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         context.user_data.clear()
         return ConversationHandler.END
 
+    is_rev = 1 if d.get("inc_is_revenue", True) else 0
+
     tx_id = database.insert_transaction(
         date=d["inc_date"],
         flow="income",
@@ -270,6 +279,7 @@ async def income_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         account_id=d["inc_account_id"],
         amount=d["inc_amount"],
         description=d["inc_description"],
+        is_revenue=is_rev,
     )
 
     asyncio.get_event_loop().run_in_executor(
@@ -333,6 +343,7 @@ def build_income_handler() -> ConversationHandler:
             ],
             INC_CONFIRMATION: [
                 CallbackQueryHandler(income_save, pattern="^inc_(confirm|cancel)$"),
+                CallbackQueryHandler(income_toggle_revenue, pattern="^inc_toggle_rev$"),
             ],
         },
         fallbacks=[CommandHandler("cancelar", cancel)],
