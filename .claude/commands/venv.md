@@ -5,7 +5,7 @@ Manage the project virtualenv at `.venv/` (Python 3.14.4).
 ## Venv location
 
 ```
-/home/felipe/Projetos/brokershark/.venv/
+<raiz do projeto>/.venv/
 ```
 
 Created with:
@@ -55,25 +55,27 @@ source .venv/bin/activate
 ## Expected state (healthy venv)
 
 ```
-.venv/pyvenv.cfg        exists
-.venv/bin/python        executable
-.venv/bin/pip           executable
-python-telegram-bot     21.x
-flask                   3.1.x
-waitress                3.0.x
-gspread                 6.x
-APScheduler             3.x
+.venv/pyvenv.cfg           exists
+.venv/bin/python           executable
+.venv/bin/pip              executable
+python-telegram-bot        21.x
+flask                      3.1.x
+waitress                   3.0.x
+APScheduler                3.x
+google-api-python-client   2.x
+httpx                      0.x
 ```
 
 Run this to verify:
 ```bash
 .venv/bin/python -c "
-import telegram, flask, waitress, gspread, apscheduler
+import telegram, flask, waitress, apscheduler, googleapiclient, httpx
 print('python-telegram-bot:', telegram.__version__)
 print('flask:', flask.__version__)
 print('waitress:', waitress.__version__)
-print('gspread:', gspread.__version__)
 print('apscheduler:', apscheduler.__version__)
+print('google-api-python-client:', googleapiclient.__version__)
+print('httpx:', httpx.__version__)
 print('All OK')
 "
 ```

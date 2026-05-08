@@ -8,9 +8,15 @@ Amount format examples::
     "R$ 230,80"      →  230.80  (expense — kept)
     "-R$ 766,75"     → -766.75  (payment/credit — skipped)
 
-Installment handling: when "Tipo" is "Parcela N/M" and N > 1, the transaction
-date is shifted forward by (N-1) months so each installment falls in its own
-billing cycle and has a unique dedup key.
+Installment handling (``adjust_installment_dates=True``): when "Tipo" is
+"Parcela N/M" and N > 1, the transaction date is shifted forward by (N-1)
+months so each installment falls in its own billing cycle. This mode is for
+single-fatura imports (via Telegram/web) where the CSV shows the original
+purchase date.
+
+For historical monthly fatura files, pass ``adjust_installment_dates=False``
+because each monthly file already shows each installment in its correct billing
+month — no forward shift is needed.
 
 The file may include a UTF-8 BOM (``\\ufeff``), which is stripped before parsing.
 Date formats accepted: ``%d/%m/%Y``, ``%Y-%m-%d``, ``%d/%m/%y``.
@@ -32,11 +38,16 @@ _PREV_CYCLE_CHARGES = frozenset({
 })
 
 
-def parse(content: str) -> list[dict[str, Any]]:
+def parse(content: str, adjust_installment_dates: bool = True) -> list[dict[str, Any]]:
     """Parse an Inter credit card CSV export into a list of transaction dicts.
 
     Args:
         content: Raw CSV text from the Inter app export (BOM-safe).
+        adjust_installment_dates: When ``True`` (default), shifts "Parcela N/M"
+            dates forward by (N-1) months — for single-fatura imports where the
+            CSV contains the original purchase date. Set to ``False`` when
+            importing individual monthly fatura files, where each installment
+            already appears in its correct billing month.
 
     Returns:
         List of transaction dicts ready for :func:`core.database.insert_transaction`.
@@ -87,7 +98,10 @@ def parse(content: str) -> list[dict[str, Any]]:
 
             # Shift date for installments N/M where N > 1 so each installment
             # falls in its own billing cycle with a unique dedup key.
-            else:
+            # Only applied when the CSV contains the original purchase date
+            # (single-fatura import). Historical monthly faturas already have
+            # each installment in the correct month — no shift needed.
+            elif adjust_installment_dates:
                 tipo = (row.get("Tipo") or "").strip()
                 m = re.match(r"Parcela\s+(\d+)/\d+", tipo)
                 if m:

@@ -48,8 +48,8 @@ PARSER_MAP = {
 
    Then run `init_db()` or insert manually so the account exists in the DB.
 
-5. **Expose in the CSV import flow** — update `backend/bot/handlers/csv_import.py`:
-   - Add a button to the InlineKeyboard in `csv_received()`
-   - Add the new `account_id` to the `CallbackQueryHandler` pattern in `build_csv_handler()`
+5. **Expose in the web CSV import flow** — update `backend/dashboard/server.py`:
+   - In `POST /api/import-csv/preview`, add the new `account_id` to the account → parser dispatch map
+   - The frontend `ImportModal` in `frontend/js/quick-entry.js` already renders all accounts from `/api/accounts`; the new account will appear automatically once seeded
 
 6. **Write tests** for the parser with at least one valid row, one skipped negative row, and one BOM-prefixed row if applicable.

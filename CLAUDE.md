@@ -6,24 +6,24 @@ This project is co-developed using **Claude Code CLI** and **Gemini CLI**.
 
 | File | Purpose |
 |---|---|
-| `CLAUDE.md` | Full source of truth — architecture, flows, roadmap, design decisions (Claude Code) |
-| `GEMINI.md` | Concise context guide for Gemini CLI — architecture summary + engineering directives |
-| `.claude/commands/` | Claude Code slash-command skills (`/db-reset`, `/add-category`, etc.) |
-| `.gemini/commands/` | Gemini CLI slash-command skills (mirrors `.claude/commands/`) |
+| `CLAUDE.md` | Full source of truth — architecture, flows, design decisions (Claude Code) |
+| `GEMINI.md` | Concise context guide for Gemini CLI |
+| `.claude/commands/` | Claude Code slash-command skills |
 
-When making permanent changes (new categories, new accounts, schema changes), update **both** `CLAUDE.md` and `GEMINI.md` to keep them in sync.
+When making permanent changes (new categories, new accounts, schema changes), update **both** `CLAUDE.md` and `GEMINI.md`.
 
 ---
 
 ## Overview
 
-BrokerShark is a personal finance assistant accessible via **Telegram**, running **100% locally** on Linux.
-All registration is done through buttons — no commands to memorize, no natural language parsing required.
-Every transaction is persisted in a local SQLite database and immediately mirrored to **Google Sheets**,
-which serves as a permanent append-only backup.
-A local web dashboard (React 18 + Flask) runs alongside the bot for visual analysis.
+BrokerShark is a personal finance assistant running **100% locally** on Linux.
 
-**User profile:** 24-year-old male, accounts at Nubank and Inter (credit card + conta corrente). Does **not** use debit card as a payment method. Investments: Caixinha Nubank, Porquinho Inter, Tesouro Direto.
+**Primary interface:** Web dashboard (React 18 + Flask) at `http://localhost:8080`
+**Secondary interface:** Telegram bot — quick registrations and scheduled reports only
+
+Every transaction is persisted in a local SQLite database. Monthly backups go to a local HDD directory and to Google Drive (same service account).
+
+**User profile:** Single user, accounts at Nubank and Inter (credit card + conta corrente). Does **not** use debit card. Investments: Caixinha Nubank, Porquinho Inter, Tesouro Direto.
 
 ---
 
@@ -32,66 +32,59 @@ A local web dashboard (React 18 + Flask) runs alongside the bot for visual analy
 ```
 brokershark/
 ├── backend/
-│   ├── main.py            # Entry point — starts bot (polling) + scheduler + dashboard
+│   ├── main.py            # Entry point — starts bot + scheduler + dashboard
 │   ├── config.py          # Centralised env vars — only file that calls os.getenv()
-│   ├── core/              # Infrastructure package
-│   │   ├── __init__.py
-│   │   ├── database.py    # Data layer — SQLite, table creation, all queries
-│   │   ├── events.py      # SSE pub/sub — notify() after writes, subscribe()/unsubscribe()
-│   │   └── backup.py      # Local SQLite backup (timestamped copy, prune old files)
-│   ├── integrations/      # External services package
-│   │   ├── __init__.py
-│   │   ├── sheets.py      # Google Sheets — append-only mirror after each INSERT
-│   │   └── ollama.py      # Ollama async HTTP client — is_available (cached), chat, chat_stream, suggest_categories
-│   ├── dashboard/         # Flask dashboard package
-│   │   ├── __init__.py    # Re-exports start_dashboard
-│   │   └── server.py      # Flask routes + Waitress WSGI (8 threads, SSE endpoint)
-│   └── bot/               # Telegram bot package
-│       ├── __init__.py    # Re-exports build_application
+│   ├── core/
+│   │   ├── database.py    # Data layer — SQLite, all queries
+│   │   ├── events.py      # SSE pub/sub — notify() after writes
+│   │   ├── backup.py      # Monthly backup: local HDD (should_backup + run_backup)
+│   │   └── ai_service.py  # Shared AI chat logic — tools, agentic loop, system prompt
+│   ├── integrations/
+│   │   ├── drive.py       # Google Drive — monthly backup upload + recovery
+│   │   └── ollama.py      # Ollama async client — chat, chat_stream, suggest_categories
+│   ├── dashboard/
+│   │   └── server.py      # Flask routes + Waitress WSGI (8 threads, SSE)
+│   └── bot/
 │       ├── application.py # build_application(), scheduler lifecycle hooks
-│       ├── constants.py   # State ints, ACCOUNT_MAP, INVESTMENT_META, *_LABELS, PARSER_MAP
-│       ├── scheduler.py   # APScheduler — daily backup, weekly report, monthly closing
-│       ├── utils.py       # _authorized, _fmt_brl, _fmt_date, _parse_*, _PT_MONTHS
+│       ├── constants.py   # State ints, ACCOUNT_MAP, INVESTMENT_META, *_LABELS
+│       ├── scheduler.py   # APScheduler — startup backup, weekly report, monthly closing
+│       ├── utils.py       # _authorized, _fmt_brl, _fmt_date, _PT_MONTHS
 │       ├── handlers/
-│       │   ├── __init__.py    # Re-exports all build_*_handler functions
-│       │   ├── commands.py    # /novo, /saldo, /resumo, /fatura, /reservas, /ajuda, /cancelar
-│       │   ├── expense.py     # Expense registration flow
-│       │   ├── income.py      # Income registration flow
-│       │   ├── investment.py  # Investment deposit/withdrawal flow
-│       │   ├── csv_import.py  # CSV import flow
-│       │   └── ai_chat.py     # Free-text AI handler — topic filter, tool calling, streaming
+│       │   ├── commands.py    # /novo, /saldo, /resumo, /fatura, /reservas, /ajuda
+│       │   ├── expense.py     # Expense ConversationHandler
+│       │   ├── income.py      # Income ConversationHandler
+│       │   ├── investment.py  # Investment ConversationHandler
+│       │   └── ai_chat.py     # AI chat handler (wrapper over core/ai_service.py)
 │       └── parsers/
-│           ├── __init__.py
-│           ├── nubank_cc.py   # Nubank credit card CSV parser
-│           └── inter_cc.py    # Inter credit card CSV parser
+│           ├── nubank_cc.py   # Nubank CC CSV parser
+│           └── inter_cc.py    # Inter CC CSV parser (adjust_installment_dates param)
 ├── frontend/
-│   ├── index.html         # Markup only — refs to css/, js/, and img/
-│   ├── img/
-│   │   └── favicon.ico
-│   ├── css/
-│   │   └── style.css      # All styles — dark theme, CSS variables, responsive grid
+│   ├── index.html
+│   ├── css/style.css
 │   └── js/
-│       ├── api.js             # fetch wrappers for every endpoint (plain JS, no JSX)
-│       ├── primitives.js      # Formatters, SVG charts (Sparkline, BarChart, DualLine, Donut), shared components
-│       ├── quick-entry.js     # ExpenseForm, IncomeForm, InvestmentForm, QuickEntry shell
-│       ├── view-overview.js   # OverviewView — patrimônio, faturas, budgets, recent activity
+│       ├── api.js             # Fetch wrappers for all endpoints
+│       ├── primitives.js      # Charts, shared UI components
+│       ├── quick-entry.js     # ExpenseForm, IncomeForm, InvestmentForm, ImportModal
+│       ├── view-overview.js   # OverviewView
 │       ├── view-secondary.js  # CardsView, AccountsView, InvestmentsView, HistoryView
-│       └── app.js             # App shell — topbar, sidebar, nav, SSE, search, tweaks panel
-├── .claude/
-│   └── commands/          # Claude Code project skills
-│       ├── db-reset.md    # /db-reset  — wipe transaction data, keep seeds
-│       ├── add-category.md# /add-category — add expense or income category
-│       ├── new-parser.md  # /new-parser  — scaffold a new CSV bank parser
-│       ├── check-health.md# /check-health — verify DB, config, and dashboard
-│       ├── month-report.md# /month-report — formatted monthly financial report
-│       └── venv.md        # /venv        — create, activate, verify virtualenv
+│       ├── view-chat.js       # ChatView — AI chat interface (Pierre-inspired)
+│       └── app.js             # App shell — nav, SSE, search, tweaks
+├── load_data/
+│   ├── import_history.py  # Batch historical import (--dry-run flag)
+│   ├── Extrato completo Nubank/
+│   ├── Extrato completo Inter/
+│   ├── Fatura banco Inter/
+│   └── Fatura Nubank/
+├── scripts/
+│   └── recover.py         # Interactive Drive backup recovery
+├── .claude/commands/      # /db-reset, /add-category, /new-parser, /check-health,
+│                          # /month-report, /venv, /load-data
 ├── data/                  # SQLite database (not versioned)
 ├── logs/                  # Runtime logs (not versioned)
-├── backups/               # Local automatic backups (not versioned)
 ├── credentials/
 │   └── service_account.json  # Google API credentials (not versioned)
 ├── requirements.txt
-├── .env                   # Secrets (not versioned — see .env.example)
+├── .env
 └── .env.example
 ```
 
@@ -102,29 +95,47 @@ brokershark/
 ### Core data flow
 
 ```
-User taps /novo in Telegram
+User (web form or Telegram)
       ↓
-ConversationHandler (bot/handlers/) — guides the user step-by-step via inline buttons
+core/database.py — INSERT (SQLite)
       ↓
-On confirmation: core/database.py — INSERT into transactions table (SQLite)
+core/events.notify() — SSE push to browser (< 1s)
       ↓
-core/events.notify() — SSE push to all connected dashboard clients (< 1s latency)
-      ↓
-integrations/sheets.py — append row in a background thread (non-blocking)
-      ↓
-bot/handlers/ — sends formatted confirmation to the user
+bot/handlers/ — confirmation message (Telegram only)
       ↓ (after each expense)
-bot/handlers/expense.py — checks if monthly expenses ≥ income → sends alert if true
+bot/handlers/expense.py — spending alert if expenses ≥ income
 ```
 
-### Key architectural principles
+### Key principles
 
-- **SQLite is the single source of truth.** Sheets is an output — it is never read back.
-- **Sheets rows are immutable.** Nothing is ever edited or deleted in the spreadsheet.
-- **Sheets failures never surface to the user.** Errors are logged; the bot continues normally.
-- **No AI in the registration flow.** Buttons eliminate the need for language model parsing at record time.
-- **Dashboard supports Quick Entry web forms.** Expense, income, and investment submissions POST to Flask endpoints, which call the same `insert_*` DB functions as the bot — SSE notify + Sheets mirror included.
-- **Dashboard updates in real-time via SSE.** `events.py` broadcasts after every DB write; the browser reacts immediately without polling.
+- **SQLite is the single source of truth.** No external write-back.
+- **Web dashboard is the primary interface.** Telegram handles quick entries and reports.
+- **CSV import happens via the web UI** — drag-and-drop modal with Ollama-assisted categorization.
+- **AI is Pierre-inspired:** tool calling, context injection, conversation-as-interface. Never fabricates data — always fetches via tools before answering.
+- **Backup is monthly, condition-based:** `should_backup()` checks if > 30 days since last backup. On startup (30s delay) → local HDD copy → Drive upload.
+- **No AI in the button registration flow.** Buttons eliminate parsing at record time.
+
+### Patrimônio calculation
+
+`get_patrimonio_history()` computes net worth as: `initial_balances + income - expenses + investment_movements`.
+
+**Expenses include CC fatura payments:** condition is `(dest_account_id IS NULL OR dest_account_id IN ('nu-cc','inter-cc'))`. This ensures the total monthly CC payment (stored as a transfer from the checking account) is counted as a cash outflow — even though the individual purchases live in a separate account.
+
+### CC anti-duplication guarantee
+
+Two levels of data exist for credit card spending. They never overlap:
+
+| Data | Location | Used for |
+|------|----------|----------|
+| Total fatura payment | `nu-db`/`inter-db`, `dest_account_id='nu-cc'/'inter-cc'` | Patrimônio (real cash out) |
+| Individual purchases | `nu-cc`/`inter-cc`, `dest_account_id IS NULL` | Monthly expense summaries |
+
+Why they don't conflict:
+- Expense summaries filter `AND dest_account_id IS NULL` → fatura payments are excluded
+- Patrimônio includes `dest_account_id IN ('nu-cc','inter-cc')` → fatura payments are included
+- CC parsers skip `amount <= 0` → the "Pagamento da fatura" row in CC exports is never imported
+
+This logic is symmetric for both Nubank CC and Inter CC.
 
 ---
 
@@ -135,53 +146,84 @@ bot/handlers/expense.py — checks if monthly expenses ≥ income → sends aler
 | Language | Python 3.12 |
 | Bot framework | python-telegram-bot v21 |
 | Database | SQLite (WAL mode) |
-| Sheets integration | gspread + google-auth (Service Account) |
+| Backup (cloud) | google-api-python-client + google-auth (Drive) |
 | Scheduler | APScheduler |
-| Dashboard API | Flask 3.1 + Waitress 3.0 (8 threads, background thread) |
-| Dashboard frontend | React 18 + Babel standalone (no build step), custom inline SVG charts, `api.js` / `primitives.js` / `quick-entry.js` / `view-overview.js` / `view-secondary.js` / `app.js` |
+| Dashboard API | Flask 3.1 + Waitress 3.0 (8 threads, daemon thread) |
+| Dashboard frontend | React 18 + Babel standalone (no build step), Chart.js |
 | Real-time updates | SSE via `events.py` — no polling, < 1s latency |
 | HTTP client | httpx |
-| Local LLM | Ollama (phi3.5 / ROCm) — free-text financial queries and CSV auto-categorization |
+| Local LLM | Ollama (`qwen2.5:7b` / ROCm, RX 6600M) |
 
 ---
 
 ## Running Locally
 
-### Virtualenv
-
-The project uses a virtualenv at `.venv/` (Python 3.14.4).
-
-```bash
-# Create (first time only)
-python -m venv .venv
-
-# Activate (fish shell)
-source .venv/bin/activate.fish
-
-# Activate (bash/zsh)
-source .venv/bin/activate
-
-# Install / sync dependencies
-.venv/bin/pip install -r requirements.txt
-```
-
-Always run Python through the venv:
-```bash
-.venv/bin/python backend/main.py
-```
-
-Or activate first and then use `python` directly.
-
-### First run
-
 ```bash
 cp .env.example .env
-# fill in your credentials
+# fill in credentials
 source .venv/bin/activate.fish
 pip install -r requirements.txt
 python backend/main.py
-# Dashboard available at http://localhost:8080
+# Dashboard at http://localhost:8080
 ```
+
+---
+
+## Backup Strategy
+
+**Local (HDD):**
+- `should_backup()` — returns `True` if last `brokershark_YYYY-MM.db` in `LOCAL_BACKUP_DIR` is > 30 days old
+- `run_backup()` — copies DB only if due; keeps last 12 monthly files
+- Triggered 30s after application startup
+
+**Google Drive:**
+- Upload runs after successful local backup (same startup job)
+- Folder: `DRIVE_BACKUP_FOLDER` (default: "BrokerShark Backups")
+- Files named `brokershark_YYYY-MM.db`; keeps last 6
+- Recovery: `python scripts/recover.py` — interactive download from Drive
+
+---
+
+## AI Architecture (Pierre-inspired)
+
+The AI handler implements the same architectural pattern as Pierre (InfinitePay):
+
+1. **Tool calling:** model receives a list of tools (JSON), calls them to fetch live data before responding
+2. **Context injection:** tool results are injected back into the conversation — model never answers from memory
+3. **Conversation as interface:** available in Telegram + web chat panel
+4. **Persona:** "BrokerShark" — direct, analytical, slightly cartoonish
+
+**`backend/core/ai_service.py`** — shared service:
+- `chat(message, history, stream_callback)` — agentic loop (MAX_ROUNDS=3)
+- Handles tool dispatch, history management, system prompt
+- Used by both `bot/handlers/ai_chat.py` (Telegram) and `dashboard/server.py` (web `POST /api/chat`)
+
+**Model:** `qwen2.5:7b` (Q4_K_M, ~4.7GB VRAM) — better JSON structured output than phi3.5
+
+**Tools (13):** `get_monthly_summary`, `get_monthly_comparison`, `get_expenses_by_category`, `get_account_balances`, `get_investments`, `get_recent_transactions`, `get_budgets`, `register_expense`, `register_income`, `register_investment`, `register_transfer`, `confirm`, `cancel`
+
+---
+
+## CSV Import (Web)
+
+Upload via dashboard ImportModal (`/api/import-csv/preview` → `/api/import-csv/confirm`).
+
+**Parsers:**
+- `nubank_cc.parse(content)` — Nubank CC fatura
+- `inter_cc.parse(content, adjust_installment_dates=False)` — Inter CC fatura (monthly files already have correct dates)
+- `adjust_installment_dates=True` only for single-fatura imports where CSV shows original purchase date
+
+**Historical bulk import (4 steps):**
+```bash
+python load_data/import_history.py          # import
+python load_data/import_history.py --dry-run  # preview only
+```
+
+Steps: [1/4] Nubank extrato (nu-db) → [2/4] Nubank CC faturas (nu-cc) → [3/4] Inter CC faturas (inter-cc, `adjust_installment_dates=False`) → [4/4] Inter extrato (inter-db).
+
+Duplicate detection key: `(date, amount, description, account_id)`.
+
+**`is_revenue` on import:** All income transactions imported via `import_history.py` must pass `is_revenue=1` (except self-transfers where `counterpart='SELF'`, which stay `is_revenue=0`).
 
 ---
 
@@ -189,870 +231,142 @@ python backend/main.py
 
 ### Main menu
 
-Every session starts with `/start` or `/novo`. The bot displays a financial snapshot for the current month before the action menu:
-
 ```
 BrokerShark — 21/04/2026
-
 Abril 2026
-Gastos:        R$ X
-Receitas:      R$ X
-Top categoria: Alimentação — R$ X
-Reservas:      R$ X
+Gastos: R$ X | Receitas: R$ X | Reservas: R$ X
 
-O que você quer fazer?
-
-[ 💸 Gasto ]        [ 💰 Recebimento ]
-[ 📈 Investimento ]
-```
-
-Each option enters its own dedicated `ConversationHandler`.
-
----
-
-### Flow 1 — Expense Registration
-
-**Conversation states:**
-```
-ACCOUNT → AMOUNT → INSTALLMENTS → DESCRIPTION → DATE → CATEGORY → CONFIRMATION
-```
-`INSTALLMENTS` is only visited for credit card payments (skipped for PIX and TED).
-`DATE` accepts quick buttons (Hoje/Ontem) or typed input after selecting "Outra data".
-
-**Step 1 — Payment method + bank (combined)**
-```
-Como foi o pagamento?
-[ Nubank Crédito ]  [ Inter Crédito ]
-[ Nubank PIX     ]  [ Inter PIX     ]
-[ Nubank TED     ]  [ Inter TED     ]
-```
-One tap resolves both `account_id` and `method`.
-
-| Button | `account_id` | `method` |
-|---|---|---|
-| Nubank Crédito | `nu-cc` | `credit` |
-| Inter Crédito | `inter-cc` | `credit` |
-| Nubank PIX | `nu-db` | `pix` |
-| Inter PIX | `inter-db` | `pix` |
-| Nubank TED | `nu-db` | `ted` |
-| Inter TED | `inter-db` | `ted` |
-
-**Step 2 — Amount**
-```
-Qual o valor? (ex: 45,90)
-```
-Accepts both comma and dot as decimal separators.
-
-**Step 3 — Installments** *(credit card only)*
-```
-Em quantas vezes?
-[ À vista ]  [ 2x ]   [ 3x ]
-[ 4x ]       [ 6x ]   [ 12x ]
-[ Outro número ]
-```
-Skipped for PIX and TED (defaults to 1). "Outro número" prompts for free-text entry.
-
-**Step 4 — Description**
-```
-Como você quer chamar esse gasto?
-```
-Free text (e.g., "iFood", "Ingresso show", "PS Store").
-
-**Step 5 — Date**
-```
-Quando foi a compra?
-[ Hoje ]  [ Ontem ]  [ Outra data ]
-```
-"Outra data" prompts: `Qual a data? (ex: 19/04/2026 ou 19/04/2026 14:30)`
-
-**Step 6 — Category**
-```
-Qual a categoria?
-[ Alimentação ]        [ Carro ]
-[ Jogos ]              [ Lazer ]
-[ Atividade física ]   [ Eletrônicos ]
-[ Educação ]           [ Igreja ]
-[ Dízimo ]             [ Outro ]
-```
-
-**Step 7 — Confirmation summary**
-```
-Confirma o registro?
-
-Tipo:      Crédito — Nubank
-Valor:     R$ 89,90 (3x de R$ 29,97)
-Gasto:     PS Store
-Categoria: Jogos
-Data:      17/04/2026
-
-[ Confirmar ]  [ Cancelar ]
-```
-
-**After confirmation**
-```
-Gasto registrado!
-
-PS Store — R$ 89,90
-Nubank Crédito · Jogos
-17/04/2026
-```
-
-If monthly expenses ≥ income, the bot immediately follows with a proactive alert.
-
----
-
-### Flow 2 — Income Registration
-
-**Conversation states (external income):**
-```
-INCOME_TYPE → BANK → AMOUNT → DESCRIPTION → DATE → CONFIRMATION
-```
-
-**Conversation states (internal transfer — "Transferência" option):**
-```
-INCOME_TYPE → TRANSFER_FROM → TRANSFER_TO → AMOUNT → DATE → CONFIRMATION
-```
-
-`DATE` accepts quick buttons (Hoje/Ontem) or typed input after "Outra data".
-
-**Step 1 — Income type**
-```
-O que você recebeu?
-
-[ Salário ]          [ Freela ]
-[ PIX recebido ]     [ Transferência ]
-[ Outro ]
-```
-
-"Transferência" enters a dedicated sub-flow for internal transfers between own accounts (see below).
-All other options continue the regular income flow.
-
-**Step 2 — Bank** *(regular income only)*
-```
-Em qual conta caiu?
-[ Nubank ]  [ Inter ]
-```
-Income always goes into checking accounts: Nubank → `nu-db` ("Nubank Conta"), Inter → `inter-db` ("Inter Conta").
-
-**Step 3 — Amount**
-```
-Qual o valor recebido? (ex: 3500,00)
-```
-
-**Step 4 — Description** *(regular income only — skipped for transfers)*
-```
-De onde veio? (ex: "Empresa X", "João", "Projeto site")
-```
-
-**Step 5 — Date**
-```
-Quando o valor foi recebido?
-[ Hoje ]  [ Ontem ]  [ Outra data ]
-```
-
-**Step 6 — Confirmation summary**
-```
-Confirma o registro?
-
-Tipo:  Salário
-Valor: R$ 3.500,00
-De:    Empresa X
-Conta: Nubank Conta
-Data:  17/04/2026
-
-[ Confirmar ]  [ Cancelar ]
-```
-
-**After confirmation**
-```
-Recebimento registrado!
-
-Salário — R$ 3.500,00
-Empresa X · Nubank Conta
-17/04/2026
-```
-
----
-
-#### Internal Transfer Sub-flow
-
-Transfers between own accounts (e.g., Nubank → Inter) are **not income**. They do not affect
-income or expense totals — they only move balance between accounts.
-
-**Step 2 — Source account**
-```
-De qual conta?
-[ Nubank Conta ]  [ Inter Conta ]
-```
-
-**Step 3 — Destination account**
-```
-Para qual conta?
-[ Nubank Conta ]  [ Inter Conta ]
-```
-
-**Step 4 — Amount**
-```
-Qual o valor? (ex: 1400,00)
-```
-
-**Step 5 — Date**
-```
-Quando foi a transferência?
-[ Hoje ]  [ Ontem ]  [ Outra data ]
-```
-
-**Step 6 — Confirmation**
-```
-Confirma a transferência?
-
-De:    Nubank Conta
-Para:  Inter Conta
-Valor: R$ 1.400,00
-Data:  26/04/2026
-
-[ Confirmar ]  [ Cancelar ]
-```
-
-**After confirmation**
-```
-Transferência registrada!
-
-R$ 1.400,00
-Nubank Conta → Inter Conta
-26/04/2026
-```
-
-Stored as: `flow='expense'`, `method='transfer'`, `account_id=<source>`, `dest_account_id=<destination>`.
-The destination balance is credited automatically by the `inbound` subquery in `get_account_balance`.
-Internal transfers are excluded from income/expense summaries via `AND dest_account_id IS NULL`.
-Not sent to Google Sheets (internal rebalancing, not a real financial event).
-
----
-
-### Flow 3 — Investment (Savings / Tesouro Direto)
-
-**Conversation states:**
-```
-OPERATION → DESTINATION → AMOUNT → DESCRIPTION → DATE → CONFIRMATION
-```
-`DESCRIPTION` is optional — the user can tap "Pular" to skip it.
-`DATE` accepts quick buttons (Hoje/Ontem) or typed input after "Outra data".
-
-**Step 1 — Operation**
-```
-O que você quer fazer?
-
-[ Investir (aporte) ]  [ Resgatar ]
-```
-
-**Step 2 — Destination**
-```
-Em qual investimento?
-
-[ Caixinha Nubank ] [ Tesouro Direto ]
-[ Porquinho Inter ]
-```
-
-**Step 3 — Amount**
-```
-Qual o valor? (ex: 500,00)
-```
-
-**Step 4 — Observation (optional)**
-```
-Alguma observação? (ex: "reserva emergência", "férias")
-[ Pular ]
-```
-Tapping "Pular" saves `description=None` and goes directly to the date step.
-
-**Step 5 — Date**
-```
-Quando foi realizado?
-[ Hoje ]  [ Ontem ]  [ Outra data ]
-```
-
-**Step 6 — Confirmation summary**
-```
-Confirma o investimento?
-
-Operação: Aporte
-Onde:     Caixinha Nubank
-Valor:    R$ 500,00
-Obs:      reserva emergência
-Data:     17/04/2026
-
-[ Confirmar ]  [ Cancelar ]
-```
-
-**After confirmation**
-```
-Investimento registrado!
-
-Aporte — R$ 500,00
-Caixinha Nubank
-17/04/2026
-```
-
----
-
-### Cancellation
-
-`/cancelar` or the "Cancelar" button at any step aborts the active `ConversationHandler` and clears all collected state.
-
----
-
-## Commands
-
-| Command | Description |
-|---|---|
-| `/novo` / `/start` | Opens the main menu with monthly snapshot |
-| `/saldo` | Balance per account |
-| `/resumo` | Current month summary by category |
-| `/fatura` | Current billing cycle for credit cards (total + days until due) |
-| `/reservas` | Investment balances |
-| `/ajuda` | Lists all commands |
-
----
-
-## Google Sheets Integration
-
-### Design
-
-Google Sheets acts as an **immutable mirror** of the local database. Every INSERT generates one `append_row` call. Rows are never edited or deleted.
-
-### Sheets layout
-
-| Sheet | Columns | Written when |
-|---|---|---|
-| Gastos | id, data, meio, banco, conta_id, valor, parcelas, descricao, categoria, data_registro | Each confirmed expense |
-| Recebimentos | id, data, meio, banco, conta_id, valor, descricao, data_registro | Each confirmed income |
-| Investimentos | id, data, reserva, operacao, valor, descricao, data_registro | Each confirmed investment move |
-
-### `integrations/sheets.py` public interface
-
-```python
-def append_expense(transaction: dict) -> None: ...
-def append_income(transaction: dict) -> None: ...
-def append_investment(movement: dict) -> None: ...
-```
-
-Implementation notes:
-- Authenticate with `gspread.service_account(filename=CREDENTIALS_PATH)`
-- Use `worksheet.append_row(row, value_input_option="USER_ENTERED")`
-- Run in a thread via `asyncio.get_event_loop().run_in_executor(None, ...)` — never block the bot event loop
-- Log failures to `logs/sheets_errors.log` — never raise or notify the user
-
----
-
-## Ollama Integration (AI Chat)
-
-### Overview
-
-Free-text financial queries are handled by `bot/handlers/ai_chat.py` via `integrations/ollama.py`.
-The AI chat is **scoped exclusively to the user's finances** — off-topic messages are rejected before reaching the model.
-
-### `integrations/ollama.py` public interface
-
-```python
-async def is_available() -> bool: ...          # health check, result cached 30s
-async def chat(messages) -> str | None: ...    # blocking call — used by scheduler reports
-async def chat_stream(messages) -> AsyncGenerator[tuple[str, str, bool], None]: ...
-                                               # streaming — used by ai_chat handler
-async def suggest_categories(transactions, patterns, valid_categories) -> dict[str, str]: ...
-                                               # batch CSV categorization
+[ 💸 Gasto ]  [ 💰 Recebimento ]  [ 📈 Investimento ]
 ```
-
-- `is_available()` result is cached for 30 seconds — no extra HTTP round trip on every message
-- `chat_stream()` yields `(delta, accumulated, done)` tuples; the handler detects response type from the first tokens
-- All errors logged to `logs/ollama_errors.log`, never raised or shown to the user
-
-### `bot/handlers/ai_chat.py` — AI Chat Handler
-
-**Topic filter (`_is_on_topic`):** Python regex check before calling Ollama. Messages with ≤ 3 words always pass (greetings, confirmations). Longer messages must contain a financial keyword. Off-topic messages get an immediate rejection without touching the model.
-
-**Agentic loop (max 3 rounds):**
-1. `chat_stream()` is called; response tokens are accumulated
-2. If first significant tokens start with `{` → tool call (parsed silently, Ollama typing indicator refreshed every 4s)
-3. If first significant tokens are natural language → streamed progressively into a Telegram message (edited every 1.5s)
-4. Tool results are fed back to the model for the next round
-
-**Supported tools (13):** `get_monthly_summary`, `get_monthly_comparison`, `get_expenses_by_category`, `get_account_balances`, `get_investments`, `get_recent_transactions`, `get_budgets`, `register_expense`, `register_income`, `register_investment`, `register_transfer`, `confirm`, `cancel`
-
-**Registration via AI:**
-- User describes the transaction in free text → model calls `register_*` → bot displays formatted confirmation
-- User says "sim" → model calls `confirm` → INSERT + Sheets mirror
-- Works identically to the button flow under the hood
-
-**Constants:**
-- `MAX_ROUNDS = 3` — maximum model calls per user message
-- `MAX_HISTORY = 6` — conversation turns kept in context
-- `HISTORY_PURGE_AT = 16` — purge threshold
-
----
-
-## Local Dashboard
-
-Flask/Waitress server runs as a daemon thread on port 8080 (configurable via `DASHBOARD_PORT`), 8 threads.
-
-### API endpoints
-
-All data endpoints accept an optional `?bank=nubank|inter` query parameter to filter by bank.
-
-| Endpoint | Returns |
-|---|---|
-| `GET /api/events` | SSE stream — sends `update` event after every DB write, `heartbeat` every 30s |
-| `GET /api/summary[?bank=][?account=][?month=][?year=]` | Income, expenses, balance, reservas, top category — defaults to current month |
-| `GET /api/accounts[?bank=]` | All (or filtered) accounts with current balance |
-| `GET /api/investments[?bank=]` | All (or filtered) investments with current balance |
-| `GET /api/monthly[?bank=][?account=]` | Last 6 months of income vs expenses |
-| `GET /api/categories[?bank=][?account=][?month=][?year=]` | Expenses grouped by category — defaults to current month |
-| `GET /api/expenses-by-method[?bank=]` | Current month expenses grouped by bank and payment method |
-| `GET /api/faturas[?bank=]` | Credit card billing info (total, due date, days remaining) |
-| `GET /api/account/<account_id>` | Full account detail: balance, monthly summary, billing info (credit only) |
-| `GET /api/transactions?account=<id>[&limit=<n>][&month=<m>&year=<y>]` | Transactions for an account — filtered by month/year (max 200, default 100) |
-| `GET /api/daily-spend` | Last 30 days of daily expense totals — `[{date, day, value}]` |
-| `GET /api/recent-activity` | 20 most recent transactions across all accounts (no internal transfers) |
-| `GET /api/patrimonio-history` | 12-month net worth: checking balances + cumulative investment movements |
-| `GET /api/budgets` | All budget rows: `[{id, category_id, category_name, amount_limit}]` |
-| `PATCH /api/budgets/<id>` | Update spending limit for a budget row |
-| `POST /api/transactions` | Insert expense transaction (body: `{account_id, method, amount, installments, description, date, category_id}`) |
-| `POST /api/incomes` | Insert income or internal transfer (body: `{kind, type, account_id, amount, description, date}` or `{kind:"transfer", from_account, to_account, amount, date}`) |
-| `POST /api/investment-movements` | Insert investment deposit or withdrawal (body: `{investment_name, operation, amount, date, description}`) |
-
-### Dashboard panels
-
-5-section sidebar navigation. Keyboard shortcuts: `1`–`5` for sections, `N`/`E` for new expense, `R` for income, `I` for investment, `/` for search, `Esc` to close.
-
-**Global month selector** — topbar dropdown (12-month window). Changing it filters Overview, Cards, and Accounts simultaneously. Border turns blue and a `↺` reset button appears when viewing a non-current month. All views receive `filterMonth` as a prop; backend endpoints `/api/summary` and `/api/categories` accept `?month=&year=` to serve historical data.
-
-**Categories panel** — removed from main nav; accessible via ⚙ TweaksPanel → "⊞ Gerenciar categorias".
-
-**Overview** — `view-overview.js`
-- Patrimônio hero: total net worth (38px number), 12-month sparkline, trend %, accounts+investments breakdown
-- 2-col: DualLine income vs expenses (6m) + category mini-bars with spend amounts — filtered by selected month
-- 3-col: daily spend BarChart (30d) + open faturas urgency cards + budget bars (editable inline)
-- Recent activity table with inline category reassignment
-
-**Cards** — `view-secondary.js`
-- Gradient fatura cards (Nubank purple / Inter orange) with cycle dates and days until due
-- Transaction table filtered by global month selector + local category filter, DualLine evolution, category mini-bars
 
-**Accounts** — `view-secondary.js`
-- Checking account tile grid (active tile highlighted), click to view full extract — filtered by global month selector
+### Expense flow
+`ACCOUNT → AMOUNT → INSTALLMENTS → DESCRIPTION → DATE → CATEGORY → CONFIRMATION`
 
-**Investments** — `view-secondary.js`
-- Total + Donut distribution + per-investment rows with balance
+Payment + bank resolved in one tap (6 buttons): Nubank/Inter × Crédito/PIX/TED.
 
-**History** — `view-secondary.js`
-- Bank filter (Todos/Nubank/Inter), DualLine 6m, summary stats, month-by-month table with savings rate
+### Income flow
+`INCOME_TYPE → BANK → AMOUNT → DESCRIPTION → DATE → CONFIRMATION`
 
-**Quick Entry sidebar** — `quick-entry.js`
-- Expense form: payment method, amount, installments, description, date, category grid
-- Income form: type (salary/freelance/pix/transfer), bank, amount, description, date
-- Investment form: operation (deposit/withdrawal), investment, amount, observation, date
-- Submits POST to Flask; SSE triggers real-time panel refresh
+"Transferência" opens internal transfer sub-flow (stored as `flow='expense', method='transfer', dest_account_id=<dest>`).
 
-Updates in real-time via SSE — dashboard reacts to any DB write in < 1s. Debounced 300ms to handle bulk CSV imports.
+### Investment flow
+`OPERATION → DESTINATION → AMOUNT → DESCRIPTION(optional) → DATE → CONFIRMATION`
 
 ---
 
 ## Data Model
 
 ```sql
-CREATE TABLE accounts (
-  id TEXT PRIMARY KEY,         -- nu-cc | nu-db | inter-cc | inter-db
-  bank TEXT NOT NULL,          -- nubank | inter
-  type TEXT NOT NULL,          -- checking | credit
-  name TEXT NOT NULL,
-  billing_day INTEGER,         -- credit cards only
-  due_day INTEGER,             -- credit cards only
-  initial_balance REAL DEFAULT 0
-);
-
-CREATE TABLE categories (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT NOT NULL,
-  flow TEXT NOT NULL           -- expense | income
-);
-
-CREATE TABLE transactions (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  date TEXT NOT NULL,
-  flow TEXT NOT NULL,          -- expense | income
-  method TEXT NOT NULL,        -- expense: pix|credit|ted|transfer  income: salary|freelance|pix_received|other
-  account_id TEXT NOT NULL,
-  amount REAL NOT NULL,
-  installments INTEGER DEFAULT 1,
-  description TEXT NOT NULL,
-  category_id INTEGER,         -- required for expenses, null for income
-  dest_account_id TEXT,        -- set for internal transfers (fatura payments: nu-db→nu-cc, inter-db→inter-cc; inter-account transfers: nu-db↔inter-db)
-  counterpart TEXT,            -- sender/recipient name (external PIX)
-  FOREIGN KEY (account_id) REFERENCES accounts(id),
-  FOREIGN KEY (dest_account_id) REFERENCES accounts(id),
-  FOREIGN KEY (category_id) REFERENCES categories(id)
-);
-
-CREATE TABLE investments (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT NOT NULL,          -- "Caixinha Nubank" | "Tesouro Direto" | "Porquinho Inter"
-  type TEXT NOT NULL,          -- savings | treasury
-  bank TEXT NOT NULL,          -- nubank | inter
-  current_balance REAL DEFAULT 0
-);
-
-CREATE TABLE investment_movements (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  date TEXT NOT NULL,
-  investment_id INTEGER NOT NULL,
-  operation TEXT NOT NULL,     -- deposit | withdrawal
-  amount REAL NOT NULL,
-  description TEXT,
-  FOREIGN KEY (investment_id) REFERENCES investments(id)
-);
-
-CREATE TABLE unrecognized_log (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  date TEXT NOT NULL,
-  message TEXT NOT NULL
-);
-
-CREATE TABLE budgets (
-  id          INTEGER PRIMARY KEY AUTOINCREMENT,
-  category_id INTEGER NOT NULL UNIQUE,
-  amount_limit REAL NOT NULL,
-  FOREIGN KEY (category_id) REFERENCES categories(id)
-);
+accounts (id, bank, type, name, billing_day, due_day, initial_balance)
+categories (id, name, flow)        -- flow: expense | income
+transactions (id, date, flow, method, account_id, amount, installments,
+              description, category_id, dest_account_id, counterpart, is_revenue)
+investments (id, name, type, bank, current_balance)
+investment_movements (id, date, investment_id, operation, amount, description)
+budgets (id, category_id, amount_limit)
+unrecognized_log (id, date, message)
 ```
 
-### Required seed — accounts
+Accounts: `nu-cc`, `nu-db`, `inter-cc`, `inter-db`
 
-```python
-accounts = [
-    ("nu-cc",    "nubank", "credit",   "Nubank Crédito", None, None),
-    ("nu-db",    "nubank", "checking", "Nubank Conta",   None, None),
-    ("inter-cc", "inter",  "credit",   "Inter Crédito",  None, None),
-    ("inter-db", "inter",  "checking", "Inter Conta",    None, None),
-]
-```
+Internal transfers: `flow='expense'`, `method='transfer'`, `dest_account_id=<dest>`.
+Excluded from summaries via `AND dest_account_id IS NULL`.
 
-> `nu-db` and `inter-db` are checking accounts used as destination for PIX and TED expenses and for all income. The label "Conta" deliberately avoids the word "Débito" since the user does not use debit card payments.
-
-### Required seed — expense categories
-
-```python
-expense_categories = [
-    "Alimentação",      # groceries, restaurants, snacks
-    "Carro",            # fuel, maintenance, insurance
-    "Jogos",            # PS Store, Steam, gaming subscriptions
-    "Lazer",            # cinema, outings, hobbies
-    "Atividade física", # gym, supplements, equipment
-    "Eletrônicos",      # gadgets, accessories, repairs
-    "Educação",         # college, courses, books
-    "Igreja",           # church events, trips, contributions
-    "Dízimo",           # monthly tithe
-    "Outro",
-]
-```
-
-### Required seed — income categories
-
-```python
-income_categories = [
-    "Salário",
-    "Freela",
-    "PIX recebido",
-    "Transferência",
-    "Outro",
-]
-```
+**`is_revenue` flag (critical):** Integer column on `transactions`. Must be set to `1` for real income transactions, `0` for self-transfers (`counterpart='SELF'`). Controls monthly income totals, account summaries, and patrimônio history. Always pass explicitly in `insert_transaction()` — never rely on migration defaults.
 
 ---
 
-## CSV Import
+## Dashboard API Endpoints
 
-Only credit card statements are supported for import.
-
-Flow when a `.csv` file is received by the bot:
-
-1. Bot detects incoming CSV file
-2. Displays InlineKeyboard: `[ Nubank Crédito ]  [ Inter Crédito ]`
-3. Calls the corresponding parser (`nubank_cc.py` or `inter_cc.py`)
-4. Displays preview: transaction count, date range, total amount
-5. Waits for `[Confirmar]` or `[Cancelar]`
-6. Saves records and reports how many duplicates were skipped
-7. Appends new transactions to Sheets in a background thread
-
-Duplicate detection key: `(date, amount, description, account_id)`.
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | `/api/events` | SSE stream |
+| GET | `/api/summary` | Monthly totals (bank?, account?, month?, year?) |
+| GET | `/api/accounts` | All accounts with balance |
+| GET | `/api/investments` | All investments |
+| GET | `/api/monthly` | Income vs expenses (`months=N`, default 6; `bank=?`) |
+| GET | `/api/categories` | Expenses by category |
+| GET | `/api/faturas` | Credit card billing |
+| GET | `/api/transactions` | Account transactions (account, limit, month, year) |
+| GET | `/api/recent-activity` | 20 most recent transactions |
+| GET | `/api/patrimonio-history` | 12-month net worth (CC fatura payments counted as expenses) |
+| GET | `/api/daily-spend` | Daily spend bar chart (`month=M&year=Y` for specific month, zero-filled) |
+| GET | `/api/budgets` | Budget limits |
+| POST | `/api/transactions` | Create expense |
+| POST | `/api/incomes` | Create income or transfer |
+| POST | `/api/investment-movements` | Create investment movement |
+| POST | `/api/import-csv/preview` | Parse CSV, return preview |
+| POST | `/api/import-csv/confirm` | Confirm and save CSV import |
+| POST | `/api/chat` | AI chat message |
+| PATCH | `/api/budgets/<id>` | Update budget limit |
+| PATCH | `/api/transactions/<id>` | Reassign category |
 
 ---
 
 ## Development Guidelines
 
-### Code standards
-
-- **Type hints are mandatory** on every function signature
-- **Single-responsibility functions** — keep functions small and focused
-- **All database access goes through `core/database.py`** — no inline SQL in any other module
-- **The bot never writes directly to the database** — data collected by the `ConversationHandler` is validated before any INSERT
-- Use `python-dotenv` to load environment variables
-- Every incoming message must have its `chat_id` verified before any processing
-- `PRAGMA journal_mode=WAL` and `PRAGMA foreign_keys=ON` are mandatory at database creation
-- **Google Sheets errors must never propagate to the user or interrupt the main flow**
-- **Dashboard Flask server runs in a daemon thread** — never block the bot event loop
-
-### python-telegram-bot v21
-
-- Use `Application.builder()` for setup
-- Use `ConversationHandler` for all multi-step flows
-- Use `InlineKeyboardMarkup` + `CallbackQueryHandler` for all buttons
-- Register `CommandHandler` for `/novo`, `/start`, `/saldo`, `/resumo`, `/fatura`, `/reservas`, `/ajuda`
-- Use `MessageHandler(filters.Document.ALL)` for CSV uploads
-
-### SQLite
-
-- Use context manager: `with sqlite3.connect(DB_PATH) as conn`
-- Execute `PRAGMA journal_mode=WAL` and `PRAGMA foreign_keys=ON` at connection time
-
-### gspread
-
-- Authenticate: `gspread.service_account(filename=CREDENTIALS_PATH)`
-- Append: `worksheet.append_row(row, value_input_option="USER_ENTERED")`
-- Always run in a thread pool — never call synchronously from an async handler
+- **Type hints mandatory** on every function signature
+- **All DB access through `core/database.py`** — no inline SQL elsewhere
+- **Bot never writes directly to DB** — data validated before INSERT
+- `PRAGMA journal_mode=WAL` and `PRAGMA foreign_keys=ON` at connection time
+- **Drive/backup failures never propagate** — logged silently
+- **Dashboard Flask server runs in a daemon thread** — never block the event loop
 
 ---
 
-## Configuration
-
-### Environment variables (`.env.example`)
+## Configuration (`.env`)
 
 ```env
-# Telegram
-TELEGRAM_TOKEN=YOUR_TOKEN_HERE
-TELEGRAM_CHAT_ID=YOUR_CHAT_ID_HERE
-
-# Database
-DB_PATH=/home/YOUR_USER/brokershark/data/brokershark.db
-BACKUP_DIR=/home/YOUR_USER/brokershark/backups
-
-# Google Sheets
-SHEETS_ID=YOUR_SPREADSHEET_ID_HERE
-SHEETS_CREDENTIALS=/home/YOUR_USER/brokershark/credentials/service_account.json
-
-# Dashboard (optional — default: 8080)
+TELEGRAM_TOKEN=seu_token_aqui
+TELEGRAM_CHAT_ID=seu_chat_id_aqui
+DB_PATH=/home/SEU_USUARIO/brokershark/data/brokershark.db
+LOCAL_BACKUP_DIR=/mnt/seu-hdd/brokershark/backups
+GOOGLE_CREDENTIALS=/home/SEU_USUARIO/brokershark/credentials/service_account.json
+DRIVE_BACKUP_FOLDER=BrokerShark Backups
 DASHBOARD_PORT=8080
+OLLAMA_URL=http://localhost:11434
+OLLAMA_MODEL=qwen2.5:7b
+OLLAMA_TIMEOUT=60
 ```
 
-### Security
+---
 
-```python
-# First check in every message handler
-if update.effective_chat.id != int(os.getenv("TELEGRAM_CHAT_ID")):
-    return  # silently ignore
-```
+## Dashboard Frontend Notes
+
+- **Date labels:** All monthly data uses `"Jan/26"` format (Portuguese abbreviated month + 2-digit year). Defined in `_PT_SHORT` in `database.py` for API responses and replicated in frontend components.
+- **PatrimonioChart:** Chart.js filled area chart in `primitives.js` — gradient fill, visible x/y axes, compact BRL ticks, hover tooltip. Height 150px in overview card.
+- **OverviewView patrimônio card:** Full-width; shows current value + trend chip (▲/▼ % + R$ diff vs prior month). Trend index resolved dynamically from `filterMonth` — not hardcoded to `length-1`.
+- **HistoryView:** Uses `fetchMonthlyFull()` → `/api/monthly?months=36` for all-time view.
+- **Daily spend:** `fetchDailySpend({ month, year })` → `/api/daily-spend?month=M&year=Y`. Returns all calendar days zero-filled when month/year provided.
+- **Configurações panel:** Renamed from "Aparência". Organized into 3 sections (Aparência / Layout / Interface) with "Restaurar padrões" button.
+- **Fatura dates:** Displayed as `"19 Abr → 18 Mai"` format via `_fmtCycleDate()` helper in both `view-overview.js` and `view-secondary.js`.
+- **`backup.py` resilience:** `run_backup()` wraps `mkdir()` in try/except for `PermissionError`/`OSError` — returns `False` silently when HDD not mounted instead of crashing the scheduler.
 
 ---
 
 ## Automated Jobs
 
-### Daily backup (03:00)
+**Startup backup (30s after start):** local backup if due + Drive upload + prune.
 
-Copies `brokershark.db` to `backups/brokershark_YYYY-MM-DD.db`. Retains only the last 30 files.
+**Weekly report (Monday 08:00):** expenses, income, top category, reserves, fatura due dates.
 
-### Weekly report (Monday 08:00)
+**Monthly closing (1st, 08:00):** full previous-month breakdown — income, expenses, categories, investments, net balance.
 
-```
-Resumo semanal — DD/MM a DD/MM
-
-Gastos:        R$ X
-Receitas:      R$ X
-Top categoria: X — R$ X
-Reservas:      R$ X
-
-Faturas abertas
-Nubank:  R$ X — vence em N dias
-Inter:   R$ X — vence em N dias
-```
-
-### Monthly closing report (1st of each month, 08:00)
-
-```
-Fechamento de Mês/Ano
-
-Receitas:  R$ X
-Gastos:    R$ X
-Saldo:     +/- R$ X
-
-Gastos por categoria
-  Alimentação: R$ X
-  ...
-
-Movimentações em investimentos
-  Caixinha Nubank — Aporte: R$ X
-
-Reservas acumuladas: R$ X
-```
-
-### Proactive spending alert
-
-Triggered after every confirmed expense. If monthly expenses ≥ monthly income, the bot sends:
-
-```
-⚠️ Atenção! Seus gastos em Mês já representam X% das suas receitas.
-
-Gastos:   R$ X
-Receitas: R$ X
-```
-
----
-
-## Design Decisions
-
-| Decision | Rationale |
-|---|---|
-| Button-only registration | Eliminates typos and makes recording instant on mobile |
-| Three separate flows (expense / income / investment) | Each flow has distinct fields — merging them would require complex conditional branching |
-| Payment methods: PIX, Crédito, TED only | User does not use debit card — removed to simplify the flow |
-| Checking accounts labeled "Conta" not "Débito" | User doesn't use debit cards; "Conta" is neutral and accurate |
-| CSV import limited to credit cards | No debit parsers needed since debit is not used |
-| Income always goes to checking accounts | Salary, freelance, and received PIX never land on a credit card |
-| Only Caixinha, Porquinho, and Tesouro as investments | These are the only active instruments |
-| Sheets as append-only backup with three separate sheets | Each transaction type has different columns |
-| SQLite is the single source of truth | Sheets is write-only output — never read back |
-| Sheets failures are silent | Recording locally is always more important than mirroring |
-| SQLite WAL over PostgreSQL | Personal use, zero configuration, single file, trivial to back up |
-| Flask dashboard in a daemon thread | Runs alongside the async bot without blocking the event loop |
-| Dashboard supports web Quick Entry | Same `insert_*` DB functions used by the bot are also called by Flask POST endpoints — SSE notify and Sheets mirror are included automatically |
-| Ollama excluded from the button registration flow | Buttons replace language model parsing — faster, zero hallucination risk |
-| AI chat scoped to finances only | Python topic filter (`_is_on_topic`) rejects off-topic messages before calling Ollama — zero inference cost for irrelevant queries |
-| `is_available()` cached 30s | Avoids one extra HTTP round trip to Ollama before every user message |
-| Streaming responses via `chat_stream()` | User sees text appear progressively; detection of tool call vs natural language is based on first tokens (starts with `{` → tool call) |
-| `chat_with_tools()` removed | Was a duplicate of `chat()` that never used the native tools field — replaced by `chat_stream()` in the AI handler |
-| `SYSTEM_PROMPT` removed from `ollama.py` | Was dead code — the authoritative prompt lives in `ai_chat.py` as `_SYSTEM_PROMPT` |
-| Authentication by chat_id | Single-user personal bot — simple and sufficient |
-| Internal transfers stored as expense+dest_account_id, not as income | A transfer from Nubank to Inter is not real income — storing it as income would double-count the salary. A single expense row on the source with `dest_account_id` set credits the destination via the `inbound` subquery; all six summary queries already filter `AND dest_account_id IS NULL`, so transfers never appear in income or expense totals. |
-| Internal transfers not sent to Google Sheets | They are internal rebalancing events, not real financial transactions — mirroring them would pollute the Sheets backup with noise. |
+**Proactive alert:** after every expense, if monthly expenses ≥ income → sends alert.
 
 ---
 
 ## Roadmap
 
-### Phase 1 — Foundation ✅ DONE
-- [x] `database.py` — table creation, PRAGMAs, account and category seeds, query functions
-- [x] `sheets.py` — `append_expense`, `append_income`, `append_investment` (background thread)
-- [x] `bot.py` — main menu + 3 ConversationHandlers (expense / income / investment)
-- [x] `main.py` — start bot (polling) + scheduler
-- [x] `backup.py` + `scheduler.py` — daily local backup + weekly report
+### Concluído (Fases 1–9c)
+Bot flows (expense/income/investment), dashboard v1→v3, SSE, CSV import, investments, history, global month selector, AI chat with 13 tools, Ollama streaming, web-first pivot, Drive backup, Pierre-inspired AI architecture (`ai_service.py` shared module), `ChatView` (section 6 keyboard shortcut), `ImportModal` with drag-and-drop + Ollama categorization, `PatrimonioChart` with gradient fill and month/year labels, patrimônio calculation fix (CC fatura payments), `is_revenue` flag, HistoryView 36-month range, Configurações panel.
 
-### Phase 2 — Historical import ✅ DONE
-- [x] `parsers/nubank_cc.py` and `parsers/inter_cc.py` (credit card only)
-- [x] Duplicate detection by `(date, amount, description, account_id)`
-- [x] Import preview before confirmation
-- [x] Append imported transactions to Sheets after confirmation
+### Próximas fases
 
-### Phase 3 — Quick queries ✅ DONE
-- [x] `/saldo` — balance per account
-- [x] `/resumo` — current month summary by category
-- [x] `/fatura` — current billing cycle for credit cards with due date and days remaining
-- [x] `/reservas` — investment balances
-- [x] `/start` and `/novo` — financial snapshot on the home screen
+**Fase 10 — Systemd service**
+- [ ] `brokershark.service` — autostart, low resource footprint
 
-### Phase 4 — Investment management ✅ DONE
-- [x] Caixinha Nubank, Tesouro Direto, Porquinho Inter
-- [x] Deposit and withdrawal flow via buttons
-
-### Phase 5 — Automation ✅ DONE
-- [x] Fatura data included in the weekly report
-- [x] Monthly closing report (sent on the 1st of each month at 08:00)
-- [x] Proactive alert when monthly expenses ≥ monthly income
-
-### Phase 6 — Local dashboard ✅ DONE
-- [x] Flask API server (background thread, port 8080)
-- [x] Single-page dashboard (`frontend/index.html`) — dark theme, Chart.js
-- [x] Cards: receitas, gastos, saldo líquido, reservas
-- [x] Charts: evolução 6 meses, gastos por categoria, saldo por conta, distribuição investimentos
-- [x] Faturas abertas com dias até vencimento
-- [x] Auto-refresh a cada 60 segundos
-
-### Phase 6b — Dashboard v2 ✅ DONE
-- [x] Frontend separado em `css/style.css` + `js/api.js` + `js/charts.js` + `js/main.js`
-- [x] Tabs por banco: Todos | Nubank | Inter (filtra todos os painéis)
-- [x] Parâmetro `?bank=nubank|inter` em todos os endpoints de dados
-- [x] SSE real-time via `events.py` — dashboard atualiza em < 1s após cada registro
-- [x] Debounce 300ms no frontend (evita multi-refresh em imports CSV)
-- [x] Servidor Flask substituído por Waitress (produção, 8 threads)
-- [x] SQLite otimizado: `synchronous=NORMAL`, `cache_size=-8000`, `temp_store=MEMORY`
-- [x] N+1 eliminado em `/api/accounts` (1 query JOIN)
-- [x] `get_monthly_history()` reescrito: 18 queries → 1 query
-- [x] Cache do cliente gspread (1 autenticação por processo)
-- [x] Job de backup async via `asyncio.to_thread()`
-
-### Phase 6c — Reorganização de arquitetura + documentação ✅ DONE
-- [x] Código separado em pacotes: `core/`, `integrations/`, `dashboard/`, `bot/parsers/`, `bot/scheduler.py`
-- [x] Docstrings Google-style completas em todas as funções públicas
-- [x] Skills Claude Code em `.claude/commands/`: db-reset, add-category, new-parser, check-health, month-report, venv
-- [x] CLAUDE.md atualizado com nova estrutura
-
-### Phase 6d — Simplificação dos fluxos de registro ✅ DONE
-- [x] Pagamento + banco unidos em 1 tela (6 botões diretos → resolve `account_id` e `method`)
-- [x] Parcelamento reescrito: 2 passos (Sim/Não + nº) → 1 tela (À vista / 2x / 3x / 4x / 6x / 12x / Outro)
-- [x] Data com atalhos Hoje / Ontem / Outra data nos 3 fluxos (gasto, recebimento, investimento)
-- [x] Observação do investimento opcional — botão "Pular"
-- [x] `ACCOUNT_CHOICES` substitui `ACCOUNT_MAP` em `constants.py`
-
-### Phase 7 — Reestruturação do dashboard ✅ DONE
-- [x] Visão por conta individual com drill-down (saldo + evolução mensal + últimas transações)
-- [x] Histórico de transações com filtros: mês/ano (backend) e categoria (frontend)
-
-### Phase 7b — Correção de lógica fundamental ✅ DONE
-- [x] Transferências entre contas próprias não computam como receita
-- [x] "Transferência" no menu de recebimentos abre sub-fluxo dedicado: De qual conta? → Para qual conta? → Valor → Data
-- [x] Armazenado como `flow='expense'`, `method='transfer'`, `dest_account_id=<destino>` — excluído de todos os summaries via `AND dest_account_id IS NULL`
-- [x] Saldo da conta destino creditado automaticamente pela subquery `inbound` em `get_account_balance`
-
-### Phase 7c — Redesign completo do dashboard ✅ DONE
-- [x] Frontend reescrito: React 18 + Babel standalone (sem build step), substituindo Chart.js e vanilla JS
-- [x] Token-based CSS (oklch colors, light/dark themes, compact/comfortable density via `data-theme`/`data-density`)
-- [x] 5-section sidebar navigation: Overview, Cards, Accounts, Investments, History
-- [x] Integração com Chart.js: Sparkline, BarChart, DualLine, Donut (substitui SVGs inline)
-- [x] Quick Entry sidebar web: lançamento de despesa/receita/investimento direto do dashboard
-- [x] 7 novos endpoints Flask: `/api/daily-spend`, `/api/recent-activity`, `/api/patrimônio-history`, `/api/budgets` (GET/PATCH), `/api/transactions` (POST), `/api/incomes` (POST), `/api/investment-movements` (POST)
-- [x] Tabela `budgets` com limites por categoria (editável inline no dashboard)
-- [x] Patrimônio 12 meses: saldo corrente + movimentos de investimento acumulados
-- [x] Global search, keyboard shortcuts (1-5, N/E/R/I, /, Esc), tweaks panel (tema, density, sidebar)
-- [x] SSE live indicator no topbar; debounce 300ms para imports CSV
-
-### Phase 7d — Seletor de mês global + reorganização de navegação ✅ DONE
-- [x] Seletor de mês global no topbar — dropdown com janela de 12 meses, filtra Overview + Cards + Accounts simultaneamente
-- [x] Indicação visual de período histórico: borda azul no select + botão `↺` para voltar ao mês atual
-- [x] `/api/summary` e `/api/categories` aceitam `?month=&year=` — retornam dados de qualquer mês
-- [x] `fetchSummary()` e `fetchCategories()` em `api.js` recebem `{ bank, month, year }` como parâmetro
-- [x] `filterMonth` como prop em `OverviewView`, `CardsView` e `AccountsView` — substituiu estado local em CardsView
-- [x] "Categorias" removida da barra de navegação principal — acessível via ⚙ → "⊞ Gerenciar categorias" no TweaksPanel
-
-### Phase 8 — Serviço systemd + Histórico comparativo
-- [ ] Serviço systemd para autostart no boot (brokershark.service)
-- [ ] `/historico` — evolução mensal de gastos e receitas (últimos N meses)
-- [ ] `/comparar` — comparação lado a lado de dois períodos
-- [ ] Tendência de gastos por categoria ao longo do tempo
-
-### Phase 8b — Edição e correção de dados históricos
-- [ ] Edição de categoria por transação no dashboard (clique inline na lista de transações)
-- [ ] Ajuste manual de saldo de investimento no dashboard — necessário porque RDB/CDB rendem juros diários que não aparecem no extrato como movimentos; o saldo importado do CSV reflete apenas aportes e resgates explícitos
-
-### Phase 8c — Otimização e escopo da integração Ollama ✅ DONE
-- [x] `integrations/ollama.py` reorganizado: removidos `SYSTEM_PROMPT` (código morto) e `chat_with_tools()` (duplicata)
-- [x] `is_available()` com cache de 30s — elimina round trip HTTP extra em cada mensagem
-- [x] `chat_stream()` adicionado — streaming progressivo da resposta no Telegram (edit a cada 1.5s)
-- [x] Filtro de tópico `_is_on_topic()` em Python — rejeita mensagens fora do contexto financeiro sem custo de inferência
-- [x] `_SYSTEM_PROMPT` reforçado com regra de escopo como primeira instrução
-- [x] `MAX_ROUNDS` reduzido de 6 para 3 — pior caso de espera reduzido de 540s para ~270s
-- [x] Loop do handler usa `chat_stream()` com detecção automática: `{` → tool call silencioso; texto → streaming visível
-
-### Phase 9 — Smart queries (Ollama) 🔄 EM ANDAMENTO
-- [x] Queries em linguagem natural: "quanto gastei em jogos esse mês?", "meu saldo", "compare abril e maio"
-- [x] Registro por texto livre com confirmação: "gastei 80 no iFood hoje no nubank crédito"
-- [x] 13 ferramentas: leitura (summary, categories, balances, investments, transactions, budgets, comparison) + escrita (register_expense/income/investment/transfer, confirm, cancel)
-- [x] Auto-categorização de CSV via `suggest_categories()` com histórico do usuário
-- [x] Insights gerados pelo Ollama nos relatórios semanais e mensais do scheduler
-- [ ] Metas de gastos com alerta de 80% — integração com tabela `budgets`
+**Fase 10b — Edição e ajustes históricos**
+- [ ] Delete transaction from dashboard
+- [ ] Manual investment balance adjustment (for RDB/CDB daily yield that doesn't appear as movements)
+- [ ] Spending goal alerts at 80% threshold (using `budgets` table)

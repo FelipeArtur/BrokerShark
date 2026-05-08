@@ -1,7 +1,7 @@
 /* view-secondary.js — CardsView, AccountsView, InvestmentsView, HistoryView */
 /* global React, fetchFaturas, fetchRecentTransactions, fetchMonthlyByAccount,
-          fetchCategoriesByAccount, fetchAccounts, fetchMonthly, fetchInvestments,
-          fetchAccountHistory */
+          fetchCategoriesByAccount, fetchAccounts, fetchMonthly, fetchMonthlyFull,
+          fetchInvestments, fetchAccountHistory */
 
 const { useState: _s2St, useEffect: _s2Ef, useMemo: _s2Memo } = React;
 const { fmtBRL, fmtBRLCompact, fmtDateBR, BankChip, Sparkline, DualLine, Donut } = window.BS;
@@ -9,6 +9,12 @@ const { fmtBRL, fmtBRLCompact, fmtDateBR, BankChip, Sparkline, DualLine, Donut }
 const PT_MONTHS_FULL = ["", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
   "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 const PT_SHORT = ["", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+
+function _fmtCycleDate(ddmmyyyy) {
+  if (!ddmmyyyy) return "—";
+  const [d, m] = ddmmyyyy.split("/");
+  return `${parseInt(d, 10)} ${PT_SHORT[parseInt(m, 10)]}`;
+}
 
 /* ── CardsView ───────────────────────────────────────────────────────────── */
 function CardsView({ onEditCategory, refreshKey, filterMonth }) {
@@ -65,7 +71,7 @@ function CardsView({ onEditCategory, refreshKey, filterMonth }) {
             h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 } },
               h("div", null,
                 h("div", { style: { fontSize: 10, opacity: 0.7, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 } }, f.label),
-                h("div", { style: { fontSize: 11, opacity: 0.7, marginTop: 2 } }, `Ciclo ${f.cycle_start} – ${f.cycle_end}`)
+                h("div", { style: { fontSize: 11, opacity: 0.7, marginTop: 2 } }, `${_fmtCycleDate(f.cycle_start)} → ${_fmtCycleDate(f.cycle_end)}`)
               ),
               h("div", { style: { fontSize: 9, padding: "3px 7px", borderRadius: 4, background: "rgba(255,255,255,0.18)", fontWeight: 600, textTransform: "uppercase" } }, due)
             ),
@@ -303,7 +309,7 @@ function HistoryView({ refreshKey }) {
 
   _s2Ef(() => {
     const b = bank === "all" ? undefined : bank;
-    fetchMonthly(b).then(setMonthly);
+    fetchMonthlyFull(b).then(setMonthly);
   }, [bank, refreshKey]);
 
   const totalIn  = monthly.reduce((s, d) => s + d.income, 0);

@@ -12,7 +12,6 @@ from __future__ import annotations
 import json
 import logging
 import re
-import threading
 import time
 from datetime import datetime, timedelta
 from typing import Any, Optional
@@ -23,7 +22,7 @@ from telegram.ext import ContextTypes
 
 from bot.utils import _authorized, _fmt_brl
 from core import database
-from integrations import ollama, sheets
+from integrations import ollama
 
 _logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -248,7 +247,6 @@ def _do_confirm_expense(data: dict) -> str:
         "category": data["category"],
         "registered_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
-    threading.Thread(target=sheets.append_expense, args=(row,), daemon=True).start()
     return f"✅ Gasto registrado! (#{tx_id})"
 
 
@@ -258,14 +256,6 @@ def _do_confirm_income(data: dict) -> str:
         account_id=data["account_id"], amount=data["amount"],
         description=data["description"], is_revenue=1,
     )
-    row = {
-        "id": tx_id, "date": data["date"], "method": data["income_type"],
-        "bank": _ACCOUNT_BANK.get(data["account_id"], "nubank"),
-        "account_id": data["account_id"], "amount": data["amount"],
-        "description": data["description"],
-        "registered_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-    }
-    threading.Thread(target=sheets.append_income, args=(row,), daemon=True).start()
     return f"✅ Recebimento registrado! (#{tx_id})"
 
 
@@ -278,13 +268,6 @@ def _do_confirm_investment(data: dict) -> str:
         operation=data["operation"], amount=data["amount"],
         description=data.get("description"),
     )
-    row = {
-        "id": mv_id, "date": data["date"], "name": data["investment_name"],
-        "operation": data["operation"], "amount": data["amount"],
-        "description": data.get("description"),
-        "registered_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-    }
-    threading.Thread(target=sheets.append_investment, args=(row,), daemon=True).start()
     op = "Aporte" if data["operation"] == "deposit" else "Resgate"
     return f"✅ {op} registrado! (#{mv_id})"
 

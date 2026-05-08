@@ -723,6 +723,9 @@ def get_monthly_history(months: int = 6, bank: Optional[str] = None) -> list[dic
             - ``expenses`` (float)
             - ``income`` (float)
     """
+    _PT_SHORT = ["", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
+                 "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
+
     today   = date.today()
     periods: list[tuple[int, int]] = []
     for i in range(months - 1, -1, -1):
@@ -758,7 +761,7 @@ def get_monthly_history(months: int = 6, bank: Optional[str] = None) -> list[dic
     by_month = {r["ym"]: {"expenses": r["expenses"], "income": r["income"]} for r in rows}
     return [
         {
-            "label": f"{m:02d}/{y}",
+            "label": f"{_PT_SHORT[m]}/{str(y)[-2:]}",
             **by_month.get(f"{y:04d}-{m:02d}", {"expenses": 0.0, "income": 0.0}),
         }
         for y, m in periods
@@ -1048,13 +1051,33 @@ def get_investment_movements_by_period(start_date: str, end_date: str) -> list[d
 
 # ── Dashboard v2 queries ──────────────────────────────────────────────────────
 
-def get_daily_spend(days: int = 30) -> list[dict]:
-    """Return daily expense totals for the last N days.
+def get_daily_spend(days: int = 30, year: Optional[int] = None, month: Optional[int] = None) -> list[dict]:
+    """Return daily expense totals.
+
+    When year+month are provided, returns every day of that month (zero-filled).
+    Otherwise returns the last ``days`` days, skipping days with no spending.
 
     Returns:
         List of ``{"date": str, "day": int, "value": float}`` ordered by date.
-        Missing days (no spending) are not included.
     """
+    if year and month:
+        last_day = calendar.monthrange(year, month)[1]
+        start = f"{year:04d}-{month:02d}-01"
+        end   = f"{year:04d}-{month:02d}-{last_day:02d}"
+        with _connect() as conn:
+            rows = conn.execute(
+                """SELECT date, SUM(amount) AS value
+                   FROM transactions
+                   WHERE flow='expense' AND dest_account_id IS NULL AND date BETWEEN ? AND ?
+                   GROUP BY date ORDER BY date""",
+                (start, end),
+            ).fetchall()
+        by_date = {r["date"]: r["value"] for r in rows}
+        return [
+            {"date": f"{year:04d}-{month:02d}-{d:02d}", "day": d, "value": by_date.get(f"{year:04d}-{month:02d}-{d:02d}", 0.0)}
+            for d in range(1, last_day + 1)
+        ]
+
     cutoff = (date.today() - timedelta(days=days - 1)).isoformat()
     with _connect() as conn:
         rows = conn.execute(
@@ -1127,7 +1150,10 @@ def get_patrimonio_history(months: int = 12) -> list[dict]:
                 row = conn.execute(
                     """SELECT
                          COALESCE(SUM(CASE WHEN flow='income' AND dest_account_id IS NULL THEN amount ELSE 0 END), 0)
-                       - COALESCE(SUM(CASE WHEN flow='expense' AND dest_account_id IS NULL THEN amount ELSE 0 END), 0)
+                       - COALESCE(SUM(CASE WHEN flow='expense'
+                                          AND (dest_account_id IS NULL
+                                               OR dest_account_id IN ('nu-cc','inter-cc'))
+                                     THEN amount ELSE 0 END), 0)
                        AS net
                        FROM transactions WHERE account_id=? AND date <= ?""",
                     (acc["id"], cutoff),
