@@ -9,7 +9,7 @@ const { fmtBRL, fmtBRLCompact, fmtDateBR, BankChip, Sparkline, BarChart, DualLin
 const PT_MONTHS = ["", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
   "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 
-function OverviewView({ onJumpToAccount, onEditCategory, refreshKey }) {
+function OverviewView({ onJumpToAccount, onEditCategory, refreshKey, filterMonth }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
 
   const [summary, setSummary]     = _ovSt(null);
@@ -24,14 +24,16 @@ function OverviewView({ onJumpToAccount, onEditCategory, refreshKey }) {
   const [budgetInput, setBudgetInput] = _ovSt("");
 
   _ovEf(() => {
+    const parts = filterMonth ? filterMonth.split("-").map(Number) : [];
+    const [year, month] = parts.length === 2 ? parts : [null, null];
     Promise.all([
-      fetchSummary(), fetchMonthly(), fetchCategories(), fetchFaturas(),
+      fetchSummary({ month, year }), fetchMonthly(), fetchCategories({ month, year }), fetchFaturas(),
       fetchPatrimonioHistory(), fetchDailySpend(), fetchRecentActivity(), fetchBudgets(),
     ]).then(([s, m, c, f, p, d, a, b]) => {
       setSummary(s); setMonthly(m); setCategories(c); setFaturas(f);
       setPatrimonio(p); setDailySpend(d); setActivity(a); setBudgets(b);
     });
-  }, [refreshKey]);
+  }, [refreshKey, filterMonth]);
 
   if (!summary) return h("div", { style: { padding: 24, color: "var(--fg-2)" } }, "Carregando…");
 

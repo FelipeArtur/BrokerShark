@@ -1,14 +1,11 @@
-"""AI chat handler — interface conversacional principal do BrokerShark.
+"""Handler de IA — interface conversacional do BrokerShark via Ollama.
 
-Usa prompt-based tool calling (sem o campo nativo ``tools``) para compatibilidade
-com modelos locais como phi3.5 que não suportam a API de ferramentas do Ollama.
-
-Fluxo de registro:
-  1. Usuário descreve o gasto/receita em texto livre
-  2. Ollama responde com JSON  {"tool": "register_*", "args": {...}}
-  3. Bot exibe a confirmação formatada ao usuário
-  4. Usuário diz "sim" → Ollama chama {"tool": "confirm", "args": {}} → INSERT
-  5. Usuário diz "não" → Ollama chama {"tool": "cancel", "args": {}}
+Fluxo:
+  1. Mensagem do usuário é verificada: deve ser sobre finanças pessoais
+  2. Ollama processa via prompt-based tool calling (JSON no texto)
+  3. Se tool call detectado: executa e continua o loop (máx 3 rodadas)
+  4. Se linguagem natural: faz streaming progressivo na mensagem do Telegram
+  5. confirm/cancel → persiste ou descarta o registro pendente
 """
 from __future__ import annotations
 
@@ -16,6 +13,7 @@ import json
 import logging
 import re
 import threading
+import time
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
@@ -28,10 +26,9 @@ from core import database
 from integrations import ollama, sheets
 
 _logger = logging.getLogger(__name__)
-# Habilita INFO para ver respostas do modelo no log
 logging.basicConfig(level=logging.INFO)
 
-MAX_ROUNDS = 6
+MAX_ROUNDS = 3
 MAX_HISTORY = 6
 HISTORY_PURGE_AT = 16
 
@@ -61,9 +58,35 @@ _INCOME_LABELS: dict[str, str] = {
     "pix_received": "PIX recebido", "other": "Outro",
 }
 
+# ── Filtro de tópico ──────────────────────────────────────────────────────────
+
+_FINANCIAL_RE = re.compile(
+    r"\b(gast|recebi|salári|pagament|pix|ted|crédit|fatur|cartão|conta|saldo"
+    r"|nubank|inter|investimento|caixinha|porquinho|tesouro|aport|resgate"
+    r"|banco|dinheiro|compr|valor|reais|r\$|quanto|resumo|extrato|transferên"
+    r"|orçamento|budget|categoria|mensal|semana|histórico|entrada|saída)\w*",
+    re.IGNORECASE,
+)
+_PASS_WORDS = {"sim", "não", "nao", "ok", "pode", "confirma", "cancela", "cancelar", "errado"}
+
+
+def _is_on_topic(text: str) -> bool:
+    """Retorna True se a mensagem parece ser sobre finanças pessoais."""
+    words = text.strip().split()
+    if len(words) <= 3:
+        return True  # saudações curtas e confirmações sempre passam
+    if any(w.lower() in _PASS_WORDS for w in words):
+        return True
+    return bool(_FINANCIAL_RE.search(text))
+
+
 # ── System prompt ─────────────────────────────────────────────────────────────
 
 _SYSTEM_PROMPT = """\
+ESCOPO: Você responde EXCLUSIVAMENTE sobre as finanças pessoais do usuário
+(gastos, receitas, saldos, contas, faturas, investimentos). Qualquer outro
+assunto → responda APENAS: "Só posso ajudar com suas finanças pessoais."
+
 Você é o BrokerShark, assistente financeiro pessoal. Toda interação é por texto livre.
 
 CONTAS:
@@ -82,7 +105,7 @@ FERRAMENTAS — quando precisar de dados ou registrar algo, responda SOMENTE com
 
 Ferramentas disponíveis:
   get_monthly_summary       args: year, month
-  get_monthly_comparison    args: month1_year, month1, month2_year, month2  ← USE ISSO para comparar dois meses
+  get_monthly_comparison    args: month1_year, month1, month2_year, month2
   get_expenses_by_category  args: year, month
   get_account_balances      args: (nenhum)
   get_investments           args: (nenhum)
@@ -99,9 +122,6 @@ EXEMPLOS:
 Usuário: "quanto gastei em maio?"
 → {"tool": "get_monthly_summary", "args": {"year": 2026, "month": 5}}
 
-Usuário: "compare meus gastos de abril e maio" ou "compare os últimos dois meses"
-→ {"tool": "get_monthly_comparison", "args": {"month1_year": 2026, "month1": 4, "month2_year": 2026, "month2": 5}}
-
 Usuário: "gastei 80 no iFood hoje no nubank crédito"
 → {"tool": "register_expense", "args": {"date": "DATA_ATUAL", "amount": 80.0, "description": "iFood", "category": "Alimentação", "account_id": "nu-cc", "method": "credit", "installments": 1}}
 
@@ -110,12 +130,12 @@ Usuário: "sim"  (após ver confirmação pendente)
 
 ════════════════════════════════════════
 REGRAS:
-1. Saudações, perguntas e conversas gerais → responda diretamente em texto. NÃO chame nenhuma ferramenta.
-2. Perguntas sobre dados financeiros → chame a ferramenta de leitura adequada, depois responda em português.
+1. Saudações e conversas gerais sobre finanças → responda em texto. NÃO chame ferramentas.
+2. Perguntas sobre dados financeiros → chame a ferramenta adequada, depois responda em português.
 3. Para registrar → chame register_*, o sistema exibe a confirmação automaticamente.
-4. confirm() → SOMENTE quando o usuário responder explicitamente "sim", "ok", "pode", "confirma" a uma confirmação pendente.
+4. confirm() → SOMENTE quando o usuário responder explicitamente "sim", "ok", "pode", "confirma".
 5. cancel() → SOMENTE quando o usuário responder "não", "cancela", "errado" a uma confirmação pendente.
-6. NUNCA chame confirm() ou cancel() em resposta a saudações, perguntas ou mensagens que não sejam resposta a uma confirmação.
+6. NUNCA chame confirm() ou cancel() em saudações ou perguntas que não sejam resposta a uma confirmação.
 7. Resolva datas: "hoje" e "ontem" usando a data atual fornecida no contexto.
 8. Responda sempre em português brasileiro. Seja conciso (máx 4 linhas fora das confirmações).\
 """
@@ -124,12 +144,7 @@ REGRAS:
 # ── Parser de tool call ───────────────────────────────────────────────────────
 
 def _parse_tool_call(content: str) -> dict[str, Any] | None:
-    """Extrai um JSON de tool call do texto retornado pelo modelo.
-
-    Percorre o texto procurando por blocos JSON que contenham a chave "tool",
-    respeitando chaves aninhadas (ex: "args": {...}).
-    """
-    # Percorre o texto procurando blocos JSON com "tool" válido
+    """Extrai JSON de tool call do texto retornado pelo modelo."""
     for start in (m.start() for m in re.finditer(r'\{', content)):
         depth = 0
         for i, ch in enumerate(content[start:], start):
@@ -295,12 +310,11 @@ async def _execute_tool(
     """Executa uma ferramenta e retorna (resultado_json, mensagem_direta_ou_None).
 
     Quando mensagem_direta não é None, ela deve ser enviada ao usuário imediatamente
-    (confirmações e resultados de confirm/cancel) sem passar pelo modelo novamente.
+    sem passar pelo modelo novamente.
     """
     pending: dict = context.bot_data.setdefault("pending", {})
 
     try:
-        # ── Leitura ──────────────────────────────────────────────────────────
         if name == "get_monthly_summary":
             return json.dumps(database.get_monthly_summary(args["year"], args["month"]), ensure_ascii=False), None
         if name == "get_expenses_by_category":
@@ -318,7 +332,6 @@ async def _execute_tool(
             m2 = database.get_monthly_summary(args["month2_year"], args["month2"])
             return json.dumps({"month1": m1, "month2": m2}, ensure_ascii=False), None
 
-        # ── Registro (armazena pendente, envia confirmação direto ao usuário) ─
         if name == "register_expense":
             data = {
                 "date": args["date"], "amount": float(args["amount"]),
@@ -359,11 +372,9 @@ async def _execute_tool(
             pending[chat_id] = {"type": "transfer", "data": data}
             return "ok", _confirmation_transfer(data)
 
-        # ── Confirm / Cancel ──────────────────────────────────────────────────
         if name == "confirm":
             entry = pending.pop(chat_id, None)
             if not entry:
-                # Sem pendente: devolve erro para o modelo tratar, não envia msg direta
                 return json.dumps({"error": "Nenhum registro pendente. Nada foi salvo."}), None
             ptype = entry["type"]
             if ptype == "expense":
@@ -417,7 +428,13 @@ async def ai_chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         return
 
-    # Limpa histórico se /start foi chamado (sinalizado via bot_data)
+    if not _is_on_topic(user_text):
+        await update.message.reply_text(
+            "Só posso ajudar com suas finanças pessoais 💰\n"
+            "Pergunte sobre gastos, receitas, saldo, faturas ou investimentos."
+        )
+        return
+
     if context.bot_data.pop(f"clear_history_{chat_id}", False):
         context.bot_data.get("ai_history", {}).pop(chat_id, None)
         context.bot_data.get("pending", {}).pop(chat_id, None)
@@ -435,24 +452,61 @@ async def ai_chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     messages.extend(history[-MAX_HISTORY:])
     messages.append({"role": "user", "content": user_text})
 
-    final_text: str | None = None
+    sent_msg = None  # mensagem do Telegram que recebe o streaming
 
     for round_n in range(MAX_ROUNDS):
-        msg = await ollama.chat_with_tools(messages, None)
-        if msg is None:
-            break
+        full_content = ""
+        is_natural: bool | None = None
+        last_edit = 0.0
+        last_typing = time.monotonic()
 
-        content: str = (msg.get("content") or "").strip()
-        _logger.info("[AI round %d] raw response: %s", round_n, content[:300])
+        async for delta, accumulated, done in ollama.chat_stream(messages):
+            full_content = accumulated
+
+            # Detecta tipo da resposta nos primeiros tokens significativos
+            if is_natural is None and len(accumulated.strip()) >= 10:
+                is_natural = not accumulated.strip().startswith("{")
+
+            if is_natural:
+                # Linguagem natural: faz streaming progressivo no Telegram
+                ts = time.monotonic()
+                if sent_msg is None:
+                    sent_msg = await update.message.reply_text(accumulated)
+                    last_edit = ts
+                elif ts - last_edit >= 1.5:
+                    try:
+                        await sent_msg.edit_text(accumulated, parse_mode="Markdown")
+                    except Exception:
+                        pass
+                    last_edit = ts
+            else:
+                # Tool call em andamento: renova typing indicator a cada 4s
+                ts = time.monotonic()
+                if ts - last_typing > 4.0:
+                    await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+                    last_typing = ts
+
+        content = full_content.strip()
+        _logger.info("[AI round %d] type=%s content=%s", round_n, "text" if is_natural else "tool", content[:200])
+
         if not content:
             break
 
         tool_call = _parse_tool_call(content)
 
         if tool_call is None:
-            # Resposta em linguagem natural — encerra o loop
-            final_text = content
-            break
+            # Resposta em linguagem natural: edição final para garantir Markdown correto
+            if sent_msg is not None:
+                try:
+                    await sent_msg.edit_text(content, parse_mode="Markdown")
+                except Exception:
+                    pass
+            else:
+                await update.message.reply_text(content, parse_mode="Markdown")
+            history.append({"role": "user", "content": user_text})
+            history.append({"role": "assistant", "content": content})
+            _trim_history(context, chat_id)
+            return
 
         tool_name = tool_call.get("tool", "")
         tool_args = tool_call.get("args", {})
@@ -461,35 +515,32 @@ async def ai_chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
         result_str, direct_msg = await _execute_tool(tool_name, tool_args, chat_id, context)
 
-        # Confirmações e resultados de confirm/cancel vão direto ao usuário
         if direct_msg is not None:
+            # Confirmação ou resultado de confirm/cancel: envia direto ao usuário
             history.append({"role": "user", "content": user_text})
             history.append({"role": "assistant", "content": direct_msg})
             _trim_history(context, chat_id)
             await update.message.reply_text(direct_msg, parse_mode="Markdown")
             return
 
-        # Ferramenta de leitura: devolve resultado e pede resposta em português
+        # Resultado de leitura: devolve ao modelo para formulação da resposta
         _logger.info("[AI round %d] tool=%s result=%s", round_n, tool_name, result_str[:200])
         messages.append({"role": "assistant", "content": content})
         messages.append({
             "role": "user",
             "content": (
                 f"[Resultado de {tool_name}]: {result_str}\n\n"
-                "Com base nesses dados, responda ao usuário em português de forma clara e concisa. "
-                "Se precisar de mais dados, chame outra ferramenta. Caso contrário, responda diretamente."
+                "Com base nesses dados, responda ao usuário em português de forma clara e concisa."
             ),
         })
         await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
 
-    if not final_text:
-        await update.message.reply_text(
-            "Não consegui processar sua mensagem. Tente reformular."
-        )
-        return
-
-    history.append({"role": "user", "content": user_text})
-    history.append({"role": "assistant", "content": final_text})
-    _trim_history(context, chat_id)
-
-    await update.message.reply_text(final_text, parse_mode="Markdown")
+    # Esgotou MAX_ROUNDS sem resposta definitiva
+    fallback = "Não consegui processar sua mensagem. Tente reformular."
+    if sent_msg is not None:
+        try:
+            await sent_msg.edit_text(fallback)
+        except Exception:
+            await update.message.reply_text(fallback)
+    else:
+        await update.message.reply_text(fallback)

@@ -87,18 +87,20 @@ def api_summary() -> Response:
     bank    = request.args.get("bank") or None
     account = request.args.get("account") or None
     now = datetime.now()
+    month = request.args.get("month", type=int) or now.month
+    year  = request.args.get("year",  type=int) or now.year
     if account:
-        summary = database.get_account_monthly_summary(account, now.year, now.month)
+        summary = database.get_account_monthly_summary(account, year, month)
         reservas_total = 0.0
     else:
-        summary = database.get_monthly_summary(now.year, now.month, bank=bank)
+        summary = database.get_monthly_summary(year, month, bank=bank)
         investments = database.get_all_investments()
         if bank:
             investments = [inv for inv in investments if inv["bank"] == bank]
         reservas_total = sum(inv["current_balance"] for inv in investments)
     return jsonify({
-        "month": now.month,
-        "year": now.year,
+        "month": month,
+        "year": year,
         "income": summary["income"],
         "expenses": summary["expenses"],
         "balance": summary["income"] - summary["expenses"],
@@ -181,9 +183,11 @@ def api_categories() -> Response:
     bank    = request.args.get("bank") or None
     account = request.args.get("account") or None
     now = datetime.now()
+    month = request.args.get("month", type=int) or now.month
+    year  = request.args.get("year",  type=int) or now.year
     if account:
-        return jsonify(database.get_expenses_by_category_account(account, now.year, now.month))
-    return jsonify(database.get_expenses_by_category(now.year, now.month, bank=bank))
+        return jsonify(database.get_expenses_by_category_account(account, year, month))
+    return jsonify(database.get_expenses_by_category(year, month, bank=bank))
 
 
 @app.route("/api/expenses-by-method")

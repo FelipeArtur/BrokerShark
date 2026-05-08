@@ -41,7 +41,8 @@ brokershark/
 │   │   └── backup.py      # Local SQLite backup (timestamped copy, prune old files)
 │   ├── integrations/      # External services package
 │   │   ├── __init__.py
-│   │   └── sheets.py      # Google Sheets — append-only mirror after each INSERT
+│   │   ├── sheets.py      # Google Sheets — append-only mirror after each INSERT
+│   │   └── ollama.py      # Ollama async HTTP client — is_available (cached), chat, chat_stream, suggest_categories
 │   ├── dashboard/         # Flask dashboard package
 │   │   ├── __init__.py    # Re-exports start_dashboard
 │   │   └── server.py      # Flask routes + Waitress WSGI (8 threads, SSE endpoint)
@@ -57,7 +58,8 @@ brokershark/
 │       │   ├── expense.py     # Expense registration flow
 │       │   ├── income.py      # Income registration flow
 │       │   ├── investment.py  # Investment deposit/withdrawal flow
-│       │   └── csv_import.py  # CSV import flow
+│       │   ├── csv_import.py  # CSV import flow
+│       │   └── ai_chat.py     # Free-text AI handler — topic filter, tool calling, streaming
 │       └── parsers/
 │           ├── __init__.py
 │           ├── nubank_cc.py   # Nubank credit card CSV parser
@@ -139,8 +141,7 @@ bot/handlers/expense.py — checks if monthly expenses ≥ income → sends aler
 | Dashboard frontend | React 18 + Babel standalone (no build step), custom inline SVG charts, `api.js` / `primitives.js` / `quick-entry.js` / `view-overview.js` / `view-secondary.js` / `app.js` |
 | Real-time updates | SSE via `events.py` — no polling, < 1s latency |
 | HTTP client | httpx |
-
-> **Ollama (Phi-3.5 Mini / ROCm)** is reserved for future natural language queries and is **not** part of the registration flow.
+| Local LLM | Ollama (phi3.5 / ROCm) — free-text financial queries and CSV auto-categorization |
 
 ---
 
@@ -544,6 +545,52 @@ Implementation notes:
 
 ---
 
+## Ollama Integration (AI Chat)
+
+### Overview
+
+Free-text financial queries are handled by `bot/handlers/ai_chat.py` via `integrations/ollama.py`.
+The AI chat is **scoped exclusively to the user's finances** — off-topic messages are rejected before reaching the model.
+
+### `integrations/ollama.py` public interface
+
+```python
+async def is_available() -> bool: ...          # health check, result cached 30s
+async def chat(messages) -> str | None: ...    # blocking call — used by scheduler reports
+async def chat_stream(messages) -> AsyncGenerator[tuple[str, str, bool], None]: ...
+                                               # streaming — used by ai_chat handler
+async def suggest_categories(transactions, patterns, valid_categories) -> dict[str, str]: ...
+                                               # batch CSV categorization
+```
+
+- `is_available()` result is cached for 30 seconds — no extra HTTP round trip on every message
+- `chat_stream()` yields `(delta, accumulated, done)` tuples; the handler detects response type from the first tokens
+- All errors logged to `logs/ollama_errors.log`, never raised or shown to the user
+
+### `bot/handlers/ai_chat.py` — AI Chat Handler
+
+**Topic filter (`_is_on_topic`):** Python regex check before calling Ollama. Messages with ≤ 3 words always pass (greetings, confirmations). Longer messages must contain a financial keyword. Off-topic messages get an immediate rejection without touching the model.
+
+**Agentic loop (max 3 rounds):**
+1. `chat_stream()` is called; response tokens are accumulated
+2. If first significant tokens start with `{` → tool call (parsed silently, Ollama typing indicator refreshed every 4s)
+3. If first significant tokens are natural language → streamed progressively into a Telegram message (edited every 1.5s)
+4. Tool results are fed back to the model for the next round
+
+**Supported tools (13):** `get_monthly_summary`, `get_monthly_comparison`, `get_expenses_by_category`, `get_account_balances`, `get_investments`, `get_recent_transactions`, `get_budgets`, `register_expense`, `register_income`, `register_investment`, `register_transfer`, `confirm`, `cancel`
+
+**Registration via AI:**
+- User describes the transaction in free text → model calls `register_*` → bot displays formatted confirmation
+- User says "sim" → model calls `confirm` → INSERT + Sheets mirror
+- Works identically to the button flow under the hood
+
+**Constants:**
+- `MAX_ROUNDS = 3` — maximum model calls per user message
+- `MAX_HISTORY = 6` — conversation turns kept in context
+- `HISTORY_PURGE_AT = 16` — purge threshold
+
+---
+
 ## Local Dashboard
 
 Flask/Waitress server runs as a daemon thread on port 8080 (configurable via `DASHBOARD_PORT`), 8 threads.
@@ -555,11 +602,11 @@ All data endpoints accept an optional `?bank=nubank|inter` query parameter to fi
 | Endpoint | Returns |
 |---|---|
 | `GET /api/events` | SSE stream — sends `update` event after every DB write, `heartbeat` every 30s |
-| `GET /api/summary[?bank=][?account=]` | Current month: income, expenses, balance, reservas, top category |
+| `GET /api/summary[?bank=][?account=][?month=][?year=]` | Income, expenses, balance, reservas, top category — defaults to current month |
 | `GET /api/accounts[?bank=]` | All (or filtered) accounts with current balance |
 | `GET /api/investments[?bank=]` | All (or filtered) investments with current balance |
 | `GET /api/monthly[?bank=][?account=]` | Last 6 months of income vs expenses |
-| `GET /api/categories[?bank=][?account=]` | Current month expenses grouped by category |
+| `GET /api/categories[?bank=][?account=][?month=][?year=]` | Expenses grouped by category — defaults to current month |
 | `GET /api/expenses-by-method[?bank=]` | Current month expenses grouped by bank and payment method |
 | `GET /api/faturas[?bank=]` | Credit card billing info (total, due date, days remaining) |
 | `GET /api/account/<account_id>` | Full account detail: balance, monthly summary, billing info (credit only) |
@@ -577,18 +624,22 @@ All data endpoints accept an optional `?bank=nubank|inter` query parameter to fi
 
 5-section sidebar navigation. Keyboard shortcuts: `1`–`5` for sections, `N`/`E` for new expense, `R` for income, `I` for investment, `/` for search, `Esc` to close.
 
+**Global month selector** — topbar dropdown (12-month window). Changing it filters Overview, Cards, and Accounts simultaneously. Border turns blue and a `↺` reset button appears when viewing a non-current month. All views receive `filterMonth` as a prop; backend endpoints `/api/summary` and `/api/categories` accept `?month=&year=` to serve historical data.
+
+**Categories panel** — removed from main nav; accessible via ⚙ TweaksPanel → "⊞ Gerenciar categorias".
+
 **Overview** — `view-overview.js`
 - Patrimônio hero: total net worth (38px number), 12-month sparkline, trend %, accounts+investments breakdown
-- 2-col: DualLine income vs expenses (6m) + category mini-bars with spend amounts
+- 2-col: DualLine income vs expenses (6m) + category mini-bars with spend amounts — filtered by selected month
 - 3-col: daily spend BarChart (30d) + open faturas urgency cards + budget bars (editable inline)
 - Recent activity table with inline category reassignment
 
 **Cards** — `view-secondary.js`
 - Gradient fatura cards (Nubank purple / Inter orange) with cycle dates and days until due
-- Transaction table with month + category selects, DualLine evolution, category mini-bars
+- Transaction table filtered by global month selector + local category filter, DualLine evolution, category mini-bars
 
 **Accounts** — `view-secondary.js`
-- Checking account tile grid (active tile highlighted), click to view full extract
+- Checking account tile grid (active tile highlighted), click to view full extract — filtered by global month selector
 
 **Investments** — `view-secondary.js`
 - Total + Donut distribution + per-investment rows with balance
@@ -872,7 +923,12 @@ Receitas: R$ X
 | SQLite WAL over PostgreSQL | Personal use, zero configuration, single file, trivial to back up |
 | Flask dashboard in a daemon thread | Runs alongside the async bot without blocking the event loop |
 | Dashboard supports web Quick Entry | Same `insert_*` DB functions used by the bot are also called by Flask POST endpoints — SSE notify and Sheets mirror are included automatically |
-| Ollama excluded from the registration flow | Buttons replace language model parsing for the MVP |
+| Ollama excluded from the button registration flow | Buttons replace language model parsing — faster, zero hallucination risk |
+| AI chat scoped to finances only | Python topic filter (`_is_on_topic`) rejects off-topic messages before calling Ollama — zero inference cost for irrelevant queries |
+| `is_available()` cached 30s | Avoids one extra HTTP round trip to Ollama before every user message |
+| Streaming responses via `chat_stream()` | User sees text appear progressively; detection of tool call vs natural language is based on first tokens (starts with `{` → tool call) |
+| `chat_with_tools()` removed | Was a duplicate of `chat()` that never used the native tools field — replaced by `chat_stream()` in the AI handler |
+| `SYSTEM_PROMPT` removed from `ollama.py` | Was dead code — the authoritative prompt lives in `ai_chat.py` as `_SYSTEM_PROMPT` |
 | Authentication by chat_id | Single-user personal bot — simple and sufficient |
 | Internal transfers stored as expense+dest_account_id, not as income | A transfer from Nubank to Inter is not real income — storing it as income would double-count the salary. A single expense row on the source with `dest_account_id` set credits the destination via the `inbound` subquery; all six summary queries already filter `AND dest_account_id IS NULL`, so transfers never appear in income or expense totals. |
 | Internal transfers not sent to Google Sheets | They are internal rebalancing events, not real financial transactions — mirroring them would pollute the Sheets backup with noise. |
@@ -966,6 +1022,14 @@ Receitas: R$ X
 - [x] Global search, keyboard shortcuts (1-5, N/E/R/I, /, Esc), tweaks panel (tema, density, sidebar)
 - [x] SSE live indicator no topbar; debounce 300ms para imports CSV
 
+### Phase 7d — Seletor de mês global + reorganização de navegação ✅ DONE
+- [x] Seletor de mês global no topbar — dropdown com janela de 12 meses, filtra Overview + Cards + Accounts simultaneamente
+- [x] Indicação visual de período histórico: borda azul no select + botão `↺` para voltar ao mês atual
+- [x] `/api/summary` e `/api/categories` aceitam `?month=&year=` — retornam dados de qualquer mês
+- [x] `fetchSummary()` e `fetchCategories()` em `api.js` recebem `{ bank, month, year }` como parâmetro
+- [x] `filterMonth` como prop em `OverviewView`, `CardsView` e `AccountsView` — substituiu estado local em CardsView
+- [x] "Categorias" removida da barra de navegação principal — acessível via ⚙ → "⊞ Gerenciar categorias" no TweaksPanel
+
 ### Phase 8 — Serviço systemd + Histórico comparativo
 - [ ] Serviço systemd para autostart no boot (brokershark.service)
 - [ ] `/historico` — evolução mensal de gastos e receitas (últimos N meses)
@@ -976,13 +1040,19 @@ Receitas: R$ X
 - [ ] Edição de categoria por transação no dashboard (clique inline na lista de transações)
 - [ ] Ajuste manual de saldo de investimento no dashboard — necessário porque RDB/CDB rendem juros diários que não aparecem no extrato como movimentos; o saldo importado do CSV reflete apenas aportes e resgates explícitos
 
-### Phase 9 — Smart queries (Ollama)
-- [ ] Natural language questions: "quanto gastei em jogos esse mês?"
-- [ ] Consolidated net worth (accounts + investments)
-- [ ] Spending goals with 80% threshold alerts
-nas aportes e resgates explícitos
+### Phase 8c — Otimização e escopo da integração Ollama ✅ DONE
+- [x] `integrations/ollama.py` reorganizado: removidos `SYSTEM_PROMPT` (código morto) e `chat_with_tools()` (duplicata)
+- [x] `is_available()` com cache de 30s — elimina round trip HTTP extra em cada mensagem
+- [x] `chat_stream()` adicionado — streaming progressivo da resposta no Telegram (edit a cada 1.5s)
+- [x] Filtro de tópico `_is_on_topic()` em Python — rejeita mensagens fora do contexto financeiro sem custo de inferência
+- [x] `_SYSTEM_PROMPT` reforçado com regra de escopo como primeira instrução
+- [x] `MAX_ROUNDS` reduzido de 6 para 3 — pior caso de espera reduzido de 540s para ~270s
+- [x] Loop do handler usa `chat_stream()` com detecção automática: `{` → tool call silencioso; texto → streaming visível
 
-### Phase 9 — Smart queries (Ollama)
-- [ ] Natural language questions: "quanto gastei em jogos esse mês?"
-- [ ] Consolidated net worth (accounts + investments)
-- [ ] Spending goals with 80% threshold alerts
+### Phase 9 — Smart queries (Ollama) 🔄 EM ANDAMENTO
+- [x] Queries em linguagem natural: "quanto gastei em jogos esse mês?", "meu saldo", "compare abril e maio"
+- [x] Registro por texto livre com confirmação: "gastei 80 no iFood hoje no nubank crédito"
+- [x] 13 ferramentas: leitura (summary, categories, balances, investments, transactions, budgets, comparison) + escrita (register_expense/income/investment/transfer, confirm, cancel)
+- [x] Auto-categorização de CSV via `suggest_categories()` com histórico do usuário
+- [x] Insights gerados pelo Ollama nos relatórios semanais e mensais do scheduler
+- [ ] Metas de gastos com alerta de 80% — integração com tabela `budgets`

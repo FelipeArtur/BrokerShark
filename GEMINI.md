@@ -70,7 +70,8 @@ brokershark/
 │   │   ├── events.py      # SSE pub/sub — notify() after writes, subscribe()/unsubscribe()
 │   │   └── backup.py      # Local SQLite backup (timestamped copy, prune old files)
 │   ├── integrations/
-│   │   └── sheets.py      # Google Sheets — append-only mirror after each INSERT
+│   │   ├── sheets.py      # Google Sheets — append-only mirror after each INSERT
+│   │   └── ollama.py      # Ollama async HTTP client — is_available (cached 30s), chat, chat_stream, suggest_categories
 │   ├── dashboard/
 │   │   └── server.py      # Flask routes + Waitress WSGI (8 threads, SSE endpoint)
 │   └── bot/
@@ -83,7 +84,8 @@ brokershark/
 │       │   ├── expense.py     # Expense registration flow
 │       │   ├── income.py      # Income registration flow
 │       │   ├── investment.py  # Investment deposit/withdrawal flow
-│       │   └── csv_import.py  # CSV import flow
+│       │   ├── csv_import.py  # CSV import flow
+│       │   └── ai_chat.py     # Free-text AI handler — topic filter, tool calling loop, streaming
 │       └── parsers/
 │           ├── nubank_cc.py   # Nubank credit card CSV parser
 │           └── inter_cc.py    # Inter credit card CSV parser
@@ -122,6 +124,7 @@ brokershark/
 | Dashboard API | Flask 3.1 + Waitress 3.0 (8 threads, background thread) |
 | Dashboard frontend | React 18 + Babel standalone (no build step), custom inline SVG charts |
 | Real-time updates | SSE via `events.py` — no polling, < 1s latency |
+| Local LLM | Ollama (phi3.5 / ROCm) — free-text queries, CSV auto-categorization, report insights |
 
 ---
 
@@ -224,11 +227,11 @@ All data endpoints accept an optional `?bank=nubank|inter` query parameter.
 | Endpoint | Returns |
 |---|---|
 | `GET /api/events` | SSE stream — `update` event after every DB write, `heartbeat` every 30s |
-| `GET /api/summary[?bank=][?account=]` | Current month: income, expenses, balance, reservas, top category |
+| `GET /api/summary[?bank=][?account=][?month=][?year=]` | Income, expenses, balance, reservas, top category — defaults to current month |
 | `GET /api/accounts[?bank=]` | All (or filtered) accounts with current balance |
 | `GET /api/investments[?bank=]` | All (or filtered) investments with current balance |
 | `GET /api/monthly[?bank=][?account=]` | Last 6 months of income vs expenses |
-| `GET /api/categories[?bank=][?account=]` | Current month expenses grouped by category |
+| `GET /api/categories[?bank=][?account=][?month=][?year=]` | Expenses grouped by category — defaults to current month |
 | `GET /api/expenses-by-method[?bank=]` | Current month expenses grouped by bank and payment method |
 | `GET /api/faturas[?bank=]` | Credit card billing info (total, due date, days remaining) |
 | `GET /api/account/<account_id>` | Full account detail: balance, monthly summary, billing info |
@@ -242,7 +245,38 @@ All data endpoints accept an optional `?bank=nubank|inter` query parameter.
 | `POST /api/incomes` | Insert income or internal transfer |
 | `POST /api/investment-movements` | Insert investment deposit or withdrawal |
 
+**Global month selector:** topbar dropdown (12-month window). Filters Overview, Cards, and Accounts simultaneously via `filterMonth` prop. Blue border + `↺` reset button appear when viewing a non-current month. Backend `/api/summary` and `/api/categories` serve any month via `?month=&year=`.
+
+**Navigation:** 5 sections (1–5). Categories panel is not in the nav bar — accessible via ⚙ TweaksPanel → "⊞ Gerenciar categorias".
+
 Dashboard runs at `http://localhost:8080` (configurable via `DASHBOARD_PORT`).
+
+---
+
+## Ollama Integration (AI Chat)
+
+Free-text financial queries are processed by `bot/handlers/ai_chat.py` via `integrations/ollama.py`.
+
+### `integrations/ollama.py` — 4 public functions
+
+| Function | Used by | Description |
+|---|---|---|
+| `is_available()` | `ai_chat.py` | Health check; result cached 30s |
+| `chat(messages)` | `scheduler.py` | Blocking call, returns string |
+| `chat_stream(messages)` | `ai_chat.py` | Yields `(delta, accumulated, done)` |
+| `suggest_categories(...)` | `csv_import.py` | Batch categorization from CSV |
+
+### AI Chat handler rules
+
+- **Topic filter first:** `_is_on_topic()` checks message for financial keywords before calling Ollama. Messages ≤ 3 words always pass. Off-topic → instant rejection, no model call.
+- **Max 3 rounds:** Tool call → execute → next round, up to 3 times. Natural language response → stream to Telegram.
+- **Streaming detection:** First tokens starting with `{` → tool call (silent). Otherwise → natural language, edit Telegram message every 1.5s.
+- **Tool calls via prompt engineering:** Native `tools` field is never used (phi3.5 incompatible). The model returns `{"tool": "NAME", "args": {...}}` in the text body.
+- **Registration flow:** `register_*` → confirmation displayed → user says "sim" → `confirm` tool → INSERT + Sheets. Identical to button flow under the hood.
+
+### Directive: never pass `tools` field to Ollama
+
+phi3.5 does not support the native Ollama tools API. All tool calling is done via system prompt (prompt engineering). The `tools` key must never be added to the request payload.
 
 ---
 
@@ -260,6 +294,8 @@ Follow these rules strictly when writing or modifying code:
 - **SQLite pragmas:** `PRAGMA journal_mode=WAL` and `PRAGMA foreign_keys=ON` are mandatory at connection time.
 - **Internal transfers are not income:** A transfer between own accounts (Nubank → Inter) is stored as `flow='expense'`, `method='transfer'`, `dest_account_id=<destination>`. The destination balance is credited via the `inbound` subquery in `get_account_balance`. All summary queries filter `AND dest_account_id IS NULL` so transfers never appear in income or expense totals. Never record an internal transfer as `flow='income'`.
 - **Explicit Revenue Flag:** Income transactions use an `is_revenue` flag (1 or 0). Only transactions with `flow='income'` and `is_revenue=1` are counted towards monthly income totals. Unmarked incomes are excluded from the main dashboard summaries.
+- **Ollama is finance-scoped:** The AI chat handler only processes messages about the user's personal finances. The `_is_on_topic()` Python filter in `ai_chat.py` must remain the first guard — off-topic messages must never reach the model.
+- **`ollama.py` is a pure HTTP client:** No business logic, no system prompts, no tool definitions. All prompt engineering lives in `ai_chat.py`. Keep `ollama.py` to its 4 public functions: `is_available`, `chat`, `chat_stream`, `suggest_categories`.
 
 ---
 
