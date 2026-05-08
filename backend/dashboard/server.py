@@ -622,11 +622,12 @@ def start_dashboard() -> None:
     """Start the Waitress WSGI server in a daemon thread.
 
     The thread is named ``"dashboard"`` and runs until the process exits.
-    Uses 8 threads so that SSE clients (each blocking one thread) don't
-    starve regular API requests.
+    Uses 32 threads: each open SSE connection holds one thread permanently,
+    and a full page load fires ~10 API requests in parallel — 32 threads
+    keeps the queue empty under normal single-user load.
     """
     thread = threading.Thread(
-        target=lambda: serve(app, host="127.0.0.1", port=DASHBOARD_PORT, threads=8),
+        target=lambda: serve(app, host="127.0.0.1", port=DASHBOARD_PORT, threads=32),
         daemon=True,
         name="dashboard",
     )
