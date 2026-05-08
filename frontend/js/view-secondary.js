@@ -11,7 +11,7 @@ const PT_MONTHS_FULL = ["", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "
 const PT_SHORT = ["", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
 
 /* ── CardsView ───────────────────────────────────────────────────────────── */
-function CardsView({ onEditCategory, refreshKey }) {
+function CardsView({ onEditCategory, refreshKey, filterMonth }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   const [faturas, setFaturas] = _s2St([]);
   const [activeAcc, setActiveAcc] = _s2St("nu-cc");
@@ -19,26 +19,21 @@ function CardsView({ onEditCategory, refreshKey }) {
   const [monthly, setMonthly] = _s2St([]);
   const [catData, setCatData] = _s2St([]);
   const [filterCat, setFilterCat] = _s2St("");
-  const now = new Date();
-  const [filterMonth, setFilterMonth] = _s2St(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`);
 
   _s2Ef(() => { fetchFaturas().then(setFaturas); }, [refreshKey]);
   _s2Ef(() => {
     if (!activeAcc) return;
-    const [y, m] = filterMonth.split("-").map(Number);
+    const parts = filterMonth ? filterMonth.split("-").map(Number) : [];
+    const [y, m] = parts.length === 2 ? parts : [new Date().getFullYear(), new Date().getMonth() + 1];
     fetchRecentTransactions(activeAcc, { limit: 200, month: m, year: y }).then(data => setTxs(Array.isArray(data) ? data : []));
     fetchMonthlyByAccount(activeAcc).then(setMonthly);
     fetchCategoriesByAccount(activeAcc).then(setCatData);
   }, [activeAcc, filterMonth, refreshKey]);
 
-  const filteredTxs = filterCat ? (Array.isArray(txs) ? txs : []).filter(t => t.category === filterCat) : (Array.isArray(txs) ? txs : []);
-  const cats = [...new Set((Array.isArray(txs) ? txs : []).map(t => t.category).filter(Boolean))].sort();
-  const catMax = catData.length ? catData[0].total : 1;
-
-  const months6 = Array.from({ length: 6 }).map((_, i) => {
-    const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
-    return { v: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`, d };
-  });
+  const safeTxsCards = Array.isArray(txs) ? txs : [];
+  const filteredTxs  = filterCat ? safeTxsCards.filter(t => t.category === filterCat) : safeTxsCards;
+  const cats    = [...new Set(safeTxsCards.map(t => t.category).filter(Boolean))].sort();
+  const catMax  = catData.length ? catData[0].total : 1;
 
   return h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 14 } },
 
@@ -101,12 +96,6 @@ function CardsView({ onEditCategory, refreshKey }) {
           ),
           h("div", { style: { display: "flex", gap: 6 } },
             h("select", {
-              className: "select", value: filterMonth, onChange: e => setFilterMonth(e.target.value),
-              style: { height: 26, padding: "0 8px", fontSize: 11, width: "auto" }
-            },
-              months6.map(({ v, d }) => h("option", { key: v, value: v }, `${PT_MONTHS_FULL[d.getMonth() + 1]} ${d.getFullYear()}`))
-            ),
-            h("select", {
               className: "select", value: filterCat, onChange: e => setFilterCat(e.target.value),
               style: { height: 26, padding: "0 8px", fontSize: 11, width: "auto" }
             },
@@ -160,7 +149,7 @@ function CardsView({ onEditCategory, refreshKey }) {
 }
 
 /* ── AccountsView ────────────────────────────────────────────────────────── */
-function AccountsView({ onEditCategory, refreshKey }) {
+function AccountsView({ onEditCategory, refreshKey, filterMonth }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   const [accounts, setAccounts] = _s2St([]);
   const [activeAcc, setActiveAcc] = _s2St("nu-db");
@@ -175,8 +164,10 @@ function AccountsView({ onEditCategory, refreshKey }) {
 
   _s2Ef(() => {
     if (!activeAcc) return;
-    fetchRecentTransactions(activeAcc, { limit: 100 }).then(data => setTxs(Array.isArray(data) ? data : []));
-  }, [activeAcc, refreshKey]);
+    const parts = filterMonth ? filterMonth.split("-").map(Number) : [];
+    const [y, m] = parts.length === 2 ? parts : [null, null];
+    fetchRecentTransactions(activeAcc, { limit: 200, month: m, year: y }).then(data => setTxs(Array.isArray(data) ? data : []));
+  }, [activeAcc, filterMonth, refreshKey]);
 
   const safeTxs = Array.isArray(txs) ? txs : [];
   const monthIncome = safeTxs.filter(t => t.flow === "income").reduce((s, t) => s + t.amount, 0);

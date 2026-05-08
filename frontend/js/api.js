@@ -20,9 +20,9 @@ async function _patch(url, body) {
 }
 
 /* ── Read endpoints ─────────────────────────────────────────────────────── */
-async function fetchSummary(bank)          { return _get(`/api/summary${_qs(bank)}`); }
-async function fetchMonthly(bank)          { return _get(`/api/monthly${_qs(bank)}`); }
-async function fetchCategories(bank)       { return _get(`/api/categories${_qs(bank)}`); }
+async function fetchSummary({ bank, month, year } = {})    { return _get(`/api/summary${_params({ bank, month, year })}`); }
+async function fetchMonthly(bank)                          { return _get(`/api/monthly${_qs(bank)}`); }
+async function fetchCategories({ bank, month, year } = {}) { return _get(`/api/categories${_params({ bank, month, year })}`); }
 async function fetchExpensesByMethod(bank) { return _get(`/api/expenses-by-method${_qs(bank)}`); }
 async function fetchInvestments(bank)      { return _get(`/api/investments${_qs(bank)}`); }
 async function fetchFaturas(bank)          { return _get(`/api/faturas${_qs(bank)}`); }

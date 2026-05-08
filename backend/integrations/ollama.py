@@ -1,16 +1,21 @@
-"""Ollama integration — async HTTP client for phi3.5 tool calling.
+"""Ollama integration — async HTTP client para comunicação com modelos locais.
 
-All public functions return None / empty results on error.
-Errors are logged to logs/ollama_errors.log and never propagated.
+Funções públicas:
+- is_available()        health check com cache de 30s
+- chat()               chamada simples, retorna string (usado pelo scheduler)
+- chat_stream()        gerador de streaming (usado pelo handler de IA)
+- suggest_categories() categorização em lote (usado pelo CSV import)
+
+Todos os erros são logados em logs/ollama_errors.log e nunca propagados.
 """
 from __future__ import annotations
 
 import json
 import logging
 import logging.handlers
-import os
+import time as _time
 from pathlib import Path
-from typing import Any
+from typing import Any, AsyncGenerator
 
 import httpx
 
@@ -28,14 +33,9 @@ if not _logger.handlers:
     _logger.addHandler(_handler)
 _logger.setLevel(logging.ERROR)
 
-# ── System prompt ─────────────────────────────────────────────────────────────
-SYSTEM_PROMPT = """Você é o BrokerShark, assistente financeiro pessoal.
-O usuário tem contas no Nubank e Inter (crédito e conta corrente).
-Investimentos: Caixinha Nubank, Porquinho Inter, Tesouro Direto.
-Categorias de gasto: Alimentação, Carro, Jogos, Lazer, Atividade física, Eletrônicos, Educação, Igreja, Dízimo, Outro.
-Sempre responda em português brasileiro.
-Use as ferramentas disponíveis para buscar dados reais — nunca invente valores.
-Seja conciso: máximo 6 linhas por resposta, use Markdown do Telegram (*bold*, _italic_)."""
+# ── Cache de disponibilidade ──────────────────────────────────────────────────
+_avail_ts: float = 0.0
+_avail_ok: bool = False
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
@@ -46,72 +46,79 @@ def _make_client() -> httpx.AsyncClient:
 
 def _build_payload(
     messages: list[dict[str, Any]],
-    tools: list[dict[str, Any]] | None,
 ) -> dict[str, Any]:
-    payload: dict[str, Any] = {
+    return {
         "model": OLLAMA_MODEL,
         "messages": messages,
         "stream": False,
     }
-    if tools:
-        payload["tools"] = tools
-    return payload
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
 async def is_available() -> bool:
-    """Quick health check — returns True if Ollama responds within 3 s."""
+    """Health check — retorna True se Ollama responde. Resultado cacheado por 30s."""
+    global _avail_ts, _avail_ok
+    now = _time.monotonic()
+    if now - _avail_ts < 30.0:
+        return _avail_ok
     try:
         async with httpx.AsyncClient(base_url=OLLAMA_URL, timeout=3) as client:
             r = await client.get("/api/tags")
-            return r.status_code == 200
+            _avail_ok = r.status_code == 200
     except Exception:
-        return False
+        _avail_ok = False
+    _avail_ts = now
+    return _avail_ok
 
 
 async def chat(
     messages: list[dict[str, Any]],
-    tools: list[dict[str, Any]] | None = None,
 ) -> str | None:
-    """Send a messages list to Ollama and return the assistant text.
+    """Envia mensagens ao Ollama e retorna o texto da resposta.
 
-    Returns None on error or timeout. Tool call processing is left to the caller.
+    Usado pelo scheduler para relatórios semanais e mensais.
+    Retorna None em caso de erro ou timeout.
     """
     try:
         async with _make_client() as client:
-            r = await client.post("/api/chat", json=_build_payload(messages, tools))
+            r = await client.post("/api/chat", json=_build_payload(messages))
             r.raise_for_status()
-            data = r.json()
-            msg = data.get("message", {})
-            return msg.get("content") or None
+            return r.json().get("message", {}).get("content") or None
     except Exception as exc:
         _logger.error("chat() failed: %s", exc)
         return None
 
 
-async def chat_with_tools(
+async def chat_stream(
     messages: list[dict[str, Any]],
-    tools: list[dict[str, Any]] | None = None,
-) -> dict[str, Any] | None:
-    """Send messages to Ollama and return the full message object.
+) -> AsyncGenerator[tuple[str, str, bool], None]:
+    """Faz streaming da resposta do Ollama.
 
-    Tools are injected via the system prompt (prompt engineering) because most
-    local models, including phi3.5, don't support the native ``tools`` field.
-    The caller parses tool calls from the text content.
+    Yields (delta, accumulated, done):
+    - delta: novo trecho de texto gerado neste chunk
+    - accumulated: texto acumulado até agora
+    - done: True no último chunk
 
-    Returns None on error.
+    Usado pelo handler de IA para streaming progressivo no Telegram.
+    Em caso de erro, o gerador termina silenciosamente após logar.
     """
+    payload = {**_build_payload(messages), "stream": True}
+    accumulated = ""
     try:
         async with _make_client() as client:
-            # Never pass `tools` field — rely on prompt-based tool calling
-            r = await client.post("/api/chat", json=_build_payload(messages, None))
-            r.raise_for_status()
-            data = r.json()
-            return data.get("message")
+            async with client.stream("POST", "/api/chat", json=payload) as r:
+                r.raise_for_status()
+                async for line in r.aiter_lines():
+                    if not line:
+                        continue
+                    data = json.loads(line)
+                    delta = data.get("message", {}).get("content", "")
+                    accumulated += delta
+                    done = data.get("done", False)
+                    yield delta, accumulated, done
     except Exception as exc:
-        _logger.error("chat_with_tools() failed: %s", exc)
-        return None
+        _logger.error("chat_stream() failed: %s", exc)
 
 
 async def suggest_categories(
@@ -119,15 +126,15 @@ async def suggest_categories(
     patterns: list[dict[str, Any]],
     valid_categories: list[str],
 ) -> dict[str, str]:
-    """Batch-categorize a list of transactions using historical patterns.
+    """Categoriza transações em lote usando histórico do usuário como referência.
 
     Args:
-        transactions: list of {description, amount} dicts from the CSV parser.
-        patterns: list of {description, category, freq} from get_categorization_patterns().
-        valid_categories: list of category names that exist in the DB.
+        transactions: lista de {description, amount} do parser CSV.
+        patterns: lista de {description, category, freq} de get_categorization_patterns().
+        valid_categories: nomes de categorias existentes no banco.
 
     Returns:
-        {description: category_name} mapping. Missing entries mean no suggestion.
+        {description: category_name}. Entradas ausentes = sem sugestão.
     """
     if not transactions:
         return {}
@@ -163,13 +170,11 @@ Não inclua explicações, apenas o JSON."""
             )
             r.raise_for_status()
             content = r.json().get("message", {}).get("content", "")
-            # Extract JSON block from the response
             start = content.find("{")
             end = content.rfind("}") + 1
             if start == -1 or end == 0:
                 return {}
             raw: dict[str, str] = json.loads(content[start:end])
-            # Validate that suggested categories actually exist
             valid_set = set(valid_categories)
             return {k: v for k, v in raw.items() if v in valid_set}
     except Exception as exc:
