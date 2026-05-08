@@ -70,7 +70,7 @@ scripts/  recover.py
 | Database | SQLite (WAL mode) |
 | Backup | google-api-python-client + google-auth (Drive) |
 | Scheduler | APScheduler |
-| Dashboard API | Flask 3.1 + Waitress 3.0 (8 threads) |
+| Dashboard API | Flask 3.1 + Waitress 3.0 (32 threads) |
 | Frontend | React 18 + Babel standalone, Chart.js |
 | Real-time | SSE via `events.py` |
 | AI | Ollama `qwen2.5:7b` (ROCm, RX 6600M) |

@@ -43,7 +43,7 @@ brokershark/
 │   │   ├── drive.py       # Google Drive — monthly backup upload + recovery
 │   │   └── ollama.py      # Ollama async client — chat, chat_stream, suggest_categories
 │   ├── dashboard/
-│   │   └── server.py      # Flask routes + Waitress WSGI (8 threads, SSE)
+│   │   └── server.py      # Flask routes + Waitress WSGI (32 threads, SSE)
 │   └── bot/
 │       ├── application.py # build_application(), scheduler lifecycle hooks
 │       ├── constants.py   # State ints, ACCOUNT_MAP, INVESTMENT_META, *_LABELS
@@ -148,7 +148,7 @@ This logic is symmetric for both Nubank CC and Inter CC.
 | Database | SQLite (WAL mode) |
 | Backup (cloud) | google-api-python-client + google-auth (Drive) |
 | Scheduler | APScheduler |
-| Dashboard API | Flask 3.1 + Waitress 3.0 (8 threads, daemon thread) |
+| Dashboard API | Flask 3.1 + Waitress 3.0 (32 threads, daemon thread) |
 | Dashboard frontend | React 18 + Babel standalone (no build step), Chart.js |
 | Real-time updates | SSE via `events.py` — no polling, < 1s latency |
 | HTTP client | httpx |
