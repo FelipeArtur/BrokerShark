@@ -104,22 +104,38 @@ function TweaksPanel({ tw, setTw, onClose, onOpenCategories }) {
     h("span", { style: { position: "absolute", top: 2, left: value ? 18 : 2, width: 16, height: 16, borderRadius: "50%", background: "white", transition: "left 0.2s" } })
   );
 
+  const Section = ({ label }) => h("div", {
+    style: { fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--fg-3)", padding: "10px 0 4px" }
+  }, label);
+
   return h("div", { className: "tweaks-panel" },
-    h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 } },
-      h("span", { style: { fontWeight: 600, fontSize: "var(--fz-5)" } }, "Aparência"),
+    h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 } },
+      h("span", { style: { fontWeight: 700, fontSize: "var(--fz-5)" } }, "Configurações"),
       h("button", { className: "btn btn-ghost btn-sm", onClick: onClose }, "✕")
     ),
-    h(Row, { label: "Tema" }, h(Radio, { options: ["dark", "light"], value: tw.theme, onChange: v => setTw("theme", v) })),
-    h(Row, { label: "Densidade" }, h(Radio, { options: ["compact", "default", "comfortable"], value: tw.density, onChange: v => setTw("density", v) })),
+
+    h(Section, { label: "Aparência" }),
+    h(Row, { label: "Tema" },          h(Radio, { options: ["dark", "light"], value: tw.theme, onChange: v => setTw("theme", v) })),
+    h(Row, { label: "Densidade" },     h(Radio, { options: ["compact", "default", "comfortable"], value: tw.density, onChange: v => setTw("density", v) })),
+
+    h(Section, { label: "Layout" }),
     h(Row, { label: "Sidebar à direita" }, h(Toggle, { value: tw.sidebarSide === "right", onChange: v => setTw("sidebarSide", v ? "right" : "left") })),
-    h(Row, { label: "Sidebar fixo" }, h(Toggle, { value: tw.alwaysOpenSidebar, onChange: v => setTw("alwaysOpenSidebar", v) })),
+    h(Row, { label: "Sidebar sempre aberto" }, h(Toggle, { value: tw.alwaysOpenSidebar, onChange: v => setTw("alwaysOpenSidebar", v) })),
+
+    h(Section, { label: "Interface" }),
     h(Row, { label: "Atalhos de teclado" }, h(Toggle, { value: tw.showKeyboardHints, onChange: v => setTw("showKeyboardHints", v) })),
-    h("div", { style: { marginTop: 14, paddingTop: 10, borderTop: "1px solid var(--line-1)" } },
+
+    h("div", { style: { marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--line-1)", display: "flex", flexDirection: "column", gap: 4 } },
       h("button", {
         className: "btn btn-ghost btn-sm",
         onClick: () => { onOpenCategories(); onClose(); },
-        style: { width: "100%", justifyContent: "flex-start", fontSize: 11, color: "var(--fg-2)" }
-      }, "⊞ Gerenciar categorias")
+        style: { justifyContent: "flex-start", fontSize: 11, color: "var(--fg-2)" }
+      }, "⊞ Gerenciar categorias"),
+      h("button", {
+        className: "btn btn-ghost btn-sm",
+        onClick: () => { localStorage.removeItem("bs_tweaks"); location.reload(); },
+        style: { justifyContent: "flex-start", fontSize: 11, color: "var(--fg-3)" }
+      }, "↺ Restaurar padrões")
     )
   );
 }
@@ -395,7 +411,7 @@ function App() {
         section === "categories"  && h(CategoriesPanel, { refreshKey, onRefresh: () => setRefreshKey(k => k + 1) }),
 
         h("footer", { style: { marginTop: 20, padding: "12px 0", borderTop: "1px solid var(--line-1)", fontSize: 10, color: "var(--fg-3)", display: "flex", justifyContent: "space-between" } },
-          h("span", null, "BrokerShark · localhost:8080 · SQLite ▸ Sheets"),
+          h("span", null, "BrokerShark · localhost:8080 · SQLite"),
           tw.showKeyboardHints && h("span", { style: { display: "flex", gap: 12 } },
             h("span", null, h("span", { className: "kbd" }, "N"), " novo"),
             h("span", null, h("span", { className: "kbd" }, "/"), " buscar"),

@@ -4,10 +4,17 @@
           fetchExpenseCategoriesFull, patchBudget, postCategory, deleteCategory */
 
 const { useState: _ovSt, useEffect: _ovEf } = React;
-const { fmtBRL, fmtBRLCompact, fmtDateBR, BankChip, Sparkline, BarChart, DualLine, Progress } = window.BS;
+const { fmtBRL, fmtBRLCompact, fmtDateBR, BankChip, Sparkline, BarChart, DualLine, PatrimonioChart, Progress } = window.BS;
 
 const PT_MONTHS = ["", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
   "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
+const PT_SHORT_OV = ["", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+
+function _fmtCycleDate(ddmmyyyy) {
+  if (!ddmmyyyy) return "—";
+  const [d, m] = ddmmyyyy.split("/");
+  return `${parseInt(d, 10)} ${PT_SHORT_OV[parseInt(m, 10)]}`;
+}
 
 function OverviewView({ onJumpToAccount, onEditCategory, refreshKey, filterMonth }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
@@ -28,7 +35,7 @@ function OverviewView({ onJumpToAccount, onEditCategory, refreshKey, filterMonth
     const [year, month] = parts.length === 2 ? parts : [null, null];
     Promise.all([
       fetchSummary({ month, year }), fetchMonthly(), fetchCategories({ month, year }), fetchFaturas(),
-      fetchPatrimonioHistory(), fetchDailySpend(), fetchRecentActivity(), fetchBudgets(),
+      fetchPatrimonioHistory(), fetchDailySpend({ month, year }), fetchRecentActivity(), fetchBudgets(),
     ]).then(([s, m, c, f, p, d, a, b]) => {
       setSummary(s); setMonthly(m); setCategories(c); setFaturas(f);
       setPatrimonio(p); setDailySpend(d); setActivity(a); setBudgets(b);
@@ -38,15 +45,28 @@ function OverviewView({ onJumpToAccount, onEditCategory, refreshKey, filterMonth
   if (!summary) return h("div", { style: { padding: 24, color: "var(--fg-2)" } }, "Carregando…");
 
   const totalFaturas = faturas.reduce((s, f) => s + (f.total || 0), 0);
-  const patrNow  = patrimonio.length ? patrimonio[patrimonio.length - 1].value : 0;
-  const patrPrev = patrimonio.length > 1 ? patrimonio[patrimonio.length - 2].value : patrNow;
-  const patrTrend = patrPrev ? ((patrNow - patrPrev) / patrPrev) * 100 : 0;
-  const dailyAvg = summary.expenses / (new Date().getDate() || 1);
-  const projected = dailyAvg * 31;
-  const catMax = categories.length ? categories[0].total : 1;
+  // Find patrimônio entry for the selected month
+  const _parts = filterMonth ? filterMonth.split("-").map(Number) : [];
+  const [_fYear, _fMonth] = _parts.length === 2 ? _parts : [null, null];
+  const _patrLabel = _fMonth ? `${PT_SHORT_OV[_fMonth]}/${String(_fYear).slice(-2)}` : null;
+  const _patrIdx = _patrLabel
+    ? patrimonio.findIndex(p => p.label === _patrLabel)
+    : patrimonio.length - 1;
+  const _effIdx  = _patrIdx >= 0 ? _patrIdx : patrimonio.length - 1;
+  const patrNow   = _effIdx >= 0 ? patrimonio[_effIdx].value : 0;
+  const patrPrev  = _effIdx > 0  ? patrimonio[_effIdx - 1].value : patrNow;
+  const patrDelta = patrNow - patrPrev;
+  const patrTrend = patrPrev ? (patrDelta / patrPrev) * 100 : 0;
 
-  // Patrimônio breakdown rows
-  const totalChecking = summary.balance + summary.expenses - summary.income; // approx from summary
+  // Daily average: use elapsed days for current month, full month for past months
+  const _now = new Date();
+  const _isCurrentMonth = _fYear === _now.getFullYear() && _fMonth === _now.getMonth() + 1;
+  const _daysElapsed = _isCurrentMonth
+    ? (_now.getDate() || 1)
+    : (_fYear && _fMonth ? new Date(_fYear, _fMonth, 0).getDate() : _now.getDate() || 1);
+  const dailyAvg  = summary.expenses / _daysElapsed;
+  const projected = dailyAvg * (_fYear && _fMonth ? new Date(_fYear, _fMonth, 0).getDate() : 31);
+  const catMax    = categories.length ? categories[0].total : 1;
   const totalReservas = summary.reservas;
 
   function BreakdownRow({ label, value, pct, color, negative }) {
@@ -78,29 +98,43 @@ function OverviewView({ onJumpToAccount, onEditCategory, refreshKey, filterMonth
 
   return h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 14 } },
 
-    // Hero: patrimônio + breakdown
-    h("div", { className: "card", style: { padding: 16, display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 24 } },
-      h("div", null,
-        h("div", { className: "eyebrow", style: { marginBottom: 4 } }, "Patrimônio total"),
-        h("div", { style: { display: "flex", alignItems: "baseline", gap: 12 } },
-          h("div", { className: "num", style: { fontSize: 38, fontWeight: 700, lineHeight: 1.05, letterSpacing: "-0.02em" } }, fmtBRL(patrNow)),
-          h("div", { style: { display: "flex", alignItems: "center", gap: 4, color: patrTrend >= 0 ? "var(--pos)" : "var(--neg)", fontFamily: "var(--ff-mono)", fontSize: 13 } },
-            patrTrend >= 0 ? "▲" : "▼", " ", Math.abs(patrTrend).toFixed(1), "%",
-            h("span", { style: { color: "var(--fg-3)" } }, " vs. mês passado")
+    // Hero: patrimônio
+    h("div", { className: "card", style: { padding: 16 } },
+      // Header row: valor + tendência
+      h("div", { style: { display: "grid", gridTemplateColumns: "1fr auto", alignItems: "start", gap: 24, marginBottom: 14 } },
+        h("div", null,
+          h("div", { className: "eyebrow", style: { marginBottom: 6 } }, "Patrimônio total"),
+          h("div", { style: { display: "flex", alignItems: "baseline", gap: 14, flexWrap: "wrap" } },
+            h("div", { className: "num", style: { fontSize: 36, fontWeight: 700, lineHeight: 1.05, letterSpacing: "-0.02em" } }, fmtBRL(patrNow)),
+            h("div", { style: { display: "flex", flexDirection: "column", gap: 1 } },
+              h("div", { style: { display: "flex", alignItems: "center", gap: 4, color: patrTrend >= 0 ? "var(--pos)" : "var(--neg)", fontFamily: "var(--ff-mono)", fontSize: 12, fontWeight: 600 } },
+                patrTrend >= 0 ? "▲" : "▼", " ", Math.abs(patrTrend).toFixed(1) + "%"
+              ),
+              h("div", { style: { fontSize: 11, fontFamily: "var(--ff-mono)", color: patrDelta >= 0 ? "var(--pos)" : "var(--neg)" } },
+                (patrDelta >= 0 ? "+" : "−") + fmtBRL(Math.abs(patrDelta), { decimals: 0 })
+              ),
+              h("div", { style: { fontSize: 9, color: "var(--fg-3)" } }, "vs. mês anterior")
+            )
           )
         ),
-        h("div", { style: { marginTop: 14, height: 64 } },
-          h(Sparkline, { data: patrimonio.map(p => p.value), width: 520, height: 64, color: "var(--info)", strokeWidth: 1.8 })
-        ),
-        patrimonio.length > 0 && h("div", { style: { display: "flex", justifyContent: "space-between", fontFamily: "var(--ff-mono)", fontSize: 9, color: "var(--fg-3)", marginTop: 4 } },
-          patrimonio.filter((_, i) => i % Math.max(1, Math.floor(patrimonio.length / 6)) === 0).map((p, i) => h("span", { key: i }, p.label))
+        // Mini breakdown — 3 chips
+        h("div", { style: { display: "flex", gap: 12 } },
+          [
+            { label: "Saldo mês",    value: summary.balance,   color: summary.balance >= 0 ? "var(--pos)" : "var(--neg)" },
+            { label: "Investido",    value: totalReservas,     color: "var(--reserve)" },
+            { label: "Fatura aberta", value: -totalFaturas,    color: "var(--neg)" },
+          ].map(({ label, value, color }) =>
+            h("div", { key: label, style: { textAlign: "right" } },
+              h("div", { style: { fontSize: 9, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 } }, label),
+              h("div", { className: "num", style: { fontSize: 14, fontWeight: 600, color, marginTop: 2 } },
+                value >= 0 ? fmtBRL(value, { decimals: 0 }) : "−" + fmtBRL(Math.abs(value), { decimals: 0 })
+              )
+            )
+          )
         )
       ),
-      h("div", { style: { display: "flex", flexDirection: "column", gap: 12, borderLeft: "1px solid var(--line-1)", paddingLeft: 24 } },
-        h(BreakdownRow, { label: "Saldo do mês", value: summary.balance, pct: (summary.balance / (patrNow || 1)) * 100, color: summary.balance >= 0 ? "var(--pos)" : "var(--neg)", negative: summary.balance < 0 }),
-        h(BreakdownRow, { label: "Investimentos", value: totalReservas, pct: (totalReservas / (patrNow || 1)) * 100, color: "var(--reserve)" }),
-        h(BreakdownRow, { label: "Faturas abertas", value: totalFaturas, pct: (totalFaturas / (patrNow || 1)) * 100, color: "var(--neg)", negative: true })
-      )
+      // Chart
+      h(PatrimonioChart, { data: patrimonio, height: 150 })
     ),
 
     // Two-column: income vs expenses chart + categories
@@ -112,11 +146,28 @@ function OverviewView({ onJumpToAccount, onEditCategory, refreshKey, filterMonth
             h("div", { style: { fontSize: 10, color: "var(--fg-3)", marginTop: 2 } }, "Últimos 6 meses")
           ),
           h("div", { style: { display: "flex", gap: 12, fontSize: 10 } },
-            h("span", { style: { display: "flex", alignItems: "center", gap: 4 } }, h("span", { style: { width: 8, height: 8, borderRadius: 2, background: "var(--pos)", display: "inline-block" } }), "Receita"),
-            h("span", { style: { display: "flex", alignItems: "center", gap: 4 } }, h("span", { style: { width: 8, height: 8, borderRadius: 2, background: "var(--neg)", display: "inline-block" } }), "Despesa")
+            h("span", { style: { display: "flex", alignItems: "center", gap: 4 } },
+              h("span", { style: { width: 8, height: 8, borderRadius: 2, background: "var(--pos)", display: "inline-block" } }), "Receita"),
+            h("span", { style: { display: "flex", alignItems: "center", gap: 4 } },
+              h("span", { style: { width: 8, height: 8, borderRadius: 2, background: "var(--neg)", display: "inline-block" } }), "Despesa")
           )
         ),
-        h("div", { style: { padding: 12 } }, h(DualLine, { data: monthly, height: 200 }))
+        (() => {
+          const withData = monthly.filter(m => m.income > 0 || m.expenses > 0);
+          const avgIncome   = withData.length ? withData.reduce((s, m) => s + m.income,   0) / withData.length : 0;
+          const avgExpenses = withData.length ? withData.reduce((s, m) => s + m.expenses, 0) / withData.length : 0;
+          return h("div", null,
+            h("div", { style: { padding: "4px 12px 0", display: "flex", gap: 20 } },
+              h("span", { style: { fontSize: 10, fontFamily: "var(--ff-mono)", color: "var(--fg-2)" } },
+                "média receita ", h("span", { style: { color: "var(--pos)", fontWeight: 600 } }, fmtBRLCompact(avgIncome))
+              ),
+              h("span", { style: { fontSize: 10, fontFamily: "var(--ff-mono)", color: "var(--fg-2)" } },
+                "média despesa ", h("span", { style: { color: "var(--neg)", fontWeight: 600 } }, fmtBRLCompact(avgExpenses))
+              )
+            ),
+            h("div", { style: { padding: 12 } }, h(DualLine, { data: monthly, height: 220 }))
+          );
+        })()
       ),
       h("div", { className: "card" },
         h("div", { className: "card-h" },
@@ -146,11 +197,26 @@ function OverviewView({ onJumpToAccount, onEditCategory, refreshKey, filterMonth
         h("div", { className: "card-h" },
           h("div", null,
             h("div", { className: "card-title" }, "Gasto diário"),
-            h("div", { style: { fontSize: 10, color: "var(--fg-3)", marginTop: 2 } }, `30 dias · média ${fmtBRL(dailyAvg, { decimals: 0 })}/dia`)
+            h("div", { style: { fontSize: 10, color: "var(--fg-3)", marginTop: 2 } },
+              _fMonth
+                ? `${PT_MONTHS[_fMonth]} ${_fYear} · média ${fmtBRL(dailyAvg, { decimals: 0 })}/dia`
+                : `30 dias · média ${fmtBRL(dailyAvg, { decimals: 0 })}/dia`
+            )
           ),
-          h("div", { style: { fontFamily: "var(--ff-mono)", fontSize: 11, color: "var(--fg-2)" } }, `proj. ${fmtBRLCompact(projected)}`)
+          h("div", { style: { fontFamily: "var(--ff-mono)", fontSize: 11, color: "var(--fg-2)" } },
+            _isCurrentMonth ? `proj. ${fmtBRLCompact(projected)}` : fmtBRL(summary.expenses, { decimals: 0 })
+          )
         ),
-        h("div", { style: { padding: 10 } }, h(BarChart, { data: dailySpend, height: 120, valueKey: "value", labelKey: "day", color: "var(--info)" }))
+        dailySpend.length > 0
+          ? h("div", { style: { padding: 10 } }, h(BarChart, {
+              data: dailySpend,
+              height: 130,
+              valueKey: "value",
+              labelKey: "day",
+              color: "var(--info)",
+              highlightMax: true,
+            }))
+          : h("div", { style: { padding: "24px 12px", textAlign: "center", color: "var(--fg-3)", fontSize: 12 } }, "Sem gastos neste mês")
       ),
 
       // Faturas
@@ -174,7 +240,7 @@ function OverviewView({ onJumpToAccount, onEditCategory, refreshKey, filterMonth
               ),
               h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline" } },
                 h("span", { className: "num", style: { fontSize: 17, fontWeight: 600 } }, fmtBRL(f.total)),
-                h("span", { style: { fontSize: 10, fontFamily: "var(--ff-mono)", color: "var(--fg-3)" } }, `${f.cycle_start} – ${f.cycle_end}`)
+                h("span", { style: { fontSize: 10, fontFamily: "var(--ff-mono)", color: "var(--fg-3)" } }, `${_fmtCycleDate(f.cycle_start)} → ${_fmtCycleDate(f.cycle_end)}`)
               )
             );
           })

@@ -4,7 +4,6 @@ import warnings
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 
 import config
-from bot.handlers import build_csv_handler
 from bot.handlers.commands import cancel, cmd_ajuda, cmd_fatura, cmd_reservas, cmd_resumo, cmd_saldo, start
 from bot.handlers.ai_chat import ai_chat_handler
 
@@ -42,9 +41,6 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("reservas", cmd_reservas))
     app.add_handler(CommandHandler("ajuda",    cmd_ajuda))
     app.add_handler(CommandHandler("cancelar", cancel))
-
-    # CSV import (ConversationHandler — tem prioridade sobre o AI handler)
-    app.add_handler(build_csv_handler())
 
     # AI catch-all — deve ser o último handler registrado
     app.add_handler(MessageHandler(

@@ -1,7 +1,7 @@
-"""APScheduler jobs — daily backup, weekly report, and monthly closing report.
+"""APScheduler jobs — startup backup, weekly report, and monthly closing report.
 
 Jobs registered:
-- ``daily_backup``   — 03:00 every day via :func:`core.backup.run_backup`
+- ``startup_backup`` — 30s after start; local backup + Drive upload (only if due)
 - ``weekly_report``  — Monday 08:00 with income/expense summary and fatura info
 - ``monthly_closing``— 1st of each month 08:00 with full previous-month breakdown
 """
@@ -14,6 +14,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from telegram import Bot
 
 from core import backup, database
+from integrations import drive
 from bot.utils import _fmt_brl as _fmt, _PT_MONTHS
 from integrations import ollama
 import config
@@ -151,9 +152,12 @@ async def _send_monthly_closing_report(bot: Bot) -> None:
     )
 
 
-async def _run_backup_async() -> None:
-    """Run the synchronous backup in a thread pool to avoid blocking the event loop."""
-    await asyncio.to_thread(backup.run_backup)
+async def _run_startup_backup() -> None:
+    """Run local backup + Drive upload if more than 30 days have passed since last backup."""
+    created = await asyncio.to_thread(backup.run_backup)
+    if created:
+        await asyncio.to_thread(drive.upload_backup, config.DB_PATH)
+        await asyncio.to_thread(drive.prune_old_backups, 6)
 
 
 def build_scheduler(bot: Bot) -> AsyncIOScheduler:
@@ -169,11 +173,10 @@ def build_scheduler(bot: Bot) -> AsyncIOScheduler:
     scheduler = AsyncIOScheduler()
 
     scheduler.add_job(
-        _run_backup_async,
-        trigger="cron",
-        hour=3,
-        minute=0,
-        id="daily_backup",
+        _run_startup_backup,
+        trigger="date",
+        run_date=datetime.now() + timedelta(seconds=30),
+        id="startup_backup",
     )
 
     scheduler.add_job(

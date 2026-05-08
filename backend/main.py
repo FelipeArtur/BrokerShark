@@ -9,7 +9,6 @@ load_dotenv()
 
 import config
 from core import database
-from integrations import sheets
 from bot import build_application
 from dashboard import start_dashboard
 
@@ -24,7 +23,6 @@ def main() -> None:
     asyncio.set_event_loop(loop)
 
     database.init_db()
-    sheets.setup_headers()
     start_dashboard()
     app = build_application()
     logging.getLogger(__name__).info("BrokerShark is running...")

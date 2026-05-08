@@ -85,7 +85,7 @@ function Sparkline({ data, color = "var(--info)", width = 100, height = 28, fill
 }
 
 /* ── BarChart ───────────────────────────────────────────────────────────── */
-function BarChart({ data, height = 140, valueKey = "value", labelKey = "day", color = "var(--info)" }) {
+function BarChart({ data, height = 140, valueKey = "value", labelKey = "day", color = "var(--info)", highlightMax = false }) {
   const canvasRef = _useRef(null);
   const chartRef = _useRef(null);
 
@@ -93,11 +93,17 @@ function BarChart({ data, height = 140, valueKey = "value", labelKey = "day", co
     if (!canvasRef.current || !data || !data.length) return;
     if (chartRef.current) chartRef.current.destroy();
 
+    const root = getComputedStyle(document.documentElement);
     let resolvedColor = color;
     if (color.startsWith("var(")) {
       const match = color.match(/var\(([^)]+)\)/);
-      if (match) resolvedColor = getComputedStyle(document.documentElement).getPropertyValue(match[1]).trim();
+      if (match) resolvedColor = root.getPropertyValue(match[1]).trim();
     }
+    const negColor = root.getPropertyValue("--neg").trim();
+    const fg3Color = root.getPropertyValue("--fg-3").trim();
+
+    const values = data.map(d => d[valueKey]);
+    const maxVal = Math.max(...values);
 
     const ctx = canvasRef.current.getContext("2d");
     chartRef.current = new Chart(ctx, {
@@ -105,28 +111,38 @@ function BarChart({ data, height = 140, valueKey = "value", labelKey = "day", co
       data: {
         labels: data.map(d => d[labelKey]),
         datasets: [{
-          data: data.map(d => d[valueKey]),
-          backgroundColor: resolvedColor || color,
+          data: values,
+          backgroundColor: highlightMax
+            ? values.map(v => v === maxVal && v > 0 ? negColor : (resolvedColor || color))
+            : (resolvedColor || color),
           borderRadius: { topLeft: 2, topRight: 2 },
-          barPercentage: 0.8,
-          categoryPercentage: 0.9
+          barPercentage: 0.85,
+          categoryPercentage: 0.9,
         }]
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        animation: false,
         plugins: {
           legend: { display: false },
           tooltip: {
             callbacks: {
-              label: (context) => fmtBRL(context.raw)
+              label: ctx => fmtBRL(ctx.raw),
+              title: ctx => `Dia ${ctx[0].label}`,
             }
           }
         },
         scales: {
           x: {
-            grid: { display: false, drawBorder: false },
-            ticks: { color: getComputedStyle(document.documentElement).getPropertyValue("--fg-2").trim(), font: { size: 9 } }
+            grid: { display: false },
+            border: { display: false },
+            ticks: {
+              color: fg3Color,
+              font: { size: 9 },
+              maxTicksLimit: 11,
+              maxRotation: 0,
+            }
           },
           y: { display: false, beginAtZero: true }
         }
@@ -134,7 +150,7 @@ function BarChart({ data, height = 140, valueKey = "value", labelKey = "day", co
     });
 
     return () => { if (chartRef.current) chartRef.current.destroy(); };
-  }, [data, color, valueKey, labelKey]);
+  }, [data, color, valueKey, labelKey, highlightMax]);
 
   return React.createElement("div", { style: { height, width: "100%", padding: "4px 0" } },
     React.createElement("canvas", { ref: canvasRef })
@@ -220,6 +236,90 @@ function DualLine({ data, height = 180 }) {
 
     return () => { if (chartRef.current) chartRef.current.destroy(); };
   }, [data]);
+
+  return React.createElement("div", { style: { height, width: "100%" } },
+    React.createElement("canvas", { ref: canvasRef })
+  );
+}
+
+/* ── PatrimonioChart ────────────────────────────────────────────────────── */
+function PatrimonioChart({ data, height = 140 }) {
+  const canvasRef = _useRef(null);
+  const chartRef  = _useRef(null);
+
+  _useEffect(() => {
+    if (!canvasRef.current || !data || !data.length) return;
+    if (chartRef.current) chartRef.current.destroy();
+
+    const root   = getComputedStyle(document.documentElement);
+    const info   = root.getPropertyValue("--info").trim();
+    const fg3    = root.getPropertyValue("--fg-3").trim();
+    const line1  = root.getPropertyValue("--line-1").trim();
+
+    const ctx = canvasRef.current.getContext("2d");
+
+    const grad = ctx.createLinearGradient(0, 0, 0, height);
+    grad.addColorStop(0, info.replace(")", " / 0.22)"));
+    grad.addColorStop(1, info.replace(")", " / 0.01)"));
+
+    chartRef.current = new Chart(ctx, {
+      type: "line",
+      data: {
+        labels: data.map(d => d.label),
+        datasets: [{
+          data: data.map(d => d.value),
+          borderColor: info,
+          backgroundColor: grad,
+          borderWidth: 2,
+          tension: 0.35,
+          pointRadius: 3,
+          pointHoverRadius: 5,
+          pointBackgroundColor: info,
+          fill: true,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        interaction: { mode: "index", intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: ctx => "  " + fmtBRL(ctx.raw),
+              title: ctx => ctx[0].label,
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            border: { display: false },
+            ticks: {
+              color: fg3,
+              font: { size: 9, family: "JetBrains Mono" },
+              maxTicksLimit: 7,
+              maxRotation: 0,
+            }
+          },
+          y: {
+            beginAtZero: false,
+            grid: { color: line1, borderDash: [2, 4] },
+            border: { display: false },
+            ticks: {
+              color: fg3,
+              font: { size: 9, family: "JetBrains Mono" },
+              callback: v => fmtBRLCompact(v),
+              maxTicksLimit: 4,
+            }
+          }
+        }
+      }
+    });
+
+    return () => { if (chartRef.current) chartRef.current.destroy(); };
+  }, [data, height]);
 
   return React.createElement("div", { style: { height, width: "100%" } },
     React.createElement("canvas", { ref: canvasRef })
@@ -405,7 +505,7 @@ function BrokerSharkLogo({ size = 28 }) {
 window.BS = window.BS || {};
 Object.assign(window.BS, {
   fmtBRL, fmtBRLCompact, fmtDateBR, todayISO, yesterdayISO,
-  Sparkline, BarChart, DualLine, Donut, Progress,
+  Sparkline, BarChart, DualLine, PatrimonioChart, Donut, Progress,
   Modal, useToasts, BankChip, SegmentControl, CurrencyInput, DateChooser, FieldRow,
   BrokerSharkLogo,
 });

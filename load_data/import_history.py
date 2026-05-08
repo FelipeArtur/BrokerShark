@@ -7,9 +7,12 @@ Processes:
 
 Run from the project root:
     .venv/bin/python load_data/import_history.py
+    .venv/bin/python load_data/import_history.py --dry-run   # preview only, no DB writes
 """
+import argparse
 import csv
 import io
+import logging
 import os
 import sqlite3
 import sys
@@ -22,10 +25,23 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
 
 import config
 from core import database
-from bot.parsers import inter_cc
+from bot.parsers import inter_cc, nubank_cc
 
 BASE_DIR = Path(__file__).parent
 DB_PATH = config.DB_PATH
+
+Path("logs").mkdir(exist_ok=True)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler("logs/import_errors.log"),
+    ],
+)
+_logger = logging.getLogger(__name__)
+
+DRY_RUN: bool = False
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -175,8 +191,8 @@ def _classify_nubank_extrato(description: str, valor: float) -> dict | None:
     return None  # valor == 0
 
 
-def import_nubank_extrato(data_dir: Path) -> tuple[int, int, int]:
-    """Import all Nubank extrato CSVs. Returns (imported, skipped_dup, investments)."""
+def import_nubank_extrato(data_dir: Path) -> tuple[int, int, int, int]:
+    """Import all Nubank extrato CSVs. Returns (imported, skipped_dup, investments, errors)."""
     folder = data_dir / "Extrato completo Nubank"
     files = sorted(folder.glob("*.csv"))
 
@@ -184,7 +200,7 @@ def import_nubank_extrato(data_dir: Path) -> tuple[int, int, int]:
     existing = database.get_investment_by_name("Caixinha Nubank")
     caixinha_id = existing["id"] if existing else database.upsert_investment("Caixinha Nubank", "savings", "nubank")
 
-    imported = skipped = inv_imported = 0
+    imported = skipped = inv_imported = errors = 0
 
     for filepath in files:
         try:
@@ -218,9 +234,10 @@ def import_nubank_extrato(data_dir: Path) -> tuple[int, int, int]:
                     operation = result["operation"]
                     amount = result["amount"]
                     if not _investment_movement_exists(date, caixinha_id, operation, amount):
-                        database.insert_investment_movement(
-                            date, caixinha_id, operation, amount
-                        )
+                        if not DRY_RUN:
+                            database.insert_investment_movement(
+                                date, caixinha_id, operation, amount
+                            )
                         inv_imported += 1
                     else:
                         skipped += 1
@@ -243,44 +260,61 @@ def import_nubank_extrato(data_dir: Path) -> tuple[int, int, int]:
                     skipped += 1
                     continue
 
-                database.insert_transaction(
-                    date=date,
-                    flow=flow,
-                    method=method,
-                    account_id=account_id,
-                    amount=amount,
-                    description=description,
-                    installments=1,
-                    category_id=category_id,
-                    dest_account_id=dest_account,
-                    counterpart=counterpart,
-                )
+                if not DRY_RUN:
+                    database.insert_transaction(
+                        date=date,
+                        flow=flow,
+                        method=method,
+                        account_id=account_id,
+                        amount=amount,
+                        description=description,
+                        installments=1,
+                        category_id=category_id,
+                        dest_account_id=dest_account,
+                        counterpart=counterpart,
+                        is_revenue=1 if flow == "income" and dest_account is None and counterpart != "SELF" else 0,
+                    )
                 imported += 1
 
-            except (ValueError, KeyError):
+            except Exception as exc:
+                _logger.warning("Nubank extrato — erro em %s linha %r: %s", filepath.name, row, exc)
+                errors += 1
                 continue
 
-    return imported, skipped, inv_imported
+    return imported, skipped, inv_imported, errors
 
 
 # ── Inter CC faturas ──────────────────────────────────────────────────────────
 
-def import_inter_cc_faturas(data_dir: Path) -> tuple[int, int]:
-    """Import all Inter CC fatura CSVs. Returns (imported, skipped_dup)."""
+def import_inter_cc_faturas(data_dir: Path) -> tuple[int, int, int]:
+    """Import all Inter CC fatura CSVs. Returns (imported, skipped_dup, errors)."""
     folder = data_dir / "Fatura banco Inter"
     files = sorted(folder.glob("*.csv"))
 
+    if not files:
+        _logger.info("Fatura banco Inter/ — nenhum arquivo encontrado.")
+        return 0, 0, 0
+
     category_id = _get_category_id("Outro", "expense")
-    imported = skipped = 0
+    imported = skipped = errors = 0
 
     for filepath in files:
         try:
             content = filepath.read_text(encoding="utf-8", errors="replace")
         except Exception as e:
-            print(f"  [WARN] Não foi possível ler {filepath.name}: {e}")
+            _logger.warning("Não foi possível ler %s: %s", filepath.name, e)
+            errors += 1
             continue
 
-        transactions = inter_cc.parse(content)
+        # adjust_installment_dates=False: each monthly fatura already has each
+        # installment in its correct billing month — no forward date shift needed.
+        try:
+            transactions = inter_cc.parse(content, adjust_installment_dates=False)
+        except Exception as e:
+            _logger.warning("Erro ao parsear %s: %s", filepath.name, e)
+            errors += 1
+            continue
+
         for tx in transactions:
             if database.transaction_exists(
                 tx["date"], tx["amount"], tx["description"], tx["account_id"]
@@ -288,19 +322,91 @@ def import_inter_cc_faturas(data_dir: Path) -> tuple[int, int]:
                 skipped += 1
                 continue
 
-            database.insert_transaction(
-                date=tx["date"],
-                flow=tx["flow"],
-                method=tx["method"],
-                account_id=tx["account_id"],
-                amount=tx["amount"],
-                description=tx["description"],
-                installments=tx.get("installments", 1),
-                category_id=category_id,
-            )
+            if not DRY_RUN:
+                database.insert_transaction(
+                    date=tx["date"],
+                    flow=tx["flow"],
+                    method=tx["method"],
+                    account_id=tx["account_id"],
+                    amount=tx["amount"],
+                    description=tx["description"],
+                    installments=tx.get("installments", 1),
+                    category_id=category_id,
+                    is_revenue=1 if tx["flow"] == "income" else 0,
+                )
             imported += 1
 
-    return imported, skipped
+    return imported, skipped, errors
+
+
+# ── Nubank CC faturas ─────────────────────────────────────────────────────────
+
+def import_nubank_cc_faturas(data_dir: Path) -> tuple[int, int, int]:
+    """Import all Nubank CC fatura CSVs. Returns (imported, skipped_dup, errors).
+
+    Anti-duplication guarantee
+    --------------------------
+    The Nubank extrato (nu-db) already contains one "Pagamento da fatura" entry
+    per billing cycle stored as ``flow='expense', dest_account_id='nu-cc'``.
+    That entry covers the *total* amount paid and is used by the patrimônio
+    calculation to reduce the checking-account balance.
+
+    The individual purchases imported here go into ``account_id='nu-cc'`` with
+    ``dest_account_id=None``.  Monthly expense summaries only count
+    ``dest_account_id IS NULL``, so the fatura-payment row in nu-db is
+    automatically excluded — no double-counting occurs.
+
+    Do NOT remove "Pagamento da fatura" rows from nu-db; they are needed for
+    the patrimônio calculation.  The nubank_cc parser already skips negative /
+    zero-amount rows (payments/refunds), so the fatura payment that appears in
+    the CC export is never imported.
+    """
+    folder = data_dir / "Fatura Nubank"
+    files = sorted(folder.glob("*.csv"))
+
+    if not files:
+        _logger.info("Fatura Nubank/ — nenhum arquivo encontrado.")
+        return 0, 0, 0
+
+    category_id = _get_category_id("Outro", "expense")
+    imported = skipped = errors = 0
+
+    for filepath in files:
+        try:
+            content = filepath.read_text(encoding="utf-8", errors="replace")
+        except Exception as e:
+            _logger.warning("Não foi possível ler %s: %s", filepath.name, e)
+            errors += 1
+            continue
+
+        try:
+            transactions = nubank_cc.parse(content)
+        except Exception as e:
+            _logger.warning("Erro ao parsear %s: %s", filepath.name, e)
+            errors += 1
+            continue
+
+        for tx in transactions:
+            if database.transaction_exists(
+                tx["date"], tx["amount"], tx["description"], tx["account_id"]
+            ):
+                skipped += 1
+                continue
+
+            if not DRY_RUN:
+                database.insert_transaction(
+                    date=tx["date"],
+                    flow=tx["flow"],
+                    method=tx["method"],
+                    account_id=tx["account_id"],
+                    amount=tx["amount"],
+                    description=tx["description"],
+                    installments=tx.get("installments", 1),
+                    category_id=category_id,
+                )
+            imported += 1
+
+    return imported, skipped, errors
 
 
 # ── Inter extrato ─────────────────────────────────────────────────────────────
@@ -375,19 +481,20 @@ def _classify_inter_extrato(description: str, valor: float) -> dict | None:
     return None
 
 
-def import_inter_extrato(data_dir: Path) -> tuple[int, int, int]:
-    """Import the Inter extrato CSV. Returns (imported, skipped_dup, investments)."""
+def import_inter_extrato(data_dir: Path) -> tuple[int, int, int, int]:
+    """Import the Inter extrato CSV. Returns (imported, skipped_dup, investments, errors)."""
     folder = data_dir / "Extrato completo Inter"
     files = list(folder.glob("*.csv"))
 
     if not files:
-        return 0, 0, 0
+        _logger.info("Extrato completo Inter/ — nenhum arquivo encontrado.")
+        return 0, 0, 0, 0
 
     cat_cache: dict[tuple[str, str], Optional[int]] = {}
     existing = database.get_investment_by_name("Porquinho Inter")
     porquinho_id = existing["id"] if existing else database.upsert_investment("Porquinho Inter", "savings", "inter")
 
-    imported = skipped = inv_imported = 0
+    imported = skipped = inv_imported = errors = 0
 
     for filepath in files:
         try:
@@ -433,9 +540,10 @@ def import_inter_extrato(data_dir: Path) -> tuple[int, int, int]:
                     operation = result["operation"]
                     amount = result["amount"]
                     if not _investment_movement_exists(date, porquinho_id, operation, amount):
-                        database.insert_investment_movement(
-                            date, porquinho_id, operation, amount
-                        )
+                        if not DRY_RUN:
+                            database.insert_investment_movement(
+                                date, porquinho_id, operation, amount
+                            )
                         inv_imported += 1
                     else:
                         skipped += 1
@@ -457,51 +565,101 @@ def import_inter_extrato(data_dir: Path) -> tuple[int, int, int]:
                     skipped += 1
                     continue
 
-                database.insert_transaction(
-                    date=date,
-                    flow=flow,
-                    method=method,
-                    account_id=account_id,
-                    amount=amount,
-                    description=description,
-                    installments=1,
-                    category_id=category_id,
-                    dest_account_id=dest_account,
-                )
+                if not DRY_RUN:
+                    database.insert_transaction(
+                        date=date,
+                        flow=flow,
+                        method=method,
+                        account_id=account_id,
+                        amount=amount,
+                        description=description,
+                        installments=1,
+                        category_id=category_id,
+                        dest_account_id=dest_account,
+                        is_revenue=1 if flow == "income" and dest_account is None else 0,
+                    )
                 imported += 1
 
-            except (ValueError, KeyError):
+            except Exception as exc:
+                _logger.warning("Inter extrato — erro em %s linha %r: %s", filepath.name, row, exc)
+                errors += 1
                 continue
 
-    return imported, skipped, inv_imported
+    return imported, skipped, inv_imported, errors
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
-def main() -> None:
-    # Ensure DB is initialised (creates tables and seeds if first run)
+def main() -> dict:
+    """Run the full historical import. Returns a summary dict with counters."""
+    global DRY_RUN
+
+    parser = argparse.ArgumentParser(description="BrokerShark — importação de dados históricos")
+    parser.add_argument("--dry-run", action="store_true", help="Simula o import sem gravar no banco")
+    args = parser.parse_args()
+    DRY_RUN = args.dry_run
+
     database.init_db()
 
-    print("BrokerShark — Importação de dados históricos")
-    print("=" * 50)
+    label = " [DRY RUN — nenhuma gravação]" if DRY_RUN else ""
+    print(f"BrokerShark — Importação de dados históricos{label}")
+    print("=" * 55)
 
-    print("\n[1/3] Nubank extrato (conta corrente)...")
-    nu_imp, nu_skip, nu_inv = import_nubank_extrato(BASE_DIR)
-    print(f"      {nu_imp} importadas | {nu_skip} puladas | {nu_inv} movimentos de investimento")
+    nu_folder = BASE_DIR / "Extrato completo Nubank"
+    if not nu_folder.exists() or not list(nu_folder.glob("*.csv")):
+        print("\n[1/4] Nubank extrato — pasta vazia ou não encontrada, pulando.")
+        nu_imp = nu_skip = nu_inv = nu_err = 0
+    else:
+        print("\n[1/4] Nubank extrato (conta corrente)...")
+        nu_imp, nu_skip, nu_inv, nu_err = import_nubank_extrato(BASE_DIR)
+        print(f"      {nu_imp} importadas | {nu_skip} puladas | {nu_inv} investimentos | {nu_err} erros")
 
-    print("\n[2/3] Inter CC faturas (cartão de crédito)...")
-    inter_cc_imp, inter_cc_skip = import_inter_cc_faturas(BASE_DIR)
-    print(f"      {inter_cc_imp} importadas | {inter_cc_skip} puladas")
+    nu_cc_folder = BASE_DIR / "Fatura Nubank"
+    if not nu_cc_folder.exists() or not list(nu_cc_folder.glob("*.csv")):
+        print("\n[2/4] Nubank CC faturas — pasta vazia ou não encontrada, pulando.")
+        nu_cc_imp = nu_cc_skip = nu_cc_err = 0
+    else:
+        print("\n[2/4] Nubank CC faturas (cartão de crédito)...")
+        nu_cc_imp, nu_cc_skip, nu_cc_err = import_nubank_cc_faturas(BASE_DIR)
+        print(f"      {nu_cc_imp} importadas | {nu_cc_skip} puladas | {nu_cc_err} erros")
 
-    print("\n[3/3] Inter extrato (conta corrente)...")
-    inter_db_imp, inter_db_skip, inter_db_inv = import_inter_extrato(BASE_DIR)
-    print(f"      {inter_db_imp} importadas | {inter_db_skip} puladas | {inter_db_inv} movimentos de investimento")
+    inter_cc_folder = BASE_DIR / "Fatura banco Inter"
+    if not inter_cc_folder.exists() or not list(inter_cc_folder.glob("*.csv")):
+        print("\n[3/4] Inter CC faturas — pasta vazia ou não encontrada, pulando.")
+        inter_cc_imp = inter_cc_skip = inter_cc_err = 0
+    else:
+        print("\n[3/4] Inter CC faturas (cartão de crédito)...")
+        inter_cc_imp, inter_cc_skip, inter_cc_err = import_inter_cc_faturas(BASE_DIR)
+        print(f"      {inter_cc_imp} importadas | {inter_cc_skip} puladas | {inter_cc_err} erros")
 
-    total = nu_imp + inter_cc_imp + inter_db_imp
+    inter_db_folder = BASE_DIR / "Extrato completo Inter"
+    if not inter_db_folder.exists() or not list(inter_db_folder.glob("*.csv")):
+        print("\n[4/4] Inter extrato — pasta vazia ou não encontrada, pulando.")
+        inter_db_imp = inter_db_skip = inter_db_inv = inter_db_err = 0
+    else:
+        print("\n[4/4] Inter extrato (conta corrente)...")
+        inter_db_imp, inter_db_skip, inter_db_inv, inter_db_err = import_inter_extrato(BASE_DIR)
+        print(f"      {inter_db_imp} importadas | {inter_db_skip} puladas | {inter_db_inv} investimentos | {inter_db_err} erros")
+
+    total_tx  = nu_imp + nu_cc_imp + inter_cc_imp + inter_db_imp
     total_inv = nu_inv + inter_db_inv
-    print("\n" + "=" * 50)
-    print(f"Total: {total} transações + {total_inv} movimentos de investimento importados.")
-    print("Pronto. Abra o dashboard em http://localhost:8080")
+    total_err = nu_err + nu_cc_err + inter_cc_err + inter_db_err
+
+    print("\n" + "=" * 55)
+    print(f"Total: {total_tx} transações + {total_inv} movimentos de investimento importados.")
+    if total_err:
+        print(f"Atenção: {total_err} linhas com erro — veja logs/import_errors.log")
+    if DRY_RUN:
+        print("DRY RUN — nenhuma alteração foi gravada no banco.")
+    else:
+        print("Pronto. Abra o dashboard em http://localhost:8080")
+
+    return {
+        "imported": total_tx,
+        "investments": total_inv,
+        "skipped": nu_skip + nu_cc_skip + inter_cc_skip + inter_db_skip,
+        "errors": total_err,
+    }
 
 
 if __name__ == "__main__":

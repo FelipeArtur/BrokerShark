@@ -39,11 +39,12 @@ async function fetchExpenseCategories()         { return _get("/api/expense-cate
 async function fetchExpenseCategoriesFull()     { return _get("/api/expense-categories-full"); }
 
 /* ── New v2 read endpoints ──────────────────────────────────────────────── */
-async function fetchDailySpend()           { return _get("/api/daily-spend"); }
+async function fetchDailySpend({ month, year } = {})  { return _get(`/api/daily-spend${_params({ month, year })}`); }
 async function fetchRecentActivity()       { return _get("/api/recent-activity"); }
 async function fetchPatrimonioHistory()    { return _get("/api/patrimonio-history"); }
 async function fetchBudgets()              { return _get("/api/budgets"); }
 async function searchTransactions(q)       { return _get(`/api/search?q=${encodeURIComponent(q)}`); }
+async function fetchMonthlyFull(bank)      { return _get(`/api/monthly${_params({ bank, months: 36 })}`); }
 
 /* ── Write endpoints ────────────────────────────────────────────────────── */
 async function patchTransactionCategory(txId, categoryId) {

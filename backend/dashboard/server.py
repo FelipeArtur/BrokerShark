@@ -3,7 +3,7 @@
 Read endpoints query SQLite via :mod:`core.database` and return JSON.
 Write endpoints (POST /api/transactions, POST /api/incomes, POST /api/investment-movements)
 insert records using the same database functions as the Telegram bot, triggering
-SSE notifications and Google Sheets mirroring.
+SSE notifications.
 
 A real-time SSE endpoint (``/api/events``) notifies connected browsers whenever
 the database is written to.
@@ -22,7 +22,6 @@ from waitress import serve
 import config
 from core import database
 from core import events as _events
-from integrations import sheets as _sheets
 
 _logger = logging.getLogger(__name__)
 
@@ -164,9 +163,10 @@ def api_monthly() -> Response:
     """
     bank    = request.args.get("bank") or None
     account = request.args.get("account") or None
+    months  = request.args.get("months", default=6, type=int)
     if account:
-        return jsonify(database.get_monthly_history_by_account(account, months=6))
-    return jsonify(database.get_monthly_history(months=6, bank=bank))
+        return jsonify(database.get_monthly_history_by_account(account, months=months))
+    return jsonify(database.get_monthly_history(months=months, bank=bank))
 
 
 @app.route("/api/categories")
@@ -338,12 +338,17 @@ def api_transactions() -> Response:
 
 @app.route("/api/daily-spend")
 def api_daily_spend() -> Response:
-    """Return daily expense totals for the last 30 days.
+    """Return daily expense totals.
 
+    Query params:
+        month: int — if provided with year, returns all days of that month
+        year:  int
     Returns:
         JSON array of ``{date, day, value}`` objects ordered oldest first.
     """
-    return jsonify(database.get_daily_spend(30))
+    month = request.args.get("month", type=int)
+    year  = request.args.get("year",  type=int)
+    return jsonify(database.get_daily_spend(30, year=year, month=month))
 
 
 @app.route("/api/recent-activity")
@@ -456,13 +461,6 @@ def api_post_transaction() -> Response:
         description=description,
         category_id=category_id,
     )
-    tx = database.get_transaction(tx_id)
-    if tx:
-        threading.Thread(
-            target=_sheets.append_expense,
-            args=(dict(tx),),
-            daemon=True,
-        ).start()
     return jsonify({"ok": True, "id": tx_id})
 
 
@@ -530,13 +528,6 @@ def api_post_income() -> Response:
         description=description, category_id=None,
         is_revenue=is_revenue,
     )
-    tx = database.get_transaction(tx_id)
-    if tx:
-        threading.Thread(
-            target=_sheets.append_income,
-            args=(dict(tx),),
-            daemon=True,
-        ).start()
     return jsonify({"ok": True, "id": tx_id})
 
 
@@ -579,13 +570,6 @@ def api_post_investment_movement() -> Response:
         amount=float(amount),
         description=description,
     )
-    mv = database.get_investment_movement(mv_id)
-    if mv:
-        threading.Thread(
-            target=_sheets.append_investment,
-            args=(dict(mv),),
-            daemon=True,
-        ).start()
     return jsonify({"ok": True, "id": mv_id})
 
 

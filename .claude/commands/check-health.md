@@ -28,14 +28,17 @@ with sqlite3.connect(config.DB_PATH) as conn:
     print(f"WAL mode: {mode == 'wal'}")
 
     tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")]
-    expected = {"accounts","categories","transactions","investments","investment_movements","unrecognized_log"}
+    expected = {"accounts","categories","transactions","investments","investment_movements","budgets","unrecognized_log"}
     print(f"Tables OK: {expected.issubset(set(tables))}")
 
-    for t in ["accounts","categories","transactions","investments","investment_movements"]:
+    for t in ["accounts","categories","transactions","investments","investment_movements","budgets"]:
         n = conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
         print(f"  {t}: {n} rows")
 
-for var in ["TELEGRAM_TOKEN","TELEGRAM_CHAT_ID","DB_PATH","SHEETS_ID","SHEETS_CREDENTIALS"]:
+    is_rev_ok = conn.execute("SELECT COUNT(*) FROM transactions WHERE flow='income' AND is_revenue IS NULL").fetchone()[0]
+    print(f"  is_revenue NULLs (should be 0): {is_rev_ok}")
+
+for var in ["TELEGRAM_TOKEN","TELEGRAM_CHAT_ID","DB_PATH","LOCAL_BACKUP_DIR","GOOGLE_CREDENTIALS","OLLAMA_URL"]:
     print(f"  {var}: {'set' if os.getenv(var) else 'MISSING'}")
 
 try:
@@ -57,7 +60,12 @@ Tables OK: True
   transactions: N rows
   investments: 3 rows
   investment_movements: N rows
+  budgets: N rows
+  is_revenue NULLs (should be 0): 0
   TELEGRAM_TOKEN: set
+  LOCAL_BACKUP_DIR: set
+  GOOGLE_CREDENTIALS: set
+  OLLAMA_URL: set
   ...
 Dashboard: OK (200)
 ```
