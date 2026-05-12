@@ -41,6 +41,7 @@ async function fetchExpenseCategoriesFull()     { return _get("/api/expense-cate
 /* ── New v2 read endpoints ──────────────────────────────────────────────── */
 async function fetchDailySpend({ month, year } = {})  { return _get(`/api/daily-spend${_params({ month, year })}`); }
 async function fetchRecentActivity()       { return _get("/api/recent-activity"); }
+async function fetchMonthTransactions({ month, year } = {}) { return _get(`/api/month-transactions${_params({ month, year })}`); }
 async function fetchPatrimonioHistory()    { return _get("/api/patrimonio-history"); }
 async function fetchBudgets()              { return _get("/api/budgets"); }
 async function searchTransactions(q)       { return _get(`/api/search?q=${encodeURIComponent(q)}`); }

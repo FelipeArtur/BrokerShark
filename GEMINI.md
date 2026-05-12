@@ -118,10 +118,11 @@ Tools (13): `get_monthly_summary`, `get_monthly_comparison`, `get_expenses_by_ca
 | GET | `/api/summary` | Monthly totals (bank?, account?, month?, year?) |
 | GET | `/api/accounts` | Balances |
 | GET | `/api/investments` | Investment balances |
-| GET | `/api/monthly` | Income vs expenses (`months=N`, default 6; `bank=?`) |
-| GET | `/api/daily-spend` | Daily spend bar chart (`month=M&year=Y`, zero-filled) |
+| GET | `/api/monthly` | Income vs expenses (`months=N`, default 6; `bank=?`; `account=?`) |
+| GET | `/api/daily-spend` | Full calendar month zero-filled (`month=M&year=Y`; defaults to current month) |
+| GET | `/api/month-transactions` | All non-transfer txns for a month (`month=M&year=Y` required) |
 | GET | `/api/categories` | Expenses by category |
-| GET | `/api/faturas` | CC billing |
+| GET | `/api/faturas` | CC billing — includes `last_total` for trend display |
 | GET | `/api/transactions` | Account transactions |
 | GET | `/api/recent-activity` | 20 latest |
 | GET | `/api/patrimonio-history` | 12-month net worth |
@@ -135,6 +136,12 @@ Tools (13): `get_monthly_summary`, `get_monthly_comparison`, `get_expenses_by_ca
 | POST | `/api/chat` | AI chat message |
 | PATCH | `/api/budgets/<id>` | Update budget |
 | PATCH | `/api/transactions/<id>` | Reassign category |
+
+### Response shape notes
+- `/api/monthly` items: `{ label: "Mar/26", month: 3, year: 2026, income, expenses }` — `month`/`year` as int in all variants (global and per-account)
+- `/api/daily-spend` always zero-fills every day of the month — no sparse "last 30 days" mode
+- `/api/month-transactions` items: `{ id, date, description, amount, flow, account_id, bank, category, category_id }`
+- `/api/faturas` items include `last_total` (previous billing cycle BRL total)
 
 ---
 
@@ -167,6 +174,23 @@ OLLAMA_URL=http://localhost:11434
 OLLAMA_MODEL=qwen2.5:7b
 OLLAMA_TIMEOUT=60
 ```
+
+## Dashboard frontend — layout atual
+
+**OverviewView hero:** grade 2 colunas — esquerda: valor + Sparkline 12M patrimônio; direita: 3 BreakdownRows (contas / investimentos / faturas). Fatura cards exibem tendência ▲/▼ % via `last_total`.
+
+**HistoryView ("Lupa do mês"):** seletor de 36 meses clicável + 4 métricas com Sparkline (Receitas/Despesas/Saldo/Poupança) + coluna por categoria + tabela filtrável. Usa `fetchMonthlyFull()` + `fetchMonthTransactions()`.
+
+**CardsView:** BarChart de gastos mensais por cartão (substitui DualLine que tinha linha de receita sempre zero). Exibe fallback quando cartão não tem lançamentos individuais.
+
+## Estado dos dados
+
+| Conta | Situação |
+|-------|----------|
+| `nu-cc` | **Sem lançamentos individuais** — apenas totais de fatura |
+| `inter-cc` | Lançamentos importados |
+| `nu-db`, `inter-db` | Histórico completo |
+| `budgets` | Tabela **vazia** — sem metas configuradas |
 
 ## Running
 

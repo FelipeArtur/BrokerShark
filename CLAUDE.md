@@ -284,13 +284,14 @@ Excluded from summaries via `AND dest_account_id IS NULL`.
 | GET | `/api/summary` | Monthly totals (bank?, account?, month?, year?) |
 | GET | `/api/accounts` | All accounts with balance |
 | GET | `/api/investments` | All investments |
-| GET | `/api/monthly` | Income vs expenses (`months=N`, default 6; `bank=?`) |
+| GET | `/api/monthly` | Income vs expenses (`months=N`, default 6; `bank=?`; `account=?`) |
 | GET | `/api/categories` | Expenses by category |
-| GET | `/api/faturas` | Credit card billing |
+| GET | `/api/faturas` | Credit card billing — returns `total`, `last_total`, `cycle_start`, `cycle_end`, `days_until_due` |
 | GET | `/api/transactions` | Account transactions (account, limit, month, year) |
 | GET | `/api/recent-activity` | 20 most recent transactions |
 | GET | `/api/patrimonio-history` | 12-month net worth (CC fatura payments counted as expenses) |
-| GET | `/api/daily-spend` | Daily spend bar chart (`month=M&year=Y` for specific month, zero-filled) |
+| GET | `/api/daily-spend` | Full calendar month zero-filled (`month=M&year=Y`; defaults to current month) |
+| GET | `/api/month-transactions` | All non-transfer transactions for a month (`month=M&year=Y` required) |
 | GET | `/api/budgets` | Budget limits |
 | POST | `/api/transactions` | Create expense |
 | POST | `/api/incomes` | Create income or transfer |
@@ -300,6 +301,17 @@ Excluded from summaries via `AND dest_account_id IS NULL`.
 | POST | `/api/chat` | AI chat message |
 | PATCH | `/api/budgets/<id>` | Update budget limit |
 | PATCH | `/api/transactions/<id>` | Reassign category |
+
+### API response shapes (selected)
+
+**`/api/monthly`** — each item: `{ label: "Mar/26", month: 3, year: 2026, income: 4200.0, expenses: 1500.0 }`
+`month` and `year` integer fields are present in both global and per-account variants.
+
+**`/api/faturas`** — each item includes `last_total` (previous billing cycle total in BRL) for trend calculation.
+
+**`/api/daily-spend`** — always returns every day of the requested month zero-filled. Without params returns the current calendar month (not a rolling 30-day window).
+
+**`/api/month-transactions`** — returns `{ id, date, description, amount, flow, account_id, bank, category, category_id }` for all non-transfer transactions across all accounts in that month, ordered by date ASC.
 
 ---
 
@@ -333,14 +345,53 @@ OLLAMA_TIMEOUT=60
 
 ## Dashboard Frontend Notes
 
-- **Date labels:** All monthly data uses `"Jan/26"` format (Portuguese abbreviated month + 2-digit year). Defined in `_PT_SHORT` in `database.py` for API responses and replicated in frontend components.
-- **PatrimonioChart:** Chart.js filled area chart in `primitives.js` — gradient fill, visible x/y axes, compact BRL ticks, hover tooltip. Height 150px in overview card.
-- **OverviewView patrimônio card:** Full-width; shows current value + trend chip (▲/▼ % + R$ diff vs prior month). Trend index resolved dynamically from `filterMonth` — not hardcoded to `length-1`.
-- **HistoryView:** Uses `fetchMonthlyFull()` → `/api/monthly?months=36` for all-time view.
-- **Daily spend:** `fetchDailySpend({ month, year })` → `/api/daily-spend?month=M&year=Y`. Returns all calendar days zero-filled when month/year provided.
-- **Configurações panel:** Renamed from "Aparência". Organized into 3 sections (Aparência / Layout / Interface) with "Restaurar padrões" button.
-- **Fatura dates:** Displayed as `"19 Abr → 18 Mai"` format via `_fmtCycleDate()` helper in both `view-overview.js` and `view-secondary.js`.
-- **`backup.py` resilience:** `run_backup()` wraps `mkdir()` in try/except for `PermissionError`/`OSError` — returns `False` silently when HDD not mounted instead of crashing the scheduler.
+### Charts (`primitives.js`)
+
+| Component | Type | Used in |
+|-----------|------|---------|
+| `Sparkline` | Chart.js line, no axes | Overview hero (patrimônio 12M), HistoryView metric cards |
+| `BarChart` | Chart.js bar | Overview (gasto diário), CardsView (gastos mensais cartão) |
+| `DualLine` | Chart.js 2-line with axes | Overview (receitas × despesas 6M) |
+| `PatrimonioChart` | Chart.js filled area | Defined in primitives.js but **not currently used** in any view |
+| `Donut` | Chart.js doughnut | InvestmentsView |
+| `Progress` | Pure CSS bar | Overview (orçamentos, hero breakdown rows) |
+
+All chart components receive **real API data only** — no placeholder/illustrative data is passed to any chart.
+
+### OverviewView — hero card (2-column grid)
+
+Layout: `gridTemplateColumns: "1.4fr 1fr"`
+
+- **Left column:** patrimônio total em BRL + tendência vs mês anterior (▲/▼ %) + `Sparkline` 12 meses de `fetchPatrimonioHistory()` + labels de mês
+- **Right column** (borderLeft separator): 3 × `BreakdownRow` com barra `Progress`:
+  - "Contas correntes" → `patrNow − reservas + totalFaturas` — cor `var(--pos)`
+  - "Investimentos" → `summary.reservas` — cor `var(--reserve)`
+  - "Faturas em aberto" → `totalFaturas` (negativo) — cor `var(--neg)`
+- Fatura cards: exibem `▲/▼ X.X%` de tendência calculada de `last_total` (retornado por `/api/faturas`)
+
+### CardsView — gastos mensais cartão
+
+O chart "Gastos mensais no cartão" usa `BarChart` com dados de `/api/monthly?account=<id>` — apenas a coluna `expenses` (CC nunca tem receita). Quando o cartão não tem lançamentos individuais cadastrados (`nu-cc` atualmente vazio), exibe mensagem `"Sem lançamentos individuais registrados neste cartão"` em vez de gráfico plano em zero.
+
+### HistoryView ("Lupa do mês") — 3 seções
+
+1. **Seletor de mês** — barra timeline de 36 meses via `fetchMonthlyFull()` (`/api/monthly?months=36`). Cada barra é clicável; altura proporcional ao gasto; mês selecionado destacado em `var(--info)`.
+
+2. **4 cards de métrica** — alimentados por `fetchMonthTransactions({ month, year })` (`/api/month-transactions`):
+   - Receitas / Despesas / Saldo do mês / Taxa de poupança
+   - Cada card: valor em destaque + comparação vs média dos 6 meses anteriores (▲/▼ %) + `Sparkline` dos últimos 12 meses
+
+3. **Grade 260px | 1fr:**
+   - "Por categoria" — barras de % sobre total de despesas do mês selecionado
+   - Tabela filtrável — filtros: Tudo/Despesas/Receitas + categoria + busca textual + linha de totais correntes
+
+### Outros
+
+- **Date labels:** formato `"Jan/26"` (mês abreviado PT + ano 2 dígitos) em todos os endpoints. Definido em `_PT_SHORT` / `_PT_SHORT_ACC` em `database.py`.
+- **Daily spend:** `fetchDailySpend({ month, year })` → sempre retorna o mês calendário inteiro zerado. Sem parâmetros = mês atual. Não usa mais janela de "últimos 30 dias".
+- **Fatura dates:** formato `"19 Abr → 18 Mai"` via `_fmtCycleDate()` em `view-overview.js` e `view-secondary.js`.
+- **Configurações panel:** 3 seções (Aparência / Layout / Interface) com "Restaurar padrões".
+- **`backup.py` resilience:** `run_backup()` captura `PermissionError`/`OSError` — retorna `False` silenciosamente quando HDD não montado.
 
 ---
 
@@ -356,10 +407,34 @@ OLLAMA_TIMEOUT=60
 
 ---
 
+## Estado dos dados (referência)
+
+| Conta | Situação |
+|-------|----------|
+| `nu-db` | Extrato histórico completo importado |
+| `nu-cc` | **Sem lançamentos individuais** — apenas totais de fatura via `get_credit_card_billing_info()`. Para popular: importar CSVs de fatura Nubank via ImportModal. |
+| `inter-db` | Extrato histórico completo importado |
+| `inter-cc` | Lançamentos individuais importados de faturas mensais |
+| Caixinha Nubank | Saldo registrado via movimentos de investimento |
+| Porquinho Inter | Saldo registrado via movimentos de investimento |
+| Tesouro Direto | Sem movimentos cadastrados ainda |
+| Orçamentos (`budgets`) | Tabela existe mas está **vazia** — sem metas configuradas |
+
+---
+
 ## Roadmap
 
-### Concluído (Fases 1–9c)
-Bot flows (expense/income/investment), dashboard v1→v3, SSE, CSV import, investments, history, global month selector, AI chat with 13 tools, Ollama streaming, web-first pivot, Drive backup, Pierre-inspired AI architecture (`ai_service.py` shared module), `ChatView` (section 6 keyboard shortcut), `ImportModal` with drag-and-drop + Ollama categorization, `PatrimonioChart` with gradient fill and month/year labels, patrimônio calculation fix (CC fatura payments), `is_revenue` flag, HistoryView 36-month range, Configurações panel.
+### Concluído (Fases 1–9d)
+Bot flows (expense/income/investment), dashboard v1→v3, SSE, CSV import, investments, history, global month selector, AI chat with 13 tools, Ollama streaming, web-first pivot, Drive backup, Pierre-inspired AI architecture (`ai_service.py` shared module), `ChatView` (section 6 keyboard shortcut), `ImportModal` with drag-and-drop + Ollama categorization, patrimônio calculation fix (CC fatura payments), `is_revenue` flag, HistoryView 36-month range, Configurações panel.
+
+**Fase 9d — UX Redesign (dashboard):**
+- Hero card com Sparkline 12M + 3 BreakdownRows (contas / investimentos / faturas)
+- Tendência ▲/▼ % em cada fatura (campo `last_total` na API)
+- HistoryView substituída por: seletor 36 meses + 4 métricas com sparklines + tabela filtrável + por categoria
+- Novo endpoint `GET /api/month-transactions` + função `get_month_transactions()`
+- `get_daily_spend()` sempre zero-fill do mês completo
+- `get_monthly_history()` e `get_monthly_history_by_account()` passam a retornar `month` e `year` como int
+- CardsView: DualLine substituído por BarChart de gastos mensais para CC
 
 ### Próximas fases
 
@@ -370,3 +445,8 @@ Bot flows (expense/income/investment), dashboard v1→v3, SSE, CSV import, inves
 - [ ] Delete transaction from dashboard
 - [ ] Manual investment balance adjustment (for RDB/CDB daily yield that doesn't appear as movements)
 - [ ] Spending goal alerts at 80% threshold (using `budgets` table)
+
+**Dados pendentes**
+- [ ] Importar faturas Nubank CC (nu-cc está sem lançamentos individuais)
+- [ ] Configurar orçamentos por categoria (tabela `budgets` vazia)
+- [ ] Registrar movimentos do Tesouro Direto

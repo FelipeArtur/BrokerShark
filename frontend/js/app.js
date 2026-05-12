@@ -407,7 +407,7 @@ function App() {
         section === "cards"       && h(CardsView,       { onEditCategory: setEditTx, refreshKey, filterMonth }),
         section === "accounts"    && h(AccountsView,    { onEditCategory: setEditTx, refreshKey, filterMonth }),
         section === "investments" && h(InvestmentsView, { refreshKey }),
-        section === "history"     && h(HistoryView,     { refreshKey }),
+        section === "history"     && h(HistoryView,     { onEditCategory: setEditTx, refreshKey }),
         section === "categories"  && h(CategoriesPanel, { refreshKey, onRefresh: () => setRefreshKey(k => k + 1) }),
 
         h("footer", { style: { marginTop: 20, padding: "12px 0", borderTop: "1px solid var(--line-1)", fontSize: 10, color: "var(--fg-3)", display: "flex", justifyContent: "space-between" } },
