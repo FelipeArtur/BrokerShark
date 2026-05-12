@@ -348,7 +348,7 @@ def api_daily_spend() -> Response:
     """
     month = request.args.get("month", type=int)
     year  = request.args.get("year",  type=int)
-    return jsonify(database.get_daily_spend(30, year=year, month=month))
+    return jsonify(database.get_daily_spend(year=year, month=month))
 
 
 @app.route("/api/recent-activity")
@@ -359,6 +359,24 @@ def api_recent_activity() -> Response:
         JSON array of ``{id, date, description, category, amount, flow, account_id, bank}``.
     """
     return jsonify(database.get_recent_activity(20))
+
+
+@app.route("/api/month-transactions")
+def api_month_transactions() -> Response:
+    """Return all non-transfer transactions for a given month across all accounts.
+
+    Query params:
+        month: int (1–12)
+        year:  int
+
+    Returns:
+        JSON array of ``{id, date, description, amount, flow, account_id, bank, category, category_id}``.
+    """
+    month = request.args.get("month", type=int)
+    year  = request.args.get("year",  type=int)
+    if not month or not year:
+        return jsonify({"error": "month and year required"}), 400
+    return jsonify(database.get_month_transactions(month, year))
 
 
 @app.route("/api/search")

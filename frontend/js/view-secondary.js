@@ -1,10 +1,10 @@
 /* view-secondary.js — CardsView, AccountsView, InvestmentsView, HistoryView */
 /* global React, fetchFaturas, fetchRecentTransactions, fetchMonthlyByAccount,
           fetchCategoriesByAccount, fetchAccounts, fetchMonthly, fetchMonthlyFull,
-          fetchInvestments, fetchAccountHistory */
+          fetchInvestments, fetchAccountHistory, fetchMonthTransactions */
 
 const { useState: _s2St, useEffect: _s2Ef, useMemo: _s2Memo } = React;
-const { fmtBRL, fmtBRLCompact, fmtDateBR, BankChip, Sparkline, DualLine, Donut } = window.BS;
+const { fmtBRL, fmtBRLCompact, fmtDateBR, BankChip, Sparkline, BarChart, DualLine, Donut } = window.BS;
 
 const PT_MONTHS_FULL = ["", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
   "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
@@ -132,8 +132,18 @@ function CardsView({ onEditCategory, refreshKey, filterMonth }) {
       ),
       h("div", { style: { display: "flex", flexDirection: "column", gap: 14 } },
         h("div", { className: "card" },
-          h("div", { className: "card-h" }, h("div", { className: "card-title" }, "Evolução da fatura")),
-          h("div", { style: { padding: 12 } }, h(DualLine, { data: monthly, height: 180 }))
+          h("div", { className: "card-h" },
+            h("div", { className: "card-title" }, "Gastos mensais no cartão"),
+            h("span", { style: { fontSize: 10, color: "var(--fg-3)" } }, "últimos 6 meses")
+          ),
+          monthly.some(m => m.expenses > 0)
+            ? h("div", { style: { padding: 10 } }, h(BarChart, {
+                data: monthly.map(m => ({ label: m.label, value: m.expenses })),
+                height: 140, valueKey: "value", labelKey: "label", color: "var(--neg)",
+              }))
+            : h("div", { style: { padding: "30px 12px", textAlign: "center", color: "var(--fg-3)", fontSize: 11 } },
+                "Sem lançamentos individuais registrados neste cartão"
+              )
         ),
         h("div", { className: "card" },
           h("div", { className: "card-h" }, h("div", { className: "card-title" }, "Categorias do cartão")),
@@ -301,93 +311,266 @@ function InvestmentsView({ refreshKey }) {
   );
 }
 
-/* ── HistoryView ─────────────────────────────────────────────────────────── */
-function HistoryView({ refreshKey }) {
+/* ── HistoryView — Lupa do mês ───────────────────────────────────────────── */
+
+function HistoryView({ refreshKey, onEditCategory }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
-  const [bank, setBank] = _s2St("all");
   const [monthly, setMonthly] = _s2St([]);
+  const [pickedIdx, setPickedIdx] = _s2St(-1);
+  const [monthTx, setMonthTx] = _s2St([]);
+  const [filterFlow, setFilterFlow] = _s2St("all");
+  const [filterCat, setFilterCat] = _s2St("all");
+  const [search, setSearch] = _s2St("");
 
   _s2Ef(() => {
-    const b = bank === "all" ? undefined : bank;
-    fetchMonthlyFull(b).then(setMonthly);
-  }, [bank, refreshKey]);
+    fetchMonthlyFull().then(data => {
+      setMonthly(data);
+      setPickedIdx(data.length - 1);
+    });
+  }, [refreshKey]);
 
-  const totalIn  = monthly.reduce((s, d) => s + d.income, 0);
-  const totalEx  = monthly.reduce((s, d) => s + d.expenses, 0);
+  _s2Ef(() => {
+    if (!monthly.length || pickedIdx < 0) return;
+    const { month, year } = monthly[pickedIdx];
+    fetchMonthTransactions({ month, year }).then(setMonthTx);
+    setFilterFlow("all"); setFilterCat("all"); setSearch("");
+  }, [pickedIdx, monthly, refreshKey]);
+
+  const picked = monthly[pickedIdx] || null;
   const now = new Date();
+  const monthLabel = picked ? `${PT_MONTHS_FULL[picked.month]} ${picked.year}` : "";
+  const isCurrent = picked ? (picked.year === now.getFullYear() && picked.month === (now.getMonth() + 1)) : false;
+
+  const expenses    = monthTx.filter(t => t.flow === "expense");
+  const income      = monthTx.filter(t => t.flow === "income");
+  const totalExp    = expenses.reduce((s, t) => s + t.amount, 0);
+  const totalInc    = income.reduce((s, t)  => s + t.amount, 0);
+  const net         = totalInc - totalExp;
+  const savingsRate = totalInc > 0 ? (net / totalInc) * 100 : 0;
+
+  // 6 meses imediatamente anteriores ao selecionado (não inclui o próprio mês)
+  const prevMonths = monthly.slice(Math.max(0, pickedIdx - 6), pickedIdx);
+  const avgExp   = prevMonths.length ? prevMonths.reduce((s, m) => s + m.expenses, 0) / prevMonths.length : 0;
+  const avgInc   = prevMonths.length ? prevMonths.reduce((s, m) => s + m.income,   0) / prevMonths.length : 0;
+  const expVsAvg = avgExp > 0 ? ((totalExp - avgExp) / avgExp) * 100 : 0;
+  const incVsAvg = avgInc > 0 ? ((totalInc - avgInc) / avgInc) * 100 : 0;
+
+  // Janela de até 12 meses terminando no mês selecionado — atualiza ao trocar de mês
+  const sparkWindow = monthly.slice(Math.max(0, pickedIdx - 11), pickedIdx + 1);
+
+  const byCat = (() => {
+    const g = {};
+    expenses.forEach(t => {
+      const k = t.category || "Outro";
+      if (!g[k]) g[k] = { name: k, total: 0 };
+      g[k].total += t.amount;
+    });
+    return Object.values(g).sort((a, b) => b.total - a.total);
+  })();
+
+  const cats = [...new Set(monthTx.map(t => t.category).filter(Boolean))].sort();
+  const filteredTx = monthTx.filter(t => {
+    if (filterFlow !== "all" && t.flow !== filterFlow) return false;
+    if (filterCat !== "all" && t.category !== filterCat) return false;
+    if (search && !(t.description || "").toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  });
+
+  if (!picked) return h("div", { style: { padding: 24, color: "var(--fg-2)" } }, "Carregando…");
+
+  const filtExp  = filteredTx.filter(t => t.flow === "expense").reduce((s, t) => s + t.amount, 0);
+  const filtInc  = filteredTx.filter(t => t.flow === "income").reduce((s, t)  => s + t.amount, 0);
+  const hasFilter = filterFlow !== "all" || filterCat !== "all" || search;
 
   return h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 14 } },
 
-    h("div", { className: "card" },
-      h("div", { className: "card-h" },
-        h("div", { className: "card-title" }, "Histórico — receitas × despesas"),
-        h("div", { style: { display: "flex", gap: 4, padding: 3, background: "var(--bg-0)", borderRadius: 6, border: "1px solid var(--line-1)" } },
-          [["all", "Todos"], ["nubank", "Nubank"], ["inter", "Inter"]].map(([k, l]) =>
-            h("button", {
-              key: k, onClick: () => setBank(k),
-              style: {
-                padding: "4px 12px", fontSize: 11, borderRadius: 4,
-                background: bank === k ? "var(--bg-2)" : "transparent",
-                color: bank === k ? "var(--fg-0)" : "var(--fg-2)",
-                fontWeight: bank === k ? 600 : 500,
-                border: bank === k ? "1px solid var(--line-2)" : "1px solid transparent",
-              }
-            }, l)
+    // A — Month picker strip
+    h("div", { className: "card", style: { padding: 0, overflow: "hidden" } },
+      h("div", { style: { padding: "10px 14px", borderBottom: "1px solid var(--line-1)", display: "flex", justifyContent: "space-between", alignItems: "center" } },
+        h("div", null,
+          h("div", { className: "eyebrow", style: { fontSize: 9 } }, "Lupa do mês"),
+          h("div", { style: { fontSize: 22, fontWeight: 700, letterSpacing: "-0.015em", marginTop: 2, display: "flex", alignItems: "center", gap: 10 } },
+            monthLabel,
+            isCurrent && h("span", { className: "chip", style: { background: "var(--info-bg)", color: "var(--info)", borderColor: "transparent", fontSize: 10 } }, "mês atual")
           )
+        ),
+        h("div", { style: { display: "flex", gap: 4 } },
+          h("button", { onClick: () => setPickedIdx(Math.max(0, pickedIdx - 1)), className: "btn", disabled: pickedIdx === 0, style: { width: 32, padding: 0, fontSize: 14 } }, "‹"),
+          h("button", { onClick: () => setPickedIdx(monthly.length - 1), className: "btn", style: { fontSize: 11 } }, "Mês atual"),
+          h("button", { onClick: () => setPickedIdx(Math.min(monthly.length - 1, pickedIdx + 1)), className: "btn", disabled: pickedIdx === monthly.length - 1, style: { width: 32, padding: 0, fontSize: 14 } }, "›")
         )
       ),
-      h("div", { style: { padding: 14 } },
-        h(DualLine, { data: monthly, height: 240 }),
-        h("div", { style: { display: "flex", gap: 24, marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--line-1)", fontSize: 11 } },
-          [
-            { label: "Total receitas", value: fmtBRL(totalIn), color: "var(--pos)" },
-            { label: "Total despesas", value: fmtBRL(totalEx), color: "var(--neg)" },
-            { label: "Saldo acumulado", value: fmtBRL(totalIn - totalEx, { sign: "always" }), color: (totalIn - totalEx) >= 0 ? "var(--pos)" : "var(--neg)" },
-            { label: "Taxa de poupança", value: totalIn ? `${((totalIn - totalEx) / totalIn * 100).toFixed(1)}%` : "—", color: "var(--reserve)" },
-          ].map((item, i) =>
-            h("div", { key: i },
-              h("span", { className: "muted", style: { textTransform: "uppercase", fontSize: 9, letterSpacing: "0.06em", display: "block" } }, item.label),
-              h("div", { className: "num", style: { fontSize: 16, fontWeight: 600, color: item.color } }, item.value)
+      h("div", { style: { display: "flex", alignItems: "flex-end", gap: 2, padding: "10px 14px", height: 70, background: "var(--bg-0)" } },
+        monthly.map((m, i) => {
+          const maxH = Math.max(...monthly.map(x => x.expenses), 1);
+          const barH = (m.expenses / maxH) * 100;
+          const isPicked = i === pickedIdx;
+          const isCur2 = m.year === now.getFullYear() && m.month === (now.getMonth() + 1);
+          return h("button", {
+            key: i, onClick: () => setPickedIdx(i),
+            title: `${PT_MONTHS_FULL[m.month]} ${m.year} — ${fmtBRL(m.expenses, { decimals: 0 })}`,
+            style: {
+              flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
+              background: "transparent", borderRadius: 4, padding: "2px 1px",
+              border: isPicked ? "1px solid var(--info)" : "1px solid transparent",
+            },
+          },
+            h("div", { style: {
+              width: "100%", height: `${barH}%`, minHeight: 3,
+              background: isPicked ? "var(--info)" : isCur2 ? "var(--fg-2)" : "var(--line-2)",
+              borderRadius: 2,
+            } }),
+            h("span", { style: { fontSize: 8, color: isPicked ? "var(--info)" : "var(--fg-3)", fontFamily: "var(--ff-mono)", fontWeight: isPicked ? 600 : 400 } },
+              `${String(m.month).padStart(2, "0")}/${String(m.year).slice(2)}`
             )
+          );
+        })
+      )
+    ),
+
+    // B — 4 headline metric cards
+    h("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 } },
+      [
+        {
+          l: "Receitas", v: fmtBRL(totalInc), c: "var(--pos)",
+          sub: prevMonths.length ? (incVsAvg !== 0 ? `${incVsAvg >= 0 ? "▲" : "▼"} ${Math.abs(incVsAvg).toFixed(1)}% vs. ${prevMonths.length}M ant.` : "= média anterior") : "sem histórico",
+          subColor: incVsAvg >= 0 ? "var(--pos)" : "var(--neg)",
+          sparkData: sparkWindow.map(m => m.income),
+        },
+        {
+          l: "Despesas", v: fmtBRL(totalExp), c: "var(--neg)",
+          sub: prevMonths.length ? (expVsAvg !== 0 ? `${expVsAvg >= 0 ? "▲" : "▼"} ${Math.abs(expVsAvg).toFixed(1)}% vs. ${prevMonths.length}M ant.` : "= média anterior") : "sem histórico",
+          subColor: expVsAvg >= 0 ? "var(--neg)" : "var(--pos)",
+          sparkData: sparkWindow.map(m => m.expenses),
+        },
+        {
+          l: "Saldo do mês", v: `${net >= 0 ? "+" : "−"}${fmtBRL(Math.abs(net))}`, c: net >= 0 ? "var(--pos)" : "var(--neg)",
+          sub: `${monthTx.length} lançamentos`,
+          subColor: "var(--fg-3)",
+          sparkData: sparkWindow.map(m => m.income - m.expenses),
+        },
+        {
+          l: "Taxa de poupança", v: `${savingsRate.toFixed(1)}%`, c: savingsRate >= 20 ? "var(--pos)" : savingsRate >= 0 ? "var(--warn)" : "var(--neg)",
+          sub: savingsRate >= 20 ? "saudável" : savingsRate >= 0 ? "abaixo da meta" : "negativa",
+          subColor: savingsRate >= 20 ? "var(--pos)" : savingsRate >= 0 ? "var(--warn)" : "var(--neg)",
+          sparkData: sparkWindow.map(m => m.income > 0 ? ((m.income - m.expenses) / m.income) * 100 : 0),
+        },
+      ].map((s, i) =>
+        h("div", { key: i, className: "card", style: { padding: 14 } },
+          h("div", { className: "eyebrow", style: { fontSize: 9 } }, s.l),
+          h("div", { className: "num", style: { fontSize: 24, fontWeight: 700, color: s.c, marginTop: 4, letterSpacing: "-0.02em" } }, s.v),
+          h("div", { style: { marginTop: 6 } },
+            h("span", { style: { fontSize: 10, color: s.subColor, fontWeight: 500 } }, s.sub)
           )
         )
       )
     ),
 
-    h("div", { className: "card" },
-      h("div", { className: "card-h" }, h("div", { className: "card-title" }, "Mês a mês")),
-      h("table", { className: "grid-table" },
-        h("thead", null, h("tr", null,
-          h("th", null, "Mês"),
-          h("th", { style: { textAlign: "right" } }, "Receitas"),
-          h("th", { style: { textAlign: "right" } }, "Despesas"),
-          h("th", { style: { textAlign: "right" } }, "Saldo"),
-          h("th", { style: { textAlign: "right" } }, "% poupado"),
-          h("th", { style: { width: 160 } }, "Distribuição")
-        )),
-        h("tbody", null,
-          [...monthly].reverse().map((d, i) => {
-            const net = d.income - d.expenses;
-            const sav = d.income > 0 ? (net / d.income) * 100 : 0;
-            const isCur = d.year === now.getFullYear() && d.month === (now.getMonth() + 1);
-            return h("tr", { key: i, className: isCur ? "row-active" : "" },
-              h("td", { style: { fontWeight: isCur ? 600 : 500 } },
-                d.label || `${PT_MONTHS_FULL[d.month]} ${d.year}`,
-                isCur && h("span", { className: "chip info", style: { marginLeft: 6, padding: "1px 5px", fontSize: 9 } }, "atual")
-              ),
-              h("td", { className: "num", style: { color: "var(--pos)", fontWeight: 600 } }, fmtBRL(d.income, { decimals: 0 })),
-              h("td", { className: "num", style: { color: "var(--neg)", fontWeight: 600 } }, fmtBRL(d.expenses, { decimals: 0 })),
-              h("td", { className: "num", style: { color: net >= 0 ? "var(--pos)" : "var(--neg)", fontWeight: 700 } },
-                net >= 0 ? "+" : "−", fmtBRL(Math.abs(net), { decimals: 0 })),
-              h("td", { className: "num", style: { color: sav >= 20 ? "var(--pos)" : sav >= 0 ? "var(--warn)" : "var(--neg)" } }, sav.toFixed(0), "%"),
-              h("td", null,
-                h("div", { style: { display: "flex", gap: 1, height: 12, borderRadius: 3, overflow: "hidden" } },
-                  h("div", { style: { flex: d.income, background: "var(--pos)", opacity: 0.6 } }),
-                  h("div", { style: { flex: d.expenses, background: "var(--neg)", opacity: 0.6 } })
+    // C — 2-column: categories | filterable table
+    h("div", { style: { display: "grid", gridTemplateColumns: "260px 1fr", gap: 14 } },
+
+      // C1 — By category
+      h("div", { className: "card" },
+        h("div", { className: "card-h" },
+          h("div", { className: "card-title" }, "Por categoria"),
+          h("span", { style: { fontSize: 10, color: "var(--fg-3)" } }, `${byCat.length} categorias`)
+        ),
+        h("div", { style: { padding: 12 } },
+          byCat.length === 0
+            ? h("div", { style: { padding: 20, textAlign: "center", color: "var(--fg-3)", fontSize: 11 } }, "Sem despesas neste mês")
+            : byCat.map((c, i) => {
+                const pct = totalExp > 0 ? (c.total / totalExp) * 100 : 0;
+                const barW = byCat[0]?.total > 0 ? (c.total / byCat[0].total) * 100 : 0;
+                const barColor = i === 0 ? "var(--neg)" : i === 1 ? "oklch(72% 0.13 30)" : "var(--info)";
+                return h("div", { key: i, style: { marginBottom: 10 } },
+                  h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11, marginBottom: 3, gap: 6 } },
+                    h("span", { style: { color: "var(--fg-1)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, c.name),
+                    h("span", { className: "num", style: { fontWeight: 600, flexShrink: 0 } },
+                      fmtBRL(c.total, { decimals: 0 }),
+                      h("span", { style: { color: "var(--fg-3)", fontWeight: 400, marginLeft: 5, fontSize: 10 } }, `${pct.toFixed(0)}%`)
+                    )
+                  ),
+                  h("div", { style: { height: 5, background: "var(--bg-2)", borderRadius: 999 } },
+                    h("div", { style: { width: `${barW}%`, height: "100%", background: barColor, borderRadius: 999 } })
+                  )
+                );
+              })
+        )
+      ),
+
+      // C2 — Filterable transaction table
+      h("div", { className: "card", style: { display: "flex", flexDirection: "column" } },
+        h("div", { className: "card-h" },
+          h("div", { className: "card-title" }, `Transações · ${filteredTx.length}`)
+        ),
+        h("div", { style: { padding: "8px 14px", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", borderBottom: "1px solid var(--line-1)", background: "var(--bg-0)" } },
+          h("div", { style: { display: "flex", gap: 2, padding: 2, background: "var(--bg-1)", borderRadius: 5, border: "1px solid var(--line-1)" } },
+            [["all", "Tudo"], ["expense", "Despesas"], ["income", "Receitas"]].map(([k, l]) =>
+              h("button", { key: k, onClick: () => setFilterFlow(k), style: {
+                padding: "3px 10px", fontSize: 10, borderRadius: 3,
+                background: filterFlow === k ? "var(--bg-2)" : "transparent",
+                color: filterFlow === k ? "var(--fg-0)" : "var(--fg-2)",
+                fontWeight: filterFlow === k ? 600 : 500,
+              } }, l)
+            )
+          ),
+          h("select", {
+            value: filterCat, onChange: e => setFilterCat(e.target.value),
+            className: "select", style: { height: 26, fontSize: 11, padding: "0 8px", width: "auto" },
+          },
+            h("option", { value: "all" }, "Todas categorias"),
+            cats.map(c => h("option", { key: c, value: c }, c))
+          ),
+          h("input", {
+            value: search, onChange: e => setSearch(e.target.value),
+            placeholder: "Buscar…", className: "input",
+            style: { height: 26, fontSize: 11, padding: "0 10px", width: 160 },
+          }),
+          hasFilter && h("button", {
+            onClick: () => { setFilterFlow("all"); setFilterCat("all"); setSearch(""); },
+            className: "btn", style: { height: 26, padding: "0 10px", fontSize: 10 },
+          }, "Limpar"),
+          h("div", { style: { flex: 1 } }),
+          h("span", { style: { fontSize: 11, color: "var(--fg-2)", fontFamily: "var(--ff-mono)" } },
+            h("span", { style: { color: "var(--pos)" } }, `+${fmtBRL(filtInc, { decimals: 0 })}`),
+            " · ",
+            h("span", { style: { color: "var(--neg)" } }, `−${fmtBRL(filtExp, { decimals: 0 })}`),
+            " · ",
+            h("span", { style: { color: (filtInc - filtExp) >= 0 ? "var(--pos)" : "var(--neg)", fontWeight: 600 } },
+              (filtInc - filtExp) >= 0 ? "+" : "−", fmtBRL(Math.abs(filtInc - filtExp), { decimals: 0 })
+            )
+          )
+        ),
+        h("div", { style: { maxHeight: 480, overflowY: "auto" } },
+          h("table", { className: "grid-table" },
+            h("thead", null, h("tr", null,
+              h("th", { style: { width: 70 } }, "Data"),
+              h("th", null, "Descrição"),
+              h("th", { style: { width: 110 } }, "Categoria"),
+              h("th", { style: { width: 100 } }, "Conta"),
+              h("th", { style: { textAlign: "right", width: 100 } }, "Valor")
+            )),
+            h("tbody", null,
+              filteredTx.length === 0 && h("tr", null, h("td", { colSpan: 5, style: { textAlign: "center", padding: 30, color: "var(--fg-3)" } }, "Nenhuma transação.")),
+              filteredTx.map(t =>
+                h("tr", { key: t.id },
+                  h("td", { className: "mono", style: { color: "var(--fg-2)" } }, fmtDateBR(t.date)),
+                  h("td", { style: { maxWidth: 260 } },
+                    h("div", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, t.description)
+                  ),
+                  h("td", null,
+                    t.flow === "expense"
+                      ? h("button", { onClick: () => onEditCategory && onEditCategory(t), style: { fontSize: 10, color: "var(--fg-2)", borderBottom: "1px dashed var(--line-2)", paddingBottom: 1 } }, t.category || "—")
+                      : h("span", { className: "chip pos" }, t.category || "Receita")
+                  ),
+                  h("td", null, h(BankChip, { accountId: t.account_id, bank: t.bank })),
+                  h("td", { className: "num", style: { color: t.flow === "expense" ? "var(--neg)" : "var(--pos)", fontWeight: 600 } },
+                    t.flow === "expense" ? "−" : "+", fmtBRL(t.amount)
+                  )
                 )
               )
-            );
-          })
+            )
+          )
         )
       )
     )

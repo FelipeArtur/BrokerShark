@@ -96,45 +96,36 @@ function OverviewView({ onJumpToAccount, onEditCategory, refreshKey, filterMonth
     return { ...b, spent: cat ? cat.total : 0 };
   }).filter(b => b.amount_limit > 0);
 
+  // Patrimônio breakdown: contas = patrNow − investimentos + faturas
+  const totalContas = patrNow - totalReservas + totalFaturas;
+
   return h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 14 } },
 
-    // Hero: patrimônio
-    h("div", { className: "card", style: { padding: 16 } },
-      // Header row: valor + tendência
-      h("div", { style: { display: "grid", gridTemplateColumns: "1fr auto", alignItems: "start", gap: 24, marginBottom: 14 } },
-        h("div", null,
-          h("div", { className: "eyebrow", style: { marginBottom: 6 } }, "Patrimônio total"),
-          h("div", { style: { display: "flex", alignItems: "baseline", gap: 14, flexWrap: "wrap" } },
-            h("div", { className: "num", style: { fontSize: 36, fontWeight: 700, lineHeight: 1.05, letterSpacing: "-0.02em" } }, fmtBRL(patrNow)),
-            h("div", { style: { display: "flex", flexDirection: "column", gap: 1 } },
-              h("div", { style: { display: "flex", alignItems: "center", gap: 4, color: patrTrend >= 0 ? "var(--pos)" : "var(--neg)", fontFamily: "var(--ff-mono)", fontSize: 12, fontWeight: 600 } },
-                patrTrend >= 0 ? "▲" : "▼", " ", Math.abs(patrTrend).toFixed(1) + "%"
-              ),
-              h("div", { style: { fontSize: 11, fontFamily: "var(--ff-mono)", color: patrDelta >= 0 ? "var(--pos)" : "var(--neg)" } },
-                (patrDelta >= 0 ? "+" : "−") + fmtBRL(Math.abs(patrDelta), { decimals: 0 })
-              ),
-              h("div", { style: { fontSize: 9, color: "var(--fg-3)" } }, "vs. mês anterior")
-            )
+    // Hero: patrimônio — 2-column card (sparkline left, breakdown right)
+    h("div", { className: "card", style: { padding: 16, display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 24 } },
+      // Left: value + trend + sparkline
+      h("div", null,
+        h("div", { className: "eyebrow", style: { marginBottom: 4 } }, "Patrimônio total"),
+        h("div", { style: { display: "flex", alignItems: "baseline", gap: 14, flexWrap: "wrap" } },
+          h("div", { className: "num", style: { fontSize: 38, fontWeight: 700, lineHeight: 1.05, letterSpacing: "-0.02em" } }, fmtBRL(patrNow)),
+          h("div", { style: { display: "flex", alignItems: "center", gap: 4, color: patrTrend >= 0 ? "var(--pos)" : "var(--neg)", fontFamily: "var(--ff-mono)", fontSize: 13 } },
+            patrTrend >= 0 ? "▲" : "▼", " ", Math.abs(patrTrend).toFixed(1) + "%",
+            h("span", { style: { color: "var(--fg-3)", fontSize: 10 } }, " vs. mês anterior")
           )
         ),
-        // Mini breakdown — 3 chips
-        h("div", { style: { display: "flex", gap: 12 } },
-          [
-            { label: "Saldo mês",    value: summary.balance,   color: summary.balance >= 0 ? "var(--pos)" : "var(--neg)" },
-            { label: "Investido",    value: totalReservas,     color: "var(--reserve)" },
-            { label: "Fatura aberta", value: -totalFaturas,    color: "var(--neg)" },
-          ].map(({ label, value, color }) =>
-            h("div", { key: label, style: { textAlign: "right" } },
-              h("div", { style: { fontSize: 9, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 } }, label),
-              h("div", { className: "num", style: { fontSize: 14, fontWeight: 600, color, marginTop: 2 } },
-                value >= 0 ? fmtBRL(value, { decimals: 0 }) : "−" + fmtBRL(Math.abs(value), { decimals: 0 })
-              )
-            )
-          )
+        h("div", { style: { marginTop: 14, height: 64 } },
+          h(Sparkline, { data: patrimonio.map(p => p.value), width: 520, height: 64, color: "var(--info)", strokeWidth: 1.8 })
+        ),
+        h("div", { style: { display: "flex", justifyContent: "space-between", fontFamily: "var(--ff-mono)", fontSize: 9, color: "var(--fg-3)", marginTop: 4 } },
+          patrimonio.filter((_, i) => i % 2 === 0).map((p, i) => h("span", { key: i }, p.label))
         )
       ),
-      // Chart
-      h(PatrimonioChart, { data: patrimonio, height: 150 })
+      // Right: breakdown rows
+      h("div", { style: { display: "flex", flexDirection: "column", gap: 14, borderLeft: "1px solid var(--line-1)", paddingLeft: 24 } },
+        h(BreakdownRow, { label: "Contas correntes", value: totalContas, pct: patrNow ? (totalContas / patrNow) * 100 : 0, color: "var(--pos)" }),
+        h(BreakdownRow, { label: "Investimentos",    value: totalReservas, pct: patrNow ? (totalReservas / patrNow) * 100 : 0, color: "var(--reserve)" }),
+        h(BreakdownRow, { label: "Faturas em aberto", value: totalFaturas, pct: patrNow ? (totalFaturas / (totalContas + totalReservas)) * 100 : 0, color: "var(--neg)", negative: true })
+      )
     ),
 
     // Two-column: income vs expenses chart + categories
@@ -230,9 +221,12 @@ function OverviewView({ onJumpToAccount, onEditCategory, refreshKey, filterMonth
             const tone = f.days_until_due <= 3 ? "neg" : f.days_until_due <= 7 ? "warn" : "ok";
             const color = tone === "neg" ? "var(--neg)" : tone === "warn" ? "var(--warn)" : "var(--pos)";
             const due = f.days_until_due > 0 ? `em ${f.days_until_due}d` : f.days_until_due === 0 ? "hoje" : `há ${Math.abs(f.days_until_due)}d`;
+            const trend = (f.last_total > 0) ? ((f.total - f.last_total) / f.last_total) * 100 : null;
             return h("button", {
               key: i, onClick: () => onJumpToAccount && onJumpToAccount(f.accountId),
-              style: { display: "block", textAlign: "left", padding: 10, borderRadius: 6, background: "var(--bg-0)", border: `1px solid var(--line-1)`, borderLeft: `3px solid ${color}`, cursor: "pointer" }
+              style: { display: "block", textAlign: "left", padding: 10, borderRadius: 6, background: "var(--bg-0)", border: `1px solid var(--line-1)`, borderLeft: `3px solid ${color}`, cursor: "pointer", transition: "background 0.12s" },
+              onMouseEnter: e => { e.currentTarget.style.background = "var(--bg-2)"; },
+              onMouseLeave: e => { e.currentTarget.style.background = "var(--bg-0)"; },
             },
               h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 } },
                 h(BankChip, { bank: f.label.toLowerCase().startsWith("nu") ? "nubank" : "inter" }),
@@ -240,7 +234,14 @@ function OverviewView({ onJumpToAccount, onEditCategory, refreshKey, filterMonth
               ),
               h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline" } },
                 h("span", { className: "num", style: { fontSize: 17, fontWeight: 600 } }, fmtBRL(f.total)),
-                h("span", { style: { fontSize: 10, fontFamily: "var(--ff-mono)", color: "var(--fg-3)" } }, `${_fmtCycleDate(f.cycle_start)} → ${_fmtCycleDate(f.cycle_end)}`)
+                h("span", { style: { fontSize: 10, fontFamily: "var(--ff-mono)", color: trend !== null ? (trend >= 0 ? "var(--neg)" : "var(--pos)") : "var(--fg-3)" } },
+                  trend !== null
+                    ? `${trend >= 0 ? "▲" : "▼"} ${Math.abs(trend).toFixed(1)}%`
+                    : `${_fmtCycleDate(f.cycle_start)} → ${_fmtCycleDate(f.cycle_end)}`
+                )
+              ),
+              h("div", { style: { fontSize: 9, color: "var(--fg-3)", fontFamily: "var(--ff-mono)", marginTop: 2 } },
+                `${_fmtCycleDate(f.cycle_start)} → ${_fmtCycleDate(f.cycle_end)}`
               )
             );
           })

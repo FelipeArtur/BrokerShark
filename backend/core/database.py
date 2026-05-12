@@ -697,8 +697,21 @@ def get_credit_card_billing_info(account_id: str) -> dict:
         cycle_start.strftime("%Y-%m-%d"),
         cycle_end.strftime("%Y-%m-%d"),
     )
+    # Previous cycle for trend comparison
+    prev_cycle_end = prev_billing
+    if prev_billing.month == 1:
+        prev_prev_billing = prev_billing.replace(year=prev_billing.year - 1, month=12, day=billing_day)
+    else:
+        prev_prev_billing = prev_billing.replace(month=prev_billing.month - 1, day=min(billing_day, 28))
+    prev_cycle_start = prev_prev_billing + timedelta(days=1)
+    last_total = get_credit_card_statement(
+        account_id,
+        prev_cycle_start.strftime("%Y-%m-%d"),
+        prev_cycle_end.strftime("%Y-%m-%d"),
+    )
     return {
         "total": total,
+        "last_total": last_total,
         "cycle_start": cycle_start.strftime("%d/%m/%Y"),
         "cycle_end":   cycle_end.strftime("%d/%m/%Y"),
         "due_date":    due_date.strftime("%d/%m/%Y"),
@@ -761,7 +774,9 @@ def get_monthly_history(months: int = 6, bank: Optional[str] = None) -> list[dic
     by_month = {r["ym"]: {"expenses": r["expenses"], "income": r["income"]} for r in rows}
     return [
         {
-            "label": f"{_PT_SHORT[m]}/{str(y)[-2:]}",
+            "label":  f"{_PT_SHORT[m]}/{str(y)[-2:]}",
+            "month":  m,
+            "year":   y,
             **by_month.get(f"{y:04d}-{m:02d}", {"expenses": 0.0, "income": 0.0}),
         }
         for y, m in periods
@@ -872,10 +887,13 @@ def get_monthly_history_by_account(account_id: str, months: int = 6) -> list[dic
             (account_id, start, end),
         ).fetchall()
 
+    _PT_SHORT_ACC = ["", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
     by_month = {r["ym"]: {"expenses": r["expenses"], "income": r["income"]} for r in rows}
     return [
         {
-            "label": f"{m:02d}/{y}",
+            "label": f"{_PT_SHORT_ACC[m]}/{str(y)[-2:]}",
+            "month": m,
+            "year":  y,
             **by_month.get(f"{y:04d}-{m:02d}", {"expenses": 0.0, "income": 0.0}),
         }
         for y, m in periods
@@ -1051,43 +1069,33 @@ def get_investment_movements_by_period(start_date: str, end_date: str) -> list[d
 
 # ── Dashboard v2 queries ──────────────────────────────────────────────────────
 
-def get_daily_spend(days: int = 30, year: Optional[int] = None, month: Optional[int] = None) -> list[dict]:
-    """Return daily expense totals.
+def get_daily_spend(year: Optional[int] = None, month: Optional[int] = None) -> list[dict]:
+    """Return daily expense totals for a calendar month, zero-filled for every day.
 
-    When year+month are provided, returns every day of that month (zero-filled).
-    Otherwise returns the last ``days`` days, skipping days with no spending.
+    Defaults to the current month when year/month are not provided.
 
     Returns:
         List of ``{"date": str, "day": int, "value": float}`` ordered by date.
     """
-    if year and month:
-        last_day = calendar.monthrange(year, month)[1]
-        start = f"{year:04d}-{month:02d}-01"
-        end   = f"{year:04d}-{month:02d}-{last_day:02d}"
-        with _connect() as conn:
-            rows = conn.execute(
-                """SELECT date, SUM(amount) AS value
-                   FROM transactions
-                   WHERE flow='expense' AND dest_account_id IS NULL AND date BETWEEN ? AND ?
-                   GROUP BY date ORDER BY date""",
-                (start, end),
-            ).fetchall()
-        by_date = {r["date"]: r["value"] for r in rows}
-        return [
-            {"date": f"{year:04d}-{month:02d}-{d:02d}", "day": d, "value": by_date.get(f"{year:04d}-{month:02d}-{d:02d}", 0.0)}
-            for d in range(1, last_day + 1)
-        ]
-
-    cutoff = (date.today() - timedelta(days=days - 1)).isoformat()
+    today = date.today()
+    year  = year  or today.year
+    month = month or today.month
+    last_day = calendar.monthrange(year, month)[1]
+    start = f"{year:04d}-{month:02d}-01"
+    end   = f"{year:04d}-{month:02d}-{last_day:02d}"
     with _connect() as conn:
         rows = conn.execute(
             """SELECT date, SUM(amount) AS value
                FROM transactions
-               WHERE flow='expense' AND dest_account_id IS NULL AND date >= ?
+               WHERE flow='expense' AND dest_account_id IS NULL AND date BETWEEN ? AND ?
                GROUP BY date ORDER BY date""",
-            (cutoff,),
+            (start, end),
         ).fetchall()
-    return [{"date": r["date"], "day": int(r["date"].split("-")[2]), "value": r["value"]} for r in rows]
+    by_date = {r["date"]: r["value"] for r in rows}
+    return [
+        {"date": f"{year:04d}-{month:02d}-{d:02d}", "day": d, "value": by_date.get(f"{year:04d}-{month:02d}-{d:02d}", 0.0)}
+        for d in range(1, last_day + 1)
+    ]
 
 
 def get_recent_activity(limit: int = 20) -> list[dict]:
@@ -1109,6 +1117,34 @@ def get_recent_activity(limit: int = 20) -> list[dict]:
                ORDER BY t.date DESC, t.id DESC
                LIMIT ?""",
             (limit,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_month_transactions(month: int, year: int) -> list[dict]:
+    """Return all non-transfer transactions for a calendar month across all accounts.
+
+    Args:
+        month: Calendar month (1–12).
+        year: Calendar year.
+
+    Returns:
+        List of dicts ordered by date ascending, each containing
+        ``id``, ``date``, ``description``, ``amount``, ``flow``,
+        ``account_id``, ``bank``, ``category``, ``category_id``.
+    """
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT t.id, t.date, t.description, t.amount, t.flow,
+                      t.account_id, a.bank,
+                      COALESCE(c.name, '') AS category, t.category_id
+               FROM transactions t
+               JOIN accounts a ON a.id = t.account_id
+               LEFT JOIN categories c ON c.id = t.category_id
+               WHERE t.dest_account_id IS NULL
+                 AND strftime('%Y-%m', t.date) = ?
+               ORDER BY t.date ASC, t.id ASC""",
+            (f"{year:04d}-{month:02d}",),
         ).fetchall()
     return [dict(r) for r in rows]
 

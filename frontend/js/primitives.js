@@ -33,19 +33,23 @@ function yesterdayISO() {
 }
 
 /* ── Sparkline ──────────────────────────────────────────────────────────── */
-function Sparkline({ data, color = "var(--info)", width = 100, height = 28, fill = true, strokeWidth = 1.5 }) {
+function Sparkline({ data, color = "var(--info)", width = 100, height = 28, fill = true, strokeWidth = 1.5, highlightLast = false }) {
   const canvasRef = _useRef(null);
   const chartRef = _useRef(null);
 
   _useEffect(() => {
     if (!canvasRef.current || !data || !data.length) return;
     if (chartRef.current) chartRef.current.destroy();
-    
+
     let resolvedColor = color;
     if (color.startsWith("var(")) {
       const match = color.match(/var\(([^)]+)\)/);
       if (match) resolvedColor = getComputedStyle(document.documentElement).getPropertyValue(match[1]).trim();
     }
+
+    const n = data.length;
+    const minVal = Math.min(...data);
+    const maxVal = Math.max(...data);
 
     const ctx = canvasRef.current.getContext("2d");
     chartRef.current = new Chart(ctx, {
@@ -57,8 +61,9 @@ function Sparkline({ data, color = "var(--info)", width = 100, height = 28, fill
           borderColor: resolvedColor || color,
           borderWidth: strokeWidth,
           tension: 0.3,
-          pointRadius: 0,
-          pointHoverRadius: 0,
+          pointRadius: highlightLast ? data.map((_, i) => i === n - 1 ? 3 : 0) : 0,
+          pointHoverRadius: highlightLast ? data.map((_, i) => i === n - 1 ? 4 : 0) : 0,
+          pointBackgroundColor: resolvedColor || color,
           fill: fill,
           backgroundColor: fill ? (resolvedColor ? resolvedColor.replace(')', ' / 0.18)') : color) : 'transparent',
         }]
@@ -70,14 +75,14 @@ function Sparkline({ data, color = "var(--info)", width = 100, height = 28, fill
         plugins: { legend: { display: false }, tooltip: { enabled: false } },
         scales: {
           x: { display: false },
-          y: { display: false, min: Math.min(...data), max: Math.max(...data) }
+          y: { display: false, min: minVal === maxVal ? minVal - 1 : minVal, max: minVal === maxVal ? maxVal + 1 : maxVal }
         },
-        layout: { padding: 0 }
+        layout: { padding: highlightLast ? { top: 4, bottom: 4, left: 2, right: 4 } : 0 }
       }
     });
 
     return () => { if (chartRef.current) chartRef.current.destroy(); };
-  }, [data, color, fill, strokeWidth]);
+  }, [data, color, fill, strokeWidth, highlightLast]);
 
   return React.createElement("div", { style: { width, height } },
     React.createElement("canvas", { ref: canvasRef })
