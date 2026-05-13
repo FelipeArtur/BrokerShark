@@ -1,23 +1,14 @@
 /* view-secondary.js — CardsView, AccountsView, InvestmentsView, HistoryView */
 /* global React, fetchFaturas, fetchRecentTransactions, fetchMonthlyByAccount,
           fetchCategoriesByAccount, fetchAccounts, fetchMonthly, fetchMonthlyFull,
-          fetchInvestments, fetchAccountHistory, fetchMonthTransactions, deleteTransaction */
+          fetchInvestments, fetchAccountHistory, fetchMonthTransactions, deleteTransaction,
+          ImportModal, fetchExpenseCategories */
 
 const { useState: _s2St, useEffect: _s2Ef, useMemo: _s2Memo } = React;
-const { fmtBRL, fmtBRLCompact, fmtDateBR, BankChip, Sparkline, BarChart, DualLine, Donut } = window.BS;
-
-const PT_MONTHS_FULL = ["", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
-  "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
-const PT_SHORT = ["", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
-
-function _fmtCycleDate(ddmmyyyy) {
-  if (!ddmmyyyy) return "—";
-  const [d, m] = ddmmyyyy.split("/");
-  return `${parseInt(d, 10)} ${PT_SHORT[parseInt(m, 10)]}`;
-}
+const { fmtBRL, fmtBRLCompact, fmtDateBR, BankChip, Sparkline, BarChart, DualLine, Donut, PT_MONTHS, PT_SHORT, fmtCycleDate } = window.BS;
 
 /* ── CardsView ───────────────────────────────────────────────────────────── */
-function CardsView({ onEditCategory, onDeleteTx, refreshKey, filterMonth }) {
+function CardsView({ onEditCategory, onDeleteTx, refreshKey, filterMonth, onImportCsv }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   const [faturas, setFaturas] = _s2St([]);
   const [activeAcc, setActiveAcc] = _s2St("nu-cc");
@@ -68,14 +59,14 @@ function CardsView({ onEditCategory, onDeleteTx, refreshKey, filterMonth }) {
             transform: active ? "translateY(-1px)" : "none",
           }
         },
-          h("div", { style: { position: "absolute", top: -40, right: -40, width: 140, height: 140, borderRadius: "50%", background: "rgba(255,255,255,0.06)" } }),
+          h("div", { style: { position: "absolute", top: -40, right: -40, width: 140, height: 140, borderRadius: "50%", background: "oklch(100% 0 0 / 0.06)" } }),
           h("div", { style: { position: "relative" } },
             h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 } },
               h("div", null,
                 h("div", { style: { fontSize: 10, opacity: 0.7, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 } }, f.label),
-                h("div", { style: { fontSize: 11, opacity: 0.7, marginTop: 2 } }, `${_fmtCycleDate(f.cycle_start)} → ${_fmtCycleDate(f.cycle_end)}`)
+                h("div", { style: { fontSize: 11, opacity: 0.7, marginTop: 2 } }, `${fmtCycleDate(f.cycle_start)} → ${fmtCycleDate(f.cycle_end)}`)
               ),
-              h("div", { style: { fontSize: 9, padding: "3px 7px", borderRadius: 4, background: "rgba(255,255,255,0.18)", fontWeight: 600, textTransform: "uppercase" } }, due)
+              h("div", { style: { fontSize: 9, padding: "3px 7px", borderRadius: 4, background: "oklch(100% 0 0 / 0.18)", fontWeight: 600, textTransform: "uppercase" } }, due)
             ),
             h("div", { className: "num", style: { fontSize: 32, fontWeight: 700, lineHeight: 1.05, letterSpacing: "-0.02em" } }, fmtBRL(f.total)),
             h("div", { style: { display: "flex", justifyContent: "space-between", marginTop: 10, fontSize: 11 } },
@@ -87,7 +78,16 @@ function CardsView({ onEditCategory, onDeleteTx, refreshKey, filterMonth }) {
                 h("div", { style: { opacity: 0.7, fontSize: 9, textTransform: "uppercase", letterSpacing: "0.06em" } }, "Dias restantes"),
                 h("div", { className: "num", style: { fontWeight: 600, color: toneColor } }, `${f.days_until_due}d`)
               )
-            )
+            ),
+            onImportCsv && h("button", {
+              onClick: e => { e.stopPropagation(); onImportCsv(f.accountId); },
+              style: {
+                marginTop: 12, width: "100%", padding: "5px 10px",
+                background: "oklch(100% 0 0 / 0.14)", border: "1px solid oklch(100% 0 0 / 0.25)",
+                borderRadius: 5, color: "oklch(100% 0 0 / 0.9)", fontSize: 10, fontWeight: 600,
+                cursor: "pointer", letterSpacing: "0.04em",
+              }
+            }, "⤓ Importar CSV")
           )
         );
       })
@@ -339,7 +339,7 @@ function InvestmentsView({ refreshKey }) {
   }
 
   return h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 14 } },
-    h("div", { style: { display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: 14 } },
+    h("div", { style: { display: "grid", gridTemplateColumns: "var(--col-inv)", gap: 14 } },
       h("div", { className: "card", style: { padding: 16 } },
         h("div", { className: "eyebrow", style: { marginBottom: 6 } }, "Patrimônio em investimentos"),
         h("div", { className: "num", style: { fontSize: 32, fontWeight: 700, letterSpacing: "-0.02em" } }, fmtBRL(total)),
@@ -412,7 +412,7 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx }) {
 
   const picked = monthly[pickedIdx] || null;
   const now = new Date();
-  const monthLabel = picked ? `${PT_MONTHS_FULL[picked.month]} ${picked.year}` : "";
+  const monthLabel = picked ? `${PT_MONTHS[picked.month]} ${picked.year}` : "";
   const isCurrent = picked ? (picked.year === now.getFullYear() && picked.month === (now.getMonth() + 1)) : false;
 
   const expenses    = monthTx.filter(t => t.flow === "expense");
@@ -465,7 +465,7 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx }) {
           h("div", { className: "eyebrow", style: { fontSize: 9 } }, "Lupa do mês"),
           h("div", { style: { fontSize: 22, fontWeight: 700, letterSpacing: "-0.015em", marginTop: 2, display: "flex", alignItems: "center", gap: 10 } },
             monthLabel,
-            isCurrent && h("span", { className: "chip", style: { background: "var(--info-bg)", color: "var(--info)", borderColor: "transparent", fontSize: 10 } }, "mês atual")
+            isCurrent && h("span", { className: "chip info", style: { fontSize: 10 } }, "mês atual")
           )
         ),
         h("div", { style: { display: "flex", gap: 4 } },
@@ -482,7 +482,7 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx }) {
           const isCur2 = m.year === now.getFullYear() && m.month === (now.getMonth() + 1);
           return h("button", {
             key: i, onClick: () => setPickedIdx(i),
-            title: `${PT_MONTHS_FULL[m.month]} ${m.year} — ${fmtBRL(m.expenses, { decimals: 0 })}`,
+            title: `${PT_MONTHS[m.month]} ${m.year} — ${fmtBRL(m.expenses, { decimals: 0 })}`,
             style: {
               flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
               background: "transparent", borderRadius: 4, padding: "2px 1px",
@@ -503,7 +503,7 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx }) {
     ),
 
     // B — 4 headline metric cards
-    h("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 } },
+    h("div", { style: { display: "grid", gridTemplateColumns: "var(--col-4)", gap: 10 } },
       [
         {
           l: "Receitas", v: fmtBRL(totalInc), c: "var(--pos)",
@@ -544,7 +544,7 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx }) {
     ),
 
     // C — 2-column: categories | filterable table
-    h("div", { style: { display: "grid", gridTemplateColumns: "260px 1fr", gap: 14 } },
+    h("div", { style: { display: "grid", gridTemplateColumns: "var(--col-hist)", gap: 14 } },
 
       // C1 — By category
       h("div", { className: "card" },

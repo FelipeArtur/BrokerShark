@@ -4,40 +4,39 @@
           fetchExpenseCategoriesFull, patchBudget, postCategory, deleteCategory */
 
 const { useState: _ovSt, useEffect: _ovEf } = React;
-const { fmtBRL, fmtBRLCompact, fmtDateBR, BankChip, Sparkline, BarChart, DualLine, PatrimonioChart, Progress, Modal } = window.BS;
-
-const PT_MONTHS = ["", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
-  "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
-const PT_SHORT_OV = ["", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
-
-function _fmtCycleDate(ddmmyyyy) {
-  if (!ddmmyyyy) return "—";
-  const [d, m] = ddmmyyyy.split("/");
-  return `${parseInt(d, 10)} ${PT_SHORT_OV[parseInt(m, 10)]}`;
-}
+const { fmtBRL, fmtBRLCompact, fmtDateBR, BankChip, Sparkline, BarChart, DualLine, Progress, Modal, PT_MONTHS, PT_SHORT, fmtCycleDate } = window.BS;
 
 function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey, filterMonth }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
 
-  const [summary, setSummary]     = _ovSt(null);
-  const [monthly, setMonthly]     = _ovSt([]);
+  const isAllPeriod = filterMonth === "all";
+
+  const [summary, setSummary]       = _ovSt(null);
+  const [monthly, setMonthly]       = _ovSt([]);
   const [categories, setCategories] = _ovSt([]);
-  const [faturas, setFaturas]     = _ovSt([]);
+  const [faturas, setFaturas]       = _ovSt([]);
   const [patrimonio, setPatrimonio] = _ovSt([]);
   const [dailySpend, setDailySpend] = _ovSt([]);
-  const [activity, setActivity]   = _ovSt([]);
-  const [budgets, setBudgets]     = _ovSt([]);
-  const [editBudget, setEditBudget] = _ovSt(null); // {id, category_id, category_name, amount_limit}
+  const [activity, setActivity]     = _ovSt([]);
+  const [budgets, setBudgets]       = _ovSt([]);
+  const [editBudget, setEditBudget] = _ovSt(null);
   const [budgetInput, setBudgetInput] = _ovSt("");
-  const [budgetErr, setBudgetErr] = _ovSt(null);
+  const [budgetErr, setBudgetErr]   = _ovSt(null);
   const [deletingTxId, setDeletingTxId] = _ovSt(null);
 
   _ovEf(() => {
-    const parts = filterMonth ? filterMonth.split("-").map(Number) : [];
+    const parts = (!isAllPeriod && filterMonth) ? filterMonth.split("-").map(Number) : [];
     const [year, month] = parts.length === 2 ? parts : [null, null];
+    const monthlyFetch = isAllPeriod ? fetchMonthlyFull() : fetchMonthly();
     Promise.all([
-      fetchSummary({ month, year }), fetchMonthly(), fetchCategories({ month, year }), fetchFaturas(),
-      fetchPatrimonioHistory(), fetchDailySpend({ month, year }), fetchRecentActivity(), fetchBudgets(),
+      isAllPeriod ? fetchSummary({ period: "all" }) : fetchSummary({ month, year }),
+      monthlyFetch,
+      isAllPeriod ? fetchCategories({ period: "all" }) : fetchCategories({ month, year }),
+      fetchFaturas(),
+      fetchPatrimonioHistory(),
+      isAllPeriod ? Promise.resolve([]) : fetchDailySpend({ month, year }),
+      fetchRecentActivity(),
+      fetchBudgets(),
     ]).then(([s, m, c, f, p, d, a, b]) => {
       setSummary(s); setMonthly(m); setCategories(c); setFaturas(f);
       setPatrimonio(p); setDailySpend(d); setActivity(a); setBudgets(b);
@@ -48,17 +47,14 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
 
   const totalFaturas = faturas.reduce((s, f) => s + (f.total || 0), 0);
   // Find patrimônio entry for the selected month
-  const _parts = filterMonth ? filterMonth.split("-").map(Number) : [];
+  const _parts = (!isAllPeriod && filterMonth) ? filterMonth.split("-").map(Number) : [];
   const [_fYear, _fMonth] = _parts.length === 2 ? _parts : [null, null];
-  const _patrLabel = _fMonth ? `${PT_SHORT_OV[_fMonth]}/${String(_fYear).slice(-2)}` : null;
+  const _patrLabel = _fMonth ? `${PT_SHORT[_fMonth]}/${String(_fYear).slice(-2)}` : null;
   const _patrIdx = _patrLabel
     ? patrimonio.findIndex(p => p.label === _patrLabel)
     : patrimonio.length - 1;
   const _effIdx  = _patrIdx >= 0 ? _patrIdx : patrimonio.length - 1;
   const patrNow   = _effIdx >= 0 ? patrimonio[_effIdx].value : 0;
-  const patrPrev  = _effIdx > 0  ? patrimonio[_effIdx - 1].value : patrNow;
-  const patrDelta = patrNow - patrPrev;
-  const patrTrend = patrPrev ? (patrDelta / patrPrev) * 100 : 0;
 
   // Daily average: use elapsed days for current month, full month for past months
   const _now = new Date();
@@ -66,10 +62,12 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
   const _daysElapsed = _isCurrentMonth
     ? (_now.getDate() || 1)
     : (_fYear && _fMonth ? new Date(_fYear, _fMonth, 0).getDate() : _now.getDate() || 1);
-  const dailyAvg  = summary.expenses / _daysElapsed;
+  const _expenses = isAllPeriod ? (summary.avg_expenses || 0) : (summary.expenses || 0);
+  const _income   = isAllPeriod ? (summary.avg_income   || 0) : (summary.income   || 0);
+  const dailyAvg  = isAllPeriod ? (_expenses / 30) : (_expenses / _daysElapsed);
   const projected = dailyAvg * (_fYear && _fMonth ? new Date(_fYear, _fMonth, 0).getDate() : 31);
-  const catMax    = categories.length ? categories[0].total : 1;
-  const totalReservas = summary.reservas;
+  const catMax        = categories.length ? categories[0].total : 1;
+  const totalReservas = summary.reservas || 0;
 
   function BreakdownRow({ label, value, pct, color, negative }) {
     return h("div", null,
@@ -109,26 +107,20 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
   return h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 14 } },
 
     // Hero: patrimônio — 2-column card (sparkline left, breakdown right)
-    h("div", { className: "card", style: { padding: 16, display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 24 } },
-      // Left: value + trend + sparkline
+    h("div", { className: "card", style: { padding: 16, display: "grid", gridTemplateColumns: "var(--col-hero)", gap: 24 } },
+      // Left: value + sparkline (no % delta)
       h("div", null,
         h("div", { className: "eyebrow", style: { marginBottom: 4 } }, "Patrimônio total"),
-        h("div", { style: { display: "flex", alignItems: "baseline", gap: 14, flexWrap: "wrap" } },
-          h("div", { className: "num", style: { fontSize: 38, fontWeight: 700, lineHeight: 1.05, letterSpacing: "-0.02em" } }, fmtBRL(patrNow)),
-          h("div", { style: { display: "flex", alignItems: "center", gap: 4, color: patrTrend >= 0 ? "var(--pos)" : "var(--neg)", fontFamily: "var(--ff-mono)", fontSize: 13 } },
-            patrTrend >= 0 ? "▲" : "▼", " ", Math.abs(patrTrend).toFixed(1) + "%",
-            h("span", { style: { color: "var(--fg-3)", fontSize: 10 } }, " vs. mês anterior")
-          )
-        ),
+        h("div", { className: "num", style: { fontSize: 38, fontWeight: 700, lineHeight: 1.05, letterSpacing: "-0.02em" } }, fmtBRL(patrNow)),
         h("div", { style: { marginTop: 14, height: 64 } },
-          h(Sparkline, { data: patrimonio.map(p => p.value), width: 520, height: 64, color: "var(--info)", strokeWidth: 1.8 })
+          h(Sparkline, { data: patrimonio.map(p => p.value), width: "100%", height: 64, color: "var(--info)", strokeWidth: 1.8 })
         ),
         h("div", { style: { display: "flex", justifyContent: "space-between", fontFamily: "var(--ff-mono)", fontSize: 9, color: "var(--fg-3)", marginTop: 4 } },
-          patrimonio.filter((_, i) => i % 2 === 0).map((p, i) => h("span", { key: i }, p.label))
+          patrimonio.filter((_, i) => i % 3 === 0).map((p, i) => h("span", { key: i }, p.label))
         )
       ),
       // Right: breakdown rows
-      h("div", { style: { display: "flex", flexDirection: "column", gap: 14, borderLeft: "1px solid var(--line-1)", paddingLeft: 24 } },
+      h("div", { className: "hero-right-col" },
         h(BreakdownRow, { label: "Contas correntes", value: totalContas, pct: patrNow ? (totalContas / patrNow) * 100 : 0, color: "var(--pos)" }),
         h(BreakdownRow, { label: "Investimentos",    value: totalReservas, pct: patrNow ? (totalReservas / patrNow) * 100 : 0, color: "var(--reserve)" }),
         h(BreakdownRow, { label: "Faturas em aberto", value: totalFaturas, pct: patrNow ? (totalFaturas / (totalContas + totalReservas)) * 100 : 0, color: "var(--neg)", negative: true })
@@ -136,12 +128,14 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
     ),
 
     // Two-column: income vs expenses chart + categories
-    h("div", { style: { display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: 14 } },
+    h("div", { style: { display: "grid", gridTemplateColumns: "var(--col-asym)", gap: 14 } },
       h("div", { className: "card" },
         h("div", { className: "card-h" },
           h("div", null,
             h("div", { className: "card-title" }, "Receitas × Despesas"),
-            h("div", { style: { fontSize: 10, color: "var(--fg-3)", marginTop: 2 } }, "Últimos 6 meses")
+            h("div", { style: { fontSize: 10, color: "var(--fg-3)", marginTop: 2 } },
+              isAllPeriod ? `${monthly.length} meses registrados` : "Últimos 6 meses"
+            )
           ),
           h("div", { style: { display: "flex", gap: 12, fontSize: 10 } },
             h("span", { style: { display: "flex", alignItems: "center", gap: 4 } },
@@ -152,8 +146,8 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
         ),
         (() => {
           const withData = monthly.filter(m => m.income > 0 || m.expenses > 0);
-          const avgIncome   = withData.length ? withData.reduce((s, m) => s + m.income,   0) / withData.length : 0;
-          const avgExpenses = withData.length ? withData.reduce((s, m) => s + m.expenses, 0) / withData.length : 0;
+          const avgIncome   = isAllPeriod ? (summary.avg_income   || 0) : (withData.length ? withData.reduce((s, m) => s + m.income,   0) / withData.length : 0);
+          const avgExpenses = isAllPeriod ? (summary.avg_expenses || 0) : (withData.length ? withData.reduce((s, m) => s + m.expenses, 0) / withData.length : 0);
           return h("div", null,
             h("div", { style: { padding: "4px 12px 0", display: "flex", gap: 20 } },
               h("span", { style: { fontSize: 10, fontFamily: "var(--ff-mono)", color: "var(--fg-2)" } },
@@ -170,12 +164,12 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
       h("div", { className: "card" },
         h("div", { className: "card-h" },
           h("div", { className: "card-title" }, "Top categorias"),
-          h("span", { style: { fontSize: 10, color: "var(--fg-3)" } }, PT_MONTHS[summary.month])
+          h("span", { style: { fontSize: 10, color: "var(--fg-3)" } }, isAllPeriod ? "Todo período" : PT_MONTHS[summary.month])
         ),
         h("div", { style: { padding: "8px 12px 12px" } },
           (categories.length ? categories : []).slice(0, 7).map((c, i) =>
             h("div", { key: i, style: { display: "flex", alignItems: "center", gap: 8, padding: "5px 0", fontSize: "var(--fz-7)" } },
-              h("div", { style: { width: 4, height: 14, background: "var(--info)", borderRadius: 2 } }),
+              h("div", { style: { width: 16, textAlign: "right", fontFamily: "var(--ff-mono)", fontSize: 10, color: "var(--fg-3)", flexShrink: 0 } }, i + 1),
               h("div", { style: { flex: 1, color: "var(--fg-1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, c.name),
               h("div", { style: { width: 80, height: 4, background: "var(--bg-2)", borderRadius: 999 } },
                 h("div", { style: { width: `${(c.total / catMax) * 100}%`, height: "100%", background: "var(--info)", borderRadius: 999 } })
@@ -187,22 +181,22 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
       )
     ),
 
-    // Three-column: daily spend + faturas + budgets
-    h("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 } },
+    // Three-column (or two-column in all-time mode): daily spend + faturas + budgets
+    h("div", { style: { display: "grid", gridTemplateColumns: isAllPeriod ? "var(--col-2)" : "var(--col-3)", gap: 14 } },
 
-      // Daily spend
-      h("div", { className: "card" },
+      // Daily spend — hidden in all-time mode
+      !isAllPeriod && h("div", { className: "card" },
         h("div", { className: "card-h" },
           h("div", null,
             h("div", { className: "card-title" }, "Gasto diário"),
             h("div", { style: { fontSize: 10, color: "var(--fg-3)", marginTop: 2 } },
               _fMonth
                 ? `${PT_MONTHS[_fMonth]} ${_fYear} · média ${fmtBRL(dailyAvg, { decimals: 0 })}/dia`
-                : `30 dias · média ${fmtBRL(dailyAvg, { decimals: 0 })}/dia`
+                : `${PT_MONTHS[_now.getMonth() + 1]} · média ${fmtBRL(dailyAvg, { decimals: 0 })}/dia`
             )
           ),
           h("div", { style: { fontFamily: "var(--ff-mono)", fontSize: 11, color: "var(--fg-2)" } },
-            _isCurrentMonth ? `proj. ${fmtBRLCompact(projected)}` : fmtBRL(summary.expenses, { decimals: 0 })
+            _isCurrentMonth ? `proj. ${fmtBRLCompact(projected)}` : fmtBRL(_expenses, { decimals: 0 })
           )
         ),
         dailySpend.length > 0
@@ -213,6 +207,7 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
               labelKey: "day",
               color: "var(--info)",
               highlightMax: true,
+              referenceValue: dailyAvg,
             }))
           : h("div", { style: { padding: "24px 12px", textAlign: "center", color: "var(--fg-3)", fontSize: 12 } }, "Sem gastos neste mês")
       ),
@@ -233,9 +228,8 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
             const _bg1 = `color-mix(in oklch, ${color} 14%, var(--bg-1))`;
             return h("button", {
               key: i, onClick: () => onJumpToAccount && onJumpToAccount(f.accountId),
-              style: { display: "block", textAlign: "left", padding: 10, borderRadius: "var(--r-2)", background: _bg0, border: `1px solid color-mix(in oklch, ${color} 28%, var(--line-1))`, cursor: "pointer", transition: "background 0.12s" },
-              onMouseEnter: e => { e.currentTarget.style.background = _bg1; },
-              onMouseLeave: e => { e.currentTarget.style.background = _bg0; },
+              className: "fatura-btn",
+              style: { "--fatura-bg": _bg0, "--fatura-bg-hover": _bg1, display: "block", textAlign: "left", padding: 10, borderRadius: "var(--r-2)", border: `1px solid color-mix(in oklch, ${color} 28%, var(--line-1))`, cursor: "pointer" },
             },
               h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 } },
                 h(BankChip, { bank: f.label.toLowerCase().startsWith("nu") ? "nubank" : "inter" }),
@@ -246,11 +240,11 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
                 h("span", { style: { fontSize: 10, fontFamily: "var(--ff-mono)", color: trend !== null ? (trend >= 0 ? "var(--neg)" : "var(--pos)") : "var(--fg-3)" } },
                   trend !== null
                     ? `${trend >= 0 ? "▲" : "▼"} ${Math.abs(trend).toFixed(1)}%`
-                    : `${_fmtCycleDate(f.cycle_start)} → ${_fmtCycleDate(f.cycle_end)}`
+                    : `${fmtCycleDate(f.cycle_start)} → ${fmtCycleDate(f.cycle_end)}`
                 )
               ),
               h("div", { style: { fontSize: 9, color: "var(--fg-3)", fontFamily: "var(--ff-mono)", marginTop: 2 } },
-                `${_fmtCycleDate(f.cycle_start)} → ${_fmtCycleDate(f.cycle_end)}`
+                `${fmtCycleDate(f.cycle_start)} → ${fmtCycleDate(f.cycle_end)}`
               )
             );
           })
@@ -261,7 +255,7 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
       h("div", { className: "card" },
         h("div", { className: "card-h" },
           h("div", { className: "card-title" }, "Orçamentos"),
-          h("span", { style: { fontSize: 10, color: "var(--fg-3)" } }, PT_MONTHS[summary.month])
+          h("span", { style: { fontSize: 10, color: "var(--fg-3)" } }, isAllPeriod ? "Todo período" : PT_MONTHS[summary.month])
         ),
         h("div", { style: { padding: "8px 12px 12px", display: "flex", flexDirection: "column", gap: 6 } },
           budgetRows.length === 0

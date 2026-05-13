@@ -22,6 +22,7 @@ from waitress import serve
 import config
 from core import database
 from core import events as _events
+from bot.parsers import nubank_cc, inter_cc, nubank_extrato, inter_extrato
 
 _logger = logging.getLogger(__name__)
 
@@ -73,16 +74,26 @@ def sse_stream() -> Response:
 
 @app.route("/api/summary")
 def api_summary() -> Response:
-    """Return the current month financial summary.
+    """Return the current month (or all-time) financial summary.
 
     Query params:
-        bank:    ``nubank`` | ``inter`` (optional)
-        account: ``nu-cc`` | ``nu-db`` | ``inter-cc`` | ``inter-db`` (optional)
+        period:  ``"all"`` — returns all-time averages instead of monthly totals
+        bank:    ``nubank`` | ``inter`` (optional, ignored when period=all)
+        account: account id (optional, ignored when period=all)
+        month:   int (optional, defaults to current month)
+        year:    int (optional, defaults to current year)
 
     Returns:
-        JSON with keys ``month``, ``year``, ``income``, ``expenses``,
+        For period=all: JSON with ``period``, ``months_count``, ``avg_income``,
+        ``avg_expenses``, ``avg_savings_rate``, ``reservas``, ``income_total``,
+        ``expenses_total``.
+        Otherwise: JSON with ``month``, ``year``, ``income``, ``expenses``,
         ``balance``, ``reservas``, ``top_category``.
     """
+    period = request.args.get("period") or None
+    if period == "all":
+        return jsonify(database.get_all_time_summary())
+
     bank    = request.args.get("bank") or None
     account = request.args.get("account") or None
     now = datetime.now()
@@ -171,15 +182,22 @@ def api_monthly() -> Response:
 
 @app.route("/api/categories")
 def api_categories() -> Response:
-    """Return current month expenses grouped by category.
+    """Return expenses grouped by category (current month or all-time).
 
     Query params:
-        bank:    ``nubank`` | ``inter`` (optional)
-        account: account id (optional — takes precedence over bank)
+        period:  ``"all"`` — returns totals across entire history
+        bank:    ``nubank`` | ``inter`` (optional, ignored when period=all)
+        account: account id (optional, ignored when period=all)
+        month:   int (optional)
+        year:    int (optional)
 
     Returns:
         JSON array of ``{name, total}`` objects, sorted by total descending.
     """
+    period = request.args.get("period") or None
+    if period == "all":
+        return jsonify(database.get_all_time_categories())
+
     bank    = request.args.get("bank") or None
     account = request.args.get("account") or None
     now = datetime.now()
@@ -651,6 +669,192 @@ def api_delete_transaction(transaction_id: int) -> Response:
         return jsonify({"error": "Transação não encontrada."}), 404
     _events.notify()
     return jsonify({"ok": True})
+
+
+def _wrap_cc_rows(rows: list[dict]) -> list[dict]:
+    """Add ``_type: 'transaction'`` to CC parser rows that lack it."""
+    for row in rows:
+        row.setdefault("_type", "transaction")
+        row.setdefault("is_revenue", 0)
+    return rows
+
+
+_PARSER_MAP = {
+    "nu-cc":    lambda content: _wrap_cc_rows(nubank_cc.parse(content)),
+    "inter-cc": lambda content: _wrap_cc_rows(inter_cc.parse(content, adjust_installment_dates=False)),
+    "nu-db":    lambda content: nubank_extrato.parse(content),
+    "inter-db": lambda content: inter_extrato.parse(content),
+}
+
+
+@app.route("/api/import-csv/preview", methods=["POST"])
+def api_import_csv_preview() -> Response:
+    """Parse an uploaded CSV and return rows enriched with duplicate flags.
+
+    Request (multipart/form-data):
+        file:       The CSV file.
+        account_id: ``nu-cc`` | ``inter-cc`` | ``nu-db`` | ``inter-db``
+
+    Returns:
+        JSON ``{rows: [...], error: null}`` on success, or ``{rows: null, error: str}``.
+        Each row dict includes the parsed fields plus:
+            - ``row_index``:           int
+            - ``is_duplicate``:        bool
+            - ``suggested_category_id``: int | null
+            - ``include``:             bool (false for duplicates by default)
+    """
+    account_id = request.form.get("account_id", "")
+    if account_id not in _VALID_ACCOUNTS:
+        return jsonify({"rows": None, "error": "account_id inválido"}), 400
+
+    f = request.files.get("file")
+    if not f:
+        return jsonify({"rows": None, "error": "arquivo não enviado"}), 400
+
+    parser = _PARSER_MAP.get(account_id)
+    if not parser:
+        return jsonify({"rows": None, "error": "parser não disponível para esta conta"}), 400
+
+    try:
+        content = f.read().decode("utf-8", errors="replace")
+        parsed_rows = parser(content)
+    except Exception as exc:
+        _logger.warning("CSV preview parse error account=%s: %s", account_id, exc)
+        return jsonify({"rows": None, "error": f"Erro ao processar CSV: {exc}"}), 422
+
+    result = []
+    for idx, row in enumerate(parsed_rows):
+        row_out = dict(row)
+        row_out["row_index"] = idx
+
+        # Duplicate detection (only for insertable rows)
+        if row["_type"] in ("transaction", "transfer"):
+            dup = database.transaction_exists(
+                row["date"], row["amount"], row["description"],
+                row.get("account_id", account_id),
+            )
+        elif row["_type"] == "investment_movement":
+            dup = _investment_movement_exists_db(
+                row["date"], row["investment_name"], row["operation"], row["amount"]
+            )
+        else:
+            dup = False
+
+        row_out["is_duplicate"] = dup
+        row_out["include"] = not dup
+
+        # Category suggestion for expense transactions
+        if row["_type"] == "transaction" and row.get("flow") == "expense":
+            row_out["suggested_category_id"] = database.suggest_category(row["description"])
+            if row_out.get("category_id") is None:
+                row_out["category_id"] = row_out["suggested_category_id"]
+        else:
+            row_out.setdefault("category_id", None)
+            row_out["suggested_category_id"] = None
+
+        result.append(row_out)
+
+    return jsonify({"rows": result, "error": None})
+
+
+def _investment_movement_exists_db(date: str, investment_name: str, operation: str, amount: float) -> bool:
+    """Check if an identical investment movement already exists."""
+    inv = database.get_investment_by_name(investment_name)
+    if not inv:
+        return False
+    with database._connect() as conn:  # noqa: SLF001
+        row = conn.execute(
+            """SELECT 1 FROM investment_movements
+               WHERE date=? AND investment_id=? AND operation=? AND amount=?""",
+            (date, inv["id"], operation, amount),
+        ).fetchone()
+    return row is not None
+
+
+@app.route("/api/import-csv/confirm", methods=["POST"])
+def api_import_csv_confirm() -> Response:
+    """Save the reviewed CSV rows to the database.
+
+    Request body (JSON):
+        rows: list of row objects from the preview response, each with:
+            ``include`` (bool) and optionally ``category_id`` (int) overridden
+            by the user.
+
+    Returns:
+        JSON ``{imported: int, skipped: int, errors: list[str]}``.
+    """
+    data = request.get_json(silent=True) or {}
+    rows = data.get("rows", [])
+    if not isinstance(rows, list):
+        return jsonify({"error": "rows must be a list"}), 400
+
+    imported = 0
+    skipped = 0
+    errors: list[str] = []
+
+    for row in rows:
+        if not row.get("include"):
+            skipped += 1
+            continue
+
+        try:
+            rtype = row.get("_type")
+
+            if rtype == "investment_movement":
+                inv = database.get_investment_by_name(row["investment_name"])
+                if not inv:
+                    inv_id = database.upsert_investment(row["investment_name"], "savings",
+                                                        "nubank" if "Nubank" in row["investment_name"] else "inter")
+                else:
+                    inv_id = inv["id"]
+                database.insert_investment_movement(
+                    date=row["date"],
+                    investment_id=inv_id,
+                    operation=row["operation"],
+                    amount=float(row["amount"]),
+                    description=row.get("description"),
+                )
+                imported += 1
+                continue
+
+            # transaction or transfer
+            flow            = row.get("flow", "expense")
+            method          = row.get("method", "pix")
+            account_id      = row.get("account_id")
+            amount          = float(row["amount"])
+            description     = row.get("description", "")
+            dest_account_id = row.get("dest_account_id")
+            counterpart     = row.get("counterpart")
+            is_revenue      = int(row.get("is_revenue", 0))
+            category_id     = row.get("category_id")
+
+            # For expense transactions, ensure a category exists
+            if flow == "expense" and dest_account_id is None and category_id is None:
+                # Default to "Outro"
+                cats = database.get_categories("expense")
+                outro = next((c for c in cats if c["name"] == "Outro"), None)
+                category_id = outro["id"] if outro else None
+
+            database.insert_transaction(
+                date=row["date"],
+                flow=flow,
+                method=method,
+                account_id=account_id,
+                amount=amount,
+                description=description,
+                installments=int(row.get("installments", 1)),
+                category_id=category_id,
+                dest_account_id=dest_account_id,
+                counterpart=counterpart,
+                is_revenue=is_revenue,
+            )
+            imported += 1
+
+        except Exception as exc:
+            _logger.warning("CSV confirm row error: %s — %s", row.get("description", "?"), exc)
+            errors.append(f"{row.get('description', '?')}: {exc}")
+
+    return jsonify({"imported": imported, "skipped": skipped, "errors": errors})
 
 
 def start_dashboard() -> None:
