@@ -6,19 +6,19 @@
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
 const {
   fmtBRL, fmtDateBR, Modal, useToasts, BankChip, BrokerSharkLogo,
-  QuickEntry, OverviewView, CardsView, AccountsView, InvestmentsView, HistoryView,
+  PT_SHORT,
+  QuickEntry, ImportModal, OverviewView, CardsView, AccountsView, InvestmentsView, HistoryView,
   CategoriesPanel,
 } = window.BS;
 
-const _APP_PT_SHORT = ["","Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
-
 function _buildMonths(n) {
   const now = new Date();
-  return Array.from({ length: n }).map((_, i) => {
+  const months = Array.from({ length: n }).map((_, i) => {
     const d = new Date(now.getFullYear(), now.getMonth() - (n - 1 - i), 1);
     const v = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-    return { v, label: `${_APP_PT_SHORT[d.getMonth() + 1]} ${d.getFullYear()}` };
+    return { v, label: `${PT_SHORT[d.getMonth() + 1]} ${d.getFullYear()}` };
   });
+  return [{ v: "all", label: "Todo período" }, ...months];
 }
 
 function _currentMonth() {
@@ -116,7 +116,7 @@ function TweaksPanel({ tw, setTw, onClose, onOpenCategories }) {
     style: { fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--fg-3)", padding: "10px 0 4px" }
   }, label);
 
-  return h("div", { className: "tweaks-panel" },
+  return h("div", { className: "tweaks-panel", role: "dialog", "aria-label": "Configurações" },
     h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 } },
       h("span", { style: { fontWeight: 700, fontSize: "var(--fz-5)" } }, "Configurações"),
       h("button", { className: "btn btn-ghost btn-sm", onClick: onClose }, "✕")
@@ -155,6 +155,7 @@ function SearchModal({ onClose, onSelect }) {
   const [results, setResults] = useState([]);
   const [activeIdx, setActiveIdx] = useState(0);
   const inputRef = useRef(null);
+  const panelRef = useRef(null);
   const debounceRef = useRef(null);
 
   useEffect(() => {
@@ -171,10 +172,18 @@ function SearchModal({ onClose, onSelect }) {
   }, [query]);
 
   function onKey(e) {
-    if (e.key === "Escape") { e.stopPropagation(); onClose(); }
-    if (e.key === "ArrowDown") { e.preventDefault(); setActiveIdx(i => Math.min(i + 1, results.length - 1)); }
-    if (e.key === "ArrowUp")   { e.preventDefault(); setActiveIdx(i => Math.max(i - 1, 0)); }
-    if (e.key === "Enter" && results[activeIdx]) { onSelect(results[activeIdx]); onClose(); }
+    if (e.key === "Escape") { e.stopPropagation(); onClose(); return; }
+    if (e.key === "ArrowDown") { e.preventDefault(); setActiveIdx(i => Math.min(i + 1, results.length - 1)); return; }
+    if (e.key === "ArrowUp")   { e.preventDefault(); setActiveIdx(i => Math.max(i - 1, 0)); return; }
+    if (e.key === "Enter" && results[activeIdx]) { onSelect(results[activeIdx]); onClose(); return; }
+    if (e.key === "Tab" && panelRef.current) {
+      const sel = 'button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])';
+      const nodes = Array.from(panelRef.current.querySelectorAll(sel));
+      if (!nodes.length) { e.preventDefault(); return; }
+      const fi = nodes[0], la = nodes[nodes.length - 1];
+      if (e.shiftKey) { if (document.activeElement === fi) { e.preventDefault(); la.focus(); } }
+      else            { if (document.activeElement === la) { e.preventDefault(); fi.focus(); } }
+    }
   }
 
   const LABEL = { expense: "−", income: "+" };
@@ -185,8 +194,10 @@ function SearchModal({ onClose, onSelect }) {
     style: { position: "fixed", inset: 0, zIndex: 100, background: "oklch(0% 0 0 / 0.55)", display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "10vh" }
   },
     h("div", {
+      ref: panelRef,
+      role: "dialog", "aria-modal": "true", "aria-label": "Buscar transações",
       onClick: e => e.stopPropagation(),
-      style: { width: 520, background: "var(--bg-1)", border: "1px solid var(--line-2)", borderRadius: 12, boxShadow: "0 20px 60px rgba(0,0,0,0.6)", overflow: "hidden" }
+      style: { width: 520, background: "var(--bg-1)", border: "1px solid var(--line-2)", borderRadius: 12, boxShadow: "0 20px 60px oklch(0% 0 0 / 0.6)", overflow: "hidden" }
     },
       h("div", {
         "aria-live": "polite", "aria-atomic": "true",
@@ -251,7 +262,9 @@ function App() {
   const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [live, setLive] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [filterMonth, setFilterMonth] = useState(_currentMonth);
+  const [filterMonth, setFilterMonth] = useState("all");
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importAccountId, setImportAccountId] = useState("nu-cc");
   const { push, Toaster } = useToasts();
 
   const months12 = useMemo(() => _buildMonths(12), []);
@@ -331,6 +344,7 @@ function App() {
   const sidebarLeft = tw.sidebarSide === "left";
 
   const isCurrentMonth = filterMonth === _currentMonth();
+  const isAllPeriod    = filterMonth === "all";
 
   return h("div", { id: "app", style: { height: "100vh", display: "flex", flexDirection: "column" } },
 
@@ -355,18 +369,18 @@ function App() {
 
       // Month selector — global
       h("div", { style: { display: "flex", alignItems: "center", gap: 6 } },
-        h("span", { style: { fontSize: 10, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 600, whiteSpace: "nowrap" } }, "Período"),
+        h("span", { className: "topbar-label", style: { fontSize: 10, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 600, whiteSpace: "nowrap" } }, "Período"),
         h("select", {
           className: "select",
           value: filterMonth,
           onChange: e => setFilterMonth(e.target.value),
-          style: { height: 26, padding: "0 8px", fontSize: 11, width: "auto", minWidth: 100,
-                   border: isCurrentMonth ? "1px solid var(--line-1)" : "1px solid var(--info)",
-                   color: isCurrentMonth ? "var(--fg-1)" : "var(--info)" }
+          style: { height: 26, padding: "0 8px", fontSize: 11, width: "auto", minWidth: 110,
+                   border: isAllPeriod ? "1px solid var(--reserve)" : isCurrentMonth ? "1px solid var(--line-1)" : "1px solid var(--info)",
+                   color: isAllPeriod ? "var(--reserve)" : isCurrentMonth ? "var(--fg-1)" : "var(--info)" }
         },
           months12.map(({ v, label }) => h("option", { key: v, value: v }, label))
         ),
-        !isCurrentMonth && h("button", {
+        !isCurrentMonth && !isAllPeriod && h("button", {
           className: "btn btn-ghost btn-sm",
           onClick: () => setFilterMonth(_currentMonth()),
           title: "Voltar ao mês atual",
@@ -390,7 +404,7 @@ function App() {
       // Live indicator
       h("div", { style: { display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: "var(--fg-3)" } },
         h("span", { style: { width: 7, height: 7, borderRadius: "50%", background: live ? "var(--pos)" : "var(--fg-3)", boxShadow: live ? "0 0 8px var(--pos)" : "none", display: "inline-block" } }),
-        h("span", null, live ? "ao vivo" : "offline")
+        h("span", { className: "topbar-live-text" }, live ? "ao vivo" : "offline")
       ),
 
       // Tweaks
@@ -398,9 +412,9 @@ function App() {
 
       h("button", {
         className: "btn btn-sm",
-        onClick: () => push("Importação CSV via web em desenvolvimento. Use o script load_data/import_history.py para importações em lote.", "info"),
-        title: "Importação CSV — em desenvolvimento",
-        style: { height: 30, opacity: 0.6 }
+        onClick: () => { setImportAccountId("nu-cc"); setImportModalOpen(true); },
+        title: "Importar CSV",
+        style: { height: 30 }
       },
         h("span", { style: { fontFamily: "var(--ff-mono)", fontWeight: 700 } }, "⤓"), " CSV"
       ),
@@ -412,7 +426,7 @@ function App() {
       },
         h("span", { style: { fontSize: 14, fontWeight: 700, fontFamily: "var(--ff-mono)" } }, "+"),
         " Novo",
-        tw.showKeyboardHints && h("span", { className: "kbd", style: { background: "rgba(0,0,0,0.2)", borderColor: "rgba(0,0,0,0.3)", color: "rgba(0,0,0,0.7)", marginLeft: 4 } }, "N")
+        tw.showKeyboardHints && h("span", { className: "kbd", style: { background: "oklch(0% 0 0 / 0.2)", borderColor: "oklch(0% 0 0 / 0.3)", color: "oklch(0% 0 0 / 0.7)", marginLeft: 4 } }, "N")
       )
     ),
 
@@ -431,7 +445,9 @@ function App() {
       // Main content
       h("main", { className: "app-main" },
         section === "overview"    && h(OverviewView,    { onJumpToAccount: () => setSection("cards"), onEditCategory: setEditTx, onDeleteTx: handleDeleteTx, refreshKey, filterMonth }),
-        section === "cards"       && h(CardsView,       { onEditCategory: setEditTx, onDeleteTx: handleDeleteTx, refreshKey, filterMonth }),
+        section === "cards"       && h(CardsView,       { onEditCategory: setEditTx, onDeleteTx: handleDeleteTx, refreshKey, filterMonth,
+          onImportCsv: (accId) => { setImportAccountId(accId); setImportModalOpen(true); }
+        }),
         section === "accounts"    && h(AccountsView,    { onEditCategory: setEditTx, onDeleteTx: handleDeleteTx, refreshKey, filterMonth }),
         section === "investments" && h(InvestmentsView, { refreshKey }),
         section === "history"     && h(HistoryView,     { onEditCategory: setEditTx, onDeleteTx: handleDeleteTx, refreshKey }),
@@ -468,6 +484,13 @@ function App() {
         setEditTx(null);
         setRefreshKey(k => k + 1);
       }
+    }),
+
+    h(ImportModal, {
+      open: importModalOpen,
+      defaultAccountId: importAccountId,
+      onClose: () => setImportModalOpen(false),
+      onImported: () => { setRefreshKey(k => k + 1); push("CSV importado!", "success"); }
     }),
 
     h(Toaster, null)

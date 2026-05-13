@@ -23,6 +23,16 @@ function fmtDateBR(iso) {
   const [, m, d] = iso.split("-");
   return `${d}/${m}`;
 }
+
+const PT_MONTHS = ["", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+  "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
+const PT_SHORT = ["", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+
+function fmtCycleDate(ddmmyyyy) {
+  if (!ddmmyyyy) return "—";
+  const [d, m] = ddmmyyyy.split("/");
+  return `${parseInt(d, 10)} ${PT_SHORT[parseInt(m, 10)]}`;
+}
 function todayISO() {
   const t = new Date();
   return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
@@ -37,19 +47,34 @@ function Sparkline({ data, color = "var(--info)", width = 100, height = 28, fill
   const canvasRef = _useRef(null);
   const chartRef = _useRef(null);
 
+  _useEffect(() => () => { if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; } }, []);
+
   _useEffect(() => {
     if (!canvasRef.current || !data || !data.length) return;
-    if (chartRef.current) chartRef.current.destroy();
+
+    const n = data.length;
+    const minVal = Math.min(...data);
+    const maxVal = Math.max(...data);
+
+    if (chartRef.current) {
+      const ds = chartRef.current.data.datasets[0];
+      chartRef.current.data.labels = data.map((_, i) => i);
+      ds.data = data;
+      if (highlightLast) {
+        ds.pointRadius = data.map((_, i) => i === n - 1 ? 3 : 0);
+        ds.pointHoverRadius = data.map((_, i) => i === n - 1 ? 4 : 0);
+      }
+      chartRef.current.options.scales.y.min = minVal === maxVal ? minVal - 1 : minVal;
+      chartRef.current.options.scales.y.max = minVal === maxVal ? maxVal + 1 : maxVal;
+      chartRef.current.update('none');
+      return;
+    }
 
     let resolvedColor = color;
     if (color.startsWith("var(")) {
       const match = color.match(/var\(([^)]+)\)/);
       if (match) resolvedColor = getComputedStyle(document.documentElement).getPropertyValue(match[1]).trim();
     }
-
-    const n = data.length;
-    const minVal = Math.min(...data);
-    const maxVal = Math.max(...data);
 
     const ctx = canvasRef.current.getContext("2d");
     chartRef.current = new Chart(ctx, {
@@ -80,8 +105,6 @@ function Sparkline({ data, color = "var(--info)", width = 100, height = 28, fill
         layout: { padding: highlightLast ? { top: 4, bottom: 4, left: 2, right: 4 } : 0 }
       }
     });
-
-    return () => { if (chartRef.current) chartRef.current.destroy(); };
   }, [data, color, fill, strokeWidth, highlightLast]);
 
   return React.createElement("div", { style: { width, height } },
@@ -90,13 +113,16 @@ function Sparkline({ data, color = "var(--info)", width = 100, height = 28, fill
 }
 
 /* ── BarChart ───────────────────────────────────────────────────────────── */
-function BarChart({ data, height = 140, valueKey = "value", labelKey = "day", color = "var(--info)", highlightMax = false }) {
+function BarChart({ data, height = 140, valueKey = "value", labelKey = "day", color = "var(--info)", highlightMax = false, referenceValue }) {
   const canvasRef = _useRef(null);
   const chartRef = _useRef(null);
+  const refValueRef = _useRef(referenceValue);
+
+  _useEffect(() => () => { if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; } }, []);
 
   _useEffect(() => {
+    refValueRef.current = referenceValue;
     if (!canvasRef.current || !data || !data.length) return;
-    if (chartRef.current) chartRef.current.destroy();
 
     const root = getComputedStyle(document.documentElement);
     let resolvedColor = color;
@@ -106,25 +132,53 @@ function BarChart({ data, height = 140, valueKey = "value", labelKey = "day", co
     }
     const negColor = root.getPropertyValue("--neg").trim();
     const fg3Color = root.getPropertyValue("--fg-3").trim();
+    const warn50   = root.getPropertyValue("--warn").trim() || "#f5a623";
 
     const values = data.map(d => d[valueKey]);
     const maxVal = Math.max(...values);
+
+    const bgColors = values.map(v => {
+      if (v === 0) return (resolvedColor || color).replace(/oklch\(([^)]+)\)/, (_m, inner) => `oklch(${inner} / 0.18)`);
+      if (highlightMax && v === maxVal && v > 0) return negColor;
+      return resolvedColor || color;
+    });
+
+    if (chartRef.current) {
+      chartRef.current.data.labels = data.map(d => d[labelKey]);
+      chartRef.current.data.datasets[0].data = values;
+      chartRef.current.data.datasets[0].backgroundColor = bgColors;
+      chartRef.current.update('none');
+      return;
+    }
+
+    const annotationPlugin = {
+      id: "refLine",
+      afterDraw(chart) {
+        const rv = refValueRef.current;
+        if (!rv || rv <= 0) return;
+        const { ctx: c, chartArea: { left, right }, scales: { y } } = chart;
+        const yPos = y.getPixelForValue(rv);
+        c.save();
+        c.setLineDash([4, 4]);
+        c.strokeStyle = warn50;
+        c.lineWidth = 1;
+        c.globalAlpha = 0.7;
+        c.beginPath();
+        c.moveTo(left, yPos);
+        c.lineTo(right, yPos);
+        c.stroke();
+        c.restore();
+      }
+    };
 
     const ctx = canvasRef.current.getContext("2d");
     chartRef.current = new Chart(ctx, {
       type: "bar",
       data: {
         labels: data.map(d => d[labelKey]),
-        datasets: [{
-          data: values,
-          backgroundColor: highlightMax
-            ? values.map(v => v === maxVal && v > 0 ? negColor : (resolvedColor || color))
-            : (resolvedColor || color),
-          borderRadius: { topLeft: 2, topRight: 2 },
-          barPercentage: 0.85,
-          categoryPercentage: 0.9,
-        }]
+        datasets: [{ data: values, backgroundColor: bgColors, borderRadius: { topLeft: 2, topRight: 2 }, barPercentage: 0.85, categoryPercentage: 0.9 }]
       },
+      plugins: [annotationPlugin],
       options: {
         responsive: true,
         maintainAspectRatio: false,
@@ -145,17 +199,23 @@ function BarChart({ data, height = 140, valueKey = "value", labelKey = "day", co
             ticks: {
               color: fg3Color,
               font: { size: 9 },
-              maxTicksLimit: 11,
+              maxTicksLimit: 7,
               maxRotation: 0,
+              callback: function(val) {
+                const label = this.getLabelForValue(val);
+                const n = parseInt(label);
+                const allLabels = data.map(d => parseInt(d[labelKey]));
+                const lastDay = Math.max(...allLabels);
+                if ([1, 5, 10, 15, 20, 25].includes(n) || n === lastDay) return label;
+                return "";
+              }
             }
           },
           y: { display: false, beginAtZero: true }
         }
       }
     });
-
-    return () => { if (chartRef.current) chartRef.current.destroy(); };
-  }, [data, color, valueKey, labelKey, highlightMax]);
+  }, [data, color, valueKey, labelKey, highlightMax, referenceValue]);
 
   return React.createElement("div", { style: { height, width: "100%", padding: "4px 0" } },
     React.createElement("canvas", { ref: canvasRef })
@@ -167,14 +227,23 @@ function DualLine({ data, height = 180 }) {
   const canvasRef = _useRef(null);
   const chartRef = _useRef(null);
 
+  _useEffect(() => () => { if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; } }, []);
+
   _useEffect(() => {
     if (!canvasRef.current || !data || !data.length) return;
-    if (chartRef.current) chartRef.current.destroy();
+
+    if (chartRef.current) {
+      chartRef.current.data.labels = data.map(d => d.label);
+      chartRef.current.data.datasets[0].data = data.map(d => d.income || 0);
+      chartRef.current.data.datasets[1].data = data.map(d => d.expenses || 0);
+      chartRef.current.update('none');
+      return;
+    }
 
     const rootStyles = getComputedStyle(document.documentElement);
-    const posColor = rootStyles.getPropertyValue("--pos").trim() || "oklch(72% 0.14 155)";
-    const negColor = rootStyles.getPropertyValue("--neg").trim() || "oklch(68% 0.16 25)";
-    const fg2Color = rootStyles.getPropertyValue("--fg-2").trim();
+    const posColor   = rootStyles.getPropertyValue("--pos").trim() || "oklch(72% 0.14 155)";
+    const negColor   = rootStyles.getPropertyValue("--neg").trim() || "oklch(68% 0.16 25)";
+    const fg2Color   = rootStyles.getPropertyValue("--fg-2").trim();
     const line1Color = rootStyles.getPropertyValue("--line-1").trim();
 
     const ctx = canvasRef.current.getContext("2d");
@@ -188,22 +257,16 @@ function DualLine({ data, height = 180 }) {
             data: data.map(d => d.income || 0),
             borderColor: posColor,
             backgroundColor: posColor.replace(')', ' / 0.12)'),
-            borderWidth: 1.5,
-            tension: 0.4,
-            fill: true,
-            pointRadius: 2.5,
-            pointBackgroundColor: posColor
+            borderWidth: 1.5, tension: 0.4, fill: true,
+            pointRadius: 2.5, pointBackgroundColor: posColor
           },
           {
             label: "Despesa",
             data: data.map(d => d.expenses || 0),
             borderColor: negColor,
             backgroundColor: negColor.replace(')', ' / 0.12)'),
-            borderWidth: 1.5,
-            tension: 0.4,
-            fill: true,
-            pointRadius: 2.5,
-            pointBackgroundColor: negColor
+            borderWidth: 1.5, tension: 0.4, fill: true,
+            pointRadius: 2.5, pointBackgroundColor: negColor
           }
         ]
       },
@@ -213,11 +276,7 @@ function DualLine({ data, height = 180 }) {
         interaction: { mode: 'index', intersect: false },
         plugins: {
           legend: { display: false },
-          tooltip: {
-            callbacks: {
-              label: (context) => `${context.dataset.label}: ${fmtBRL(context.raw)}`
-            }
-          }
+          tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmtBRL(ctx.raw)}` } }
         },
         scales: {
           x: {
@@ -228,103 +287,12 @@ function DualLine({ data, height = 180 }) {
             beginAtZero: true,
             grid: { color: line1Color, drawBorder: false, tickLength: 0, borderDash: [2, 3] },
             border: { display: false },
-            ticks: {
-              color: fg2Color,
-              font: { size: 9, family: "JetBrains Mono" },
-              callback: (value) => fmtBRLCompact(value),
-              maxTicksLimit: 4
-            }
+            ticks: { color: fg2Color, font: { size: 9, family: "JetBrains Mono" }, callback: v => fmtBRLCompact(v), maxTicksLimit: 4 }
           }
         }
       }
     });
-
-    return () => { if (chartRef.current) chartRef.current.destroy(); };
   }, [data]);
-
-  return React.createElement("div", { style: { height, width: "100%" } },
-    React.createElement("canvas", { ref: canvasRef })
-  );
-}
-
-/* ── PatrimonioChart ────────────────────────────────────────────────────── */
-function PatrimonioChart({ data, height = 140 }) {
-  const canvasRef = _useRef(null);
-  const chartRef  = _useRef(null);
-
-  _useEffect(() => {
-    if (!canvasRef.current || !data || !data.length) return;
-    if (chartRef.current) chartRef.current.destroy();
-
-    const root   = getComputedStyle(document.documentElement);
-    const info   = root.getPropertyValue("--info").trim();
-    const fg3    = root.getPropertyValue("--fg-3").trim();
-    const line1  = root.getPropertyValue("--line-1").trim();
-
-    const ctx = canvasRef.current.getContext("2d");
-
-    const grad = ctx.createLinearGradient(0, 0, 0, height);
-    grad.addColorStop(0, info.replace(")", " / 0.22)"));
-    grad.addColorStop(1, info.replace(")", " / 0.01)"));
-
-    chartRef.current = new Chart(ctx, {
-      type: "line",
-      data: {
-        labels: data.map(d => d.label),
-        datasets: [{
-          data: data.map(d => d.value),
-          borderColor: info,
-          backgroundColor: grad,
-          borderWidth: 2,
-          tension: 0.35,
-          pointRadius: 3,
-          pointHoverRadius: 5,
-          pointBackgroundColor: info,
-          fill: true,
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: false,
-        interaction: { mode: "index", intersect: false },
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            callbacks: {
-              label: ctx => "  " + fmtBRL(ctx.raw),
-              title: ctx => ctx[0].label,
-            }
-          }
-        },
-        scales: {
-          x: {
-            grid: { display: false },
-            border: { display: false },
-            ticks: {
-              color: fg3,
-              font: { size: 9, family: "JetBrains Mono" },
-              maxTicksLimit: 7,
-              maxRotation: 0,
-            }
-          },
-          y: {
-            beginAtZero: false,
-            grid: { color: line1, borderDash: [2, 4] },
-            border: { display: false },
-            ticks: {
-              color: fg3,
-              font: { size: 9, family: "JetBrains Mono" },
-              callback: v => fmtBRLCompact(v),
-              maxTicksLimit: 4,
-            }
-          }
-        }
-      }
-    });
-
-    return () => { if (chartRef.current) chartRef.current.destroy(); };
-  }, [data, height]);
 
   return React.createElement("div", { style: { height, width: "100%" } },
     React.createElement("canvas", { ref: canvasRef })
@@ -336,23 +304,30 @@ function Donut({ data, size = 140, thickness = 18, valueKey = "balance", colors 
   const canvasRef = _useRef(null);
   const chartRef = _useRef(null);
 
+  _useEffect(() => () => { if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; } }, []);
+
   _useEffect(() => {
     if (!canvasRef.current || !data || !data.length) return;
-    if (chartRef.current) chartRef.current.destroy();
 
     const COLORS = colors || ["oklch(72% 0.12 290)", "oklch(72% 0.13 230)", "oklch(72% 0.14 155)", "oklch(78% 0.13 75)", "oklch(68% 0.16 25)"];
-    
+
+    if (chartRef.current) {
+      if (chartRef.current.data.datasets[0].data.length === data.length) {
+        chartRef.current.data.labels = data.map(d => d.name || d.label || "Item");
+        chartRef.current.data.datasets[0].data = data.map(d => d[valueKey] || 0);
+        chartRef.current.update('none');
+        return;
+      }
+      chartRef.current.destroy();
+      chartRef.current = null;
+    }
+
     const ctx = canvasRef.current.getContext("2d");
     chartRef.current = new Chart(ctx, {
       type: "doughnut",
       data: {
         labels: data.map(d => d.name || d.label || "Item"),
-        datasets: [{
-          data: data.map(d => d[valueKey] || 0),
-          backgroundColor: COLORS,
-          borderWidth: 0,
-          hoverOffset: 4
-        }]
+        datasets: [{ data: data.map(d => d[valueKey] || 0), backgroundColor: COLORS, borderWidth: 0, hoverOffset: 4 }]
       },
       options: {
         responsive: true,
@@ -360,16 +335,10 @@ function Donut({ data, size = 140, thickness = 18, valueKey = "balance", colors 
         cutout: `${100 - (thickness / size) * 100}%`,
         plugins: {
           legend: { display: false },
-          tooltip: {
-            callbacks: {
-              label: (context) => `${context.label}: ${fmtBRL(context.raw)}`
-            }
-          }
+          tooltip: { callbacks: { label: ctx => `${ctx.label}: ${fmtBRL(ctx.raw)}` } }
         }
       }
     });
-
-    return () => { if (chartRef.current) chartRef.current.destroy(); };
   }, [data, colors, thickness, size, valueKey]);
 
   return React.createElement("div", { style: { width: size, height: size } },
@@ -478,7 +447,7 @@ function SegmentControl({ options, value, onChange, columns = 3 }) {
 }
 
 /* ── CurrencyInput ──────────────────────────────────────────────────────── */
-function CurrencyInput({ value, onChange, autoFocus, large = false }) {
+function CurrencyInput({ value, onChange, autoFocus, large = false, id }) {
   const [raw, setRaw] = _useState(value ? value.toFixed(2).replace(".", ",") : "");
   const ref = _useRef(null);
   _useEffect(() => { if (autoFocus && ref.current) ref.current.focus(); }, [autoFocus]);
@@ -487,7 +456,7 @@ function CurrencyInput({ value, onChange, autoFocus, large = false }) {
   return React.createElement("div", { style: { position: "relative" } },
     React.createElement("span", { style: { position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--fg-2)", fontFamily: "var(--ff-mono)", fontSize: large ? 18 : 13 } }, "R$"),
     React.createElement("input", {
-      ref, type: "text", inputMode: "decimal", value: raw,
+      ref, id: id || undefined, type: "text", inputMode: "decimal", value: raw,
       onChange: e => { setRaw(e.target.value); onChange(parse(e.target.value)); },
       onBlur: () => { const n = parse(raw); setRaw(n ? fmt(n) : ""); },
       placeholder: "0,00", className: "input mono",
@@ -508,16 +477,17 @@ function DateChooser({ value, onChange }) {
     }),
     React.createElement("input", {
       type: "date", className: "input", value, onChange: e => onChange(e.target.value),
-      style: { height: 32, padding: "4px 8px", fontSize: "var(--fz-7)", flex: 1, colorScheme: "dark" }
+      style: { height: 32, padding: "4px 8px", fontSize: "var(--fz-7)", flex: 1,
+        colorScheme: document.documentElement.dataset.theme === "light" ? "light" : "dark" }
     })
   );
 }
 
 /* ── FieldRow ───────────────────────────────────────────────────────────── */
-function FieldRow({ label, hint, children }) {
+function FieldRow({ label, hint, id, children }) {
   return React.createElement("div", { className: "field-row" },
     React.createElement("div", { className: "field-label" },
-      React.createElement("label", { className: "eyebrow", style: { color: "var(--fg-1)" } }, label),
+      React.createElement("label", { className: "eyebrow", style: { color: "var(--fg-1)" }, htmlFor: id || undefined }, label),
       hint && React.createElement("span", { style: { fontSize: 10, color: "var(--fg-3)" } }, hint)
     ),
     children
@@ -543,7 +513,8 @@ function BrokerSharkLogo({ size = 28 }) {
 window.BS = window.BS || {};
 Object.assign(window.BS, {
   fmtBRL, fmtBRLCompact, fmtDateBR, todayISO, yesterdayISO,
-  Sparkline, BarChart, DualLine, PatrimonioChart, Donut, Progress,
+  PT_MONTHS, PT_SHORT, fmtCycleDate,
+  Sparkline, BarChart, DualLine, Donut, Progress,
   Modal, useToasts, BankChip, SegmentControl, CurrencyInput, DateChooser, FieldRow,
   BrokerSharkLogo,
 });

@@ -20,9 +20,9 @@ async function _patch(url, body) {
 }
 
 /* ── Read endpoints ─────────────────────────────────────────────────────── */
-async function fetchSummary({ bank, month, year } = {})    { return _get(`/api/summary${_params({ bank, month, year })}`); }
+async function fetchSummary({ bank, month, year, period } = {}) { return _get(`/api/summary${_params({ bank, month, year, period })}`); }
 async function fetchMonthly(bank)                          { return _get(`/api/monthly${_qs(bank)}`); }
-async function fetchCategories({ bank, month, year } = {}) { return _get(`/api/categories${_params({ bank, month, year })}`); }
+async function fetchCategories({ bank, month, year, period } = {}) { return _get(`/api/categories${_params({ bank, month, year, period })}`); }
 async function fetchExpensesByMethod(bank) { return _get(`/api/expenses-by-method${_qs(bank)}`); }
 async function fetchInvestments(bank)      { return _get(`/api/investments${_qs(bank)}`); }
 async function fetchFaturas(bank)          { return _get(`/api/faturas${_qs(bank)}`); }
@@ -71,4 +71,17 @@ async function deleteTransaction(id) {
   const r = await fetch(`/api/transactions/${id}`, { method: "DELETE" });
   if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || "request failed"); }
   return r.json();
+}
+
+/* ── CSV import ─────────────────────────────────────────────────────────── */
+async function postImportCsvPreview(file, accountId) {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("account_id", accountId);
+  const r = await fetch("/api/import-csv/preview", { method: "POST", body: form });
+  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || "request failed"); }
+  return r.json();
+}
+async function postImportCsvConfirm(rows) {
+  return _post("/api/import-csv/confirm", { rows });
 }

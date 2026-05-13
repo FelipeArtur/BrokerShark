@@ -109,6 +109,15 @@ select.select {
 .card:hover {
   box-shadow: 0 4px 16px oklch(0% 0 0 / 0.1);
 }
+.fatura-btn {
+  background: var(--fatura-bg); transition: background 0.12s;
+  width: 100%; text-align: left;
+}
+.fatura-btn:hover { background: var(--fatura-bg-hover); }
+.hero-right-col {
+  display: flex; flex-direction: column; gap: 14px;
+  border-left: 1px solid var(--line-1); padding-left: 24px;
+}
 .card-h {
   padding: 10px 12px; border-bottom: 1px solid var(--line-1);
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
@@ -158,20 +167,49 @@ select.select {
 .grid-table tr.row-active td { background: var(--info-bg); }
 .grid-table .num { color: var(--fg-0); text-align: right; white-space: nowrap; }
 
-.spark-line { fill: none; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
-.spark-fill { stroke: none; }
 
 @keyframes fade-in { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: translateY(0); } }
 .fade-in { animation: fade-in 0.25s ease-out; }
 @keyframes toast-in { from { transform: translateY(8px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 .toast { animation: toast-in 0.2s ease-out; }
 
+/* Responsive grid tokens — overridden at narrow breakpoints */
+:root {
+  --col-hero: 1.4fr 1fr;
+  --col-asym: 1.5fr 1fr;
+  --col-inv:  1fr 1.4fr;
+  --col-2:    1fr 1fr;
+  --col-3:    1fr 1fr 1fr;
+  --col-4:    repeat(4, 1fr);
+  --col-hist: 260px 1fr;
+}
+
+@media (max-width: 1080px) {
+  :root { --col-3: 1fr 1fr; --col-4: 1fr 1fr; }
+  .topbar-label { display: none; }
+}
+
+@media (max-width: 820px) {
+  :root {
+    --col-hero: 1fr; --col-asym: 1fr; --col-inv: 1fr;
+    --col-2: 1fr; --col-3: 1fr; --col-hist: 1fr;
+    --sidebar-w: 280px;
+  }
+  .topbar-live-text { display: none; }
+  .hero-right-col {
+    border-left: none; padding-left: 0;
+    border-top: 1px solid var(--line-1); padding-top: 20px;
+  }
+}
+
 /* App shell layout */
 .app-topbar {
   height: var(--topbar-h); background: var(--bg-1); border-bottom: 1px solid var(--line-1);
   display: flex; align-items: center; gap: 8px; padding: 0 14px;
   position: sticky; top: 0; z-index: 10; flex-shrink: 0;
+  overflow-x: auto; scrollbar-width: none;
 }
+.app-topbar::-webkit-scrollbar { display: none; }
 .app-body { flex: 1; display: flex; overflow: hidden; min-height: 0; }
 .app-sidebar {
   width: var(--sidebar-w); min-width: var(--sidebar-w);

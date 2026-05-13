@@ -615,6 +615,80 @@ def get_monthly_summary(year: int, month: int, bank: Optional[str] = None) -> di
     }
 
 
+def get_all_time_summary() -> dict:
+    """Return aggregate financial metrics across the entire transaction history.
+
+    Excludes internal transfers (``dest_account_id IS NOT NULL``).
+    Income is filtered to ``is_revenue = 1`` so self-transfers and
+    non-revenue entries don't inflate the totals.
+
+    Returns:
+        dict with keys:
+            - ``period``          (str):   ``"all"``
+            - ``months_count``    (int):   Number of distinct months with data.
+            - ``income_total``    (float): Sum of all revenue income.
+            - ``expenses_total``  (float): Sum of all expenses (non-transfer).
+            - ``avg_income``      (float): income_total / months_count.
+            - ``avg_expenses``    (float): expenses_total / months_count.
+            - ``avg_savings_rate``(float): (avg_income - avg_expenses) / avg_income, or 0.
+            - ``reservas``        (float): Current sum of all investment balances.
+    """
+    with _connect() as conn:
+        expenses_total = conn.execute(
+            """SELECT COALESCE(SUM(amount), 0) FROM transactions
+               WHERE flow = 'expense' AND dest_account_id IS NULL""",
+        ).fetchone()[0]
+
+        income_total = conn.execute(
+            """SELECT COALESCE(SUM(amount), 0) FROM transactions
+               WHERE flow = 'income'
+                 AND dest_account_id IS NULL
+                 AND is_revenue = 1""",
+        ).fetchone()[0]
+
+        months_count = conn.execute(
+            """SELECT COUNT(DISTINCT strftime('%Y-%m', date)) FROM transactions
+               WHERE dest_account_id IS NULL""",
+        ).fetchone()[0] or 1
+
+        reservas = conn.execute(
+            "SELECT COALESCE(SUM(current_balance), 0) FROM investments",
+        ).fetchone()[0]
+
+    avg_income   = income_total   / months_count
+    avg_expenses = expenses_total / months_count
+    avg_savings  = (avg_income - avg_expenses) / avg_income if avg_income > 0 else 0.0
+
+    return {
+        "period":           "all",
+        "months_count":     months_count,
+        "income_total":     income_total,
+        "expenses_total":   expenses_total,
+        "avg_income":       avg_income,
+        "avg_expenses":     avg_expenses,
+        "avg_savings_rate": avg_savings,
+        "reservas":         reservas,
+    }
+
+
+def get_all_time_categories() -> list[dict]:
+    """Return all-time expenses grouped by category, sorted by total descending.
+
+    Returns:
+        List of ``{name, total}`` dicts.
+    """
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT c.name, COALESCE(SUM(t.amount), 0) AS total
+               FROM categories c
+               JOIN transactions t ON t.category_id = c.id
+               WHERE t.flow = 'expense' AND t.dest_account_id IS NULL
+               GROUP BY c.id
+               ORDER BY total DESC""",
+        ).fetchall()
+        return [{"name": r["name"], "total": r["total"]} for r in rows]
+
+
 def get_expenses_by_method(year: int, month: int, bank: Optional[str] = None) -> list[dict]:
     """Return current month expenses grouped by bank and payment method.
 
@@ -1379,6 +1453,37 @@ def create_category(name: str, flow: str) -> int:
             "INSERT INTO categories (name, flow) VALUES (?,?)", (name, flow)
         )
         return cur.lastrowid  # type: ignore[return-value]
+
+
+def suggest_category(description: str) -> Optional[int]:
+    """Suggest an expense category_id based on historical transaction patterns.
+
+    Performs case-insensitive substring matching against the most frequent
+    (description, category_id) pairs in the database.  Synchronous and
+    Ollama-free — safe to call during CSV preview.
+
+    Args:
+        description: Transaction description string to match against.
+
+    Returns:
+        The ``category_id`` of the best matching category, or ``None``.
+    """
+    desc_upper = description.upper()
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT t.description, t.category_id, COUNT(*) AS freq
+               FROM transactions t
+               WHERE t.flow = 'expense'
+                 AND t.dest_account_id IS NULL
+                 AND t.category_id IS NOT NULL
+               GROUP BY t.description, t.category_id
+               ORDER BY freq DESC
+               LIMIT 200""",
+        ).fetchall()
+        for r in rows:
+            if r["description"].upper() in desc_upper or desc_upper in r["description"].upper():
+                return r["category_id"]
+    return None
 
 
 def delete_category(category_id: int, reassign_to_id: int) -> int:
