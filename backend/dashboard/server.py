@@ -636,6 +636,23 @@ def api_delete_category(category_id: int) -> Response:
     return jsonify({"ok": True, "transactions_reassigned": affected})
 
 
+@app.route("/api/transactions/<int:transaction_id>", methods=["DELETE"])
+def api_delete_transaction(transaction_id: int) -> Response:
+    """Delete a transaction by ID.
+
+    Returns:
+        ``{"ok": true}`` on success, error JSON on failure (404 or 409).
+    """
+    try:
+        deleted = database.delete_transaction(transaction_id)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 409
+    if not deleted:
+        return jsonify({"error": "Transação não encontrada."}), 404
+    _events.notify()
+    return jsonify({"ok": True})
+
+
 def start_dashboard() -> None:
     """Start the Waitress WSGI server in a daemon thread.
 

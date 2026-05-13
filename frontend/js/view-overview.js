@@ -4,7 +4,7 @@
           fetchExpenseCategoriesFull, patchBudget, postCategory, deleteCategory */
 
 const { useState: _ovSt, useEffect: _ovEf } = React;
-const { fmtBRL, fmtBRLCompact, fmtDateBR, BankChip, Sparkline, BarChart, DualLine, PatrimonioChart, Progress } = window.BS;
+const { fmtBRL, fmtBRLCompact, fmtDateBR, BankChip, Sparkline, BarChart, DualLine, PatrimonioChart, Progress, Modal } = window.BS;
 
 const PT_MONTHS = ["", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
   "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
@@ -16,7 +16,7 @@ function _fmtCycleDate(ddmmyyyy) {
   return `${parseInt(d, 10)} ${PT_SHORT_OV[parseInt(m, 10)]}`;
 }
 
-function OverviewView({ onJumpToAccount, onEditCategory, refreshKey, filterMonth }) {
+function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey, filterMonth }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
 
   const [summary, setSummary]     = _ovSt(null);
@@ -29,6 +29,8 @@ function OverviewView({ onJumpToAccount, onEditCategory, refreshKey, filterMonth
   const [budgets, setBudgets]     = _ovSt([]);
   const [editBudget, setEditBudget] = _ovSt(null); // {id, category_id, category_name, amount_limit}
   const [budgetInput, setBudgetInput] = _ovSt("");
+  const [budgetErr, setBudgetErr] = _ovSt(null);
+  const [deletingTxId, setDeletingTxId] = _ovSt(null);
 
   _ovEf(() => {
     const parts = filterMonth ? filterMonth.split("-").map(Number) : [];
@@ -84,10 +86,15 @@ function OverviewView({ onJumpToAccount, onEditCategory, refreshKey, filterMonth
   async function saveBudget() {
     if (!editBudget) return;
     const val = parseFloat(budgetInput.replace(",", "."));
-    if (isNaN(val) || val < 0) return;
-    await patchBudget(editBudget.id, editBudget.category_id, val);
-    setBudgets(prev => prev.map(b => b.id === editBudget.id ? { ...b, amount_limit: val } : b));
-    setEditBudget(null);
+    if (isNaN(val) || val < 0) { setBudgetErr("Valor inválido."); return; }
+    setBudgetErr(null);
+    try {
+      await patchBudget(editBudget.id, editBudget.category_id, val);
+      setBudgets(prev => prev.map(b => b.id === editBudget.id ? { ...b, amount_limit: val } : b));
+      setEditBudget(null);
+    } catch (e) {
+      setBudgetErr(e.message || "Erro ao salvar orçamento.");
+    }
   }
 
   // Compute spent per category from current categories data, joined with budgets
@@ -222,11 +229,13 @@ function OverviewView({ onJumpToAccount, onEditCategory, refreshKey, filterMonth
             const color = tone === "neg" ? "var(--neg)" : tone === "warn" ? "var(--warn)" : "var(--pos)";
             const due = f.days_until_due > 0 ? `em ${f.days_until_due}d` : f.days_until_due === 0 ? "hoje" : `há ${Math.abs(f.days_until_due)}d`;
             const trend = (f.last_total > 0) ? ((f.total - f.last_total) / f.last_total) * 100 : null;
+            const _bg0 = `color-mix(in oklch, ${color} 8%, var(--bg-0))`;
+            const _bg1 = `color-mix(in oklch, ${color} 14%, var(--bg-1))`;
             return h("button", {
               key: i, onClick: () => onJumpToAccount && onJumpToAccount(f.accountId),
-              style: { display: "block", textAlign: "left", padding: 10, borderRadius: 6, background: "var(--bg-0)", border: `1px solid var(--line-1)`, borderLeft: `3px solid ${color}`, cursor: "pointer", transition: "background 0.12s" },
-              onMouseEnter: e => { e.currentTarget.style.background = "var(--bg-2)"; },
-              onMouseLeave: e => { e.currentTarget.style.background = "var(--bg-0)"; },
+              style: { display: "block", textAlign: "left", padding: 10, borderRadius: "var(--r-2)", background: _bg0, border: `1px solid color-mix(in oklch, ${color} 28%, var(--line-1))`, cursor: "pointer", transition: "background 0.12s" },
+              onMouseEnter: e => { e.currentTarget.style.background = _bg1; },
+              onMouseLeave: e => { e.currentTarget.style.background = _bg0; },
             },
               h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 } },
                 h(BankChip, { bank: f.label.toLowerCase().startsWith("nu") ? "nubank" : "inter" }),
@@ -255,35 +264,42 @@ function OverviewView({ onJumpToAccount, onEditCategory, refreshKey, filterMonth
           h("span", { style: { fontSize: 10, color: "var(--fg-3)" } }, PT_MONTHS[summary.month])
         ),
         h("div", { style: { padding: "8px 12px 12px", display: "flex", flexDirection: "column", gap: 6 } },
-          budgetRows.slice(0, 6).map((b, i) => {
-            const over = b.spent > b.amount_limit;
-            if (editBudget?.id === b.id) {
+          budgetRows.length === 0
+            ? h("div", { style: { padding: "16px 0", textAlign: "center", color: "var(--fg-3)", fontSize: 11 } },
+                "Nenhum orçamento configurado.",
+                h("br", null),
+                h("span", { style: { fontSize: 10 } }, "Clique em uma categoria no histórico para definir um limite.")
+              )
+            : budgetRows.slice(0, 6).map((b, i) => {
+              const over = b.spent > b.amount_limit;
+              if (editBudget?.id === b.id) {
+                return h("div", { key: i },
+                  h("div", { style: { display: "flex", gap: 4, alignItems: "center", marginBottom: 2 } },
+                    h("span", { style: { flex: 1, fontSize: 11, color: "var(--fg-1)" } }, b.category_name),
+                    h("input", {
+                      autoFocus: true, className: "input", value: budgetInput,
+                      onChange: e => { setBudgetInput(e.target.value); setBudgetErr(null); },
+                      onKeyDown: e => { if (e.key === "Enter") saveBudget(); if (e.key === "Escape") { setEditBudget(null); setBudgetErr(null); } },
+                      style: { height: 24, padding: "0 6px", fontSize: 11, width: 80, borderColor: budgetErr ? "var(--neg)" : undefined }
+                    }),
+                    h("button", { className: "btn btn-primary btn-sm", onClick: saveBudget, style: { height: 24, padding: "0 8px" } }, "✓"),
+                    h("button", { className: "btn btn-ghost btn-sm", onClick: () => { setEditBudget(null); setBudgetErr(null); }, style: { height: 24 } }, "✕")
+                  ),
+                  budgetErr && h("div", { style: { fontSize: 10, color: "var(--neg)", marginBottom: 2 } }, budgetErr),
+                  h(Progress, { value: b.spent, max: b.amount_limit, color: "var(--info)" })
+                );
+              }
               return h("div", { key: i },
-                h("div", { style: { display: "flex", gap: 4, alignItems: "center", marginBottom: 2 } },
-                  h("span", { style: { flex: 1, fontSize: 11, color: "var(--fg-1)" } }, b.category_name),
-                  h("input", {
-                    autoFocus: true, className: "input", value: budgetInput,
-                    onChange: e => setBudgetInput(e.target.value),
-                    onKeyDown: e => { if (e.key === "Enter") saveBudget(); if (e.key === "Escape") setEditBudget(null); },
-                    style: { height: 24, padding: "0 6px", fontSize: 11, width: 80 }
-                  }),
-                  h("button", { className: "btn btn-primary btn-sm", onClick: saveBudget, style: { height: 24, padding: "0 8px" } }, "✓"),
-                  h("button", { className: "btn btn-ghost btn-sm", onClick: () => setEditBudget(null), style: { height: 24 } }, "✕")
+                h("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 10, marginBottom: 3, cursor: "pointer" },
+                  onClick: () => { setEditBudget(b); setBudgetInput(b.amount_limit.toFixed(0)); setBudgetErr(null); }
+                },
+                  h("span", { style: { color: "var(--fg-1)" } }, b.category_name),
+                  h("span", { className: "num", style: { color: over ? "var(--neg)" : "var(--fg-2)" } },
+                    fmtBRL(b.spent, { decimals: 0 }), " / ", fmtBRL(b.amount_limit, { decimals: 0 }))
                 ),
                 h(Progress, { value: b.spent, max: b.amount_limit, color: "var(--info)" })
               );
-            }
-            return h("div", { key: i },
-              h("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 10, marginBottom: 3, cursor: "pointer" },
-                onClick: () => { setEditBudget(b); setBudgetInput(b.amount_limit.toFixed(0)); }
-              },
-                h("span", { style: { color: "var(--fg-1)" } }, b.category_name),
-                h("span", { className: "num", style: { color: over ? "var(--neg)" : "var(--fg-2)" } },
-                  fmtBRL(b.spent, { decimals: 0 }), " / ", fmtBRL(b.amount_limit, { decimals: 0 }))
-              ),
-              h(Progress, { value: b.spent, max: b.amount_limit, color: "var(--info)" })
-            );
-          })
+            })
         )
       )
     ),
@@ -301,23 +317,52 @@ function OverviewView({ onJumpToAccount, onEditCategory, refreshKey, filterMonth
             h("th", null, "Descrição"),
             h("th", null, "Conta"),
             h("th", null, "Categoria"),
-            h("th", { style: { textAlign: "right", width: 110 } }, "Valor")
+            h("th", { style: { textAlign: "right", width: 110 } }, "Valor"),
+            h("th", { style: { width: 32 } })
           )),
           h("tbody", null,
-            activity.map(t =>
-              h("tr", { key: t.id },
-                h("td", { className: "mono", style: { color: "var(--fg-2)" } }, fmtDateBR(t.date)),
-                h("td", { style: { color: "var(--fg-0)" } }, t.description),
-                h("td", null, h(BankChip, { accountId: t.account_id, bank: t.bank })),
-                h("td", null,
-                  t.flow === "expense"
-                    ? h("button", { onClick: () => onEditCategory && onEditCategory(t), style: { fontSize: 10, color: "var(--fg-2)", borderBottom: "1px dashed var(--line-2)", paddingBottom: 1 } }, t.category || "—")
-                    : h("span", { className: "chip pos" }, t.category || "—")
-                ),
-                h("td", { className: "num", style: { color: t.flow === "expense" ? "var(--neg)" : "var(--pos)", fontWeight: 600 } },
-                  t.flow === "expense" ? "−" : "+", fmtBRL(t.amount))
-              )
-            )
+            ...activity.flatMap(t => {
+              const rows = [
+                h("tr", { key: t.id },
+                  h("td", { className: "mono", style: { color: "var(--fg-2)" } }, fmtDateBR(t.date)),
+                  h("td", { style: { color: "var(--fg-0)" } }, t.description),
+                  h("td", null, h(BankChip, { accountId: t.account_id, bank: t.bank })),
+                  h("td", null,
+                    t.flow === "expense"
+                      ? h("button", { onClick: () => onEditCategory && onEditCategory(t), style: { fontSize: 10, color: "var(--fg-2)", borderBottom: "1px dashed var(--line-2)", paddingBottom: 1 } }, t.category || "—")
+                      : h("span", { className: "chip pos" }, t.category || "—")
+                  ),
+                  h("td", { className: "num", style: { color: t.flow === "expense" ? "var(--neg)" : "var(--pos)", fontWeight: 600 } },
+                    t.flow === "expense" ? "−" : "+", fmtBRL(t.amount)),
+                  h("td", { style: { width: 32, textAlign: "center", padding: "0 4px" } },
+                    h("button", {
+                      className: "btn btn-ghost btn-sm",
+                      "aria-label": `Excluir ${t.description}`,
+                      onClick: () => setDeletingTxId(deletingTxId === t.id ? null : t.id),
+                      style: { width: 24, height: 24, padding: 0, fontSize: 14, opacity: 0.3, color: "var(--neg)" }
+                    }, "×")
+                  )
+                )
+              ];
+              if (deletingTxId === t.id) {
+                rows.push(h("tr", { key: `${t.id}-del`, style: { background: "color-mix(in oklch, var(--neg) 10%, transparent)" } },
+                  h("td", { colSpan: 6, style: { padding: "6px 12px" } },
+                    h("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
+                      h("span", { style: { flex: 1, fontSize: "var(--fz-7)", color: "var(--fg-1)" } },
+                        "Excluir ", h("strong", null, t.description), "?"
+                      ),
+                      h("button", { className: "btn btn-ghost btn-sm", onClick: () => setDeletingTxId(null) }, "Cancelar"),
+                      h("button", {
+                        className: "btn btn-sm",
+                        onClick: async () => { await onDeleteTx(t.id); setDeletingTxId(null); },
+                        style: { background: "var(--neg)", color: "var(--fg-0)", borderColor: "var(--neg)" }
+                      }, "Excluir")
+                    )
+                  )
+                ));
+              }
+              return rows;
+            })
           )
         )
       )
@@ -377,7 +422,7 @@ function CategoriesPanel({ refreshKey, onRefresh }) {
 
   return h("div", { style: { padding: "20px 0" } },
     h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 } },
-      h("span", { style: { fontWeight: 700, fontSize: 15 } }, "Categorias de Gasto"),
+      h("span", { style: { fontWeight: 700, fontSize: "var(--fz-4)" } }, "Categorias de Gasto"),
     ),
 
     // Add new category
@@ -385,26 +430,26 @@ function CategoriesPanel({ refreshKey, onRefresh }) {
       h("input", {
         type: "text", placeholder: "Nova categoria…", value: newName,
         onChange: e => setNewName(e.target.value),
-        style: { flex: 1, padding: "6px 10px", borderRadius: 6, border: "1px solid var(--line-2)", background: "var(--bg-1)", color: "var(--fg-0)", fontSize: 13 },
+        className: "input",
       }),
       h("button", {
-        type: "submit", disabled: adding || !newName.trim(),
-        style: { padding: "6px 14px", borderRadius: 6, background: "var(--info)", color: "#fff", border: "none", cursor: "pointer", fontSize: 13 },
+        type: "submit", className: "btn btn-primary", disabled: adding || !newName.trim(),
       }, adding ? "…" : "+ Adicionar"),
     ),
 
-    err ? h("p", { style: { color: "var(--neg)", fontSize: 12, marginBottom: 12 } }, err) : null,
+    err ? h("p", { style: { color: "var(--neg)", fontSize: "var(--fz-8)", marginBottom: 12 } }, err) : null,
 
     // Category list
     h("div", { style: { display: "flex", flexDirection: "column", gap: 6 } },
       cats.map(cat =>
-        h("div", { key: cat.id, style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", background: "var(--bg-1)", borderRadius: 8, border: "1px solid var(--line-2)" } },
-          h("span", { style: { fontSize: 13, fontWeight: 500 } }, cat.name),
+        h("div", { key: cat.id, style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", background: "var(--bg-1)", borderRadius: "var(--r-3)", border: "1px solid var(--line-1)" } },
+          h("span", { style: { fontSize: "var(--fz-6)", fontWeight: 500 } }, cat.name),
           h("div", { style: { display: "flex", alignItems: "center", gap: 12 } },
-            h("span", { style: { fontSize: 12, color: "var(--fg-2)" } }, `${cat.transaction_count} transações`),
+            h("span", { style: { fontSize: "var(--fz-8)", color: "var(--fg-2)" } }, `${cat.transaction_count} transações`),
             h("button", {
+              className: "btn btn-ghost btn-sm",
               onClick: () => { setDeleteModal(cat); setReassignTo(""); setErr(""); },
-              style: { fontSize: 12, color: "var(--neg)", background: "none", border: "none", cursor: "pointer", padding: "2px 6px", borderRadius: 4 },
+              style: { color: "var(--neg)" },
             }, "×"),
           ),
         )
@@ -412,38 +457,32 @@ function CategoriesPanel({ refreshKey, onRefresh }) {
     ),
 
     // Delete confirmation modal
-    deleteModal ? h("div", {
-      style: { position: "fixed", inset: 0, background: "rgba(0,0,0,.55)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center" },
-      onClick: e => { if (e.target === e.currentTarget) setDeleteModal(null); },
-    },
-      h("div", { style: { background: "var(--bg-1)", border: "1px solid var(--line-2)", borderRadius: 14, padding: 28, width: 340, boxShadow: "0 12px 40px rgba(0,0,0,.5)" } },
-        h("h3", { style: { margin: "0 0 8px", fontSize: 15 } }, `Deletar "${deleteModal.name}"?`),
-        deleteModal.transaction_count > 0
-          ? h("p", { style: { fontSize: 13, color: "var(--fg-2)", margin: "0 0 16px" } },
-              `${deleteModal.transaction_count} transação(ões) serão reassignadas para:`
-            )
-          : h("p", { style: { fontSize: 13, color: "var(--fg-2)", margin: "0 0 16px" } }, "Sem transações vinculadas."),
+    h(Modal, { open: !!deleteModal, onClose: () => setDeleteModal(null), title: deleteModal ? `Deletar "${deleteModal.name}"?` : "", width: 360 },
+      deleteModal && h("div", { style: { display: "flex", flexDirection: "column", gap: 12 } },
+        h("p", { style: { fontSize: "var(--fz-7)", color: "var(--fg-2)", margin: 0 } },
+          deleteModal.transaction_count > 0
+            ? `${deleteModal.transaction_count} transação(ões) serão reassignadas para:`
+            : "Sem transações vinculadas."
+        ),
         h("select", {
           value: reassignTo, onChange: e => setReassignTo(e.target.value),
-          style: { width: "100%", padding: "6px 10px", borderRadius: 6, border: "1px solid var(--line-2)", background: "var(--bg-0)", color: "var(--fg-0)", fontSize: 13, marginBottom: 16 },
+          className: "select", style: { fontSize: "var(--fz-7)" },
         },
           h("option", { value: "" }, "Escolher categoria…"),
           otherCats.map(c => h("option", { key: c.id, value: c.id }, c.name)),
         ),
-        err ? h("p", { style: { color: "var(--neg)", fontSize: 12, margin: "0 0 12px" } }, err) : null,
+        err && h("p", { style: { color: "var(--neg)", fontSize: "var(--fz-8)", margin: 0 } }, err),
         h("div", { style: { display: "flex", gap: 8, justifyContent: "flex-end" } },
+          h("button", { className: "btn", onClick: () => setDeleteModal(null) }, "Cancelar"),
           h("button", {
-            onClick: () => setDeleteModal(null),
-            style: { padding: "7px 16px", borderRadius: 8, background: "var(--bg-2)", border: "none", color: "var(--fg-1)", cursor: "pointer", fontSize: 13 },
-          }, "Cancelar"),
-          h("button", {
+            className: "btn",
             onClick: handleDelete,
             disabled: deleting || (!reassignTo && deleteModal.transaction_count > 0),
-            style: { padding: "7px 16px", borderRadius: 8, background: "var(--neg)", border: "none", color: "#fff", cursor: "pointer", fontSize: 13 },
+            style: { background: "var(--neg)", color: "var(--fg-0)", borderColor: "var(--neg)" },
           }, deleting ? "…" : "Confirmar"),
         ),
       )
-    ) : null,
+    ),
   );
 }
 

@@ -1,7 +1,7 @@
 /* view-secondary.js — CardsView, AccountsView, InvestmentsView, HistoryView */
 /* global React, fetchFaturas, fetchRecentTransactions, fetchMonthlyByAccount,
           fetchCategoriesByAccount, fetchAccounts, fetchMonthly, fetchMonthlyFull,
-          fetchInvestments, fetchAccountHistory, fetchMonthTransactions */
+          fetchInvestments, fetchAccountHistory, fetchMonthTransactions, deleteTransaction */
 
 const { useState: _s2St, useEffect: _s2Ef, useMemo: _s2Memo } = React;
 const { fmtBRL, fmtBRLCompact, fmtDateBR, BankChip, Sparkline, BarChart, DualLine, Donut } = window.BS;
@@ -17,7 +17,7 @@ function _fmtCycleDate(ddmmyyyy) {
 }
 
 /* ── CardsView ───────────────────────────────────────────────────────────── */
-function CardsView({ onEditCategory, refreshKey, filterMonth }) {
+function CardsView({ onEditCategory, onDeleteTx, refreshKey, filterMonth }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   const [faturas, setFaturas] = _s2St([]);
   const [activeAcc, setActiveAcc] = _s2St("nu-cc");
@@ -25,6 +25,7 @@ function CardsView({ onEditCategory, refreshKey, filterMonth }) {
   const [monthly, setMonthly] = _s2St([]);
   const [catData, setCatData] = _s2St([]);
   const [filterCat, setFilterCat] = _s2St("");
+  const [deletingTxId, setDeletingTxId] = _s2St(null);
 
   _s2Ef(() => { fetchFaturas().then(setFaturas); }, [refreshKey]);
   _s2Ef(() => {
@@ -57,11 +58,12 @@ function CardsView({ onEditCategory, refreshKey, filterMonth }) {
         return h("button", {
           key: f.accountId,
           onClick: () => setActiveAcc(f.accountId),
+          "aria-pressed": f.accountId === activeAcc,
           style: {
             display: "block", textAlign: "left", padding: 18,
             background: bg, borderRadius: 10,
             border: active ? "2px solid var(--fg-0)" : "2px solid transparent",
-            color: "white", position: "relative", overflow: "hidden", cursor: "pointer",
+            color: "oklch(97% 0.003 250)", position: "relative", overflow: "hidden", cursor: "pointer",
             transition: "transform 0.15s, border-color 0.15s",
             transform: active ? "translateY(-1px)" : "none",
           }
@@ -114,19 +116,50 @@ function CardsView({ onEditCategory, refreshKey, filterMonth }) {
           h("table", { className: "grid-table" },
             h("thead", null, h("tr", null,
               h("th", { style: { width: 60 } }, "Data"), h("th", null, "Descrição"),
-              h("th", null, "Categoria"), h("th", { style: { textAlign: "right", width: 110 } }, "Valor")
+              h("th", null, "Categoria"), h("th", { style: { textAlign: "right", width: 110 } }, "Valor"),
+              h("th", { style: { width: 32 } })
             )),
-            h("tbody", null, filteredTxs.map(t =>
-              h("tr", { key: t.id },
-                h("td", { className: "mono", style: { color: "var(--fg-2)" } }, fmtDateBR(t.date)),
-                h("td", null, t.description),
-                h("td", null,
-                  h("button", { onClick: () => onEditCategory && onEditCategory(t), style: { fontSize: 10, color: "var(--fg-2)", borderBottom: "1px dashed var(--line-2)", paddingBottom: 1 } }, t.category || "—")
-                ),
-                h("td", { className: "num", style: { color: t.flow === "expense" ? "var(--neg)" : "var(--pos)", fontWeight: 600 } },
-                  t.flow === "expense" ? "−" : "+", fmtBRL(t.amount))
-              )
-            ))
+            h("tbody", null,
+              ...filteredTxs.flatMap(t => {
+                const rows = [
+                  h("tr", { key: t.id },
+                    h("td", { className: "mono", style: { color: "var(--fg-2)" } }, fmtDateBR(t.date)),
+                    h("td", null, t.description),
+                    h("td", null,
+                      h("button", { onClick: () => onEditCategory && onEditCategory(t), style: { fontSize: 10, color: "var(--fg-2)", borderBottom: "1px dashed var(--line-2)", paddingBottom: 1 } }, t.category || "—")
+                    ),
+                    h("td", { className: "num", style: { color: t.flow === "expense" ? "var(--neg)" : "var(--pos)", fontWeight: 600 } },
+                      t.flow === "expense" ? "−" : "+", fmtBRL(t.amount)),
+                    h("td", { style: { width: 32, textAlign: "center", padding: "0 4px" } },
+                      h("button", {
+                        className: "btn btn-ghost btn-sm",
+                        "aria-label": `Excluir ${t.description}`,
+                        onClick: () => setDeletingTxId(deletingTxId === t.id ? null : t.id),
+                        style: { width: 24, height: 24, padding: 0, fontSize: 14, opacity: 0.3, color: "var(--neg)" }
+                      }, "×")
+                    )
+                  )
+                ];
+                if (deletingTxId === t.id) {
+                  rows.push(h("tr", { key: `${t.id}-del`, style: { background: "color-mix(in oklch, var(--neg) 10%, transparent)" } },
+                    h("td", { colSpan: 5, style: { padding: "6px 12px" } },
+                      h("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
+                        h("span", { style: { flex: 1, fontSize: "var(--fz-7)", color: "var(--fg-1)" } },
+                          "Excluir ", h("strong", null, t.description), "?"
+                        ),
+                        h("button", { className: "btn btn-ghost btn-sm", onClick: () => setDeletingTxId(null) }, "Cancelar"),
+                        h("button", {
+                          className: "btn btn-sm",
+                          onClick: async () => { await onDeleteTx(t.id); setDeletingTxId(null); },
+                          style: { background: "var(--neg)", color: "var(--fg-0)", borderColor: "var(--neg)" }
+                        }, "Excluir")
+                      )
+                    )
+                  ));
+                }
+                return rows;
+              })
+            )
           )
         )
       ),
@@ -165,11 +198,12 @@ function CardsView({ onEditCategory, refreshKey, filterMonth }) {
 }
 
 /* ── AccountsView ────────────────────────────────────────────────────────── */
-function AccountsView({ onEditCategory, refreshKey, filterMonth }) {
+function AccountsView({ onEditCategory, onDeleteTx, refreshKey, filterMonth }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   const [accounts, setAccounts] = _s2St([]);
   const [activeAcc, setActiveAcc] = _s2St("nu-db");
   const [txs, setTxs] = _s2St([]);
+  const [deletingTxId, setDeletingTxId] = _s2St(null);
 
   _s2Ef(() => {
     fetchAccounts().then(all => {
@@ -233,21 +267,52 @@ function AccountsView({ onEditCategory, refreshKey, filterMonth }) {
         h("table", { className: "grid-table" },
           h("thead", null, h("tr", null,
             h("th", { style: { width: 70 } }, "Data"), h("th", null, "Descrição"),
-            h("th", null, "Categoria"), h("th", { style: { textAlign: "right", width: 110 } }, "Valor")
+            h("th", null, "Categoria"), h("th", { style: { textAlign: "right", width: 110 } }, "Valor"),
+            h("th", { style: { width: 32 } })
           )),
-          h("tbody", null, safeTxs.map(t =>
-            h("tr", { key: t.id },
-              h("td", { className: "mono", style: { color: "var(--fg-2)" } }, fmtDateBR(t.date)),
-              h("td", null, t.description),
-              h("td", null,
-                t.flow === "expense"
-                  ? h("button", { onClick: () => onEditCategory && onEditCategory(t), style: { fontSize: 10, color: "var(--fg-2)", borderBottom: "1px dashed var(--line-2)" } }, t.category || "—")
-                  : h("span", { className: "chip pos" }, t.category || "Receita")
-              ),
-              h("td", { className: "num", style: { color: t.flow === "expense" ? "var(--neg)" : "var(--pos)", fontWeight: 600 } },
-                t.flow === "expense" ? "−" : "+", fmtBRL(t.amount))
-            )
-          ))
+          h("tbody", null,
+            ...safeTxs.flatMap(t => {
+              const rows = [
+                h("tr", { key: t.id },
+                  h("td", { className: "mono", style: { color: "var(--fg-2)" } }, fmtDateBR(t.date)),
+                  h("td", null, t.description),
+                  h("td", null,
+                    t.flow === "expense"
+                      ? h("button", { onClick: () => onEditCategory && onEditCategory(t), style: { fontSize: 10, color: "var(--fg-2)", borderBottom: "1px dashed var(--line-2)" } }, t.category || "—")
+                      : h("span", { className: "chip pos" }, t.category || "Receita")
+                  ),
+                  h("td", { className: "num", style: { color: t.flow === "expense" ? "var(--neg)" : "var(--pos)", fontWeight: 600 } },
+                    t.flow === "expense" ? "−" : "+", fmtBRL(t.amount)),
+                  h("td", { style: { width: 32, textAlign: "center", padding: "0 4px" } },
+                    h("button", {
+                      className: "btn btn-ghost btn-sm",
+                      "aria-label": `Excluir ${t.description}`,
+                      onClick: () => setDeletingTxId(deletingTxId === t.id ? null : t.id),
+                      style: { width: 24, height: 24, padding: 0, fontSize: 14, opacity: 0.3, color: "var(--neg)" }
+                    }, "×")
+                  )
+                )
+              ];
+              if (deletingTxId === t.id) {
+                rows.push(h("tr", { key: `${t.id}-del`, style: { background: "color-mix(in oklch, var(--neg) 10%, transparent)" } },
+                  h("td", { colSpan: 5, style: { padding: "6px 12px" } },
+                    h("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
+                      h("span", { style: { flex: 1, fontSize: "var(--fz-7)", color: "var(--fg-1)" } },
+                        "Excluir ", h("strong", null, t.description), "?"
+                      ),
+                      h("button", { className: "btn btn-ghost btn-sm", onClick: () => setDeletingTxId(null) }, "Cancelar"),
+                      h("button", {
+                        className: "btn btn-sm",
+                        onClick: async () => { await onDeleteTx(t.id); setDeletingTxId(null); },
+                        style: { background: "var(--neg)", color: "var(--fg-0)", borderColor: "var(--neg)" }
+                      }, "Excluir")
+                    )
+                  )
+                ));
+              }
+              return rows;
+            })
+          )
         )
       )
     )
@@ -264,6 +329,14 @@ function InvestmentsView({ refreshKey }) {
   const total = investments.reduce((s, i) => s + (i.balance || i.current_balance || 0), 0);
   const COLORS = ["oklch(72% 0.12 290)", "oklch(72% 0.13 230)", "oklch(72% 0.14 155)"];
   const donutData = investments.map(i => ({ ...i, balance: i.balance || i.current_balance || 0 }));
+
+  if (investments.length === 0) {
+    return h("div", { className: "fade-in card", style: { padding: 40, textAlign: "center", color: "var(--fg-3)" } },
+      h("div", { style: { fontSize: 32, marginBottom: 10, opacity: 0.3 } }, "◈"),
+      h("div", { style: { fontSize: 13, fontWeight: 600, color: "var(--fg-2)", marginBottom: 6 } }, "Nenhum investimento cadastrado"),
+      h("div", { style: { fontSize: 11 } }, "Registre movimentos de investimento pelo bot ou pelo formulário de entrada.")
+    );
+  }
 
   return h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 14 } },
     h("div", { style: { display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: 14 } },
@@ -313,7 +386,7 @@ function InvestmentsView({ refreshKey }) {
 
 /* ── HistoryView — Lupa do mês ───────────────────────────────────────────── */
 
-function HistoryView({ refreshKey, onEditCategory }) {
+function HistoryView({ refreshKey, onEditCategory, onDeleteTx }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   const [monthly, setMonthly] = _s2St([]);
   const [pickedIdx, setPickedIdx] = _s2St(-1);
@@ -321,6 +394,7 @@ function HistoryView({ refreshKey, onEditCategory }) {
   const [filterFlow, setFilterFlow] = _s2St("all");
   const [filterCat, setFilterCat] = _s2St("all");
   const [search, setSearch] = _s2St("");
+  const [deletingTxId, setDeletingTxId] = _s2St(null);
 
   _s2Ef(() => {
     fetchMonthlyFull().then(data => {
@@ -461,6 +535,9 @@ function HistoryView({ refreshKey, onEditCategory }) {
           h("div", { className: "num", style: { fontSize: 24, fontWeight: 700, color: s.c, marginTop: 4, letterSpacing: "-0.02em" } }, s.v),
           h("div", { style: { marginTop: 6 } },
             h("span", { style: { fontSize: 10, color: s.subColor, fontWeight: 500 } }, s.sub)
+          ),
+          s.sparkData && s.sparkData.length > 1 && h("div", { style: { marginTop: 10 } },
+            h(Sparkline, { data: s.sparkData, color: s.c, height: 28, fill: true, strokeWidth: 1.5 })
           )
         )
       )
@@ -548,27 +625,56 @@ function HistoryView({ refreshKey, onEditCategory }) {
               h("th", null, "Descrição"),
               h("th", { style: { width: 110 } }, "Categoria"),
               h("th", { style: { width: 100 } }, "Conta"),
-              h("th", { style: { textAlign: "right", width: 100 } }, "Valor")
+              h("th", { style: { textAlign: "right", width: 100 } }, "Valor"),
+              h("th", { style: { width: 32 } })
             )),
             h("tbody", null,
-              filteredTx.length === 0 && h("tr", null, h("td", { colSpan: 5, style: { textAlign: "center", padding: 30, color: "var(--fg-3)" } }, "Nenhuma transação.")),
-              filteredTx.map(t =>
-                h("tr", { key: t.id },
-                  h("td", { className: "mono", style: { color: "var(--fg-2)" } }, fmtDateBR(t.date)),
-                  h("td", { style: { maxWidth: 260 } },
-                    h("div", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, t.description)
-                  ),
-                  h("td", null,
-                    t.flow === "expense"
-                      ? h("button", { onClick: () => onEditCategory && onEditCategory(t), style: { fontSize: 10, color: "var(--fg-2)", borderBottom: "1px dashed var(--line-2)", paddingBottom: 1 } }, t.category || "—")
-                      : h("span", { className: "chip pos" }, t.category || "Receita")
-                  ),
-                  h("td", null, h(BankChip, { accountId: t.account_id, bank: t.bank })),
-                  h("td", { className: "num", style: { color: t.flow === "expense" ? "var(--neg)" : "var(--pos)", fontWeight: 600 } },
-                    t.flow === "expense" ? "−" : "+", fmtBRL(t.amount)
+              filteredTx.length === 0 && h("tr", null, h("td", { colSpan: 6, style: { textAlign: "center", padding: 30, color: "var(--fg-3)" } }, "Nenhuma transação.")),
+              ...filteredTx.flatMap(t => {
+                const rows = [
+                  h("tr", { key: t.id },
+                    h("td", { className: "mono", style: { color: "var(--fg-2)" } }, fmtDateBR(t.date)),
+                    h("td", { style: { maxWidth: 260 } },
+                      h("div", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, t.description)
+                    ),
+                    h("td", null,
+                      t.flow === "expense"
+                        ? h("button", { onClick: () => onEditCategory && onEditCategory(t), style: { fontSize: 10, color: "var(--fg-2)", borderBottom: "1px dashed var(--line-2)", paddingBottom: 1 } }, t.category || "—")
+                        : h("span", { className: "chip pos" }, t.category || "Receita")
+                    ),
+                    h("td", null, h(BankChip, { accountId: t.account_id, bank: t.bank })),
+                    h("td", { className: "num", style: { color: t.flow === "expense" ? "var(--neg)" : "var(--pos)", fontWeight: 600 } },
+                      t.flow === "expense" ? "−" : "+", fmtBRL(t.amount)
+                    ),
+                    h("td", { style: { width: 32, textAlign: "center", padding: "0 4px" } },
+                      h("button", {
+                        className: "btn btn-ghost btn-sm",
+                        "aria-label": `Excluir ${t.description}`,
+                        onClick: () => setDeletingTxId(deletingTxId === t.id ? null : t.id),
+                        style: { width: 24, height: 24, padding: 0, fontSize: 14, opacity: 0.3, color: "var(--neg)" }
+                      }, "×")
+                    )
                   )
-                )
-              )
+                ];
+                if (deletingTxId === t.id) {
+                  rows.push(h("tr", { key: `${t.id}-del`, style: { background: "color-mix(in oklch, var(--neg) 10%, transparent)" } },
+                    h("td", { colSpan: 6, style: { padding: "6px 12px" } },
+                      h("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
+                        h("span", { style: { flex: 1, fontSize: "var(--fz-7)", color: "var(--fg-1)" } },
+                          "Excluir ", h("strong", null, t.description), "?"
+                        ),
+                        h("button", { className: "btn btn-ghost btn-sm", onClick: () => setDeletingTxId(null) }, "Cancelar"),
+                        h("button", {
+                          className: "btn btn-sm",
+                          onClick: async () => { await onDeleteTx(t.id); setDeletingTxId(null); },
+                          style: { background: "var(--neg)", color: "var(--fg-0)", borderColor: "var(--neg)" }
+                        }, "Excluir")
+                      )
+                    )
+                  ));
+                }
+                return rows;
+              })
             )
           )
         )
