@@ -388,18 +388,41 @@ function Progress({ value, max, color = "var(--info)" }) {
 
 /* ── Modal ──────────────────────────────────────────────────────────────── */
 function Modal({ open, onClose, title, children, width = 480 }) {
+  const dialogRef = _useRef(null);
+  const titleId   = _useRef("modal-title-" + Math.random().toString(36).slice(2)).current;
+
+  _useEffect(() => {
+    if (!open || !dialogRef.current) return;
+    const prev = document.activeElement;
+    const sel  = 'button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])';
+    const get  = () => Array.from(dialogRef.current.querySelectorAll(sel));
+    get()[0]?.focus();
+    function trap(e) {
+      if (e.key !== "Tab") return;
+      const nodes = get();
+      if (!nodes.length) { e.preventDefault(); return; }
+      const fi = nodes[0], la = nodes[nodes.length - 1];
+      if (e.shiftKey) { if (document.activeElement === fi) { e.preventDefault(); la?.focus(); } }
+      else            { if (document.activeElement === la) { e.preventDefault(); fi?.focus(); } }
+    }
+    document.addEventListener("keydown", trap);
+    return () => { document.removeEventListener("keydown", trap); prev?.focus(); };
+  }, [open]);
+
   if (!open) return null;
   return React.createElement("div", {
-    onClick: onClose,
-    style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }
+    onClick: onClose, role: "presentation",
+    style: { position: "fixed", inset: 0, background: "oklch(0% 0 0 / 0.55)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }
   },
     React.createElement("div", {
+      ref: dialogRef,
       onClick: e => e.stopPropagation(), className: "card fade-in",
-      style: { width, maxWidth: "92vw", maxHeight: "88vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.4)", borderRadius: 12 }
+      role: "dialog", "aria-modal": "true", "aria-labelledby": titleId,
+      style: { width, maxWidth: "92vw", maxHeight: "88vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px oklch(0% 0 0 / 0.4)", borderRadius: 12 }
     },
       React.createElement("div", { style: { padding: "14px 18px", borderBottom: "1px solid var(--line-1)", display: "flex", alignItems: "center", justifyContent: "space-between" } },
-        React.createElement("div", { style: { fontWeight: 600, fontSize: "var(--fz-5)" } }, title),
-        React.createElement("button", { onClick: onClose, className: "btn btn-ghost btn-sm" }, "✕")
+        React.createElement("div", { id: titleId, style: { fontWeight: 600, fontSize: "var(--fz-5)" } }, title),
+        React.createElement("button", { onClick: onClose, className: "btn btn-ghost btn-sm", "aria-label": "Fechar" }, "✕")
       ),
       React.createElement("div", { style: { padding: 18, overflow: "auto" } }, children)
     )
@@ -415,12 +438,21 @@ function useToasts() {
     setTimeout(() => setList(l => l.filter(t => t.id !== id)), 3500);
   }, []);
   const Toaster = () => React.createElement("div", {
+    role: "status", "aria-live": "polite", "aria-atomic": "false",
     style: { position: "fixed", bottom: 20, right: 20, display: "flex", flexDirection: "column", gap: 8, zIndex: 200 }
   },
-    list.map(t => React.createElement("div", {
-      key: t.id, className: "toast card",
-      style: { borderLeft: `3px solid ${t.kind === "success" ? "var(--pos)" : t.kind === "error" ? "var(--neg)" : "var(--info)"}`, padding: "10px 14px", minWidth: 240, fontSize: "var(--fz-6)", boxShadow: "0 4px 16px rgba(0,0,0,0.3)" }
-    }, t.msg))
+    list.map(t => {
+      const _k = t.kind === "success" ? "pos" : t.kind === "error" ? "neg" : "info";
+      return React.createElement("div", {
+        key: t.id, className: "toast card",
+        style: {
+          background: `var(--${_k}-bg)`,
+          border: `1px solid color-mix(in oklch, var(--${_k}) 30%, transparent)`,
+          padding: "10px 14px", minWidth: 240, fontSize: "var(--fz-6)",
+          boxShadow: "0 4px 16px oklch(0% 0 0 / 0.3)"
+        }
+      }, t.msg);
+    })
   );
   return { push, Toaster };
 }
@@ -497,6 +529,7 @@ function BrokerSharkLogo({ size = 28 }) {
   return React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: 8 } },
     React.createElement("img", {
       src: "/static/img/favicon.ico",
+      alt: "",
       width: size, height: size,
       style: { borderRadius: 6, display: "block", flexShrink: 0 }
     }),

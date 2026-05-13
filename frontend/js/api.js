@@ -67,3 +67,8 @@ async function deleteCategory(id, reassignToId) {
   if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || "request failed"); }
   return r.json();
 }
+async function deleteTransaction(id) {
+  const r = await fetch(`/api/transactions/${id}`, { method: "DELETE" });
+  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || "request failed"); }
+  return r.json();
+}

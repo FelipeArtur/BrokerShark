@@ -1,7 +1,7 @@
 /* app.js — BrokerShark v2 app shell */
 /* global React, ReactDOM, fetchExpenseCategories, patchTransactionCategory,
           postTransaction, postIncome, postInvestmentMovement, searchTransactions,
-          fetchExpenseCategoriesFull, postCategory, deleteCategory */
+          fetchExpenseCategoriesFull, postCategory, deleteCategory, deleteTransaction */
 
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
 const {
@@ -51,16 +51,21 @@ function CategoryEditor({ tx, onClose, onSave }) {
   const [cats, setCats] = useState([]);
   const [selected, setSelected] = useState(tx?.category_id || null);
   const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState(null);
 
   useEffect(() => {
-    if (tx) { fetchExpenseCategories().then(setCats); setSelected(tx.category_id); }
+    if (tx) { fetchExpenseCategories().then(setCats); setSelected(tx.category_id); setErr(null); }
   }, [tx]);
 
   async function save() {
     if (!selected || saving) return;
-    setSaving(true);
-    try { await patchTransactionCategory(tx.id, selected); onSave(selected); }
-    catch (e) { console.error(e); }
+    setSaving(true); setErr(null);
+    try {
+      await patchTransactionCategory(tx.id, selected);
+      const catName = cats.find(c => c.id === selected)?.name || "";
+      onSave(selected, catName);
+    }
+    catch (e) { setErr(e.message || "Erro ao salvar categoria."); }
     finally { setSaving(false); }
   }
 
@@ -71,6 +76,7 @@ function CategoryEditor({ tx, onClose, onSave }) {
         cats.map(c => h("button", {
           key: c.id, type: "button",
           onClick: () => setSelected(c.id),
+          "aria-pressed": selected === c.id,
           style: {
             padding: "8px 12px", borderRadius: 6, textAlign: "left",
             fontSize: "var(--fz-7)", fontWeight: selected === c.id ? 600 : 400,
@@ -80,6 +86,7 @@ function CategoryEditor({ tx, onClose, onSave }) {
           }
         }, c.name))
       ),
+      err && h("div", { style: { fontSize: 11, color: "var(--neg)", padding: "4px 0" } }, err),
       h("button", { className: "btn btn-primary", onClick: save, disabled: !selected || saving, style: { marginTop: 4 } },
         saving ? "Salvando…" : "Salvar categoria")
     )
@@ -97,11 +104,12 @@ function TweaksPanel({ tw, setTw, onClose, onOpenCategories }) {
       style: { padding: "3px 8px", fontSize: 11, borderRadius: 4, border: o === value ? "1px solid var(--info)" : "1px solid var(--line-1)", background: o === value ? "var(--info-bg)" : "var(--bg-2)", color: o === value ? "var(--info)" : "var(--fg-1)" }
     }, o))
   );
-  const Toggle = ({ value, onChange }) => h("button", {
-    type: "button", onClick: () => onChange(!value),
+  const Toggle = ({ value, onChange, "aria-label": ariaLabel }) => h("button", {
+    type: "button", role: "switch", "aria-checked": String(value), "aria-label": ariaLabel,
+    onClick: () => onChange(!value),
     style: { width: 36, height: 20, borderRadius: 999, background: value ? "var(--info)" : "var(--bg-3)", border: "none", position: "relative", transition: "background 0.2s", cursor: "pointer" }
   },
-    h("span", { style: { position: "absolute", top: 2, left: value ? 18 : 2, width: 16, height: 16, borderRadius: "50%", background: "white", transition: "left 0.2s" } })
+    h("span", { style: { position: "absolute", top: 2, left: value ? 18 : 2, width: 16, height: 16, borderRadius: "50%", background: "var(--fg-0)", transition: "left 0.2s" } })
   );
 
   const Section = ({ label }) => h("div", {
@@ -119,11 +127,11 @@ function TweaksPanel({ tw, setTw, onClose, onOpenCategories }) {
     h(Row, { label: "Densidade" },     h(Radio, { options: ["compact", "default", "comfortable"], value: tw.density, onChange: v => setTw("density", v) })),
 
     h(Section, { label: "Layout" }),
-    h(Row, { label: "Sidebar à direita" }, h(Toggle, { value: tw.sidebarSide === "right", onChange: v => setTw("sidebarSide", v ? "right" : "left") })),
-    h(Row, { label: "Sidebar sempre aberto" }, h(Toggle, { value: tw.alwaysOpenSidebar, onChange: v => setTw("alwaysOpenSidebar", v) })),
+    h(Row, { label: "Sidebar à direita" }, h(Toggle, { value: tw.sidebarSide === "right", onChange: v => setTw("sidebarSide", v ? "right" : "left"), "aria-label": "Sidebar à direita" })),
+    h(Row, { label: "Sidebar sempre aberto" }, h(Toggle, { value: tw.alwaysOpenSidebar, onChange: v => setTw("alwaysOpenSidebar", v), "aria-label": "Sidebar sempre aberto" })),
 
     h(Section, { label: "Interface" }),
-    h(Row, { label: "Atalhos de teclado" }, h(Toggle, { value: tw.showKeyboardHints, onChange: v => setTw("showKeyboardHints", v) })),
+    h(Row, { label: "Atalhos de teclado" }, h(Toggle, { value: tw.showKeyboardHints, onChange: v => setTw("showKeyboardHints", v), "aria-label": "Atalhos de teclado" })),
 
     h("div", { style: { marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--line-1)", display: "flex", flexDirection: "column", gap: 4 } },
       h("button", {
@@ -180,6 +188,10 @@ function SearchModal({ onClose, onSelect }) {
       onClick: e => e.stopPropagation(),
       style: { width: 520, background: "var(--bg-1)", border: "1px solid var(--line-2)", borderRadius: 12, boxShadow: "0 20px 60px rgba(0,0,0,0.6)", overflow: "hidden" }
     },
+      h("div", {
+        "aria-live": "polite", "aria-atomic": "true",
+        style: { position: "absolute", width: 1, height: 1, padding: 0, margin: -1, overflow: "hidden", clip: "rect(0,0,0,0)", whiteSpace: "nowrap", border: 0 }
+      }, query.length >= 2 ? `${results.length} resultado${results.length !== 1 ? "s" : ""}` : ""),
       h("div", { style: { display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderBottom: "1px solid var(--line-1)" } },
         h("span", { style: { color: "var(--fg-3)", fontSize: 16, fontFamily: "var(--ff-mono)", flexShrink: 0 } }, "⌕"),
         h("input", {
@@ -281,6 +293,16 @@ function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [tw.alwaysOpenSidebar]);
 
+  async function handleDeleteTx(id) {
+    try {
+      await deleteTransaction(id);
+      push("Lançamento excluído.", "success");
+      setRefreshKey(k => k + 1);
+    } catch (e) {
+      push(e.message || "Erro ao excluir lançamento.", "error");
+    }
+  }
+
   async function handleSubmit(data) {
     try {
       if (data.kind === "expense" || !data.kind) {
@@ -322,6 +344,7 @@ function App() {
         SECTIONS.map(s => h("button", {
           key: s.id, className: `nav-btn${section === s.id ? " active" : ""}`,
           onClick: () => setSection(s.id),
+          "aria-current": section === s.id ? "page" : undefined,
         },
           s.label,
           tw.showKeyboardHints && h("span", { className: "kbd", style: { marginLeft: 2, opacity: section === s.id ? 1 : 0.5 } }, s.key)
@@ -373,8 +396,12 @@ function App() {
       // Tweaks
       h("button", { className: "btn btn-ghost btn-sm", onClick: () => setTweaksOpen(o => !o), title: "Aparência" }, "⚙"),
 
-      // Import CSV (placeholder)
-      h("button", { className: "btn btn-sm", onClick: () => push("Use o bot Telegram para importar CSV.", "info"), style: { height: 30 } },
+      h("button", {
+        className: "btn btn-sm",
+        onClick: () => push("Importação CSV via web em desenvolvimento. Use o script load_data/import_history.py para importações em lote.", "info"),
+        title: "Importação CSV — em desenvolvimento",
+        style: { height: 30, opacity: 0.6 }
+      },
         h("span", { style: { fontFamily: "var(--ff-mono)", fontWeight: 700 } }, "⤓"), " CSV"
       ),
 
@@ -403,11 +430,11 @@ function App() {
 
       // Main content
       h("main", { className: "app-main" },
-        section === "overview"    && h(OverviewView,    { onJumpToAccount: () => setSection("cards"), onEditCategory: setEditTx, refreshKey, filterMonth }),
-        section === "cards"       && h(CardsView,       { onEditCategory: setEditTx, refreshKey, filterMonth }),
-        section === "accounts"    && h(AccountsView,    { onEditCategory: setEditTx, refreshKey, filterMonth }),
+        section === "overview"    && h(OverviewView,    { onJumpToAccount: () => setSection("cards"), onEditCategory: setEditTx, onDeleteTx: handleDeleteTx, refreshKey, filterMonth }),
+        section === "cards"       && h(CardsView,       { onEditCategory: setEditTx, onDeleteTx: handleDeleteTx, refreshKey, filterMonth }),
+        section === "accounts"    && h(AccountsView,    { onEditCategory: setEditTx, onDeleteTx: handleDeleteTx, refreshKey, filterMonth }),
         section === "investments" && h(InvestmentsView, { refreshKey }),
-        section === "history"     && h(HistoryView,     { onEditCategory: setEditTx, refreshKey }),
+        section === "history"     && h(HistoryView,     { onEditCategory: setEditTx, onDeleteTx: handleDeleteTx, refreshKey }),
         section === "categories"  && h(CategoriesPanel, { refreshKey, onRefresh: () => setRefreshKey(k => k + 1) }),
 
         h("footer", { style: { marginTop: 20, padding: "12px 0", borderTop: "1px solid var(--line-1)", fontSize: 10, color: "var(--fg-3)", display: "flex", justifyContent: "space-between" } },
@@ -436,9 +463,8 @@ function App() {
 
     h(CategoryEditor, {
       tx: editTx, onClose: () => setEditTx(null),
-      onSave: catId => {
-        const catNames = { 1: "Alimentação", 2: "Carro", 3: "Jogos", 4: "Lazer", 5: "Atividade física", 6: "Eletrônicos", 7: "Educação", 8: "Igreja", 9: "Dízimo", 10: "Outro" };
-        push(`Categoria: ${catNames[catId] || "atualizada"}`, "success");
+      onSave: (catId, catName) => {
+        push(`Categoria: ${catName || "atualizada"}`, "success");
         setEditTx(null);
         setRefreshKey(k => k + 1);
       }

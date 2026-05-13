@@ -393,6 +393,30 @@ def get_transaction(transaction_id: int) -> Optional[sqlite3.Row]:
         ).fetchone()
 
 
+def delete_transaction(tx_id: int) -> bool:
+    """Delete a transaction by ID.
+
+    Raises:
+        ValueError: If the transaction is a protected fatura payment.
+
+    Returns:
+        ``True`` if deleted, ``False`` if not found.
+    """
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT method, dest_account_id FROM transactions WHERE id = ?", (tx_id,)
+        ).fetchone()
+        if row is None:
+            return False
+        if row["method"] == "transfer" and row["dest_account_id"] in ("nu-cc", "inter-cc"):
+            raise ValueError(
+                "Pagamentos de fatura não podem ser excluídos. "
+                "Este lançamento representa o total da fatura paga e é usado no cálculo do patrimônio."
+            )
+        conn.execute("DELETE FROM transactions WHERE id = ?", (tx_id,))
+        return True
+
+
 def get_transactions_by_period(
     start_date: str, end_date: str, flow: Optional[str] = None
 ) -> list[sqlite3.Row]:
