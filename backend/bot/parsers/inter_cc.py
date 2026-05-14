@@ -37,6 +37,15 @@ _PREV_CYCLE_CHARGES = frozenset({
     "ENCARGOS ROTATIVO",
 })
 
+# Inter CC exports CC bill payments as positive "Compra à vista" rows — they are
+# not purchases. Skip them to avoid double-counting with the inter-db transfer
+# that already covers the fatura payment (dest_account_id='inter-cc').
+_PAYMENT_DESCRIPTIONS = frozenset({
+    "PAGAMENTO ON LINE",
+    "DEB AUT PARCIAL",
+    "EST DEB AUTOM PARCIAL MAN",
+})
+
 
 def parse(content: str, adjust_installment_dates: bool = True) -> list[dict[str, Any]]:
     """Parse an Inter credit card CSV export into a list of transaction dicts.
@@ -88,6 +97,9 @@ def parse(content: str, adjust_installment_dates: bool = True) -> list[dict[str,
                 or ""
             ).strip()
             if not description:
+                continue
+
+            if description in _PAYMENT_DESCRIPTIONS:
                 continue
 
             # Revolving-credit charges belong to the cycle that just closed —

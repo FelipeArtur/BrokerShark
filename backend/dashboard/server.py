@@ -109,13 +109,15 @@ def api_summary() -> Response:
             investments = [inv for inv in investments if inv["bank"] == bank]
         reservas_total = sum(inv["current_balance"] for inv in investments)
     return jsonify({
-        "month": month,
-        "year": year,
-        "income": summary["income"],
-        "expenses": summary["expenses"],
-        "balance": summary["income"] - summary["expenses"],
-        "reservas": reservas_total,
-        "top_category": summary.get("top_category"),
+        "month":         month,
+        "year":          year,
+        "income":        summary["income"],
+        "salary_income": summary.get("salary_income", 0.0),
+        "other_income":  summary.get("other_income", 0.0),
+        "expenses":      summary["expenses"],
+        "balance":       summary["income"] - summary["expenses"],
+        "reservas":      reservas_total,
+        "top_category":  summary.get("top_category"),
     })
 
 
@@ -134,8 +136,15 @@ def api_accounts() -> Response:
     if bank:
         accounts = [a for a in accounts if a["bank"] == bank]
     return jsonify([
-        {"id": a["id"], "name": a["name"], "type": a["type"],
-         "bank": a["bank"], "balance": a["balance"]}
+        {
+            "id":                 a["id"],
+            "name":               a["name"],
+            "type":               a["type"],
+            "bank":               a["bank"],
+            "balance":            a["balance"],
+            "gross_balance":      a["gross_balance"],
+            "investment_balance": a["investment_balance"],
+        }
         for a in accounts
     ])
 
@@ -155,10 +164,24 @@ def api_investments() -> Response:
     if bank:
         investments = [inv for inv in investments if inv["bank"] == bank]
     return jsonify([
-        {"name": inv["name"], "balance": inv["current_balance"],
+        {"id": inv["id"], "name": inv["name"], "balance": inv["current_balance"],
          "type": inv["type"], "bank": inv["bank"]}
         for inv in investments
     ])
+
+
+@app.route("/api/investments/<int:inv_id>/balance", methods=["PATCH"])
+def api_patch_investment_balance(inv_id: int) -> Response:
+    """Update the current balance of an investment to its real-world value.
+
+    Body JSON: ``{"balance": float}``
+    """
+    body = request.get_json(silent=True) or {}
+    new_balance = body.get("balance")
+    if new_balance is None or not isinstance(new_balance, (int, float)):
+        return jsonify({"error": "Campo 'balance' obrigatório (número)."}), 400
+    database.update_investment_balance(inv_id, float(new_balance))
+    return jsonify({"ok": True, "id": inv_id, "balance": float(new_balance)})
 
 
 @app.route("/api/monthly")
@@ -565,6 +588,16 @@ def api_post_income() -> Response:
         is_revenue=is_revenue,
     )
     return jsonify({"ok": True, "id": tx_id})
+
+
+@app.route("/api/investment-movements", methods=["GET"])
+def api_get_investment_movements() -> Response:
+    """Return investment movements for a given month/year."""
+    month = request.args.get("month", type=int)
+    year  = request.args.get("year",  type=int)
+    if not month or not year:
+        return jsonify([])
+    return jsonify(database.get_investment_movements_for_month(month, year))
 
 
 @app.route("/api/investment-movements", methods=["POST"])

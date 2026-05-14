@@ -200,7 +200,28 @@ select.select {
     border-left: none; padding-left: 0;
     border-top: 1px solid var(--line-1); padding-top: 20px;
   }
+  .app-sidebar {
+    position: fixed;
+    top: var(--topbar-h);
+    height: calc(100vh - var(--topbar-h));
+    z-index: 40;
+    width: 280px;
+    box-shadow: 0 0 40px oklch(0% 0 0 / 0.5);
+  }
+  .app-sidebar.left { left: 0; border-right: none; }
+  .app-sidebar.right { right: 0; border-left: none; }
+  .sidebar-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    top: var(--topbar-h);
+    z-index: 30;
+    background: oklch(0% 0 0 / 0.4);
+    backdrop-filter: blur(2px);
+  }
 }
+
+.sidebar-overlay { display: none; }
 
 /* App shell layout */
 .app-topbar {
@@ -247,7 +268,7 @@ select.select {
 
 /* Progress bar */
 .progress-bar { width: 100%; height: 4px; background: var(--bg-3); border-radius: 999px; overflow: hidden; }
-.progress-fill { height: 100%; border-radius: 999px; transition: width 0.3s; }
+.progress-fill { height: 100%; border-radius: 999px; transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); transform-origin: left; width: 100%; }
 
 /* Tweaks panel — positioned dropdown from topbar */
 .tweaks-overlay {

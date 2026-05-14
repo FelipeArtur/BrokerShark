@@ -29,8 +29,8 @@ function CardsView({ onEditCategory, onDeleteTx, refreshKey, filterMonth, onImpo
   }, [activeAcc, filterMonth, refreshKey]);
 
   const safeTxsCards = Array.isArray(txs) ? txs : [];
-  const filteredTxs  = filterCat ? safeTxsCards.filter(t => t.category === filterCat) : safeTxsCards;
-  const cats    = [...new Set(safeTxsCards.map(t => t.category).filter(Boolean))].sort();
+  const filteredTxs  = _s2Memo(() => filterCat ? safeTxsCards.filter(t => t.category === filterCat) : safeTxsCards, [safeTxsCards, filterCat]);
+  const cats    = _s2Memo(() => [...new Set(safeTxsCards.map(t => t.category).filter(Boolean))].sort(), [safeTxsCards]);
   const catMax  = catData.length ? catData[0].total : 1;
 
   return h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 14 } },
@@ -112,7 +112,7 @@ function CardsView({ onEditCategory, onDeleteTx, refreshKey, filterMonth, onImpo
             )
           )
         ),
-        h("div", { style: { overflowY: "auto", maxHeight: 460 } },
+        h("div", { style: { overflow: "auto", maxHeight: 460 } },
           h("table", { className: "grid-table" },
             h("thead", null, h("tr", null,
               h("th", { style: { width: 60 } }, "Data"), h("th", null, "Descrição"),
@@ -120,45 +120,13 @@ function CardsView({ onEditCategory, onDeleteTx, refreshKey, filterMonth, onImpo
               h("th", { style: { width: 32 } })
             )),
             h("tbody", null,
-              ...filteredTxs.flatMap(t => {
-                const rows = [
-                  h("tr", { key: t.id },
-                    h("td", { className: "mono", style: { color: "var(--fg-2)" } }, fmtDateBR(t.date)),
-                    h("td", null, t.description),
-                    h("td", null,
-                      h("button", { onClick: () => onEditCategory && onEditCategory(t), style: { fontSize: 10, color: "var(--fg-2)", borderBottom: "1px dashed var(--line-2)", paddingBottom: 1 } }, t.category || "—")
-                    ),
-                    h("td", { className: "num", style: { color: t.flow === "expense" ? "var(--neg)" : "var(--pos)", fontWeight: 600 } },
-                      t.flow === "expense" ? "−" : "+", fmtBRL(t.amount)),
-                    h("td", { style: { width: 32, textAlign: "center", padding: "0 4px" } },
-                      h("button", {
-                        className: "btn btn-ghost btn-sm",
-                        "aria-label": `Excluir ${t.description}`,
-                        onClick: () => setDeletingTxId(deletingTxId === t.id ? null : t.id),
-                        style: { width: 24, height: 24, padding: 0, fontSize: 14, opacity: 0.3, color: "var(--neg)" }
-                      }, "×")
-                    )
-                  )
-                ];
-                if (deletingTxId === t.id) {
-                  rows.push(h("tr", { key: `${t.id}-del`, style: { background: "color-mix(in oklch, var(--neg) 10%, transparent)" } },
-                    h("td", { colSpan: 5, style: { padding: "6px 12px" } },
-                      h("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
-                        h("span", { style: { flex: 1, fontSize: "var(--fz-7)", color: "var(--fg-1)" } },
-                          "Excluir ", h("strong", null, t.description), "?"
-                        ),
-                        h("button", { className: "btn btn-ghost btn-sm", onClick: () => setDeletingTxId(null) }, "Cancelar"),
-                        h("button", {
-                          className: "btn btn-sm",
-                          onClick: async () => { await onDeleteTx(t.id); setDeletingTxId(null); },
-                          style: { background: "var(--neg)", color: "var(--fg-0)", borderColor: "var(--neg)" }
-                        }, "Excluir")
-                      )
-                    )
-                  ));
-                }
-                return rows;
-              })
+              ...filteredTxs.map(t => h(window.BS.TxRow, {
+                key: t.id, t, cols: ["date", "desc", "cat", "amount", "actions"],
+                deleting: deletingTxId === t.id,
+                onEditCategory,
+                onSetDeleting: setDeletingTxId,
+                onDeleteTx
+              }))
             )
           )
         )
@@ -179,7 +147,7 @@ function CardsView({ onEditCategory, onDeleteTx, refreshKey, filterMonth, onImpo
               )
         ),
         h("div", { className: "card" },
-          h("div", { className: "card-h" }, h("div", { className: "card-title" }, "Categorias do cartão")),
+          h("div", { className: "card-h" }, h("div", { className: "card-title" }, "Categorias")),
           h("div", { style: { padding: 12 } },
             catData.slice(0, 6).map((c, i) =>
               h("div", { key: i, style: { display: "flex", alignItems: "center", gap: 8, padding: "5px 0", fontSize: 11 } },
@@ -220,50 +188,72 @@ function AccountsView({ onEditCategory, onDeleteTx, refreshKey, filterMonth }) {
   }, [activeAcc, filterMonth, refreshKey]);
 
   const safeTxs = Array.isArray(txs) ? txs : [];
-  const monthIncome = safeTxs.filter(t => t.flow === "income").reduce((s, t) => s + t.amount, 0);
-  const monthExp    = safeTxs.filter(t => t.flow === "expense").reduce((s, t) => s + t.amount, 0);
+  // Only count real income/expenses (exclude inter-account transfers)
+  const realInc = t => t.flow === "income";
+  const realExp = t => t.flow === "expense" && !t.dest_account_id;
+  const transferExp = t => t.flow === "expense" && !!t.dest_account_id;
 
   return h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 14 } },
 
     h("div", { style: { display: "grid", gridTemplateColumns: `repeat(${accounts.length || 2}, 1fr)`, gap: 14 } },
-      accounts.map(a =>
-        h("button", {
+      accounts.map(a => {
+        const accInc  = safeTxs.filter(t => realInc(t)    && t.account_id === a.id).reduce((s, t) => s + t.amount, 0);
+        const accExp  = safeTxs.filter(t => realExp(t)    && t.account_id === a.id).reduce((s, t) => s + t.amount, 0);
+        const accTran = safeTxs.filter(t => transferExp(t) && t.account_id === a.id).reduce((s, t) => s + t.amount, 0);
+        const invBal  = a.investment_balance || 0;
+        return h("button", {
           key: a.id, onClick: () => setActiveAcc(a.id), className: "card",
           style: { padding: 16, textAlign: "left", cursor: "pointer", borderColor: a.id === activeAcc ? "var(--info)" : "var(--line-1)", background: a.id === activeAcc ? "var(--bg-2)" : "var(--bg-1)", transition: "all 0.15s" }
         },
           h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start" } },
-            h("div", null,
+            h("div", { style: { flex: 1 } },
               h(BankChip, { accountId: a.id }),
-              h("div", { className: "num", style: { fontSize: 24, fontWeight: 700, marginTop: 8, color: a.balance >= 0 ? "var(--fg-0)" : "var(--neg)" } }, fmtBRL(a.balance)),
-              h("div", { style: { fontSize: 10, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 600 } }, "Saldo disponível")
+              h("div", { className: "num", style: { fontSize: 24, fontWeight: 700, marginTop: 8 } }, fmtBRL(a.gross_balance || 0)),
+              h("div", { style: { fontSize: 10, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 600 } }, "Total banco"),
+              invBal > 0 && h("div", { style: { display: "flex", alignItems: "center", gap: 4, marginTop: 4 } },
+                h("span", { style: { fontSize: 9, color: "var(--fg-3)" } }, "dos quais"),
+                h("span", { style: { fontSize: 10, color: "var(--reserve)", fontWeight: 600 } }, fmtBRL(invBal, { decimals: 0 })),
+                h("span", { style: { fontSize: 9, color: "var(--fg-3)" } }, "em investimentos")
+              )
             )
           ),
           h("div", { style: { display: "flex", gap: 14, marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--line-1)" } },
             h("div", null,
               h("div", { style: { fontSize: 9, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em" } }, "Entradas"),
-              h("div", { className: "num", style: { fontSize: 13, color: "var(--pos)", fontWeight: 600 } }, `+${fmtBRL(safeTxs.filter(t => t.flow === "income" && t.account_id === a.id).reduce((s, t) => s + t.amount, 0), { decimals: 0 })}`)
+              h("div", { className: "num", style: { fontSize: 13, color: "var(--pos)", fontWeight: 600 } }, `+${fmtBRL(accInc, { decimals: 0 })}`)
             ),
             h("div", null,
-              h("div", { style: { fontSize: 9, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em" } }, "Saídas"),
-              h("div", { className: "num", style: { fontSize: 13, color: "var(--neg)", fontWeight: 600 } }, `−${fmtBRL(safeTxs.filter(t => t.flow === "expense" && t.account_id === a.id).reduce((s, t) => s + t.amount, 0), { decimals: 0 })}`)
+              h("div", { style: { fontSize: 9, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em" } }, "Gastos"),
+              h("div", { className: "num", style: { fontSize: 13, color: "var(--neg)", fontWeight: 600 } }, `−${fmtBRL(accExp, { decimals: 0 })}`)
+            ),
+            accTran > 0 && h("div", null,
+              h("div", { style: { fontSize: 9, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em" } }, "Transf."),
+              h("div", { className: "num", style: { fontSize: 13, color: "var(--fg-2)", fontWeight: 600 } }, `−${fmtBRL(accTran, { decimals: 0 })}`)
             )
           )
-        )
-      )
+        );
+      })
     ),
 
     h("div", { className: "card", style: { display: "flex", flexDirection: "column" } },
-      h("div", { className: "card-h" },
-        h("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
-          h("div", { className: "card-title" }, "Extrato"), h(BankChip, { accountId: activeAcc })
-        ),
-        h("span", { style: { fontSize: 11, color: "var(--fg-2)", fontFamily: "var(--ff-mono)" } },
-          h("span", { style: { color: "var(--pos)" } }, `+${fmtBRL(monthIncome, { decimals: 0 })}`), " · ",
-          h("span", { style: { color: "var(--neg)" } }, `−${fmtBRL(monthExp, { decimals: 0 })}`), " · ",
-          h("span", { style: { color: "var(--fg-0)" } }, fmtBRL(monthIncome - monthExp))
-        )
-      ),
-      h("div", { style: { maxHeight: 480, overflowY: "auto" } },
+      (() => {
+        const activeAccTxs = safeTxs.filter(t => t.account_id === activeAcc);
+        const periodInc  = activeAccTxs.filter(realInc).reduce((s, t) => s + t.amount, 0);
+        const periodExp  = activeAccTxs.filter(realExp).reduce((s, t) => s + t.amount, 0);
+        const periodTran = activeAccTxs.filter(transferExp).reduce((s, t) => s + t.amount, 0);
+        return h("div", { className: "card-h" },
+          h("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
+            h("div", { className: "card-title" }, "Extrato"), h(BankChip, { accountId: activeAcc })
+          ),
+          h("div", { style: { display: "flex", gap: 12, fontSize: 11, fontFamily: "var(--ff-mono)" } },
+            h("span", { style: { color: "var(--pos)" } }, `+${fmtBRL(periodInc, { decimals: 0 })}`),
+            h("span", { style: { color: "var(--neg)" } }, `−${fmtBRL(periodExp, { decimals: 0 })}`),
+            periodTran > 0 && h("span", { style: { color: "var(--fg-3)" } }, `${fmtBRL(periodTran, { decimals: 0 })} transf.`),
+            h("span", { style: { color: "var(--fg-0)", fontWeight: 600 } }, fmtBRL(periodInc - periodExp))
+          )
+        );
+      })(),
+      h("div", { style: { maxHeight: 480, overflow: "auto" } },
         h("table", { className: "grid-table" },
           h("thead", null, h("tr", null,
             h("th", { style: { width: 70 } }, "Data"), h("th", null, "Descrição"),
@@ -272,14 +262,20 @@ function AccountsView({ onEditCategory, onDeleteTx, refreshKey, filterMonth }) {
           )),
           h("tbody", null,
             ...safeTxs.flatMap(t => {
+              const isTransfer = !!t.dest_account_id;
               const rows = [
-                h("tr", { key: t.id },
+                h("tr", { key: t.id, style: isTransfer ? { opacity: 0.55 } : {} },
                   h("td", { className: "mono", style: { color: "var(--fg-2)" } }, fmtDateBR(t.date)),
-                  h("td", null, t.description),
                   h("td", null,
-                    t.flow === "expense"
+                    t.description,
+                    isTransfer && h("span", { style: { fontSize: 9, color: "var(--fg-3)", marginLeft: 4 } }, `→ ${t.dest_account_id}`)
+                  ),
+                  h("td", null,
+                    t.flow === "expense" && !isTransfer
                       ? h("button", { onClick: () => onEditCategory && onEditCategory(t), style: { fontSize: 10, color: "var(--fg-2)", borderBottom: "1px dashed var(--line-2)" } }, t.category || "—")
-                      : h("span", { className: "chip pos" }, t.category || "Receita")
+                      : isTransfer
+                        ? h("span", { style: { fontSize: 10, color: "var(--fg-3)" } }, "Transferência")
+                        : h("span", { className: "chip pos" }, t.category || "Receita")
                   ),
                   h("td", { className: "num", style: { color: t.flow === "expense" ? "var(--neg)" : "var(--pos)", fontWeight: 600 } },
                     t.flow === "expense" ? "−" : "+", fmtBRL(t.amount)),
@@ -320,15 +316,40 @@ function AccountsView({ onEditCategory, onDeleteTx, refreshKey, filterMonth }) {
 }
 
 /* ── InvestmentsView ─────────────────────────────────────────────────────── */
-function InvestmentsView({ refreshKey }) {
+function InvestmentsView({ refreshKey, filterMonth }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   const [investments, setInvestments] = _s2St([]);
+  const [editingId, setEditingId] = _s2St(null);
+  const [editInput, setEditInput] = _s2St("");
+  const [editErr, setEditErr] = _s2St("");
+  const [periodMovements, setPeriodMovements] = _s2St([]);
 
   _s2Ef(() => { fetchInvestments().then(setInvestments); }, [refreshKey]);
+  _s2Ef(() => {
+    if (filterMonth && filterMonth !== "all") {
+      const [year, month] = filterMonth.split("-").map(Number);
+      fetchInvestmentMovements({ month, year }).then(setPeriodMovements);
+    } else {
+      setPeriodMovements([]);
+    }
+  }, [filterMonth, refreshKey]);
 
-  const total = investments.reduce((s, i) => s + (i.balance || i.current_balance || 0), 0);
+  async function saveBalance(inv) {
+    const val = parseFloat(editInput.replace(",", "."));
+    if (isNaN(val) || val < 0) { setEditErr("Valor inválido"); return; }
+    setEditErr("");
+    try {
+      await patchInvestmentBalance(inv.id, val);
+      setInvestments(prev => prev.map(i => i.id === inv.id ? { ...i, balance: val } : i));
+      setEditingId(null);
+    } catch (e) {
+      setEditErr(e.message || "Erro");
+    }
+  }
+
+  const total = investments.reduce((s, i) => s + (i.balance || 0), 0);
   const COLORS = ["oklch(72% 0.12 290)", "oklch(72% 0.13 230)", "oklch(72% 0.14 155)"];
-  const donutData = investments.map(i => ({ ...i, balance: i.balance || i.current_balance || 0 }));
+  const donutData = investments.map(i => ({ ...i }));
 
   if (investments.length === 0) {
     return h("div", { className: "fade-in card", style: { padding: 40, textAlign: "center", color: "var(--fg-3)" } },
@@ -348,7 +369,7 @@ function InvestmentsView({ refreshKey }) {
         ),
         h("div", { style: { marginTop: 16, display: "flex", flexDirection: "column", gap: 6 } },
           investments.map((inv, i) => {
-            const bal = inv.balance || inv.current_balance || 0;
+            const bal = inv.balance || 0;
             const pct = total ? (bal / total) * 100 : 0;
             return h("div", { key: i, style: { display: "flex", alignItems: "center", gap: 8, fontSize: 11 } },
               h("span", { style: { width: 10, height: 10, borderRadius: 2, background: COLORS[i % COLORS.length], display: "inline-block" } }),
@@ -362,22 +383,66 @@ function InvestmentsView({ refreshKey }) {
       h("div", { className: "card" },
         h("div", { className: "card-h" },
           h("div", { className: "card-title" }, "Investimentos"),
-          h("span", { style: { fontSize: 10, color: "var(--fg-3)" } }, "saldo atual")
+          h("span", { style: { fontSize: 10, color: "var(--fg-3)" } }, "clique no valor para corrigir")
         ),
         h("div", { style: { padding: 14, display: "flex", flexDirection: "column", gap: 14 } },
           investments.map((inv, i) => {
-            const bal = inv.balance || inv.current_balance || 0;
-            return h("div", { key: i, style: { display: "flex", alignItems: "center", gap: 14, padding: "10px 12px", background: "var(--bg-0)", border: "1px solid var(--line-1)", borderRadius: 6 } },
-              h("div", { style: { flex: 1 } },
-                h("div", { style: { fontWeight: 600, fontSize: 13 } }, inv.name),
-                h(BankChip, { bank: inv.bank })
+            const bal = inv.balance || 0;
+            const isEditing = editingId === inv.id;
+            return h("div", { key: i, style: { padding: "10px 12px", background: "var(--bg-0)", border: "1px solid var(--line-1)", borderRadius: 6 } },
+              h("div", { style: { display: "flex", alignItems: "center", gap: 14 } },
+                h("div", { style: { flex: 1 } },
+                  h("div", { style: { fontWeight: 600, fontSize: 13 } }, inv.name),
+                  h(BankChip, { bank: inv.bank })
+                ),
+                !isEditing
+                  ? h("button", {
+                      onClick: () => { setEditingId(inv.id); setEditInput(bal.toFixed(2).replace(".", ",")); setEditErr(""); },
+                      style: { textAlign: "right", background: "none", border: "none", cursor: "pointer", padding: 0 }
+                    },
+                      h("div", { className: "num", style: { fontSize: 18, fontWeight: 700, borderBottom: "1px dashed var(--line-2)" } }, fmtBRL(bal)),
+                      h("div", { style: { fontSize: 10, color: "var(--fg-3)", marginTop: 2 } }, inv.type === "savings" ? "Poupança" : "Tesouro")
+                    )
+                  : h("div", { style: { display: "flex", gap: 4, alignItems: "center" } },
+                      h("input", {
+                        autoFocus: true, className: "input", value: editInput,
+                        onChange: e => { setEditInput(e.target.value); setEditErr(""); },
+                        onKeyDown: e => { if (e.key === "Enter") saveBalance(inv); if (e.key === "Escape") { setEditingId(null); setEditErr(""); } },
+                        style: { height: 30, width: 100, padding: "0 6px", fontSize: 13, borderColor: editErr ? "var(--neg)" : undefined }
+                      }),
+                      h("button", { className: "btn btn-primary btn-sm", onClick: () => saveBalance(inv), style: { height: 30 } }, "✓"),
+                      h("button", { className: "btn btn-ghost btn-sm", onClick: () => { setEditingId(null); setEditErr(""); }, style: { height: 30 } }, "✕")
+                    )
               ),
-              h("div", { style: { textAlign: "right" } },
-                h("div", { className: "num", style: { fontSize: 18, fontWeight: 700 } }, fmtBRL(bal)),
-                h("div", { style: { fontSize: 10, color: "var(--fg-3)", marginTop: 2 } }, inv.type === "savings" ? "Poupança" : "Tesouro")
-              )
+              isEditing && editErr && h("div", { style: { fontSize: 10, color: "var(--neg)", marginTop: 4 } }, editErr)
             );
           })
+        ),
+        periodMovements.length > 0 && h("div", { style: { borderTop: "1px solid var(--line-1)", padding: "12px 14px" } },
+          h("div", { style: { fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--fg-3)", marginBottom: 10 } }, "Movimentos no período"),
+          h("div", { style: { display: "flex", flexDirection: "column", gap: 6 } },
+            periodMovements.map((m, i) => {
+              const isDeposit = m.operation === "deposit";
+              return h("div", { key: i, style: { display: "flex", alignItems: "center", gap: 8, fontSize: 11 } },
+                h("span", { style: { fontSize: 9, color: "var(--fg-3)", width: 42, fontFamily: "var(--ff-mono)" } }, m.date.slice(5)),
+                h("span", { style: { flex: 1, color: "var(--fg-1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, m.investment_name),
+                h("span", { style: { fontSize: 9, padding: "1px 5px", borderRadius: 3, background: isDeposit ? "color-mix(in oklch, var(--pos) 15%, transparent)" : "color-mix(in oklch, var(--neg) 15%, transparent)", color: isDeposit ? "var(--pos)" : "var(--neg)", fontWeight: 600 } }, isDeposit ? "dep." : "res."),
+                h("span", { className: "num", style: { fontWeight: 600, color: isDeposit ? "var(--pos)" : "var(--neg)" } },
+                  isDeposit ? "+" : "−", fmtBRL(m.amount, { decimals: 0 }))
+              );
+            })
+          ),
+          (() => {
+            const netMov = periodMovements.reduce((s, m) => s + (m.operation === "deposit" ? m.amount : -m.amount), 0);
+            return h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10, paddingTop: 8, borderTop: "1px solid var(--line-1)" } },
+              h("span", { style: { fontSize: 10, color: "var(--fg-3)" } }, `${periodMovements.length} movimento${periodMovements.length !== 1 ? "s" : ""}`),
+              h("span", { className: "num", style: { fontSize: 11, fontWeight: 700, color: netMov >= 0 ? "var(--pos)" : "var(--neg)" } },
+                netMov >= 0 ? "+" : "−", fmtBRL(Math.abs(netMov), { decimals: 0 }))
+            );
+          })()
+        ),
+        periodMovements.length === 0 && filterMonth && filterMonth !== "all" && h("div", { style: { borderTop: "1px solid var(--line-1)", padding: "14px", textAlign: "center", color: "var(--fg-3)", fontSize: 11 } },
+          "Sem movimentos neste período"
         )
       )
     )
@@ -462,7 +527,7 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx }) {
     h("div", { className: "card", style: { padding: 0, overflow: "hidden" } },
       h("div", { style: { padding: "10px 14px", borderBottom: "1px solid var(--line-1)", display: "flex", justifyContent: "space-between", alignItems: "center" } },
         h("div", null,
-          h("div", { className: "eyebrow", style: { fontSize: 9 } }, "Lupa do mês"),
+          h("div", { className: "eyebrow", style: { fontSize: 9 } }, "Análise do mês"),
           h("div", { style: { fontSize: 22, fontWeight: 700, letterSpacing: "-0.015em", marginTop: 2, display: "flex", alignItems: "center", gap: 10 } },
             monthLabel,
             isCurrent && h("span", { className: "chip info", style: { fontSize: 10 } }, "mês atual")
@@ -618,7 +683,7 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx }) {
             )
           )
         ),
-        h("div", { style: { maxHeight: 480, overflowY: "auto" } },
+        h("div", { style: { maxHeight: 480, overflow: "auto" } },
           h("table", { className: "grid-table" },
             h("thead", null, h("tr", null,
               h("th", { style: { width: 70 } }, "Data"),

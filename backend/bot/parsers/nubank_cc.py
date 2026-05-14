@@ -8,6 +8,8 @@ Example row::
     2026-03-15,Restaurantes,iFood,85.50
 
 Rows where ``amount <= 0`` (refunds/payments) or ``title`` is empty are skipped.
+``Saldo em atraso`` is also skipped — it is an unpaid balance rolled over from
+the previous fatura, already imported from that fatura's CSV (double-count).
 Date formats accepted: ``%Y-%m-%d``, ``%d/%m/%Y``, ``%d/%m/%y``.
 """
 import csv
@@ -44,6 +46,11 @@ def parse(content: str) -> list[dict[str, Any]]:
 
             description = row.get("title", "").strip()
             if not description:
+                continue
+
+            # "Saldo em atraso" is an unpaid balance rolled over from the
+            # previous billing cycle — already imported from that fatura's CSV.
+            if description == "Saldo em atraso":
                 continue
 
             transactions.append({

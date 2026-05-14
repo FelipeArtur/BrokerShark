@@ -351,7 +351,7 @@ function Progress({ value, max, color = "var(--info)" }) {
   const pct = Math.min(100, ((value || 0) / (max || 1)) * 100);
   const over = value > max;
   return React.createElement("div", { className: "progress-bar" },
-    React.createElement("div", { className: "progress-fill", style: { width: `${pct}%`, background: over ? "var(--neg)" : color } })
+    React.createElement("div", { className: "progress-fill", style: { transform: `scaleX(${pct / 100})`, background: over ? "var(--neg)" : color } })
   );
 }
 
@@ -437,9 +437,10 @@ function BankChip({ bank, accountId }) {
 
 /* ── SegmentControl ─────────────────────────────────────────────────────── */
 function SegmentControl({ options, value, onChange, columns = 3 }) {
-  return React.createElement("div", { className: "seg-control", style: { gridTemplateColumns: `repeat(${columns}, 1fr)` } },
+  return React.createElement("div", { className: "seg-control", role: "radiogroup", style: { gridTemplateColumns: `repeat(${columns}, 1fr)` } },
     options.map(opt => React.createElement("button", {
       key: opt.value, type: "button",
+      role: "radio", "aria-checked": opt.value === value,
       className: `seg-btn${opt.value === value ? " active" : ""}`,
       onClick: () => onChange(opt.value),
     }, opt.icon && React.createElement("span", null, opt.icon), React.createElement("span", null, opt.label)))
@@ -510,11 +511,59 @@ function BrokerSharkLogo({ size = 28 }) {
   );
 }
 
+/* ── TxRow ──────────────────────────────────────────────────────────────── */
+const TxRow = React.memo(({ t, cols, deleting, onEditCategory, onSetDeleting, onDeleteTx }) => {
+  const h = React.createElement;
+  const rows = [
+    h("tr", { key: t.id },
+      cols.includes("date") && h("td", { className: "mono", style: { color: "var(--fg-2)" } }, fmtDateBR(t.date)),
+      cols.includes("desc") && h("td", { style: { maxWidth: cols.includes("account") ? 260 : "none" } },
+        h("div", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, t.description)
+      ),
+      cols.includes("cat") && h("td", null,
+        t.flow === "expense"
+          ? h("button", { onClick: () => onEditCategory && onEditCategory(t), style: { fontSize: 10, color: "var(--fg-2)", borderBottom: "1px dashed var(--line-2)", paddingBottom: 1 } }, t.category || "—")
+          : h("span", { className: "chip pos" }, t.category || "Receita")
+      ),
+      cols.includes("account") && h("td", null, h(BankChip, { accountId: t.account_id, bank: t.bank })),
+      cols.includes("amount") && h("td", { className: "num", style: { color: t.flow === "expense" ? "var(--neg)" : "var(--pos)", fontWeight: 600 } },
+        t.flow === "expense" ? "−" : "+", fmtBRL(t.amount)
+      ),
+      cols.includes("actions") && h("td", { style: { width: 32, textAlign: "center", padding: "0 4px" } },
+        h("button", {
+          className: "btn btn-ghost btn-sm",
+          "aria-label": `Excluir ${t.description}`,
+          onClick: () => onSetDeleting(deleting ? null : t.id),
+          style: { width: 24, height: 24, padding: 0, fontSize: 14, opacity: 0.3, color: "var(--neg)" }
+        }, "×")
+      )
+    )
+  ];
+  if (deleting) {
+    rows.push(h("tr", { key: `${t.id}-del`, style: { background: "color-mix(in oklch, var(--neg) 10%, transparent)" } },
+      h("td", { colSpan: cols.length, style: { padding: "6px 12px" } },
+        h("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
+          h("span", { style: { flex: 1, fontSize: "var(--fz-7)", color: "var(--fg-1)" } },
+            "Excluir ", h("strong", null, t.description), "?"
+          ),
+          h("button", { className: "btn btn-ghost btn-sm", "aria-label": "Fechar", onClick: () => onSetDeleting(null) }, "Cancelar"),
+          h("button", {
+            className: "btn btn-sm",
+            onClick: async () => { await onDeleteTx(t.id); onSetDeleting(null); },
+            style: { background: "var(--neg)", color: "var(--fg-0)", borderColor: "var(--neg)" }
+          }, "Excluir")
+        )
+      )
+    ));
+  }
+  return h(React.Fragment, null, ...rows);
+}, (prev, next) => prev.t.id === next.t.id && prev.t.category === next.t.category && prev.deleting === next.deleting);
+
 window.BS = window.BS || {};
 Object.assign(window.BS, {
   fmtBRL, fmtBRLCompact, fmtDateBR, todayISO, yesterdayISO,
   PT_MONTHS, PT_SHORT, fmtCycleDate,
   Sparkline, BarChart, DualLine, Donut, Progress,
   Modal, useToasts, BankChip, SegmentControl, CurrencyInput, DateChooser, FieldRow,
-  BrokerSharkLogo,
+  BrokerSharkLogo, TxRow,
 });
