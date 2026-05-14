@@ -7,7 +7,7 @@
   <link rel="icon" type="image/x-icon" href="/static/img/favicon.ico" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/css/style.css" />
 </head>
 <body>
@@ -22,13 +22,13 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"></script>
 
   <!-- API helpers (plain JS, no JSX) -->
-  <script src="/static/js/api.js"></script>
+  <script src="/static/js/api.js?v=2"></script>
 
-  <!-- BSv2 components (JSX via Babel) -->
-  <script type="text/babel" src="/static/js/primitives.js"></script>
-  <script type="text/babel" src="/static/js/quick-entry.js"></script>
-  <script type="text/babel" src="/static/js/view-overview.js"></script>
-  <script type="text/babel" src="/static/js/view-secondary.js"></script>
-  <script type="text/babel" src="/static/js/app.js"></script>
+  <!-- Babel pre-compiles locally, cache bust to force updates -->
+  <script type="text/babel" src="/static/js/primitives.js?v=2"></script>
+  <script type="text/babel" src="/static/js/quick-entry.js?v=2"></script>
+  <script type="text/babel" src="/static/js/view-overview.js?v=2"></script>
+  <script type="text/babel" src="/static/js/view-secondary.js?v=2"></script>
+  <script type="text/babel" src="/static/js/app.js?v=2"></script>
 </body>
 </html>

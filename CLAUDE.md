@@ -55,9 +55,16 @@ brokershark/
 │       │   ├── income.py      # Income ConversationHandler
 │       │   ├── investment.py  # Investment ConversationHandler
 │       │   └── ai_chat.py     # AI chat handler (wrapper over core/ai_service.py)
-│       └── parsers/
+│       └── parsers/           # Legacy web-UI parsers (kept for ImportModal)
 │           ├── nubank_cc.py   # Nubank CC CSV parser
 │           └── inter_cc.py    # Inter CC CSV parser (adjust_installment_dates param)
+├── backend/
+│   └── adapters/              # Ports & Adapters — import pipeline (NEW)
+│       ├── __init__.py        # BankAdapter ABC + ParsedRow dataclass (the port)
+│       ├── nubank_extrato.py  # Adapter: Extrato completo Nubank/ → nu-db
+│       ├── nubank_cc.py       # Adapter: Fatura Nubank/ → nu-cc
+│       ├── inter_cc.py        # Adapter: Fatura banco Inter/ → inter-cc
+│       └── inter_extrato.py   # Adapter: Extrato completo Inter/ → inter-db
 ├── frontend/
 │   ├── index.html
 │   ├── css/style.css
@@ -70,13 +77,11 @@ brokershark/
 │       ├── view-chat.js       # ChatView — AI chat interface (Pierre-inspired)
 │       └── app.js             # App shell — nav, SSE, search, tweaks
 ├── load_data/
-│   ├── import_history.py  # Batch historical import (--dry-run flag)
+│   ├── import.py          # CLI orchestrator — --preview / --validate / --import
 │   ├── Extrato completo Nubank/
 │   ├── Extrato completo Inter/
 │   ├── Fatura banco Inter/
 │   └── Fatura Nubank/
-├── scripts/
-│   └── recover.py         # Interactive Drive backup recovery
 ├── .claude/commands/      # /db-reset, /add-category, /new-parser, /check-health,
 │                          # /month-report, /venv, /load-data
 ├── data/                  # SQLite database (not versioned)
@@ -204,26 +209,37 @@ The AI handler implements the same architectural pattern as Pierre (InfinitePay)
 
 ---
 
-## CSV Import (Web)
+## Import Pipeline (Ports & Adapters)
 
-Upload via dashboard ImportModal (`/api/import-csv/preview` → `/api/import-csv/confirm`).
-
-**Parsers:**
-- `nubank_cc.parse(content)` — Nubank CC fatura
-- `inter_cc.parse(content, adjust_installment_dates=False)` — Inter CC fatura (monthly files already have correct dates)
-- `adjust_installment_dates=True` only for single-fatura imports where CSV shows original purchase date
-
-**Historical bulk import (4 steps):**
+### Historical bulk import
 ```bash
-python load_data/import_history.py          # import
-python load_data/import_history.py --dry-run  # preview only
+python load_data/import.py --preview    # simula, sem gravação
+python load_data/import.py              # importa tudo
+python load_data/import.py --validate   # relatório pós-import
+python load_data/import.py --since 2024-01-01   # só após data
 ```
 
-Steps: [1/4] Nubank extrato (nu-db) → [2/4] Nubank CC faturas (nu-cc) → [3/4] Inter CC faturas (inter-cc, `adjust_installment_dates=False`) → [4/4] Inter extrato (inter-db).
+### Architecture: `backend/adapters/`
+- **Port:** `BankAdapter` ABC + `ParsedRow` dataclass em `__init__.py`
+- **Adapters:** um arquivo por banco/tipo; auto-descobertos via `pkgutil`
+- **Adicionar novo banco:** criar `backend/adapters/<banco>.py` + CSV em `load_data/<Pasta>/`
 
-Duplicate detection key: `(date, amount, description, account_id)`.
+### Dedup
+- Nubank extrato: coluna `Identificador` (UUID) → campo `external_id` na tabela `transactions`
+- Demais: chave `(date, amount, description, account_id)`
 
-**`is_revenue` on import:** All income transactions imported via `import_history.py` must pass `is_revenue=1` (except self-transfers where `counterpart='SELF'`, which stay `is_revenue=0`).
+### Regras críticas de classificação
+- **Inter CC**: `PAGAMENTO ON LINE`, `DEB AUT PARCIAL`, `EST DEB AUTOM PARCIAL MAN` → skip (são pagamentos de fatura, não compras)
+- **Nubank CC**: `amount <= 0` e `"Saldo em atraso"` → skip
+- **nu-db income "FELIPE ARTUR" sem "banco inter"** → `is_revenue=1` (era salário do estágio Bradesco)
+- **nu-db income "FELIPE ARTUR" + "banco inter"** → skip (já em inter-db)
+- **inter-db income "felipe artur macedo"** → skip (transferência de nu-db já contabilizada lá)
+
+### Web UI import (legacy)
+Upload via ImportModal (`/api/import-csv/preview` → `/api/import-csv/confirm`).
+Usa `backend/bot/parsers/nubank_cc.py` e `inter_cc.py` (mantidos para backward compat).
+- `adjust_installment_dates=True` apenas para import single-fatura via web (CSV mostra data original de compra)
+- `adjust_installment_dates=False` para arquivos mensais históricos
 
 ---
 
@@ -260,7 +276,9 @@ Payment + bank resolved in one tap (6 buttons): Nubank/Inter × Crédito/PIX/TED
 accounts (id, bank, type, name, billing_day, due_day, initial_balance)
 categories (id, name, flow)        -- flow: expense | income
 transactions (id, date, flow, method, account_id, amount, installments,
-              description, category_id, dest_account_id, counterpart, is_revenue)
+              description, category_id, dest_account_id, counterpart,
+              is_revenue, external_id)
+              -- external_id: UUID do Nubank extrato (Identificador), dedup
 investments (id, name, type, bank, current_balance)
 investment_movements (id, date, investment_id, operation, amount, description)
 budgets (id, category_id, amount_limit)
@@ -411,14 +429,19 @@ O chart "Gastos mensais no cartão" usa `BarChart` com dados de `/api/monthly?ac
 
 | Conta | Situação |
 |-------|----------|
-| `nu-db` | Extrato histórico completo importado |
-| `nu-cc` | **Sem lançamentos individuais** — apenas totais de fatura via `get_credit_card_billing_info()`. Para popular: importar CSVs de fatura Nubank via ImportModal. |
-| `inter-db` | Extrato histórico completo importado |
-| `inter-cc` | Lançamentos individuais importados de faturas mensais |
-| Caixinha Nubank | Saldo registrado via movimentos de investimento |
-| Porquinho Inter | Saldo registrado via movimentos de investimento |
+| `nu-db` | Extrato histórico completo importado (2020–2026, 67 arquivos) |
+| `nu-cc` | Faturas individuais importadas (2024–2026, 28 arquivos) |
+| `inter-db` | Extrato histórico importado (2025-01 a 2026-05) |
+| `inter-cc` | Faturas individuais importadas (2025-01 a 2026-07) |
+| Caixinha Nubank | 44 depósitos / 41 saques — saldo via movimentos de investimento |
+| Porquinho Inter | 22 depósitos / 28 saques — saldo via movimentos de investimento |
 | Tesouro Direto | Sem movimentos cadastrados ainda |
 | Orçamentos (`budgets`) | Tabela existe mas está **vazia** — sem metas configuradas |
+
+**Import rodado via `load_data/import.py`** (ports-and-adapters):
+- 1.291 transações + 135 movimentos de investimento
+- Zero duplicatas detectadas
+- Pipeline: adapters auto-descobertos em `backend/adapters/`
 
 ---
 

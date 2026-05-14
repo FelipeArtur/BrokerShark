@@ -132,6 +132,59 @@ def init_db() -> None:
             conn.execute("UPDATE transactions SET is_revenue = 1 WHERE flow = 'income' AND dest_account_id IS NULL AND (counterpart IS NULL OR counterpart != 'SELF')")
             conn.commit()
 
+        # Migration: add external_id for UUID-based dedup (Nubank extrato Identificador)
+        try:
+            conn.execute("SELECT external_id FROM transactions LIMIT 1")
+        except sqlite3.OperationalError:
+            conn.execute("ALTER TABLE transactions ADD COLUMN external_id TEXT")
+            conn.commit()
+
+        # Auto-categorize income transactions based on description patterns
+        _auto_categorize_income(conn)
+
+
+def _auto_categorize_income(conn: sqlite3.Connection) -> None:
+    """Assign income categories to uncategorized revenue transactions based on description."""
+    ids = {r["name"]: r["id"] for r in conn.execute(
+        "SELECT id, name FROM categories WHERE flow='income'"
+    ).fetchall()}
+    if not ids:
+        return
+    sal = ids.get("Salário")
+    pix = ids.get("PIX recebido")
+    fre = ids.get("Freela")
+    out = ids.get("Outro")
+    if sal:
+        conn.execute(
+            """UPDATE transactions SET category_id=?
+               WHERE flow='income' AND is_revenue=1 AND category_id IS NULL
+               AND (description LIKE '%APRENDIZAGEM INDUSTRIAL%'
+                    OR description LIKE '%SERVICO NACIONAL%'
+                    OR description LIKE '%FELIPE ARTUR MACEDO LIMA%')""",
+            (sal,),
+        )
+    if pix:
+        conn.execute(
+            """UPDATE transactions SET category_id=?
+               WHERE flow='income' AND is_revenue=1 AND category_id IS NULL
+               AND (description LIKE '%Pix recebido%' OR description LIKE '%PIX%')""",
+            (pix,),
+        )
+    if fre:
+        conn.execute(
+            """UPDATE transactions SET category_id=?
+               WHERE flow='income' AND is_revenue=1 AND category_id IS NULL
+               AND (description LIKE '%Ressarcimento%' OR description LIKE '%ressarcimento%'
+                    OR description LIKE '%Reembolso%')""",
+            (fre,),
+        )
+    if out:
+        conn.execute(
+            """UPDATE transactions SET category_id=?
+               WHERE flow='income' AND is_revenue=1 AND category_id IS NULL""",
+            (out,),
+        )
+
 
 def _seed_accounts(conn: sqlite3.Connection) -> None:
     accounts = [
@@ -208,47 +261,53 @@ def get_all_accounts() -> list[sqlite3.Row]:
 
 
 def get_all_accounts_with_balance() -> list[sqlite3.Row]:
-    """Return all accounts with a computed ``balance`` column.
+    """Return all accounts with computed balance columns.
 
-    For checking accounts the balance also subtracts the net amount currently
-    held in investments for the same bank (deposits − withdrawals), since those
-    flows are stored in ``investment_movements`` rather than ``transactions``.
-    For credit accounts, inbound fatura payments (stored as transfers with
-    ``dest_account_id``) are added back so the balance reflects what is
-    currently owed rather than cumulative lifetime purchases.
+    Returns ``balance`` (investment-adjusted for checking, outstanding debt for credit),
+    ``gross_balance`` (transactions only, no investment deduction), and
+    ``investment_balance`` (net investments linked to this bank's checking account).
 
     Returns:
-        List of ``sqlite3.Row`` objects, each containing all account columns
-        plus a ``balance`` (float) column.
+        List of ``sqlite3.Row`` objects with all account columns plus balance fields.
     """
     with _connect() as conn:
         return conn.execute(
             """SELECT
                    a.*,
+                   -- balance: investment-adjusted for checking; outstanding debt for credit
                    a.initial_balance
                        + COALESCE(SUM(CASE WHEN t.flow='income'  THEN t.amount ELSE 0 END), 0)
                        - COALESCE(SUM(CASE WHEN t.flow='expense' THEN t.amount ELSE 0 END), 0)
                        + COALESCE(inb.total, 0)
-                       - CASE WHEN a.type='checking'
-                             THEN COALESCE(inv.net, 0)
-                             ELSE 0
-                         END
-                   AS balance
+                       - CASE WHEN a.type='checking' THEN COALESCE(inv_net.net, 0) ELSE 0 END
+                   AS balance,
+                   -- gross_balance: transactions only (no investment deduction)
+                   a.initial_balance
+                       + COALESCE(SUM(CASE WHEN t.flow='income'  THEN t.amount ELSE 0 END), 0)
+                       - COALESCE(SUM(CASE WHEN t.flow='expense' THEN t.amount ELSE 0 END), 0)
+                       + COALESCE(inb.total, 0)
+                   AS gross_balance,
+                   -- investment_balance: current balance of linked investments
+                   CASE WHEN a.type='checking' THEN COALESCE(inv_cur.current, 0) ELSE 0 END
+                   AS investment_balance
                FROM accounts a
                LEFT JOIN transactions t ON t.account_id = a.id
                LEFT JOIN (
                    SELECT dest_account_id, SUM(amount) AS total
-                   FROM transactions
-                   WHERE dest_account_id IS NOT NULL
+                   FROM transactions WHERE dest_account_id IS NOT NULL
                    GROUP BY dest_account_id
                ) inb ON inb.dest_account_id = a.id
                LEFT JOIN (
                    SELECT i.bank,
-                          SUM(CASE WHEN im.operation='deposit' THEN im.amount ELSE -im.amount END) AS net
+                          COALESCE(SUM(CASE WHEN im.operation='deposit' THEN im.amount ELSE -im.amount END), 0) AS net
                    FROM investment_movements im
                    JOIN investments i ON i.id = im.investment_id
                    GROUP BY i.bank
-               ) inv ON inv.bank = a.bank
+               ) inv_net ON inv_net.bank = a.bank
+               LEFT JOIN (
+                   SELECT bank, SUM(current_balance) AS current
+                   FROM investments GROUP BY bank
+               ) inv_cur ON inv_cur.bank = a.bank
                GROUP BY a.id"""
         ).fetchall()
 
@@ -553,6 +612,19 @@ def insert_investment_movement(
     return last_id
 
 
+def update_investment_balance(investment_id: int, new_balance: float) -> None:
+    """Overwrite the current_balance of an investment to reflect real-world value.
+
+    Used to reconcile interest/yield that doesn't appear as movements.
+    """
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE investments SET current_balance=? WHERE id=?",
+            (new_balance, investment_id),
+        )
+    events.notify()
+
+
 def get_investment_movement(movement_id: int) -> Optional[sqlite3.Row]:
     """Fetch a single investment movement by its id.
 
@@ -596,9 +668,15 @@ def get_monthly_summary(year: int, month: int, bank: Optional[str] = None) -> di
             (start, end, *p),
         ).fetchone()[0]
         income = conn.execute(
-            f"SELECT COALESCE(SUM(t.amount),0) FROM transactions t {j} WHERE t.flow='income' AND t.dest_account_id IS NULL AND (t.counterpart IS NULL OR t.counterpart != 'SELF') AND t.date BETWEEN ? AND ? {b}",
+            f"SELECT COALESCE(SUM(t.amount),0) FROM transactions t {j} WHERE t.flow='income' AND t.is_revenue=1 AND t.date BETWEEN ? AND ? {b}",
             (start, end, *p),
         ).fetchone()[0]
+        sal_row = conn.execute("SELECT id FROM categories WHERE name='Salário' AND flow='income'").fetchone()
+        sal_id = sal_row[0] if sal_row else None
+        salary_income = conn.execute(
+            f"SELECT COALESCE(SUM(t.amount),0) FROM transactions t {j} WHERE t.flow='income' AND t.is_revenue=1 AND t.category_id=? AND t.date BETWEEN ? AND ? {b}",
+            (sal_id, start, end, *p),
+        ).fetchone()[0] if sal_id else 0.0
         top_category = conn.execute(
             f"""SELECT c.name, SUM(t.amount) AS total
                FROM transactions t
@@ -609,9 +687,11 @@ def get_monthly_summary(year: int, month: int, bank: Optional[str] = None) -> di
             (start, end, *p),
         ).fetchone()
     return {
-        "expenses": expenses,
-        "income": income,
-        "top_category": dict(top_category) if top_category else None,
+        "expenses":      expenses,
+        "income":        income,
+        "salary_income": salary_income,
+        "other_income":  round(income - salary_income, 2),
+        "top_category":  dict(top_category) if top_category else None,
     }
 
 
@@ -857,25 +937,31 @@ def get_monthly_history(months: int = 6, bank: Optional[str] = None) -> list[dic
     p = (bank,) if bank else ()
 
     with _connect() as conn:
+        sal_row = conn.execute("SELECT id FROM categories WHERE name='Salário' AND flow='income'").fetchone()
+        sal_id = sal_row[0] if sal_row else -1
         rows = conn.execute(
             f"""SELECT
                    strftime('%Y-%m', t.date) AS ym,
                    COALESCE(SUM(CASE WHEN t.flow='expense' AND t.dest_account_id IS NULL THEN t.amount ELSE 0 END), 0) AS expenses,
-                   COALESCE(SUM(CASE WHEN t.flow='income' AND t.is_revenue=1 THEN t.amount ELSE 0 END), 0) AS income
+                   COALESCE(SUM(CASE WHEN t.flow='income' AND t.is_revenue=1 THEN t.amount ELSE 0 END), 0) AS income,
+                   COALESCE(SUM(CASE WHEN t.flow='income' AND t.is_revenue=1 AND t.category_id=? THEN t.amount ELSE 0 END), 0) AS salary_income
                FROM transactions t
                {j}
                WHERE t.date BETWEEN ? AND ? {b}
                GROUP BY ym""",
-            (start, end, *p),
+            (sal_id, start, end, *p),
         ).fetchall()
 
-    by_month = {r["ym"]: {"expenses": r["expenses"], "income": r["income"]} for r in rows}
+    by_month = {
+        r["ym"]: {"expenses": r["expenses"], "income": r["income"], "salary_income": r["salary_income"]}
+        for r in rows
+    }
     return [
         {
-            "label":  f"{_PT_SHORT[m]}/{str(y)[-2:]}",
-            "month":  m,
-            "year":   y,
-            **by_month.get(f"{y:04d}-{m:02d}", {"expenses": 0.0, "income": 0.0}),
+            "label":         f"{_PT_SHORT[m]}/{str(y)[-2:]}",
+            "month":         m,
+            "year":          y,
+            **by_month.get(f"{y:04d}-{m:02d}", {"expenses": 0.0, "income": 0.0, "salary_income": 0.0}),
         }
         for y, m in periods
     ]
@@ -1084,7 +1170,8 @@ def get_recent_transactions(
     limit = min(limit, 200)
     query = """
         SELECT t.id, t.date, t.description, t.amount, t.flow,
-               t.category_id, c.name AS category
+               t.category_id, c.name AS category,
+               t.dest_account_id, t.account_id
         FROM transactions t
         LEFT JOIN categories c ON c.id = t.category_id
         WHERE t.account_id = ?
@@ -1102,13 +1189,15 @@ def get_recent_transactions(
         rows = conn.execute(query, params).fetchall()
     return [
         {
-            "id":          r["id"],
-            "date":        r["date"],
-            "description": r["description"],
-            "amount":      r["amount"],
-            "flow":        r["flow"],
-            "category_id": r["category_id"],
-            "category":    r["category"],
+            "id":              r["id"],
+            "date":            r["date"],
+            "description":     r["description"],
+            "amount":          r["amount"],
+            "flow":            r["flow"],
+            "category_id":     r["category_id"],
+            "category":        r["category"],
+            "dest_account_id": r["dest_account_id"],
+            "account_id":      r["account_id"],
         }
         for r in rows
     ]
@@ -1163,6 +1252,30 @@ def get_investment_movements_by_period(start_date: str, end_date: str) -> list[d
             (start_date, end_date),
         ).fetchall()
     return [{"name": r["name"], "operation": r["operation"], "total": r["total"]} for r in rows]
+
+
+def get_investment_movements_for_month(month: int, year: int) -> list[dict]:
+    """Return individual investment movements for a given calendar month.
+
+    Args:
+        month: 1-based month number.
+        year:  4-digit year.
+
+    Returns:
+        List of movement dicts ordered by date descending.
+    """
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT im.id, im.date, im.investment_id, im.operation, im.amount,
+                      COALESCE(im.description, '') AS description,
+                      i.name AS investment_name, i.bank
+               FROM investment_movements im
+               JOIN investments i ON i.id = im.investment_id
+               WHERE strftime('%Y', im.date) = ? AND strftime('%m', im.date) = ?
+               ORDER BY im.date DESC""",
+            (f"{year:04d}", f"{month:02d}"),
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 
 # ── Dashboard v2 queries ──────────────────────────────────────────────────────

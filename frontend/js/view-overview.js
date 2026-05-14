@@ -3,7 +3,7 @@
           fetchPatrimonioHistory, fetchDailySpend, fetchRecentActivity, fetchBudgets,
           fetchExpenseCategoriesFull, patchBudget, postCategory, deleteCategory */
 
-const { useState: _ovSt, useEffect: _ovEf } = React;
+const { useState: _ovSt, useEffect: _ovEf, useMemo: _ovMemo } = React;
 const { fmtBRL, fmtBRLCompact, fmtDateBR, BankChip, Sparkline, BarChart, DualLine, Progress, Modal, PT_MONTHS, PT_SHORT, fmtCycleDate } = window.BS;
 
 function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey, filterMonth }) {
@@ -132,7 +132,7 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
       h("div", { className: "card" },
         h("div", { className: "card-h" },
           h("div", null,
-            h("div", { className: "card-title" }, "Receitas × Despesas"),
+            h("div", { className: "card-title" }, "Fluxo de caixa"),
             h("div", { style: { fontSize: 10, color: "var(--fg-3)", marginTop: 2 } },
               isAllPeriod ? `${monthly.length} meses registrados` : "Últimos 6 meses"
             )
@@ -148,13 +148,25 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
           const withData = monthly.filter(m => m.income > 0 || m.expenses > 0);
           const avgIncome   = isAllPeriod ? (summary.avg_income   || 0) : (withData.length ? withData.reduce((s, m) => s + m.income,   0) / withData.length : 0);
           const avgExpenses = isAllPeriod ? (summary.avg_expenses || 0) : (withData.length ? withData.reduce((s, m) => s + m.expenses, 0) / withData.length : 0);
+          const salaryInc   = summary.salary_income || 0;
+          const otherInc    = summary.other_income  || 0;
           return h("div", null,
-            h("div", { style: { padding: "4px 12px 0", display: "flex", gap: 20 } },
+            h("div", { style: { padding: "6px 12px 0", display: "flex", flexWrap: "wrap", gap: 14, alignItems: "center" } },
               h("span", { style: { fontSize: 10, fontFamily: "var(--ff-mono)", color: "var(--fg-2)" } },
                 "média receita ", h("span", { style: { color: "var(--pos)", fontWeight: 600 } }, fmtBRLCompact(avgIncome))
               ),
               h("span", { style: { fontSize: 10, fontFamily: "var(--ff-mono)", color: "var(--fg-2)" } },
                 "média despesa ", h("span", { style: { color: "var(--neg)", fontWeight: 600 } }, fmtBRLCompact(avgExpenses))
+              ),
+              !isAllPeriod && (salaryInc > 0 || otherInc > 0) && h("span", { style: { display: "flex", gap: 10, borderLeft: "1px solid var(--line-1)", paddingLeft: 14 } },
+                salaryInc > 0 && h("span", { style: { fontSize: 10, fontFamily: "var(--ff-mono)" } },
+                  h("span", { style: { color: "var(--fg-3)" } }, "salário "),
+                  h("span", { style: { color: "var(--pos)", fontWeight: 600 } }, fmtBRLCompact(salaryInc))
+                ),
+                otherInc > 0 && h("span", { style: { fontSize: 10, fontFamily: "var(--ff-mono)" } },
+                  h("span", { style: { color: "var(--fg-3)" } }, "outros "),
+                  h("span", { style: { color: "var(--pos)", fontWeight: 600 } }, fmtBRLCompact(otherInc))
+                )
               )
             ),
             h("div", { style: { padding: 12 } }, h(DualLine, { data: monthly, height: 220 }))
@@ -260,9 +272,9 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
         h("div", { style: { padding: "8px 12px 12px", display: "flex", flexDirection: "column", gap: 6 } },
           budgetRows.length === 0
             ? h("div", { style: { padding: "16px 0", textAlign: "center", color: "var(--fg-3)", fontSize: 11 } },
-                "Nenhum orçamento configurado.",
+                "Sem limites definidos.",
                 h("br", null),
-                h("span", { style: { fontSize: 10 } }, "Clique em uma categoria no histórico para definir um limite.")
+                h("span", { style: { fontSize: 10 } }, "Clique nas categorias do histórico para definir tetos.")
               )
             : budgetRows.slice(0, 6).map((b, i) => {
               const over = b.spent > b.amount_limit;
@@ -277,7 +289,7 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
                       style: { height: 24, padding: "0 6px", fontSize: 11, width: 80, borderColor: budgetErr ? "var(--neg)" : undefined }
                     }),
                     h("button", { className: "btn btn-primary btn-sm", onClick: saveBudget, style: { height: 24, padding: "0 8px" } }, "✓"),
-                    h("button", { className: "btn btn-ghost btn-sm", onClick: () => { setEditBudget(null); setBudgetErr(null); }, style: { height: 24 } }, "✕")
+                    h("button", { className: "btn btn-ghost btn-sm", "aria-label": "Fechar", onClick: () => { setEditBudget(null); setBudgetErr(null); }, style: { height: 24 } }, "✕")
                   ),
                   budgetErr && h("div", { style: { fontSize: 10, color: "var(--neg)", marginBottom: 2 } }, budgetErr),
                   h(Progress, { value: b.spent, max: b.amount_limit, color: "var(--info)" })
@@ -304,7 +316,7 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
         h("div", { className: "card-title" }, "Atividade recente"),
         h("span", { style: { fontSize: 10, color: "var(--fg-3)" } }, `${activity.length} últimos lançamentos`)
       ),
-      h("div", { style: { maxHeight: 320, overflowY: "auto" } },
+      h("div", { style: { maxHeight: 320, overflow: "auto" } },
         h("table", { className: "grid-table" },
           h("thead", null, h("tr", null,
             h("th", { style: { width: 70 } }, "Data"),
@@ -315,48 +327,13 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
             h("th", { style: { width: 32 } })
           )),
           h("tbody", null,
-            ...activity.flatMap(t => {
-              const rows = [
-                h("tr", { key: t.id },
-                  h("td", { className: "mono", style: { color: "var(--fg-2)" } }, fmtDateBR(t.date)),
-                  h("td", { style: { color: "var(--fg-0)" } }, t.description),
-                  h("td", null, h(BankChip, { accountId: t.account_id, bank: t.bank })),
-                  h("td", null,
-                    t.flow === "expense"
-                      ? h("button", { onClick: () => onEditCategory && onEditCategory(t), style: { fontSize: 10, color: "var(--fg-2)", borderBottom: "1px dashed var(--line-2)", paddingBottom: 1 } }, t.category || "—")
-                      : h("span", { className: "chip pos" }, t.category || "—")
-                  ),
-                  h("td", { className: "num", style: { color: t.flow === "expense" ? "var(--neg)" : "var(--pos)", fontWeight: 600 } },
-                    t.flow === "expense" ? "−" : "+", fmtBRL(t.amount)),
-                  h("td", { style: { width: 32, textAlign: "center", padding: "0 4px" } },
-                    h("button", {
-                      className: "btn btn-ghost btn-sm",
-                      "aria-label": `Excluir ${t.description}`,
-                      onClick: () => setDeletingTxId(deletingTxId === t.id ? null : t.id),
-                      style: { width: 24, height: 24, padding: 0, fontSize: 14, opacity: 0.3, color: "var(--neg)" }
-                    }, "×")
-                  )
-                )
-              ];
-              if (deletingTxId === t.id) {
-                rows.push(h("tr", { key: `${t.id}-del`, style: { background: "color-mix(in oklch, var(--neg) 10%, transparent)" } },
-                  h("td", { colSpan: 6, style: { padding: "6px 12px" } },
-                    h("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
-                      h("span", { style: { flex: 1, fontSize: "var(--fz-7)", color: "var(--fg-1)" } },
-                        "Excluir ", h("strong", null, t.description), "?"
-                      ),
-                      h("button", { className: "btn btn-ghost btn-sm", onClick: () => setDeletingTxId(null) }, "Cancelar"),
-                      h("button", {
-                        className: "btn btn-sm",
-                        onClick: async () => { await onDeleteTx(t.id); setDeletingTxId(null); },
-                        style: { background: "var(--neg)", color: "var(--fg-0)", borderColor: "var(--neg)" }
-                      }, "Excluir")
-                    )
-                  )
-                ));
-              }
-              return rows;
-            })
+            ...activity.map(t => h(window.BS.TxRow, {
+              key: t.id, t, cols: ["date", "desc", "account", "cat", "amount", "actions"],
+              deleting: deletingTxId === t.id,
+              onEditCategory,
+              onSetDeleting: setDeletingTxId,
+              onDeleteTx
+            }))
           )
         )
       )

@@ -54,6 +54,10 @@ async function patchTransactionCategory(txId, categoryId) {
 async function patchBudget(budgetId, categoryId, amountLimit) {
   return _patch(`/api/budgets/${budgetId}`, { category_id: categoryId, amount_limit: amountLimit });
 }
+async function fetchInvestmentMovements({ month, year } = {}) { return _get(`/api/investment-movements${_params({ month, year })}`); }
+async function patchInvestmentBalance(id, balance) {
+  return _patch(`/api/investments/${id}/balance`, { balance });
+}
 async function postTransaction(body)          { return _post("/api/transactions", body); }
 async function postIncome(body)               { return _post("/api/incomes", body); }
 async function postInvestmentMovement(body)   { return _post("/api/investment-movements", body); }
