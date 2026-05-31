@@ -43,10 +43,10 @@ brokershark/
 │   ├── main.py            # Entry point — starts bot + scheduler + dashboard
 │   ├── config.py          # Centralised env vars — only file that calls os.getenv()
 │   ├── core/
-│   │   ├── database.py    # Data layer — SQLite, all queries
+│   │   ├── database.py    # Data layer — SQLite, all queries (re-export shim → core/db/)
+│   │   ├── db/            # Sub-modules: schema.py, crud.py, analytics.py, categories.py
 │   │   ├── events.py      # SSE pub/sub — notify() after writes
-│   │   ├── backup.py      # Monthly backup: local HDD (should_backup + run_backup)
-│   │   └── ai_service.py  # Shared AI chat logic — tools, agentic loop, system prompt
+│   │   └── backup.py      # Monthly backup: local HDD (should_backup + run_backup)
 │   ├── integrations/
 │   │   ├── drive.py       # Google Drive — monthly backup upload + recovery
 │   │   └── ollama.py      # Ollama async client — chat, chat_stream
@@ -54,15 +54,12 @@ brokershark/
 │   │   └── server.py      # Flask routes + Waitress WSGI (32 threads, SSE)
 │   └── bot/
 │       ├── application.py # build_application(), scheduler lifecycle hooks
-│       ├── constants.py   # State ints, ACCOUNT_MAP, INVESTMENT_META, *_LABELS
+│       ├── constants.py   # ACCOUNT_CHOICES, INVESTMENT_META, ACCOUNT_LABELS, METHOD_LABELS, ACCOUNT_BANK, INCOME_LABELS
 │       ├── scheduler.py   # APScheduler — monthly backup, weekly report, monthly closing
 │       ├── utils.py       # _authorized, _fmt_brl, _fmt_date, _PT_MONTHS
 │       ├── handlers/
-│       │   ├── commands.py    # /novo, /saldo, /resumo, /fatura, /reservas, /ajuda
-│       │   ├── expense.py     # Expense ConversationHandler
-│       │   ├── income.py      # Income ConversationHandler
-│       │   ├── investment.py  # Investment ConversationHandler
-│       │   └── ai_chat.py     # AI chat handler (wrapper over core/ai_service.py)
+│       │   ├── commands.py    # /saldo, /resumo, /fatura, /reservas, /ajuda
+│       │   └── ai_chat.py     # AI chat handler — agentic loop, tool calling, system prompt
 ├── frontend/
 │   ├── index.html
 │   ├── css/style.css
@@ -71,7 +68,6 @@ brokershark/
 │       ├── primitives.js      # Charts, shared UI components
 │       ├── view-overview.js   # OverviewView
 │       ├── view-secondary.js  # CardsView, AccountsView, InvestmentsView, HistoryView
-│       ├── view-chat.js       # ChatView — AI chat interface (Pierre-inspired)
 │       └── app.js             # App shell — nav, SSE, search, tweaks
 ├── .claude/commands/      # /db-reset, /add-category, /check-health,
 │                          # /month-report, /venv
@@ -96,10 +92,8 @@ User (web form or Telegram)
 core/database.py — INSERT (SQLite)
       ↓
 core/events.notify() — SSE push to browser (< 1s)
-      ↓
-bot/handlers/ — confirmation message (Telegram only)
-      ↓ (after each expense)
-bot/handlers/expense.py — spending alert if expenses ≥ income
+      ↓ (Telegram only)
+bot/handlers/ai_chat.py — confirmation message + spending alert if expenses ≥ income
 ```
 
 ### Key principles
@@ -108,7 +102,7 @@ bot/handlers/expense.py — spending alert if expenses ≥ income
 - **Web dashboard is the primary interface.** Telegram handles quick entries and reports.
 - **AI is Pierre-inspired:** tool calling, context injection, conversation-as-interface. Never fabricates data — always fetches via tools before answering.
 - **Backup runs on the 1st of each month** (cron 07:00): `should_backup()` guards against double-runs by checking if `brokershark_YYYY-MM.db` already exists this month. Path hardcoded to `/mnt/HDD_Arquivos/brokershark/backups`.
-- **No AI in the button registration flow.** Buttons eliminate parsing at record time.
+- **All Telegram registrations go through AI.** The bot has a single `MessageHandler` catch-all → `ai_chat_handler`. No `ConversationHandler` flows exist.
 
 ### Patrimônio calculation
 
@@ -185,13 +179,14 @@ The AI handler implements the same architectural pattern as Pierre (InfinitePay)
 
 1. **Tool calling:** model receives a list of tools (JSON), calls them to fetch live data before responding
 2. **Context injection:** tool results are injected back into the conversation — model never answers from memory
-3. **Conversation as interface:** available in Telegram + web chat panel
+3. **Conversation as interface:** available in Telegram only
 4. **Persona:** "BrokerShark" — direct, analytical, slightly cartoonish
 
-**`backend/core/ai_service.py`** — shared service:
-- `chat(message, history, stream_callback)` — agentic loop (MAX_ROUNDS=3)
-- Handles tool dispatch, history management, system prompt
-- Used by both `bot/handlers/ai_chat.py` (Telegram) and `dashboard/server.py` (web `POST /api/chat`)
+**`backend/bot/handlers/ai_chat.py`** — all AI logic lives here:
+- Agentic loop (MAX_ROUNDS=3), system prompt, tool definitions (13 tools), streaming
+- `_is_on_topic()` — finance-domain filter before forwarding to Ollama
+- `_parse_tool_call()` — JSON-in-text extraction (qwen2.5 format, not native tool API)
+- `_execute_tool()` — dispatches tool calls to `core/database.py`
 
 **Model:** `qwen2.5:7b` (Q4_K_M, ~4.7GB VRAM) — better JSON structured output than phi3.5
 
@@ -211,18 +206,11 @@ Gastos: R$ X | Receitas: R$ X | Reservas: R$ X
 [ 💸 Gasto ]  [ 💰 Recebimento ]  [ 📈 Investimento ]
 ```
 
-### Expense flow
-`ACCOUNT → AMOUNT → INSTALLMENTS → DESCRIPTION → DATE → CATEGORY → CONFIRMATION`
+### Registration flow (AI-driven)
 
-Payment + bank resolved in one tap (6 buttons): Nubank/Inter × Crédito/PIX/TED.
+All registrations go through the AI chat handler. The user describes the transaction in natural language; the AI extracts fields, calls the appropriate `register_*` tool (pending state), then asks for confirmation before persisting.
 
-### Income flow
-`INCOME_TYPE → BANK → AMOUNT → DESCRIPTION → DATE → CONFIRMATION`
-
-"Transferência" opens internal transfer sub-flow (stored as `flow='expense', method='transfer', dest_account_id=<dest>`).
-
-### Investment flow
-`OPERATION → DESTINATION → AMOUNT → DESCRIPTION(optional) → DATE → CONFIRMATION`
+Internal transfers: stored as `flow='expense', method='transfer', dest_account_id=<dest>`.
 
 ---
 
@@ -272,7 +260,6 @@ Excluded from summaries via `AND dest_account_id IS NULL`.
 | POST | `/api/transactions` | Create expense |
 | POST | `/api/incomes` | Create income or transfer |
 | POST | `/api/investment-movements` | Create investment movement |
-| POST | `/api/chat` | AI chat message |
 | PATCH | `/api/budgets/<id>` | Update budget limit |
 | PATCH | `/api/transactions/<id>` | Update category_id, display_name, and/or is_third_party |
 | GET | `/api/pix-top` | Top PIX destinations (month, year) — `{label, count, total}[]` |

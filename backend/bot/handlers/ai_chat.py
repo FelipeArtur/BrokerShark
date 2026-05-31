@@ -20,12 +20,17 @@ from telegram import Update
 from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
 
+from bot.constants import (
+    ACCOUNT_LABELS as _ACCOUNT_LABELS,
+    ACCOUNT_BANK as _ACCOUNT_BANK,
+    METHOD_LABELS as _METHOD_LABELS,
+    INCOME_LABELS as _INCOME_LABELS,
+)
 from bot.utils import _authorized, _fmt_brl
 from core import database
 from integrations import ollama
 
 _logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
 
 MAX_ROUNDS = 3
 MAX_HISTORY = 6
@@ -37,24 +42,6 @@ _VALID_TOOLS = {
     "get_monthly_comparison",
     "register_expense", "register_income", "register_investment",
     "register_transfer", "confirm", "cancel",
-}
-
-# ── Mapeamentos ───────────────────────────────────────────────────────────────
-
-_ACCOUNT_LABELS: dict[str, str] = {
-    "nu-cc": "Nubank Crédito", "nu-db": "Nubank Conta",
-    "inter-cc": "Inter Crédito", "inter-db": "Inter Conta",
-}
-_ACCOUNT_BANK: dict[str, str] = {
-    "nu-cc": "nubank", "nu-db": "nubank",
-    "inter-cc": "inter", "inter-db": "inter",
-}
-_METHOD_LABELS: dict[str, str] = {
-    "credit": "Crédito", "pix": "PIX", "ted": "TED",
-}
-_INCOME_LABELS: dict[str, str] = {
-    "salary": "Salário", "freelance": "Freela",
-    "pix_received": "PIX recebido", "other": "Outro",
 }
 
 # ── Filtro de tópico ──────────────────────────────────────────────────────────

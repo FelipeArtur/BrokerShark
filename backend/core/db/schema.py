@@ -1,0 +1,233 @@
+"""Schema creation, seed data, and migration management.
+
+This is the only module that calls ``sqlite3.connect()`` directly.
+All other sub-modules import ``_connect`` from here.
+
+Migrations are tracked in the ``migration_log`` table. One-time data
+mutations run exactly once and are never repeated on subsequent startups.
+"""
+from __future__ import annotations
+
+import sqlite3
+from datetime import datetime
+from typing import Any
+
+import config
+
+DB_PATH = config.DB_PATH
+
+
+def _connect() -> sqlite3.Connection:
+    """Open and configure a SQLite connection."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA cache_size=-8000")
+    conn.execute("PRAGMA temp_store=MEMORY")
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def init_db() -> None:
+    """Create all tables (if absent), insert seed data, and run pending migrations.
+
+    Safe to call on every startup — uses ``CREATE TABLE IF NOT EXISTS`` and
+    ``INSERT OR IGNORE`` to avoid duplicates.
+    """
+    with _connect() as conn:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS migration_log (
+                name    TEXT PRIMARY KEY,
+                ran_at  TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS accounts (
+                id               TEXT PRIMARY KEY,
+                bank             TEXT NOT NULL,
+                type             TEXT NOT NULL,
+                name             TEXT NOT NULL,
+                billing_day      INTEGER,
+                due_day          INTEGER,
+                initial_balance  REAL DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS categories (
+                id    INTEGER PRIMARY KEY AUTOINCREMENT,
+                name  TEXT NOT NULL,
+                flow  TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS transactions (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                date            TEXT NOT NULL,
+                flow            TEXT NOT NULL
+                    CHECK (flow IN ('expense', 'income')),
+                method          TEXT NOT NULL
+                    CHECK (method IN ('pix', 'credit', 'ted', 'transfer', 'debit')),
+                account_id      TEXT NOT NULL,
+                amount          REAL NOT NULL,
+                installments    INTEGER DEFAULT 1,
+                description     TEXT NOT NULL,
+                category_id     INTEGER,
+                dest_account_id TEXT,
+                counterpart     TEXT,
+                is_revenue      INTEGER DEFAULT 0,
+                external_id     TEXT,
+                display_name    TEXT,
+                is_third_party  INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (account_id)      REFERENCES accounts(id),
+                FOREIGN KEY (dest_account_id) REFERENCES accounts(id),
+                FOREIGN KEY (category_id)     REFERENCES categories(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS investments (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                name            TEXT NOT NULL,
+                type            TEXT NOT NULL,
+                bank            TEXT NOT NULL,
+                current_balance REAL DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS investment_movements (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                date          TEXT NOT NULL,
+                investment_id INTEGER NOT NULL,
+                operation     TEXT NOT NULL
+                    CHECK (operation IN ('deposit', 'withdrawal')),
+                amount        REAL NOT NULL,
+                description   TEXT,
+                FOREIGN KEY (investment_id) REFERENCES investments(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS unrecognized_log (
+                id      INTEGER PRIMARY KEY AUTOINCREMENT,
+                date    TEXT NOT NULL,
+                message TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS budgets (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                category_id  INTEGER NOT NULL UNIQUE,
+                amount_limit REAL NOT NULL,
+                FOREIGN KEY (category_id) REFERENCES categories(id)
+            );
+
+            -- Indices for common query patterns
+            CREATE INDEX IF NOT EXISTS idx_tx_date
+                ON transactions(date);
+            CREATE INDEX IF NOT EXISTS idx_tx_account_date
+                ON transactions(account_id, date);
+            CREATE INDEX IF NOT EXISTS idx_tx_flow_date
+                ON transactions(flow, date);
+        """)
+
+        _seed_accounts(conn)
+        _seed_categories(conn)
+        _seed_budgets(conn)
+
+        # Backward-compat migrations for existing databases
+        # (no-ops on fresh databases where columns are already in the base schema)
+        _apply_column_migrations(conn)
+
+        _run_pending_migrations(conn)
+
+
+def _apply_column_migrations(conn: sqlite3.Connection) -> None:
+    """Add columns introduced after the initial schema via ALTER TABLE.
+
+    Each block is a no-op if the column already exists (fresh db or already migrated).
+    """
+    try:
+        conn.execute("SELECT is_revenue FROM transactions LIMIT 1")
+    except sqlite3.OperationalError:
+        conn.execute("ALTER TABLE transactions ADD COLUMN is_revenue INTEGER DEFAULT 0")
+        conn.execute(
+            "UPDATE transactions SET is_revenue = 1 "
+            "WHERE flow = 'income' AND dest_account_id IS NULL "
+            "AND (counterpart IS NULL OR counterpart != 'SELF')"
+        )
+        conn.commit()
+
+    try:
+        conn.execute("SELECT external_id FROM transactions LIMIT 1")
+    except sqlite3.OperationalError:
+        conn.execute("ALTER TABLE transactions ADD COLUMN external_id TEXT")
+        conn.commit()
+
+    try:
+        conn.execute("SELECT display_name FROM transactions LIMIT 1")
+    except sqlite3.OperationalError:
+        conn.execute("ALTER TABLE transactions ADD COLUMN display_name TEXT")
+        conn.execute(
+            "ALTER TABLE transactions ADD COLUMN is_third_party INTEGER NOT NULL DEFAULT 0"
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO categories (name, flow) VALUES ('Eventos / Terceiros', 'expense')"
+        )
+        conn.commit()
+
+
+def _run_pending_migrations(conn: sqlite3.Connection) -> None:
+    """Execute one-time data migrations that have not yet been applied."""
+    # Deferred import to avoid circular dependency:
+    # categories.py imports _connect from this module; importing it at module
+    # level here would create a circular import at load time.
+    from core.db.categories import _auto_categorize_income  # noqa: PLC0415
+
+    done = {r[0] for r in conn.execute("SELECT name FROM migration_log").fetchall()}
+
+    if "auto_categorize_income_v1" not in done:
+        _auto_categorize_income(conn)
+        conn.execute(
+            "INSERT INTO migration_log (name, ran_at) VALUES (?,?)",
+            ("auto_categorize_income_v1", datetime.now().isoformat()),
+        )
+        conn.commit()
+
+
+def _seed_accounts(conn: sqlite3.Connection) -> None:
+    accounts = [
+        ("nu-cc",    "nubank", "credit",   "Nubank Crédito", 18, 25),
+        ("nu-db",    "nubank", "checking", "Nubank Conta",   None, None),
+        ("inter-cc", "inter",  "credit",   "Inter Crédito",  18, 25),
+        ("inter-db", "inter",  "checking", "Inter Conta",    None, None),
+    ]
+    conn.executemany(
+        "INSERT OR IGNORE INTO accounts (id, bank, type, name, billing_day, due_day) VALUES (?,?,?,?,?,?)",
+        accounts,
+    )
+
+
+def _seed_categories(conn: sqlite3.Connection) -> None:
+    expense_categories = [
+        "Alimentação", "Carro", "Jogos", "Lazer", "Atividade física",
+        "Eletrônicos", "Educação", "Igreja", "Dízimo", "Outro",
+    ]
+    income_categories = [
+        "Salário", "Freela", "PIX recebido", "Transferência", "Outro",
+    ]
+    existing = {row["name"] for row in conn.execute("SELECT name FROM categories")}
+    rows = (
+        [(name, "expense") for name in expense_categories if name not in existing]
+        + [(name, "income") for name in income_categories if name not in existing]
+    )
+    if rows:
+        conn.executemany("INSERT INTO categories (name, flow) VALUES (?,?)", rows)
+
+
+def _seed_budgets(conn: sqlite3.Connection) -> None:
+    defaults = {
+        "Alimentação": 1500.0, "Carro": 500.0, "Jogos": 200.0,
+        "Lazer": 400.0, "Atividade física": 300.0, "Eletrônicos": 300.0,
+        "Educação": 500.0, "Igreja": 200.0, "Dízimo": 0.0, "Outro": 300.0,
+    }
+    for name, limit in defaults.items():
+        cat = conn.execute(
+            "SELECT id FROM categories WHERE name=? AND flow='expense'", (name,)
+        ).fetchone()
+        if cat:
+            conn.execute(
+                "INSERT OR IGNORE INTO budgets (category_id, amount_limit) VALUES (?,?)",
+                (cat["id"], limit),
+            )
