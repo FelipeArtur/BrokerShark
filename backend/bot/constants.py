@@ -13,8 +13,6 @@ Income flow states (10–17):
 Investment flow states (20–25):
     OPERATION → DESTINATION → AMOUNT → DESCRIPTION → DATE → CONFIRMATION
 """
-from bot.parsers import nubank_cc, inter_cc
-
 # ── Expense flow (0–6) ────────────────────────────────────────────────────────
 # Step 1: account+method selection (combined)
 # Step 2: amount
@@ -78,12 +76,6 @@ INVESTMENT_META: dict[str, tuple[str, str]] = {
     "Caixinha Nubank": ("savings",  "nubank"),
     "Tesouro Direto":  ("treasury", "nubank"),
     "Porquinho Inter": ("savings",  "inter"),
-}
-
-# ── CSV parsers indexed by account_id ────────────────────────────────────────
-PARSER_MAP = {
-    "nu-cc":    nubank_cc,
-    "inter-cc": inter_cc,
 }
 
 # ── Display labels ────────────────────────────────────────────────────────────

@@ -14,19 +14,22 @@
   <div id="root"></div>
 
   <!-- React 18 + Babel for JSX (no build step needed) -->
-  <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin></script>
-  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>
-  <script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"
+          crossorigin integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"
+          crossorigin integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js"
+          crossorigin integrity="sha384-EIcs2MbARRLcLs7Gv2wqqhhfMlcLeW9yuJsWki1r5iveN1F5gpzHOwAKycJqSQOI"></script>
 
   <!-- Chart.js -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"
+          crossorigin integrity="sha384-jb8JQMbMoBUzgWatfe6COACi2ljcDdZQ2OxczGA3bGNeWe+6DChMTBJemed7ZnvJ"></script>
 
   <!-- API helpers (plain JS, no JSX) -->
   <script src="/static/js/api.js?v=2"></script>
 
   <!-- Babel pre-compiles locally, cache bust to force updates -->
   <script type="text/babel" src="/static/js/primitives.js?v=2"></script>
-  <script type="text/babel" src="/static/js/quick-entry.js?v=2"></script>
   <script type="text/babel" src="/static/js/view-overview.js?v=2"></script>
   <script type="text/babel" src="/static/js/view-secondary.js?v=2"></script>
   <script type="text/babel" src="/static/js/app.js?v=2"></script>

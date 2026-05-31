@@ -49,13 +49,13 @@ brokershark/
 │   │   └── ai_service.py  # Shared AI chat logic — tools, agentic loop, system prompt
 │   ├── integrations/
 │   │   ├── drive.py       # Google Drive — monthly backup upload + recovery
-│   │   └── ollama.py      # Ollama async client — chat, chat_stream, suggest_categories
+│   │   └── ollama.py      # Ollama async client — chat, chat_stream
 │   ├── dashboard/
 │   │   └── server.py      # Flask routes + Waitress WSGI (32 threads, SSE)
 │   └── bot/
 │       ├── application.py # build_application(), scheduler lifecycle hooks
 │       ├── constants.py   # State ints, ACCOUNT_MAP, INVESTMENT_META, *_LABELS
-│       ├── scheduler.py   # APScheduler — startup backup, weekly report, monthly closing
+│       ├── scheduler.py   # APScheduler — monthly backup, weekly report, monthly closing
 │       ├── utils.py       # _authorized, _fmt_brl, _fmt_date, _PT_MONTHS
 │       ├── handlers/
 │       │   ├── commands.py    # /novo, /saldo, /resumo, /fatura, /reservas, /ajuda
@@ -63,35 +63,18 @@ brokershark/
 │       │   ├── income.py      # Income ConversationHandler
 │       │   ├── investment.py  # Investment ConversationHandler
 │       │   └── ai_chat.py     # AI chat handler (wrapper over core/ai_service.py)
-│       └── parsers/           # Legacy web-UI parsers (kept for ImportModal)
-│           ├── nubank_cc.py   # Nubank CC CSV parser
-│           └── inter_cc.py    # Inter CC CSV parser (adjust_installment_dates param)
-├── backend/
-│   └── adapters/              # Ports & Adapters — import pipeline (NEW)
-│       ├── __init__.py        # BankAdapter ABC + ParsedRow dataclass (the port)
-│       ├── nubank_extrato.py  # Adapter: Extrato completo Nubank/ → nu-db
-│       ├── nubank_cc.py       # Adapter: Fatura Nubank/ → nu-cc
-│       ├── inter_cc.py        # Adapter: Fatura banco Inter/ → inter-cc
-│       └── inter_extrato.py   # Adapter: Extrato completo Inter/ → inter-db
 ├── frontend/
 │   ├── index.html
 │   ├── css/style.css
 │   └── js/
 │       ├── api.js             # Fetch wrappers for all endpoints
 │       ├── primitives.js      # Charts, shared UI components
-│       ├── quick-entry.js     # ExpenseForm, IncomeForm, InvestmentForm, ImportModal
 │       ├── view-overview.js   # OverviewView
 │       ├── view-secondary.js  # CardsView, AccountsView, InvestmentsView, HistoryView
 │       ├── view-chat.js       # ChatView — AI chat interface (Pierre-inspired)
 │       └── app.js             # App shell — nav, SSE, search, tweaks
-├── load_data/
-│   ├── import.py          # CLI orchestrator — --preview / --validate / --import
-│   ├── Extrato completo Nubank/
-│   ├── Extrato completo Inter/
-│   ├── Fatura banco Inter/
-│   └── Fatura Nubank/
-├── .claude/commands/      # /db-reset, /add-category, /new-parser, /check-health,
-│                          # /month-report, /venv, /load-data
+├── .claude/commands/      # /db-reset, /add-category, /check-health,
+│                          # /month-report, /venv
 ├── data/                  # SQLite database (not versioned)
 ├── logs/                  # Runtime logs (not versioned)
 ├── credentials/
@@ -123,9 +106,8 @@ bot/handlers/expense.py — spending alert if expenses ≥ income
 
 - **SQLite is the single source of truth.** No external write-back.
 - **Web dashboard is the primary interface.** Telegram handles quick entries and reports.
-- **CSV import happens via the web UI** — drag-and-drop modal with Ollama-assisted categorization.
 - **AI is Pierre-inspired:** tool calling, context injection, conversation-as-interface. Never fabricates data — always fetches via tools before answering.
-- **Backup is monthly, condition-based:** `should_backup()` checks if > 30 days since last backup. On startup (30s delay) → local HDD copy → Drive upload.
+- **Backup runs on the 1st of each month** (cron 07:00): `should_backup()` guards against double-runs by checking if `brokershark_YYYY-MM.db` already exists this month. Path hardcoded to `/mnt/HDD_Arquivos/brokershark/backups`.
 - **No AI in the button registration flow.** Buttons eliminate parsing at record time.
 
 ### Patrimônio calculation
@@ -146,7 +128,7 @@ Two levels of data exist for credit card spending. They never overlap:
 Why they don't conflict:
 - Expense summaries filter `AND dest_account_id IS NULL` → fatura payments are excluded
 - Patrimônio includes `dest_account_id IN ('nu-cc','inter-cc')` → fatura payments are included
-- CC parsers skip `amount <= 0` → the "Pagamento da fatura" row in CC exports is never imported
+- CC transactions: `amount <= 0` rows are excluded at import time — "Pagamento da fatura" row is never in the individual purchases account
 
 This logic is symmetric for both Nubank CC and Inter CC.
 
@@ -185,15 +167,15 @@ python backend/main.py
 ## Backup Strategy
 
 **Local (HDD):**
-- `should_backup()` — returns `True` if last `brokershark_YYYY-MM.db` in `LOCAL_BACKUP_DIR` is > 30 days old
-- `run_backup()` — copies DB only if due; keeps last 12 monthly files
-- Triggered 30s after application startup
+- Path hardcoded: `/mnt/HDD_Arquivos/brokershark/backups`
+- `should_backup()` — returns `True` if `brokershark_YYYY-MM.db` does not yet exist this calendar month
+- `run_backup()` — copies DB if due; keeps last 12 monthly files
+- Triggered by monthly cron job (1st of each month at 07:00)
 
 **Google Drive:**
-- Upload runs after successful local backup (same startup job)
+- Upload runs after successful local backup (same cron job)
 - Folder: `DRIVE_BACKUP_FOLDER` (default: "BrokerShark Backups")
 - Files named `brokershark_YYYY-MM.db`; keeps last 6
-- Recovery: `python scripts/recover.py` — interactive download from Drive
 
 ---
 
@@ -214,40 +196,6 @@ The AI handler implements the same architectural pattern as Pierre (InfinitePay)
 **Model:** `qwen2.5:7b` (Q4_K_M, ~4.7GB VRAM) — better JSON structured output than phi3.5
 
 **Tools (13):** `get_monthly_summary`, `get_monthly_comparison`, `get_expenses_by_category`, `get_account_balances`, `get_investments`, `get_recent_transactions`, `get_budgets`, `register_expense`, `register_income`, `register_investment`, `register_transfer`, `confirm`, `cancel`
-
----
-
-## Import Pipeline (Ports & Adapters)
-
-### Historical bulk import
-```bash
-python load_data/import.py --preview    # simula, sem gravação
-python load_data/import.py              # importa tudo
-python load_data/import.py --validate   # relatório pós-import
-python load_data/import.py --since 2024-01-01   # só após data
-```
-
-### Architecture: `backend/adapters/`
-- **Port:** `BankAdapter` ABC + `ParsedRow` dataclass em `__init__.py`
-- **Adapters:** um arquivo por banco/tipo; auto-descobertos via `pkgutil`
-- **Adicionar novo banco:** criar `backend/adapters/<banco>.py` + CSV em `load_data/<Pasta>/`
-
-### Dedup
-- Nubank extrato: coluna `Identificador` (UUID) → campo `external_id` na tabela `transactions`
-- Demais: chave `(date, amount, description, account_id)`
-
-### Regras críticas de classificação
-- **Inter CC**: `PAGAMENTO ON LINE`, `DEB AUT PARCIAL`, `EST DEB AUTOM PARCIAL MAN` → skip (são pagamentos de fatura, não compras)
-- **Nubank CC**: `amount <= 0` e `"Saldo em atraso"` → skip
-- **nu-db income "JOAO DA SILVA" sem "banco inter"** → `is_revenue=1` (era salário do estágio BancoExemplo)
-- **nu-db income "JOAO DA SILVA" + "banco inter"** → skip (já em inter-db)
-- **inter-db income "joao da silva"** → skip (transferência de nu-db já contabilizada lá)
-
-### Web UI import (legacy)
-Upload via ImportModal (`/api/import-csv/preview` → `/api/import-csv/confirm`).
-Usa `backend/bot/parsers/nubank_cc.py` e `inter_cc.py` (mantidos para backward compat).
-- `adjust_installment_dates=True` apenas para import single-fatura via web (CSV mostra data original de compra)
-- `adjust_installment_dates=False` para arquivos mensais históricos
 
 ---
 
@@ -324,8 +272,6 @@ Excluded from summaries via `AND dest_account_id IS NULL`.
 | POST | `/api/transactions` | Create expense |
 | POST | `/api/incomes` | Create income or transfer |
 | POST | `/api/investment-movements` | Create investment movement |
-| POST | `/api/import-csv/preview` | Parse CSV, return preview |
-| POST | `/api/import-csv/confirm` | Confirm and save CSV import |
 | POST | `/api/chat` | AI chat message |
 | PATCH | `/api/budgets/<id>` | Update budget limit |
 | PATCH | `/api/transactions/<id>` | Update category_id, display_name, and/or is_third_party |
@@ -363,7 +309,6 @@ Excluded from summaries via `AND dest_account_id IS NULL`.
 TELEGRAM_TOKEN=seu_token_aqui
 TELEGRAM_CHAT_ID=seu_chat_id_aqui
 DB_PATH=/home/SEU_USUARIO/brokershark/data/brokershark.db
-LOCAL_BACKUP_DIR=/mnt/seu-hdd/brokershark/backups
 GOOGLE_CREDENTIALS=/home/SEU_USUARIO/brokershark/credentials/service_account.json
 DRIVE_BACKUP_FOLDER=BrokerShark Backups
 DASHBOARD_PORT=8080
@@ -371,6 +316,8 @@ OLLAMA_URL=http://localhost:11434
 OLLAMA_MODEL=qwen2.5:7b
 OLLAMA_TIMEOUT=60
 ```
+
+> `LOCAL_BACKUP_DIR` is hardcoded to `/mnt/HDD_Arquivos/brokershark/backups` in `config.py` — no longer an env variable.
 
 ---
 
@@ -428,7 +375,7 @@ O chart "Gastos mensais no cartão" usa `BarChart` com dados de `/api/monthly?ac
 
 ## Automated Jobs
 
-**Startup backup (30s after start):** local backup if due + Drive upload + prune.
+**Monthly backup (1st, 07:00):** local backup to `/mnt/HDD_Arquivos/brokershark/backups` if not yet done this month + Drive upload + prune.
 
 **Weekly report (Monday 08:00):** expenses, income, top category, reserves, fatura due dates.
 
@@ -451,17 +398,16 @@ O chart "Gastos mensais no cartão" usa `BarChart` com dados de `/api/monthly?ac
 | Tesouro Direto | Sem movimentos cadastrados ainda |
 | Orçamentos (`budgets`) | Tabela existe mas está **vazia** — sem metas configuradas |
 
-**Import rodado via `load_data/import.py`** (ports-and-adapters):
+**Todos os dados importados via pipeline one-time (2026-05-13):**
 - 1.291 transações + 135 movimentos de investimento
-- Zero duplicatas detectadas
-- Pipeline: adapters auto-descobertos em `backend/adapters/`
+- Zero duplicatas — pipeline de import foi executado e descartado
 
 ---
 
 ## Roadmap
 
 ### Concluído (Fases 1–9d)
-Bot flows (expense/income/investment), dashboard v1→v3, SSE, CSV import, investments, history, global month selector, AI chat with 13 tools, Ollama streaming, web-first pivot, Drive backup, Pierre-inspired AI architecture (`ai_service.py` shared module), `ChatView` (section 6 keyboard shortcut), `ImportModal` with drag-and-drop + Ollama categorization, patrimônio calculation fix (CC fatura payments), `is_revenue` flag, HistoryView 36-month range, Configurações panel.
+Bot flows (expense/income/investment), dashboard v1→v3, SSE, investments, history, global month selector, AI chat with 13 tools, Ollama streaming, web-first pivot, Drive backup, Pierre-inspired AI architecture (`ai_service.py` shared module), `ChatView` (section 6 keyboard shortcut), patrimônio calculation fix (CC fatura payments), `is_revenue` flag, HistoryView 36-month range, Configurações panel.
 
 **Fase 9d — UX Redesign (dashboard):**
 - Hero card com Sparkline 12M + 3 BreakdownRows (contas / investimentos / faturas)
@@ -496,12 +442,18 @@ Bot flows (expense/income/investment), dashboard v1→v3, SSE, CSV import, inves
 - AccountsView: mesmos badges de display_name e is_third_party
 - `patchTransaction(id, fields)` em api.js + `fetchPixTop({ month, year })`
 
+**Fase 11b — Remoção CSV + Backup Mensal (concluída):**
+- Removido todo o pipeline de import CSV: `backend/adapters/`, `backend/bot/parsers/`, `load_data/`, endpoints `/api/import-csv/*`, `ImportModal` frontend
+- Backup ajustado para cron day=1 07:00 + path hardcoded `/mnt/HDD_Arquivos/brokershark/backups`
+- `should_backup()` agora verifica por mês calendário (não intervalo de 30 dias)
+- Removido código morto: `transaction_exists`, `suggest_category`, `get_categorization_patterns`, `ollama.suggest_categories`
+
 ### Próximas fases
 
-**Fase 11b — Systemd service**
+**Fase 11c — Systemd service**
 - [ ] `brokershark.service` — autostart, low resource footprint
 
-**Fase 11c — Edição e ajustes históricos**
+**Fase 11d — Edição e ajustes históricos**
 - [ ] Manual investment balance adjustment (for RDB/CDB daily yield that doesn't appear as movements)
 - [ ] Spending goal alerts at 80% threshold (using `budgets` table)
 

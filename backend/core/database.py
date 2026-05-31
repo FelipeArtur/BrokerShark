@@ -415,6 +415,10 @@ def insert_transaction(
     counterpart: Optional[str] = None,
     is_revenue: int = 0,
 ) -> int:
+    try:
+        datetime.strptime(date, "%Y-%m-%d")
+    except (ValueError, TypeError):
+        raise ValueError(f"Invalid date format: '{date}'. Expected YYYY-MM-DD.")
     """Insert a new transaction and notify the dashboard via SSE.
 
     Args:
@@ -509,28 +513,6 @@ def get_transactions_by_period(
             (start_date, end_date),
         ).fetchall()
 
-
-def transaction_exists(date: str, amount: float, description: str, account_id: str) -> bool:
-    """Check if an identical transaction already exists (duplicate detection).
-
-    Used by the CSV import flow to skip rows already present in the database.
-
-    Args:
-        date:        ISO date string.
-        amount:      Transaction amount.
-        description: Transaction description.
-        account_id:  Account FK.
-
-    Returns:
-        ``True`` if a matching row exists, ``False`` otherwise.
-    """
-    with _connect() as conn:
-        row = conn.execute(
-            """SELECT 1 FROM transactions
-               WHERE date=? AND amount=? AND description=? AND account_id=?""",
-            (date, amount, description, account_id),
-        ).fetchone()
-        return row is not None
 
 
 # ── Investments ───────────────────────────────────────────────────────────────
@@ -1535,7 +1517,8 @@ def search_transactions(query: str, limit: int = 30) -> list[dict]:
         List of ``{id, date, description, amount, flow, account_id, bank, category}``
         ordered most recent first.
     """
-    q = f"%{query}%"
+    safe = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    q = f"%{safe}%"
     with _connect() as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
@@ -1546,7 +1529,7 @@ def search_transactions(query: str, limit: int = 30) -> list[dict]:
                JOIN accounts a ON a.id = t.account_id
                LEFT JOIN categories c ON c.id = t.category_id
                WHERE t.dest_account_id IS NULL
-                 AND (t.description LIKE ? OR t.display_name LIKE ? OR c.name LIKE ?)
+                 AND (t.description LIKE ? ESCAPE '\\' OR t.display_name LIKE ? ESCAPE '\\' OR c.name LIKE ? ESCAPE '\\')
                ORDER BY t.date DESC
                LIMIT ?""",
             (q, q, q, limit),
@@ -1567,33 +1550,6 @@ def log_unrecognized(message: str) -> None:
             "INSERT INTO unrecognized_log (date, message) VALUES (?,?)",
             (datetime.now().isoformat(), message),
         )
-
-
-# ── AI / Ollama helpers ───────────────────────────────────────────────────────
-
-def get_categorization_patterns(limit: int = 100) -> list[dict]:
-    """Return the most frequent (description, category) pairs from expense history.
-
-    Used as context for Ollama to suggest categories for CSV imports.
-
-    Args:
-        limit: Maximum number of patterns to return.
-
-    Returns:
-        List of ``{description, category, freq}`` ordered by frequency descending.
-    """
-    with _connect() as conn:
-        rows = conn.execute(
-            """SELECT t.description, c.name AS category, COUNT(*) AS freq
-               FROM transactions t
-               JOIN categories c ON c.id = t.category_id
-               WHERE t.flow = 'expense' AND t.dest_account_id IS NULL
-               GROUP BY t.description, c.name
-               ORDER BY freq DESC
-               LIMIT ?""",
-            (limit,),
-        ).fetchall()
-        return [dict(r) for r in rows]
 
 
 # ── Category management ───────────────────────────────────────────────────────
@@ -1642,37 +1598,6 @@ def create_category(name: str, flow: str) -> int:
             "INSERT INTO categories (name, flow) VALUES (?,?)", (name, flow)
         )
         return cur.lastrowid  # type: ignore[return-value]
-
-
-def suggest_category(description: str) -> Optional[int]:
-    """Suggest an expense category_id based on historical transaction patterns.
-
-    Performs case-insensitive substring matching against the most frequent
-    (description, category_id) pairs in the database.  Synchronous and
-    Ollama-free — safe to call during CSV preview.
-
-    Args:
-        description: Transaction description string to match against.
-
-    Returns:
-        The ``category_id`` of the best matching category, or ``None``.
-    """
-    desc_upper = description.upper()
-    with _connect() as conn:
-        rows = conn.execute(
-            """SELECT t.description, t.category_id, COUNT(*) AS freq
-               FROM transactions t
-               WHERE t.flow = 'expense'
-                 AND t.dest_account_id IS NULL
-                 AND t.category_id IS NOT NULL
-               GROUP BY t.description, t.category_id
-               ORDER BY freq DESC
-               LIMIT 200""",
-        ).fetchall()
-        for r in rows:
-            if r["description"].upper() in desc_upper or desc_upper in r["description"].upper():
-                return r["category_id"]
-    return None
 
 
 def delete_category(category_id: int, reassign_to_id: int) -> int:

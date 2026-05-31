@@ -1,10 +1,9 @@
 """Ollama integration — async HTTP client para comunicação com modelos locais.
 
 Funções públicas:
-- is_available()        health check com cache de 30s
-- chat()               chamada simples, retorna string (usado pelo scheduler)
-- chat_stream()        gerador de streaming (usado pelo handler de IA)
-- suggest_categories() categorização em lote (usado pelo CSV import)
+- is_available()   health check com cache de 30s
+- chat()           chamada simples, retorna string (usado pelo scheduler)
+- chat_stream()    gerador de streaming (usado pelo handler de IA)
 
 Todos os erros são logados em logs/ollama_errors.log e nunca propagados.
 """
@@ -121,62 +120,3 @@ async def chat_stream(
         _logger.error("chat_stream() failed: %s", exc)
 
 
-async def suggest_categories(
-    transactions: list[dict[str, Any]],
-    patterns: list[dict[str, Any]],
-    valid_categories: list[str],
-) -> dict[str, str]:
-    """Categoriza transações em lote usando histórico do usuário como referência.
-
-    Args:
-        transactions: lista de {description, amount} do parser CSV.
-        patterns: lista de {description, category, freq} de get_categorization_patterns().
-        valid_categories: nomes de categorias existentes no banco.
-
-    Returns:
-        {description: category_name}. Entradas ausentes = sem sugestão.
-    """
-    if not transactions:
-        return {}
-
-    history_lines = "\n".join(
-        f'- "{p["description"]}" → {p["category"]} ({p["freq"]}x)'
-        for p in patterns[:50]
-    )
-    tx_lines = "\n".join(
-        f'- "{t["description"]}" (R$ {t["amount"]:.2f})' for t in transactions
-    )
-    cats = ", ".join(valid_categories)
-
-    prompt = f"""Categorize as transações abaixo usando o histórico do usuário como referência prioritária.
-Categorias válidas: {cats}
-
-Histórico de categorizações do usuário:
-{history_lines or "(sem histórico ainda)"}
-
-Transações a categorizar:
-{tx_lines}
-
-Responda APENAS com JSON no formato:
-{{"descrição exata": "categoria"}}
-Não inclua explicações, apenas o JSON."""
-
-    messages = [{"role": "user", "content": prompt}]
-    try:
-        async with httpx.AsyncClient(base_url=OLLAMA_URL, timeout=20) as client:
-            r = await client.post(
-                "/api/chat",
-                json={"model": OLLAMA_MODEL, "messages": messages, "stream": False},
-            )
-            r.raise_for_status()
-            content = r.json().get("message", {}).get("content", "")
-            start = content.find("{")
-            end = content.rfind("}") + 1
-            if start == -1 or end == 0:
-                return {}
-            raw: dict[str, str] = json.loads(content[start:end])
-            valid_set = set(valid_categories)
-            return {k: v for k, v in raw.items() if v in valid_set}
-    except Exception as exc:
-        _logger.error("suggest_categories() failed: %s", exc)
-        return {}

@@ -3,13 +3,13 @@
           fetchCategoriesByAccount, fetchAccounts, fetchMonthly, fetchMonthlyFull,
           fetchInvestments, fetchAccountHistory, fetchMonthTransactions, deleteTransaction,
           fetchCashflowStatement, fetchPixTop,
-          ImportModal, fetchExpenseCategories */
+          fetchExpenseCategories */
 
 const { useState: _s2St, useEffect: _s2Ef, useMemo: _s2Memo } = React;
 const { fmtBRL, fmtBRLCompact, fmtDateBR, BankChip, Sparkline, BarChart, DualLine, Donut, Progress, PT_MONTHS, PT_SHORT, fmtCycleDate } = window.BS;
 
 /* ── CardsView ───────────────────────────────────────────────────────────── */
-function CardsView({ onEditCategory, onDeleteTx, refreshKey, filterMonth, onImportCsv }) {
+function CardsView({ onEditCategory, onDeleteTx, refreshKey, filterMonth }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   const _now = new Date();
   const _isPastMonth = filterMonth && filterMonth !== "all" && (() => {
@@ -94,15 +94,6 @@ function CardsView({ onEditCategory, onDeleteTx, refreshKey, filterMonth, onImpo
                 h("div", { className: "num", style: { fontWeight: 600, color: toneColor } }, `${f.days_until_due}d`)
               )
             ),
-            onImportCsv && h("button", {
-              onClick: e => { e.stopPropagation(); onImportCsv(f.accountId); },
-              style: {
-                marginTop: 12, width: "100%", padding: "5px 10px",
-                background: "oklch(100% 0 0 / 0.14)", border: "1px solid oklch(100% 0 0 / 0.25)",
-                borderRadius: 5, color: "oklch(100% 0 0 / 0.9)", fontSize: 10, fontWeight: 600,
-                cursor: "pointer", letterSpacing: "0.04em",
-              }
-            }, "⤓ Importar CSV")
           )
         );
       })

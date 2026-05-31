@@ -1,13 +1,14 @@
 /* app.js — BrokerShark v2 app shell */
 /* global React, ReactDOM, fetchExpenseCategories, patchTransactionCategory, patchTransaction,
           postTransaction, postIncome, postInvestmentMovement, searchTransactions,
-          fetchExpenseCategoriesFull, postCategory, deleteCategory, deleteTransaction */
+          fetchExpenseCategoriesFull, postCategory, deleteCategory, deleteTransaction,
+          fetchAccounts */
 
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
 const {
   fmtBRL, fmtDateBR, Modal, useToasts, BankChip, BrokerSharkLogo,
   PT_SHORT,
-  ImportModal, OverviewView, CardsView, AccountsView, InvestmentsView, HistoryView,
+  OverviewView, CardsView, AccountsView, InvestmentsView, HistoryView,
   CategoriesPanel,
 } = window.BS;
 
@@ -367,8 +368,6 @@ function App() {
   const [live, setLive] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [filterMonth, setFilterMonth] = useState("all");
-  const [importModalOpen, setImportModalOpen] = useState(false);
-  const [importAccountId, setImportAccountId] = useState("nu-cc");
   const { push, Toaster } = useToasts();
 
   const months12 = useMemo(() => _buildMonths(12), []);
@@ -516,16 +515,7 @@ function App() {
       ),
 
       // Tweaks
-      h("button", { className: "btn btn-ghost btn-sm", onClick: () => setTweaksOpen(o => !o), title: "Aparência" }, "⚙"),
-
-      h("button", {
-        className: "btn btn-sm",
-        onClick: () => { setImportAccountId("nu-cc"); setImportModalOpen(true); },
-        title: "Importar CSV",
-        style: { height: 30 }
-      },
-        h("span", { style: { fontFamily: "var(--ff-mono)", fontWeight: 700 } }, "⤓"), " CSV"
-      )
+      h("button", { className: "btn btn-ghost btn-sm", onClick: () => setTweaksOpen(o => !o), title: "Aparência" }, "⚙")
     ),
 
     // ── Body
@@ -534,9 +524,7 @@ function App() {
       // Main content
       h("main", { className: "app-main" },
         section === "overview"    && h(OverviewView,    { onJumpToAccount: () => setSection("cards"), onEditCategory: setEditTx, onDeleteTx: handleDeleteTx, refreshKey, filterMonth }),
-        section === "cards"       && h(CardsView,       { onEditCategory: setEditTx, onDeleteTx: handleDeleteTx, refreshKey, filterMonth,
-          onImportCsv: (accId) => { setImportAccountId(accId); setImportModalOpen(true); }
-        }),
+        section === "cards"       && h(CardsView,       { onEditCategory: setEditTx, onDeleteTx: handleDeleteTx, refreshKey, filterMonth }),
         section === "accounts"    && h(AccountsView,    { onEditCategory: setEditTx, onDeleteTx: handleDeleteTx, refreshKey, filterMonth }),
         section === "investments" && h(InvestmentsView, { refreshKey, filterMonth }),
         section === "history"     && h(HistoryView,     { onEditCategory: setEditTx, onDeleteTx: handleDeleteTx, refreshKey }),
@@ -580,13 +568,6 @@ function App() {
         setEditTx(null);
         setRefreshKey(k => k + 1);
       }
-    }),
-
-    h(ImportModal, {
-      open: importModalOpen,
-      defaultAccountId: importAccountId,
-      onClose: () => setImportModalOpen(false),
-      onImported: () => { setRefreshKey(k => k + 1); push("CSV importado!", "success"); }
     }),
 
     h(Toaster, null)

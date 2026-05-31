@@ -81,16 +81,3 @@ async function deleteTransaction(id) {
   if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || "request failed"); }
   return r.json();
 }
-
-/* ── CSV import ─────────────────────────────────────────────────────────── */
-async function postImportCsvPreview(file, accountId) {
-  const form = new FormData();
-  form.append("file", file);
-  form.append("account_id", accountId);
-  const r = await fetch("/api/import-csv/preview", { method: "POST", body: form });
-  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || "request failed"); }
-  return r.json();
-}
-async function postImportCsvConfirm(rows) {
-  return _post("/api/import-csv/confirm", { rows });
-}

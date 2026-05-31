@@ -1,7 +1,7 @@
 """Monthly SQLite backup — local (HDD) + Google Drive.
 
-Backup is only triggered when the last local backup is more than 30 days old.
-Called at application startup via the scheduler (30s after start).
+Backup runs on the 1st of each month via APScheduler cron.
+`should_backup()` guards against double-runs within the same calendar month.
 """
 import logging
 import shutil
@@ -14,25 +14,16 @@ DB_PATH = config.DB_PATH
 BACKUP_DIR = config.LOCAL_BACKUP_DIR
 MAX_BACKUPS = config.MAX_BACKUPS
 
-_BACKUP_INTERVAL_DAYS = 30
-
 _logger = logging.getLogger(__name__)
 
 
 def should_backup() -> bool:
-    """Return True if more than 30 days have passed since the last local backup."""
+    """Return True if this calendar month has no backup yet."""
     backup_dir = Path(BACKUP_DIR)
     if not backup_dir.exists():
         return True
-    existing = sorted(backup_dir.glob("brokershark_*.db"))
-    if not existing:
-        return True
-    try:
-        mtime = existing[-1].stat().st_mtime
-        age_days = (datetime.now().timestamp() - mtime) / 86400
-        return age_days >= _BACKUP_INTERVAL_DAYS
-    except OSError:
-        return True
+    stamp = datetime.now().strftime("%Y-%m")
+    return not (backup_dir / f"brokershark_{stamp}.db").exists()
 
 
 def run_backup() -> bool:

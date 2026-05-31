@@ -1,9 +1,9 @@
-"""APScheduler jobs — startup backup, weekly report, and monthly closing report.
+"""APScheduler jobs — monthly backup, weekly report, and monthly closing report.
 
 Jobs registered:
-- ``startup_backup`` — 30s after start; local backup + Drive upload (only if due)
-- ``weekly_report``  — Monday 08:00 with income/expense summary and fatura info
-- ``monthly_closing``— 1st of each month 08:00 with full previous-month breakdown
+- ``monthly_backup``  — 1st of each month 07:00; local backup + Drive upload (only if due)
+- ``weekly_report``   — Monday 08:00 with income/expense summary and fatura info
+- ``monthly_closing`` — 1st of each month 08:00 with full previous-month breakdown
 """
 import asyncio
 import json
@@ -152,8 +152,8 @@ async def _send_monthly_closing_report(bot: Bot) -> None:
     )
 
 
-async def _run_startup_backup() -> None:
-    """Run local backup + Drive upload if more than 30 days have passed since last backup."""
+async def _run_monthly_backup() -> None:
+    """Run local backup + Drive upload on the 1st of each month if not yet done."""
     created = await asyncio.to_thread(backup.run_backup)
     if created:
         await asyncio.to_thread(drive.upload_backup, config.DB_PATH)
@@ -173,10 +173,12 @@ def build_scheduler(bot: Bot) -> AsyncIOScheduler:
     scheduler = AsyncIOScheduler()
 
     scheduler.add_job(
-        _run_startup_backup,
-        trigger="date",
-        run_date=datetime.now() + timedelta(seconds=30),
-        id="startup_backup",
+        _run_monthly_backup,
+        trigger="cron",
+        day=1,
+        hour=7,
+        minute=0,
+        id="monthly_backup",
     )
 
     scheduler.add_job(
