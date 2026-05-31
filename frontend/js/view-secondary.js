@@ -164,7 +164,7 @@ function CardsView({ onEditCategory, onDeleteTx, refreshKey, filterMonth }) {
                     h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 11, marginBottom: 4 } },
                       h("span", { style: { color: "var(--fg-1)" } }, c.category),
                       h("div", { style: { display: "flex", gap: 8, alignItems: "center" } },
-                        h("span", { className: "num", style: { fontSize: 11, color: "var(--fg-2)" } }, fmtBRL(c.amount, { decimals: 0 })),
+                        h("span", { className: "num", style: { fontSize: 11, color: "var(--fg-2)" } }, fmtBRL(c.amount)),
                         h("span", { style: { fontSize: 10, color: "var(--fg-3)", width: 30, textAlign: "right", fontFamily: "var(--ff-mono)" } }, `${c.pct}%`)
                       )
                     ),
@@ -185,7 +185,7 @@ function CardsView({ onEditCategory, onDeleteTx, refreshKey, filterMonth }) {
                 h("div", { style: { width: 80, height: 4, background: "var(--bg-2)", borderRadius: 999 } },
                   h("div", { style: { width: `${(c.total / catMax) * 100}%`, height: "100%", background: "var(--info)", borderRadius: 999 } })
                 ),
-                h("div", { className: "num", style: { width: 70, textAlign: "right" } }, fmtBRL(c.total, { decimals: 0 }))
+                h("div", { className: "num", style: { width: 70, textAlign: "right" } }, fmtBRLCompact(c.total))
               )
             )
           )
