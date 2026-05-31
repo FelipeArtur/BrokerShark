@@ -828,5 +828,30 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx }) {
   );
 }
 
+/* ── AccountsCardsView — merged tab (Contas + Cartões) ───────────────────── */
+function AccountsCardsView({ onEditCategory, onDeleteTx, refreshKey, filterMonth }) {
+  const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
+  const [activeTab, setActiveTab] = _s2St("accounts");
+
+  return h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 14 } },
+    h("div", { style: { display: "flex", gap: 2, padding: 3, background: "var(--bg-1)", border: "1px solid var(--line-1)", borderRadius: 8, alignSelf: "flex-start" } },
+      [["accounts", "Contas"], ["cards", "Cartões"]].map(([id, label]) =>
+        h("button", {
+          key: id, onClick: () => setActiveTab(id),
+          style: {
+            padding: "6px 22px", borderRadius: 6, fontSize: 13, fontWeight: activeTab === id ? 600 : 500,
+            background: activeTab === id ? "var(--bg-3)" : "transparent",
+            border: activeTab === id ? "1px solid var(--line-2)" : "1px solid transparent",
+            color: activeTab === id ? "var(--fg-0)" : "var(--fg-2)",
+            transition: "all 0.12s", cursor: "pointer",
+          }
+        }, label)
+      )
+    ),
+    activeTab === "accounts" && h(AccountsView, { onEditCategory, onDeleteTx, refreshKey, filterMonth }),
+    activeTab === "cards"    && h(CardsView,    { onEditCategory, onDeleteTx, refreshKey, filterMonth })
+  );
+}
+
 window.BS = window.BS || {};
-Object.assign(window.BS, { CardsView, AccountsView, InvestmentsView, HistoryView });
+Object.assign(window.BS, { CardsView, AccountsView, AccountsCardsView, InvestmentsView, HistoryView });

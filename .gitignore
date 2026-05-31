@@ -1,4 +1,5 @@
 # Ambiente virtual Python
+.pytest_cache/
 .venv/
 venv/
 env/
@@ -13,18 +14,12 @@ build/
 # Variáveis de ambiente (credenciais sensíveis)
 .env
 .env.*
-!.env.example
 
-# Google API credentials
+# Credentials
 credentials/
 
 # Banco de dados
 data/
-
-load_data/Extrato completo Inter
-load_data/Extrato completo Nubank
-load_data/Fatura banco Inter
-load_data/Fatura Nubank
 
 # Backups
 backups/
@@ -43,5 +38,6 @@ logs/
 .DS_Store
 Thumbs.db
 
+# Agentes
 .agents/
 PRODUCT.md

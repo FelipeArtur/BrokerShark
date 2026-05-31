@@ -8,7 +8,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
 const {
   fmtBRL, fmtDateBR, Modal, useToasts, BankChip, BrokerSharkLogo,
   PT_SHORT,
-  OverviewView, CardsView, AccountsView, InvestmentsView, HistoryView,
+  OverviewView, AccountsCardsView, InvestmentsView, HistoryView,
   CategoriesPanel,
 } = window.BS;
 
@@ -27,8 +27,33 @@ function _currentMonth() {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
 
+/* ── SVG icons ──────────────────────────────────────────────────────────── */
+function IconSearch({ size = 17 }) {
+  return React.createElement("svg", {
+    width: size, height: size, viewBox: "0 0 16 16", fill: "none",
+    stroke: "currentColor", strokeWidth: 1.7, strokeLinecap: "round",
+    style: { display: "block", flexShrink: 0 }
+  },
+    React.createElement("circle", { cx: 6.5, cy: 6.5, r: 4 }),
+    React.createElement("path", { d: "M10 10 L14 14" })
+  );
+}
+
+function IconSettings({ size = 17 }) {
+  return React.createElement("svg", {
+    width: size, height: size, viewBox: "0 0 16 16", fill: "none",
+    stroke: "currentColor", strokeWidth: 1.7, strokeLinecap: "round",
+    style: { display: "block", flexShrink: 0 }
+  },
+    React.createElement("line", { x1: 2, y1: 5, x2: 14, y2: 5 }),
+    React.createElement("circle", { cx: 9.5, cy: 5, r: 1.7, fill: "currentColor", stroke: "none" }),
+    React.createElement("line", { x1: 2, y1: 11, x2: 14, y2: 11 }),
+    React.createElement("circle", { cx: 5.5, cy: 11, r: 1.7, fill: "currentColor", stroke: "none" })
+  );
+}
+
 /* ── Tweaks (localStorage) ──────────────────────────────────────────────── */
-const TWEAK_DEFAULTS = { theme: "dark", density: "default", sidebarSide: "right", showKeyboardHints: true, alwaysOpenSidebar: true };
+const TWEAK_DEFAULTS = { theme: "dark", density: "comfortable" };
 function useTweaks() {
   const stored = JSON.parse(localStorage.getItem("bs_tweaks") || "{}");
   const [tw, setTwState] = useState({ ...TWEAK_DEFAULTS, ...stored });
@@ -61,7 +86,6 @@ function CategoryEditor({ tx, onClose, onSave }) {
     if (tx) {
       fetchExpenseCategories().then(cats => {
         setCats(cats);
-        // Auto-select "Eventos / Terceiros" category when marking not-mine
       });
       setSelected(tx.category_id);
       setDisplayName(tx.display_name || "");
@@ -74,7 +98,6 @@ function CategoryEditor({ tx, onClose, onSave }) {
     const next = !isThirdParty;
     setIsThirdParty(next);
     if (next && !selected) {
-      // Auto-assign "Eventos / Terceiros" category
       const evtCat = cats.find(c => c.name === "Eventos / Terceiros");
       if (evtCat) setSelected(evtCat.id);
     }
@@ -119,7 +142,6 @@ function CategoryEditor({ tx, onClose, onSave }) {
   return h(Modal, { open: !!tx, onClose, title: "Transação", width: 480 },
     tx && h("div", { style: { display: "flex", flexDirection: "column", gap: 14 } },
 
-      /* header: raw description + chips */
       h("div", { style: { display: "flex", flexDirection: "column", gap: 4 } },
         h("div", { style: { fontSize: 11, color: "var(--fg-3)", fontFamily: "monospace", wordBreak: "break-all" } }, tx.description),
         h("div", { style: { display: "flex", gap: 6, flexWrap: "wrap", marginTop: 2 } },
@@ -131,7 +153,6 @@ function CategoryEditor({ tx, onClose, onSave }) {
         )
       ),
 
-      /* display name field */
       h("div", { style: { display: "flex", flexDirection: "column", gap: 4 } },
         h("label", { style: { fontSize: 11, color: "var(--fg-2)", fontWeight: 600 } }, "Nome fantasia"),
         h("input", {
@@ -143,7 +164,6 @@ function CategoryEditor({ tx, onClose, onSave }) {
         })
       ),
 
-      /* category grid — only for expenses */
       flowIsExpense && h("div", { style: { display: "flex", flexDirection: "column", gap: 6 } },
         h("div", { style: { fontSize: 11, color: "var(--fg-2)", fontWeight: 600 } }, "Categoria"),
         h("div", { style: { display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 5 } },
@@ -162,7 +182,6 @@ function CategoryEditor({ tx, onClose, onSave }) {
         )
       ),
 
-      /* "não é meu" toggle */
       h("button", {
         type: "button",
         onClick: handleToggleThirdParty,
@@ -181,7 +200,6 @@ function CategoryEditor({ tx, onClose, onSave }) {
 
       err && h("div", { style: { fontSize: 11, color: "var(--neg)", padding: "2px 0" } }, err),
 
-      /* action row */
       h("div", { style: { display: "flex", gap: 8, justifyContent: "space-between", marginTop: 2 } },
         h("button", {
           className: "btn btn-ghost btn-sm",
@@ -201,54 +219,53 @@ function CategoryEditor({ tx, onClose, onSave }) {
 /* ── TweaksPanel ────────────────────────────────────────────────────────── */
 function TweaksPanel({ tw, setTw, onClose, onOpenCategories }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
-  const Row = ({ label, children }) => h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: "1px solid var(--line-1)" } },
+  const Row = ({ label, children }) => h("div", {
+    style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 0", borderBottom: "1px solid var(--line-1)" }
+  },
     h("span", { style: { fontSize: "var(--fz-7)", color: "var(--fg-1)" } }, label), children);
+
   const Radio = ({ options, value, onChange }) => h("div", { style: { display: "flex", gap: 4 } },
     options.map(o => h("button", {
       key: o, type: "button", onClick: () => onChange(o),
-      style: { padding: "3px 8px", fontSize: 11, borderRadius: 4, border: o === value ? "1px solid var(--info)" : "1px solid var(--line-1)", background: o === value ? "var(--info-bg)" : "var(--bg-2)", color: o === value ? "var(--info)" : "var(--fg-1)" }
+      style: {
+        padding: "3px 9px", fontSize: 11, borderRadius: 4,
+        border: o === value ? "1px solid var(--info)" : "1px solid var(--line-1)",
+        background: o === value ? "var(--info-bg)" : "var(--bg-2)",
+        color: o === value ? "var(--info)" : "var(--fg-1)"
+      }
     }, o))
   );
-  const Toggle = ({ value, onChange, "aria-label": ariaLabel }) => h("button", {
-    type: "button", role: "switch", "aria-checked": String(value), "aria-label": ariaLabel,
-    onClick: () => onChange(!value),
-    style: { width: 36, height: 20, borderRadius: 999, background: value ? "var(--info)" : "var(--bg-3)", border: "none", position: "relative", transition: "background 0.2s", cursor: "pointer" }
-  },
-    h("span", { style: { position: "absolute", top: 2, left: value ? 18 : 2, width: 16, height: 16, borderRadius: "50%", background: "var(--fg-0)", transition: "left 0.2s" } })
-  );
-
-  const Section = ({ label }) => h("div", {
-    style: { fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--fg-3)", padding: "10px 0 4px" }
-  }, label);
 
   return h("div", { className: "tweaks-panel", role: "dialog", "aria-label": "Configurações" },
-    h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 } },
+    h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 } },
       h("span", { style: { fontWeight: 700, fontSize: "var(--fz-5)" } }, "Configurações"),
       h("button", { className: "btn btn-ghost btn-sm", "aria-label": "Fechar", onClick: onClose }, "✕")
     ),
 
-    h(Section, { label: "Aparência" }),
-    h(Row, { label: "Tema" },          h(Radio, { options: ["dark", "light"], value: tw.theme, onChange: v => setTw("theme", v) })),
-    h(Row, { label: "Densidade" },     h(Radio, { options: ["compact", "default", "comfortable"], value: tw.density, onChange: v => setTw("density", v) })),
+    h(Row, { label: "Tema" },
+      h(Radio, { options: ["dark", "light"], value: tw.theme, onChange: v => setTw("theme", v) })
+    ),
+    h(Row, { label: "Densidade" },
+      h(Radio, { options: ["compact", "default", "comfortable"], value: tw.density, onChange: v => setTw("density", v) })
+    ),
 
-    h(Section, { label: "Layout" }),
-    h(Row, { label: "Sidebar à direita" }, h(Toggle, { value: tw.sidebarSide === "right", onChange: v => setTw("sidebarSide", v ? "right" : "left"), "aria-label": "Sidebar à direita" })),
-    h(Row, { label: "Sidebar sempre aberto" }, h(Toggle, { value: tw.alwaysOpenSidebar, onChange: v => setTw("alwaysOpenSidebar", v), "aria-label": "Sidebar sempre aberto" })),
-
-    h(Section, { label: "Interface" }),
-    h(Row, { label: "Atalhos de teclado" }, h(Toggle, { value: tw.showKeyboardHints, onChange: v => setTw("showKeyboardHints", v), "aria-label": "Atalhos de teclado" })),
-
-    h("div", { style: { marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--line-1)", display: "flex", flexDirection: "column", gap: 4 } },
+    h("div", { style: { marginTop: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 } },
       h("button", {
         className: "btn btn-ghost btn-sm",
         onClick: () => { onOpenCategories(); onClose(); },
-        style: { justifyContent: "flex-start", fontSize: 11, color: "var(--fg-2)" }
-      }, "⊞ Gerenciar categorias"),
+        style: { justifyContent: "center", fontSize: 12, color: "var(--fg-1)", height: 34 }
+      },
+        h("span", { style: { fontSize: 14, marginRight: 4 } }, "⊞"),
+        "Categorias"
+      ),
       h("button", {
         className: "btn btn-ghost btn-sm",
         onClick: () => { localStorage.removeItem("bs_tweaks"); location.reload(); },
-        style: { justifyContent: "flex-start", fontSize: 11, color: "var(--fg-3)" }
-      }, "↺ Restaurar padrões")
+        style: { justifyContent: "center", fontSize: 12, color: "var(--fg-3)", height: 34 }
+      },
+        h("span", { style: { fontSize: 14, marginRight: 4 } }, "↺"),
+        "Restaurar"
+      )
     )
   );
 }
@@ -308,16 +325,17 @@ function SearchModal({ onClose, onSelect }) {
         "aria-live": "polite", "aria-atomic": "true",
         style: { position: "absolute", width: 1, height: 1, padding: 0, margin: -1, overflow: "hidden", clip: "rect(0,0,0,0)", whiteSpace: "nowrap", border: 0 }
       }, query.length >= 2 ? `${results.length} resultado${results.length !== 1 ? "s" : ""}` : ""),
-      h("div", { style: { display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderBottom: "1px solid var(--line-1)" } },
-        h("span", { style: { color: "var(--fg-3)", fontSize: 16, fontFamily: "var(--ff-mono)", flexShrink: 0 } }, "⌕"),
+      h("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderBottom: "1px solid var(--line-1)" } },
+        h("span", { style: { color: "var(--fg-3)", display: "flex", alignItems: "center", flexShrink: 0 } },
+          h(IconSearch, { size: 18 })
+        ),
         h("input", {
           ref: inputRef,
           value: query, onChange: e => setQuery(e.target.value),
           onKeyDown: onKey,
           placeholder: "Buscar transações…",
           style: { flex: 1, background: "none", border: "none", outline: "none", fontSize: 14, color: "var(--fg-0)" }
-        }),
-        h("span", { className: "kbd", style: { fontSize: 10 } }, "Esc")
+        })
       ),
       results.length > 0 && h("div", { style: { maxHeight: 360, overflowY: "auto" } },
         h("div", { style: { padding: "4px 14px", fontSize: 9, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, background: "var(--bg-2)" } },
@@ -360,19 +378,15 @@ function App() {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   const [tw, setTw] = useTweaks();
   const [section, setSection] = useState("overview");
-  const [sidebarOpen, setSidebarOpen] = useState(tw.alwaysOpenSidebar);
   const [entryKind, setEntryKind] = useState("expense");
   const [editTx, setEditTx] = useState(null);
   const [tweaksOpen, setTweaksOpen] = useState(false);
   const [searchModalOpen, setSearchModalOpen] = useState(false);
-  const [live, setLive] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [filterMonth, setFilterMonth] = useState("all");
   const { push, Toaster } = useToasts();
 
   const months12 = useMemo(() => _buildMonths(12), []);
-
-  useEffect(() => { setSidebarOpen(tw.alwaysOpenSidebar); }, [tw.alwaysOpenSidebar]);
 
   // Boot: populate account names for data-driven BankChip
   useEffect(() => {
@@ -387,21 +401,21 @@ function App() {
     function connect() {
       es = new EventSource("/api/events");
       es.onmessage = e => {
-        if (e.data === "connected") { setLive(true); return; }
+        if (e.data === "connected") return;
         if (e.data === "update") {
           clearTimeout(debounce);
           debounce = setTimeout(() => setRefreshKey(k => k + 1), 300);
         }
       };
-      es.onerror = () => { setLive(false); setTimeout(connect, 5000); };
+      es.onerror = () => setTimeout(connect, 5000);
     }
     connect();
     return () => { clearTimeout(debounce); es?.close(); };
   }, []);
 
-  // Keyboard shortcuts
+  // Keyboard shortcuts (functional, no visual hints shown)
   useEffect(() => {
-    const SECTION_MAP = { "1": "overview", "2": "cards", "3": "accounts", "4": "investments", "5": "history" };
+    const SECTION_MAP = { "1": "overview", "2": "accounts", "3": "investments", "4": "history" };
     function onKey(e) {
       if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || e.target.tagName === "SELECT") return;
       if (e.key === "Escape") { setSearchModalOpen(false); setTweaksOpen(false); }
@@ -410,7 +424,7 @@ function App() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [tw.alwaysOpenSidebar]);
+  }, []);
 
   async function handleDeleteTx(id) {
     try {
@@ -422,14 +436,11 @@ function App() {
   }
 
   const SECTIONS = [
-    { id: "overview",     label: "Visão Geral",  key: "1" },
-    { id: "cards",        label: "Cartões",       key: "2" },
-    { id: "accounts",     label: "Contas",        key: "3" },
-    { id: "investments",  label: "Investimentos", key: "4" },
-    { id: "history",      label: "Histórico",     key: "5" },
+    { id: "overview",    label: "Visão Geral"     },
+    { id: "accounts",    label: "Contas & Cartões" },
+    { id: "investments", label: "Investimentos"    },
+    { id: "history",     label: "Histórico"        },
   ];
-
-  const sidebarLeft = tw.sidebarSide === "left";
 
   const isCurrentMonth = filterMonth === _currentMonth();
   const isAllPeriod    = filterMonth === "all";
@@ -448,10 +459,7 @@ function App() {
           key: s.id, className: `nav-btn${section === s.id ? " active" : ""}`,
           onClick: () => setSection(s.id),
           "aria-current": section === s.id ? "page" : undefined,
-        },
-          s.label,
-          tw.showKeyboardHints && h("span", { className: "kbd", style: { marginLeft: 2, opacity: section === s.id ? 1 : 0.5 } }, s.key)
-        ))
+        }, s.label))
       ),
 
       h("div", { style: { width: 1, height: 20, background: "var(--line-1)", margin: "0 8px" } }),
@@ -502,41 +510,34 @@ function App() {
         className: "btn btn-ghost btn-sm",
         onClick: () => setSearchModalOpen(true),
         title: "Buscar transações (/)",
-        style: { display: "flex", alignItems: "center", gap: 6, fontSize: 12 }
+        style: { display: "flex", alignItems: "center", gap: 6, padding: "0 10px", height: 30 }
       },
-        h("span", { style: { fontFamily: "var(--ff-mono)", fontSize: 15 } }, "⌕"),
-        tw.showKeyboardHints && h("span", { className: "kbd" }, "/")
+        h(IconSearch, { size: 17 }),
+        h("span", { style: { fontSize: 12 } }, "Buscar")
       ),
 
-      // Live indicator
-      h("div", { style: { display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: "var(--fg-3)" } },
-        h("span", { style: { width: 7, height: 7, borderRadius: "50%", background: live ? "var(--pos)" : "var(--fg-3)", boxShadow: live ? "0 0 8px var(--pos)" : "none", display: "inline-block" } }),
-        h("span", { className: "topbar-live-text" }, live ? "ao vivo" : "offline")
-      ),
-
-      // Tweaks
-      h("button", { className: "btn btn-ghost btn-sm", onClick: () => setTweaksOpen(o => !o), title: "Aparência" }, "⚙")
+      // Settings
+      h("button", {
+        className: "btn btn-ghost btn-sm",
+        onClick: () => setTweaksOpen(o => !o),
+        title: "Configurações",
+        style: { display: "flex", alignItems: "center", padding: "0 10px", height: 30 }
+      },
+        h(IconSettings, { size: 17 })
+      )
     ),
 
     // ── Body
-    h("div", { className: "app-body", style: { flexDirection: sidebarLeft ? "row" : "row-reverse" } },
-
-      // Main content
+    h("div", { className: "app-body" },
       h("main", { className: "app-main" },
-        section === "overview"    && h(OverviewView,    { onJumpToAccount: () => setSection("cards"), onEditCategory: setEditTx, onDeleteTx: handleDeleteTx, refreshKey, filterMonth }),
-        section === "cards"       && h(CardsView,       { onEditCategory: setEditTx, onDeleteTx: handleDeleteTx, refreshKey, filterMonth }),
-        section === "accounts"    && h(AccountsView,    { onEditCategory: setEditTx, onDeleteTx: handleDeleteTx, refreshKey, filterMonth }),
-        section === "investments" && h(InvestmentsView, { refreshKey, filterMonth }),
-        section === "history"     && h(HistoryView,     { onEditCategory: setEditTx, onDeleteTx: handleDeleteTx, refreshKey }),
-        section === "categories"  && h(CategoriesPanel, { refreshKey, onRefresh: () => setRefreshKey(k => k + 1) }),
+        section === "overview"    && h(OverviewView,      { onJumpToAccount: () => setSection("accounts"), onEditCategory: setEditTx, onDeleteTx: handleDeleteTx, refreshKey, filterMonth }),
+        section === "accounts"    && h(AccountsCardsView, { onEditCategory: setEditTx, onDeleteTx: handleDeleteTx, refreshKey, filterMonth }),
+        section === "investments" && h(InvestmentsView,   { refreshKey, filterMonth }),
+        section === "history"     && h(HistoryView,       { onEditCategory: setEditTx, onDeleteTx: handleDeleteTx, refreshKey }),
+        section === "categories"  && h(CategoriesPanel,   { refreshKey, onRefresh: () => setRefreshKey(k => k + 1) }),
 
-        h("footer", { style: { marginTop: 20, padding: "12px 0", borderTop: "1px solid var(--line-1)", fontSize: 10, color: "var(--fg-3)", display: "flex", justifyContent: "space-between" } },
-          h("span", null, "BrokerShark · localhost:8080 · SQLite"),
-          tw.showKeyboardHints && h("span", { style: { display: "flex", gap: 12 } },
-            h("span", null, h("span", { className: "kbd" }, "/"), " buscar"),
-            h("span", null, h("span", { className: "kbd" }, "1-5"), " seções"),
-            h("span", null, h("span", { className: "kbd" }, "Esc"), " fechar")
-          )
+        h("footer", { style: { marginTop: 20, padding: "12px 0", borderTop: "1px solid var(--line-1)", fontSize: 10, color: "var(--fg-3)" } },
+          h("span", null, "BrokerShark · localhost:8080 · SQLite")
         )
       )
     ),
@@ -575,4 +576,3 @@ function App() {
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));
-
