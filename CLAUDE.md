@@ -1,5 +1,13 @@
 # BrokerShark — Claude Reference Guide
 
+## gstack
+
+Use the `/browse` skill from gstack for all web browsing. Never use `mcp__claude-in-chrome__*` tools.
+
+Available gstack skills: `/office-hours`, `/plan-ceo-review`, `/plan-eng-review`, `/plan-design-review`, `/design-consultation`, `/design-shotgun`, `/design-html`, `/review`, `/ship`, `/land-and-deploy`, `/canary`, `/benchmark`, `/browse`, `/connect-chrome`, `/qa`, `/qa-only`, `/design-review`, `/setup-browser-cookies`, `/setup-deploy`, `/setup-gbrain`, `/retro`, `/investigate`, `/document-release`, `/document-generate`, `/codex`, `/cso`, `/autoplan`, `/plan-devex-review`, `/devex-review`, `/careful`, `/freeze`, `/guard`, `/unfreeze`, `/gstack-upgrade`, `/learn`.
+
+---
+
 ## AI Development Tools
 
 This project is co-developed using **Claude Code CLI** and **Gemini CLI**.
@@ -277,8 +285,10 @@ accounts (id, bank, type, name, billing_day, due_day, initial_balance)
 categories (id, name, flow)        -- flow: expense | income
 transactions (id, date, flow, method, account_id, amount, installments,
               description, category_id, dest_account_id, counterpart,
-              is_revenue, external_id)
+              is_revenue, external_id, display_name, is_third_party)
               -- external_id: UUID do Nubank extrato (Identificador), dedup
+              -- display_name: nome fantasia editável (substitui description na UI)
+              -- is_third_party: 1 = excluído de todos os cálculos pessoais (ex: dinheiro de evento)
 investments (id, name, type, bank, current_balance)
 investment_movements (id, date, investment_id, operation, amount, description)
 budgets (id, category_id, amount_limit)
@@ -318,7 +328,8 @@ Excluded from summaries via `AND dest_account_id IS NULL`.
 | POST | `/api/import-csv/confirm` | Confirm and save CSV import |
 | POST | `/api/chat` | AI chat message |
 | PATCH | `/api/budgets/<id>` | Update budget limit |
-| PATCH | `/api/transactions/<id>` | Reassign category |
+| PATCH | `/api/transactions/<id>` | Update category_id, display_name, and/or is_third_party |
+| GET | `/api/pix-top` | Top PIX destinations (month, year) — `{label, count, total}[]` |
 
 ### API response shapes (selected)
 
@@ -329,7 +340,9 @@ Excluded from summaries via `AND dest_account_id IS NULL`.
 
 **`/api/daily-spend`** — always returns every day of the requested month zero-filled. Without params returns the current calendar month (not a rolling 30-day window).
 
-**`/api/month-transactions`** — returns `{ id, date, description, amount, flow, account_id, bank, category, category_id }` for all non-transfer transactions across all accounts in that month, ordered by date ASC.
+**`/api/month-transactions`** — returns `{ id, date, description, display_name, amount, flow, method, account_id, bank, category, category_id, is_third_party }` for all non-transfer transactions across all accounts in that month, ordered by date ASC.
+
+**`/api/pix-top`** — returns `{ label, count, total }[]` — top PIX expense destinations for a month, grouped by `COALESCE(display_name, description)`, ordered by total descending.
 
 ---
 
@@ -389,7 +402,7 @@ Layout: `gridTemplateColumns: "1.4fr 1fr"`
 
 ### CardsView — gastos mensais cartão
 
-O chart "Gastos mensais no cartão" usa `BarChart` com dados de `/api/monthly?account=<id>` — apenas a coluna `expenses` (CC nunca tem receita). Quando o cartão não tem lançamentos individuais cadastrados (`nu-cc` atualmente vazio), exibe mensagem `"Sem lançamentos individuais registrados neste cartão"` em vez de gráfico plano em zero.
+O chart "Gastos mensais no cartão" usa `BarChart` com dados de `/api/monthly?account=<id>` — apenas a coluna `expenses` (CC nunca tem receita). Quando não há gastos no período selecionado, exibe mensagem `"Sem gastos no cartão neste período"` em vez de gráfico plano em zero.
 
 ### HistoryView ("Lupa do mês") — 3 seções
 
@@ -459,17 +472,42 @@ Bot flows (expense/income/investment), dashboard v1→v3, SSE, CSV import, inves
 - `get_monthly_history()` e `get_monthly_history_by_account()` passam a retornar `month` e `year` como int
 - CardsView: DualLine substituído por BarChart de gastos mensais para CC
 
+**Fase 10 — Money Story Dashboard (concluída):**
+- Novo endpoint `GET /api/cashflow-statement` + função `get_cashflow_statement()` em `database.py`
+- Seção "Este mês" em `OverviewView`: ↓ Despesas | ↑ Receitas | → Investido / ← Resgatado | Saldo livre
+- `investment_net = deposits − withdrawals` — sem dupla contagem em meses de resgate
+- `CCCategoryBreakdown` em `CardsView`: top 3 categorias + "Outros" com Progress bars
+- `BankChip` data-driven via `window.BS.accountNames` (boot em `app.js`)
+- Título do card dinâmico: "Este mês" ou mês selecionado
+- Saldo livre: cor âmbar quando receitas = 0 no mês atual (não pânico-vermelho)
+- Proteção contra HTTP 500: clamp month/year em `/api/cashflow-statement`
+
+**Fase 11a — Transaction UX + Exclusão de Terceiros + PIX Analytics (concluída):**
+- `is_third_party INTEGER NOT NULL DEFAULT 0` + `display_name TEXT` nas `transactions` — migração automática
+- Categoria "Eventos / Terceiros" auto-criada na migração (`INSERT OR IGNORE`)
+- `is_third_party` exclui transações de TODOS os cálculos analíticos (summaries, categories, patrimônio, saldo de conta)
+- `update_transaction_fields(tx_id, **fields)` — atualiza display_name, category_id, is_third_party atomicamente
+- `get_top_pix_descriptions(month, year)` — top PIX agrupado por `COALESCE(display_name, description)`
+- `GET /api/pix-top` — endpoint para top PIX destinations
+- `PATCH /api/transactions/:id` — expandido: aceita display_name, is_third_party além de category_id
+- `TransactionPanel` (era `CategoryEditor`): modal 480px com nome fantasia, categoria, toggle "Não é meu", excluir
+- HistoryView: filtro de método PIX/Crédito/TED + card "Top PIX" no painel esquerdo
+- Tabela de transações: mostra `display_name` (se set) + badge "3°" para is_third_party
+- AccountsView: mesmos badges de display_name e is_third_party
+- `patchTransaction(id, fields)` em api.js + `fetchPixTop({ month, year })`
+
 ### Próximas fases
 
-**Fase 10 — Systemd service**
+**Fase 11b — Systemd service**
 - [ ] `brokershark.service` — autostart, low resource footprint
 
-**Fase 10b — Edição e ajustes históricos**
-- [ ] Delete transaction from dashboard
+**Fase 11c — Edição e ajustes históricos**
 - [ ] Manual investment balance adjustment (for RDB/CDB daily yield that doesn't appear as movements)
 - [ ] Spending goal alerts at 80% threshold (using `budgets` table)
 
+**Fase 11d — Entidade Evento (opcional)**
+- [ ] Tabela `events` + FK nas transactions — relatório por evento com saldo líquido
+
 **Dados pendentes**
-- [ ] Importar faturas Nubank CC (nu-cc está sem lançamentos individuais)
 - [ ] Configurar orçamentos por categoria (tabela `budgets` vazia)
 - [ ] Registrar movimentos do Tesouro Direto

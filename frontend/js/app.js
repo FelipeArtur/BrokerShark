@@ -1,5 +1,5 @@
 /* app.js — BrokerShark v2 app shell */
-/* global React, ReactDOM, fetchExpenseCategories, patchTransactionCategory,
+/* global React, ReactDOM, fetchExpenseCategories, patchTransactionCategory, patchTransaction,
           postTransaction, postIncome, postInvestmentMovement, searchTransactions,
           fetchExpenseCategoriesFull, postCategory, deleteCategory, deleteTransaction */
 
@@ -45,50 +45,154 @@ function useTweaks() {
   return [tw, setTw];
 }
 
-/* ── Category editor modal ──────────────────────────────────────────────── */
+/* ── Transaction panel (micro-profile modal) ────────────────────────────── */
 function CategoryEditor({ tx, onClose, onSave }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   const [cats, setCats] = useState([]);
   const [selected, setSelected] = useState(tx?.category_id || null);
+  const [displayName, setDisplayName] = useState(tx?.display_name || "");
+  const [isThirdParty, setIsThirdParty] = useState(!!(tx?.is_third_party));
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [err, setErr] = useState(null);
 
   useEffect(() => {
-    if (tx) { fetchExpenseCategories().then(setCats); setSelected(tx.category_id); setErr(null); }
+    if (tx) {
+      fetchExpenseCategories().then(cats => {
+        setCats(cats);
+        // Auto-select "Eventos / Terceiros" category when marking not-mine
+      });
+      setSelected(tx.category_id);
+      setDisplayName(tx.display_name || "");
+      setIsThirdParty(!!(tx.is_third_party));
+      setErr(null);
+    }
   }, [tx]);
 
+  async function handleToggleThirdParty() {
+    const next = !isThirdParty;
+    setIsThirdParty(next);
+    if (next && !selected) {
+      // Auto-assign "Eventos / Terceiros" category
+      const evtCat = cats.find(c => c.name === "Eventos / Terceiros");
+      if (evtCat) setSelected(evtCat.id);
+    }
+  }
+
   async function save() {
-    if (!selected || saving) return;
+    if (saving) return;
     setSaving(true); setErr(null);
     try {
-      await patchTransactionCategory(tx.id, selected);
-      const catName = cats.find(c => c.id === selected)?.name || "";
-      onSave(selected, catName);
+      const fields = {};
+      if (selected !== tx.category_id) fields.category_id = selected;
+      const trimmed = displayName.trim() || null;
+      if (trimmed !== (tx.display_name || null)) fields.display_name = trimmed;
+      const thirdPartyVal = isThirdParty ? 1 : 0;
+      if (thirdPartyVal !== (tx.is_third_party || 0)) fields.is_third_party = thirdPartyVal;
+      if (Object.keys(fields).length > 0) {
+        await patchTransaction(tx.id, fields);
+      }
+      const catName = cats.find(c => c.id === selected)?.name || tx.category || "";
+      onSave({ ...fields, category: catName });
     }
-    catch (e) { setErr(e.message || "Erro ao salvar categoria."); }
+    catch (e) { setErr(e.message || "Erro ao salvar."); }
     finally { setSaving(false); }
   }
 
-  return h(Modal, { open: !!tx, onClose, title: "Editar categoria", width: 400 },
-    tx && h("div", { style: { display: "flex", flexDirection: "column", gap: 12 } },
-      h("div", { style: { fontSize: 12, color: "var(--fg-2)", marginBottom: 4 } }, tx.description, " · ", fmtDateBR(tx.date)),
-      h("div", { style: { display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 6 } },
-        cats.map(c => h("button", {
-          key: c.id, type: "button",
-          onClick: () => setSelected(c.id),
-          "aria-pressed": selected === c.id,
-          style: {
-            padding: "8px 12px", borderRadius: 6, textAlign: "left",
-            fontSize: "var(--fz-7)", fontWeight: selected === c.id ? 600 : 400,
-            background: selected === c.id ? "var(--info-bg)" : "var(--bg-0)",
-            border: selected === c.id ? "1px solid var(--info)" : "1px solid var(--line-1)",
-            color: selected === c.id ? "var(--fg-0)" : "var(--fg-1)",
-          }
-        }, c.name))
+  async function handleDelete() {
+    if (deleting) return;
+    if (!confirm("Excluir esta transação permanentemente?")) return;
+    setDeleting(true);
+    try {
+      await deleteTransaction(tx.id);
+      onSave({ deleted: true });
+    }
+    catch (e) { setErr(e.message || "Erro ao excluir."); }
+    finally { setDeleting(false); }
+  }
+
+  const METHOD_LABELS = { pix: "PIX", pix_received: "PIX", credit: "Crédito", ted: "TED", transfer: "Transfer.", other: "Outro" };
+  const methodLabel = tx ? (METHOD_LABELS[tx.method] || tx.method || "") : "";
+  const flowIsExpense = tx?.flow === "expense";
+
+  return h(Modal, { open: !!tx, onClose, title: "Transação", width: 480 },
+    tx && h("div", { style: { display: "flex", flexDirection: "column", gap: 14 } },
+
+      /* header: raw description + chips */
+      h("div", { style: { display: "flex", flexDirection: "column", gap: 4 } },
+        h("div", { style: { fontSize: 11, color: "var(--fg-3)", fontFamily: "monospace", wordBreak: "break-all" } }, tx.description),
+        h("div", { style: { display: "flex", gap: 6, flexWrap: "wrap", marginTop: 2 } },
+          methodLabel && h("span", { className: "chip", style: { fontSize: 10 } }, methodLabel),
+          tx.bank && h("span", { className: "chip", style: { fontSize: 10 } }, tx.bank),
+          h("span", { style: { fontSize: 11, color: "var(--fg-2)", marginLeft: "auto" } }, fmtDateBR(tx.date)),
+          h("span", { style: { fontSize: 13, fontWeight: 700, color: flowIsExpense ? "var(--neg)" : "var(--pos)" } },
+            (flowIsExpense ? "−" : "+") + fmtBRL(tx.amount))
+        )
       ),
-      err && h("div", { style: { fontSize: 11, color: "var(--neg)", padding: "4px 0" } }, err),
-      h("button", { className: "btn btn-primary", onClick: save, disabled: !selected || saving, style: { marginTop: 4 } },
-        saving ? "Salvando…" : "Salvar categoria")
+
+      /* display name field */
+      h("div", { style: { display: "flex", flexDirection: "column", gap: 4 } },
+        h("label", { style: { fontSize: 11, color: "var(--fg-2)", fontWeight: 600 } }, "Nome fantasia"),
+        h("input", {
+          className: "input", type: "text",
+          placeholder: tx.description?.slice(0, 50) || "Nome amigável…",
+          value: displayName,
+          onChange: e => setDisplayName(e.target.value),
+          style: { fontSize: 13 }
+        })
+      ),
+
+      /* category grid — only for expenses */
+      flowIsExpense && h("div", { style: { display: "flex", flexDirection: "column", gap: 6 } },
+        h("div", { style: { fontSize: 11, color: "var(--fg-2)", fontWeight: 600 } }, "Categoria"),
+        h("div", { style: { display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 5 } },
+          cats.map(c => h("button", {
+            key: c.id, type: "button",
+            onClick: () => setSelected(c.id),
+            "aria-pressed": selected === c.id,
+            style: {
+              padding: "7px 10px", borderRadius: 6, textAlign: "left",
+              fontSize: "var(--fz-7)", fontWeight: selected === c.id ? 600 : 400,
+              background: selected === c.id ? "var(--info-bg)" : "var(--bg-0)",
+              border: selected === c.id ? "1px solid var(--info)" : "1px solid var(--line-1)",
+              color: selected === c.id ? "var(--fg-0)" : "var(--fg-1)",
+            }
+          }, c.name))
+        )
+      ),
+
+      /* "não é meu" toggle */
+      h("button", {
+        type: "button",
+        onClick: handleToggleThirdParty,
+        style: {
+          display: "flex", alignItems: "center", gap: 8,
+          padding: "8px 12px", borderRadius: 6, textAlign: "left",
+          background: isThirdParty ? "var(--warn-bg, rgba(255,160,0,0.12))" : "var(--bg-0)",
+          border: isThirdParty ? "1px solid var(--warn, #fa0)" : "1px solid var(--line-1)",
+          color: isThirdParty ? "var(--warn, #fa0)" : "var(--fg-2)",
+          fontSize: 12, fontWeight: isThirdParty ? 600 : 400, cursor: "pointer",
+        }
+      },
+        h("span", { style: { fontSize: 14 } }, isThirdParty ? "🔒" : "🔓"),
+        h("span", {}, isThirdParty ? "Excluído dos meus gastos" : "Não é meu — excluir dos meus gastos")
+      ),
+
+      err && h("div", { style: { fontSize: 11, color: "var(--neg)", padding: "2px 0" } }, err),
+
+      /* action row */
+      h("div", { style: { display: "flex", gap: 8, justifyContent: "space-between", marginTop: 2 } },
+        h("button", {
+          className: "btn btn-ghost btn-sm",
+          onClick: handleDelete, disabled: deleting,
+          style: { color: "var(--neg)", borderColor: "var(--neg)", fontSize: 12 }
+        }, deleting ? "Excluindo…" : "🗑 Excluir"),
+        h("div", { style: { display: "flex", gap: 8 } },
+          h("button", { className: "btn btn-ghost btn-sm", onClick: onClose }, "Cancelar"),
+          h("button", { className: "btn btn-primary", onClick: save, disabled: saving, style: { minWidth: 80 } },
+            saving ? "Salvando…" : "Salvar")
+        )
+      )
     )
   );
 }
@@ -270,6 +374,13 @@ function App() {
   const months12 = useMemo(() => _buildMonths(12), []);
 
   useEffect(() => { setSidebarOpen(tw.alwaysOpenSidebar); }, [tw.alwaysOpenSidebar]);
+
+  // Boot: populate account names for data-driven BankChip
+  useEffect(() => {
+    fetchAccounts().then(accs => {
+      window.BS.accountNames = Object.fromEntries(accs.map(a => [a.id, a.name]));
+    }).catch(() => {});
+  }, []);
 
   // SSE
   useEffect(() => {
@@ -456,8 +567,16 @@ function App() {
 
     h(CategoryEditor, {
       tx: editTx, onClose: () => setEditTx(null),
-      onSave: (catId, catName) => {
-        push(`Categoria: ${catName || "atualizada"}`, "success");
+      onSave: (result) => {
+        if (result?.deleted) {
+          push("Transação excluída", "success");
+        } else {
+          const parts = [];
+          if (result?.category) parts.push(`Categoria: ${result.category}`);
+          if ("display_name" in (result || {})) parts.push(result.display_name ? `Nome: ${result.display_name}` : "Nome fantasia removido");
+          if ("is_third_party" in (result || {})) parts.push(result.is_third_party ? "Excluído dos gastos" : "Incluído nos gastos");
+          push(parts.length ? parts.join(" · ") : "Salvo", "success");
+        }
         setEditTx(null);
         setRefreshKey(k => k + 1);
       }

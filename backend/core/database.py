@@ -18,7 +18,7 @@ refresh the dashboard immediately.
 import calendar
 import sqlite3
 from datetime import datetime, date, timedelta
-from typing import Optional
+from typing import Any, Optional
 
 import config
 from core import events
@@ -137,6 +137,15 @@ def init_db() -> None:
             conn.execute("SELECT external_id FROM transactions LIMIT 1")
         except sqlite3.OperationalError:
             conn.execute("ALTER TABLE transactions ADD COLUMN external_id TEXT")
+            conn.commit()
+
+        # Migration: add display_name and is_third_party for transaction UX (Fase 11a)
+        try:
+            conn.execute("SELECT display_name FROM transactions LIMIT 1")
+        except sqlite3.OperationalError:
+            conn.execute("ALTER TABLE transactions ADD COLUMN display_name TEXT")
+            conn.execute("ALTER TABLE transactions ADD COLUMN is_third_party INTEGER NOT NULL DEFAULT 0")
+            conn.execute("INSERT OR IGNORE INTO categories (name, flow) VALUES ('Eventos / Terceiros', 'expense')")
             conn.commit()
 
         # Auto-categorize income transactions based on description patterns
@@ -335,11 +344,11 @@ def get_account_balance(account_id: str) -> float:
             return 0.0
         initial = acc["initial_balance"]
         income = conn.execute(
-            "SELECT COALESCE(SUM(amount),0) FROM transactions WHERE account_id=? AND flow='income'",
+            "SELECT COALESCE(SUM(amount),0) FROM transactions WHERE account_id=? AND flow='income' AND COALESCE(is_third_party,0)=0",
             (account_id,),
         ).fetchone()[0]
         expense = conn.execute(
-            "SELECT COALESCE(SUM(amount),0) FROM transactions WHERE account_id=? AND flow='expense'",
+            "SELECT COALESCE(SUM(amount),0) FROM transactions WHERE account_id=? AND flow='expense' AND COALESCE(is_third_party,0)=0",
             (account_id,),
         ).fetchone()[0]
         inbound = conn.execute(
@@ -664,17 +673,17 @@ def get_monthly_summary(year: int, month: int, bank: Optional[str] = None) -> di
     p = (bank,) if bank else ()
     with _connect() as conn:
         expenses = conn.execute(
-            f"SELECT COALESCE(SUM(t.amount),0) FROM transactions t {j} WHERE t.flow='expense' AND t.dest_account_id IS NULL AND t.date BETWEEN ? AND ? {b}",
+            f"SELECT COALESCE(SUM(t.amount),0) FROM transactions t {j} WHERE t.flow='expense' AND t.dest_account_id IS NULL AND COALESCE(t.is_third_party,0)=0 AND t.date BETWEEN ? AND ? {b}",
             (start, end, *p),
         ).fetchone()[0]
         income = conn.execute(
-            f"SELECT COALESCE(SUM(t.amount),0) FROM transactions t {j} WHERE t.flow='income' AND t.is_revenue=1 AND t.date BETWEEN ? AND ? {b}",
+            f"SELECT COALESCE(SUM(t.amount),0) FROM transactions t {j} WHERE t.flow='income' AND t.is_revenue=1 AND COALESCE(t.is_third_party,0)=0 AND t.date BETWEEN ? AND ? {b}",
             (start, end, *p),
         ).fetchone()[0]
         sal_row = conn.execute("SELECT id FROM categories WHERE name='Salário' AND flow='income'").fetchone()
         sal_id = sal_row[0] if sal_row else None
         salary_income = conn.execute(
-            f"SELECT COALESCE(SUM(t.amount),0) FROM transactions t {j} WHERE t.flow='income' AND t.is_revenue=1 AND t.category_id=? AND t.date BETWEEN ? AND ? {b}",
+            f"SELECT COALESCE(SUM(t.amount),0) FROM transactions t {j} WHERE t.flow='income' AND t.is_revenue=1 AND COALESCE(t.is_third_party,0)=0 AND t.category_id=? AND t.date BETWEEN ? AND ? {b}",
             (sal_id, start, end, *p),
         ).fetchone()[0] if sal_id else 0.0
         top_category = conn.execute(
@@ -682,7 +691,7 @@ def get_monthly_summary(year: int, month: int, bank: Optional[str] = None) -> di
                FROM transactions t
                JOIN categories c ON c.id = t.category_id
                {j}
-               WHERE t.flow='expense' AND t.dest_account_id IS NULL AND t.date BETWEEN ? AND ? {b}
+               WHERE t.flow='expense' AND t.dest_account_id IS NULL AND COALESCE(t.is_third_party,0)=0 AND t.date BETWEEN ? AND ? {b}
                GROUP BY c.id ORDER BY total DESC LIMIT 1""",
             (start, end, *p),
         ).fetchone()
@@ -716,14 +725,15 @@ def get_all_time_summary() -> dict:
     with _connect() as conn:
         expenses_total = conn.execute(
             """SELECT COALESCE(SUM(amount), 0) FROM transactions
-               WHERE flow = 'expense' AND dest_account_id IS NULL""",
+               WHERE flow = 'expense' AND dest_account_id IS NULL AND COALESCE(is_third_party,0)=0""",
         ).fetchone()[0]
 
         income_total = conn.execute(
             """SELECT COALESCE(SUM(amount), 0) FROM transactions
                WHERE flow = 'income'
                  AND dest_account_id IS NULL
-                 AND is_revenue = 1""",
+                 AND is_revenue = 1
+                 AND COALESCE(is_third_party,0)=0""",
         ).fetchone()[0]
 
         months_count = conn.execute(
@@ -790,7 +800,7 @@ def get_expenses_by_method(year: int, month: int, bank: Optional[str] = None) ->
             f"""SELECT a.bank, t.method, COALESCE(SUM(t.amount), 0) AS total
                FROM transactions t
                JOIN accounts a ON a.id = t.account_id
-               WHERE t.flow = 'expense' AND t.dest_account_id IS NULL AND t.date BETWEEN ? AND ? {b}
+               WHERE t.flow = 'expense' AND t.dest_account_id IS NULL AND COALESCE(t.is_third_party,0)=0 AND t.date BETWEEN ? AND ? {b}
                GROUP BY a.bank, t.method
                HAVING total > 0
                ORDER BY a.bank, t.method""",
@@ -942,9 +952,9 @@ def get_monthly_history(months: int = 6, bank: Optional[str] = None) -> list[dic
         rows = conn.execute(
             f"""SELECT
                    strftime('%Y-%m', t.date) AS ym,
-                   COALESCE(SUM(CASE WHEN t.flow='expense' AND t.dest_account_id IS NULL THEN t.amount ELSE 0 END), 0) AS expenses,
-                   COALESCE(SUM(CASE WHEN t.flow='income' AND t.is_revenue=1 THEN t.amount ELSE 0 END), 0) AS income,
-                   COALESCE(SUM(CASE WHEN t.flow='income' AND t.is_revenue=1 AND t.category_id=? THEN t.amount ELSE 0 END), 0) AS salary_income
+                   COALESCE(SUM(CASE WHEN t.flow='expense' AND t.dest_account_id IS NULL AND COALESCE(t.is_third_party,0)=0 THEN t.amount ELSE 0 END), 0) AS expenses,
+                   COALESCE(SUM(CASE WHEN t.flow='income' AND t.is_revenue=1 AND COALESCE(t.is_third_party,0)=0 THEN t.amount ELSE 0 END), 0) AS income,
+                   COALESCE(SUM(CASE WHEN t.flow='income' AND t.is_revenue=1 AND COALESCE(t.is_third_party,0)=0 AND t.category_id=? THEN t.amount ELSE 0 END), 0) AS salary_income
                FROM transactions t
                {j}
                WHERE t.date BETWEEN ? AND ? {b}
@@ -989,7 +999,7 @@ def get_expenses_by_category(year: int, month: int, bank: Optional[str] = None) 
                FROM transactions t
                JOIN categories c ON c.id = t.category_id
                {j}
-               WHERE t.flow='expense' AND t.dest_account_id IS NULL AND t.date BETWEEN ? AND ? {b}
+               WHERE t.flow='expense' AND t.dest_account_id IS NULL AND COALESCE(t.is_third_party,0)=0 AND t.date BETWEEN ? AND ? {b}
                GROUP BY c.id ORDER BY total DESC""",
             (start, end, *p),
         ).fetchall()
@@ -1011,18 +1021,18 @@ def get_account_monthly_summary(account_id: str, year: int, month: int) -> dict:
     end   = f"{year:04d}-{month:02d}-31"
     with _connect() as conn:
         expenses = conn.execute(
-            "SELECT COALESCE(SUM(amount),0) FROM transactions WHERE account_id=? AND flow='expense' AND dest_account_id IS NULL AND date BETWEEN ? AND ?",
+            "SELECT COALESCE(SUM(amount),0) FROM transactions WHERE account_id=? AND flow='expense' AND dest_account_id IS NULL AND COALESCE(is_third_party,0)=0 AND date BETWEEN ? AND ?",
             (account_id, start, end),
         ).fetchone()[0]
         income = conn.execute(
-            "SELECT COALESCE(SUM(amount),0) FROM transactions WHERE account_id=? AND flow='income' AND is_revenue=1 AND date BETWEEN ? AND ?",
+            "SELECT COALESCE(SUM(amount),0) FROM transactions WHERE account_id=? AND flow='income' AND is_revenue=1 AND COALESCE(is_third_party,0)=0 AND date BETWEEN ? AND ?",
             (account_id, start, end),
         ).fetchone()[0]
         top_category = conn.execute(
             """SELECT c.name, SUM(t.amount) AS total
                FROM transactions t
                JOIN categories c ON c.id = t.category_id
-               WHERE t.account_id=? AND t.flow='expense' AND t.dest_account_id IS NULL AND t.date BETWEEN ? AND ?
+               WHERE t.account_id=? AND t.flow='expense' AND t.dest_account_id IS NULL AND COALESCE(t.is_third_party,0)=0 AND t.date BETWEEN ? AND ?
                GROUP BY c.id ORDER BY total DESC LIMIT 1""",
             (account_id, start, end),
         ).fetchone()
@@ -1063,8 +1073,8 @@ def get_monthly_history_by_account(account_id: str, months: int = 6) -> list[dic
         rows = conn.execute(
             """SELECT
                    strftime('%Y-%m', date) AS ym,
-                   COALESCE(SUM(CASE WHEN flow='expense' AND dest_account_id IS NULL THEN amount ELSE 0 END), 0) AS expenses,
-                   COALESCE(SUM(CASE WHEN flow='income' AND is_revenue=1 THEN amount ELSE 0 END), 0) AS income
+                   COALESCE(SUM(CASE WHEN flow='expense' AND dest_account_id IS NULL AND COALESCE(is_third_party,0)=0 THEN amount ELSE 0 END), 0) AS expenses,
+                   COALESCE(SUM(CASE WHEN flow='income' AND is_revenue=1 AND COALESCE(is_third_party,0)=0 THEN amount ELSE 0 END), 0) AS income
                FROM transactions
                WHERE account_id=? AND date BETWEEN ? AND ?
                GROUP BY ym""",
@@ -1101,8 +1111,8 @@ def get_full_monthly_history_by_account(account_id: str) -> list[dict]:
         rows = conn.execute(
             """SELECT
                    strftime('%Y-%m', date) AS ym,
-                   COALESCE(SUM(CASE WHEN flow='income' AND is_revenue=1 THEN amount ELSE 0 END), 0) AS income,
-                   COALESCE(SUM(CASE WHEN flow='expense' AND dest_account_id IS NULL THEN amount ELSE 0 END), 0) AS expenses
+                   COALESCE(SUM(CASE WHEN flow='income' AND is_revenue=1 AND COALESCE(is_third_party,0)=0 THEN amount ELSE 0 END), 0) AS income,
+                   COALESCE(SUM(CASE WHEN flow='expense' AND dest_account_id IS NULL AND COALESCE(is_third_party,0)=0 THEN amount ELSE 0 END), 0) AS expenses
                FROM transactions
                WHERE account_id = ?
                GROUP BY ym
@@ -1141,7 +1151,7 @@ def get_expenses_by_category_account(account_id: str, year: int, month: int) -> 
             """SELECT c.name, SUM(t.amount) AS total
                FROM transactions t
                JOIN categories c ON c.id = t.category_id
-               WHERE t.account_id=? AND t.flow='expense' AND t.dest_account_id IS NULL AND t.date BETWEEN ? AND ?
+               WHERE t.account_id=? AND t.flow='expense' AND t.dest_account_id IS NULL AND COALESCE(t.is_third_party,0)=0 AND t.date BETWEEN ? AND ?
                GROUP BY c.id ORDER BY total DESC""",
             (account_id, start, end),
         ).fetchall()
@@ -1169,9 +1179,10 @@ def get_recent_transactions(
     """
     limit = min(limit, 200)
     query = """
-        SELECT t.id, t.date, t.description, t.amount, t.flow,
-               t.category_id, c.name AS category,
-               t.dest_account_id, t.account_id
+        SELECT t.id, t.date, t.description, t.display_name, t.amount, t.flow,
+               t.method, t.category_id, c.name AS category,
+               t.dest_account_id, t.account_id,
+               COALESCE(t.is_third_party, 0) AS is_third_party
         FROM transactions t
         LEFT JOIN categories c ON c.id = t.category_id
         WHERE t.account_id = ?
@@ -1192,12 +1203,15 @@ def get_recent_transactions(
             "id":              r["id"],
             "date":            r["date"],
             "description":     r["description"],
+            "display_name":    r["display_name"],
             "amount":          r["amount"],
             "flow":            r["flow"],
+            "method":          r["method"],
             "category_id":     r["category_id"],
             "category":        r["category"],
             "dest_account_id": r["dest_account_id"],
             "account_id":      r["account_id"],
+            "is_third_party":  r["is_third_party"],
         }
         for r in rows
     ]
@@ -1228,6 +1242,64 @@ def update_transaction_category(transaction_id: int, category_id: int) -> None:
             "UPDATE transactions SET category_id = ? WHERE id = ?",
             (category_id, transaction_id),
         )
+
+
+def update_transaction_fields(tx_id: int, **fields: Any) -> None:
+    """Update one or more editable fields on a transaction.
+
+    Accepts keyword arguments: ``display_name`` (str | None),
+    ``category_id`` (int), ``is_third_party`` (int 0/1).
+
+    Args:
+        tx_id:   Primary key of the transaction to update.
+        **fields: Field-value pairs to set.
+    """
+    allowed = {"display_name", "category_id", "is_third_party"}
+    cols = {k: v for k, v in fields.items() if k in allowed}
+    if not cols:
+        return
+    set_clause = ", ".join(f"{k} = ?" for k in cols)
+    with _connect() as conn:
+        conn.execute(
+            f"UPDATE transactions SET {set_clause} WHERE id = ?",
+            (*cols.values(), tx_id),
+        )
+
+
+def get_top_pix_descriptions(month: int, year: int, limit: int = 10) -> list[dict]:
+    """Return top PIX expense destinations grouped by display_name/description.
+
+    Uses ``COALESCE(display_name, description)`` as the group key so that
+    user-set display names are preferred over raw bank strings.
+
+    Args:
+        month: Calendar month (1–12).
+        year:  Four-digit year.
+        limit: Maximum rows to return.
+
+    Returns:
+        List of ``{"label": str, "count": int, "total": float}`` ordered by total descending.
+    """
+    start = f"{year:04d}-{month:02d}-01"
+    end   = f"{year:04d}-{month:02d}-31"
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT
+                 COALESCE(display_name, description) AS label,
+                 COUNT(*) AS count,
+                 SUM(amount) AS total
+               FROM transactions
+               WHERE method = 'pix'
+                 AND flow = 'expense'
+                 AND dest_account_id IS NULL
+                 AND COALESCE(is_third_party, 0) = 0
+                 AND date BETWEEN ? AND ?
+               GROUP BY COALESCE(display_name, description)
+               ORDER BY total DESC
+               LIMIT ?""",
+            (start, end, limit),
+        ).fetchall()
+    return [{"label": r["label"], "count": r["count"], "total": float(r["total"])} for r in rows]
 
 
 def get_investment_movements_by_period(start_date: str, end_date: str) -> list[dict]:
@@ -1298,7 +1370,7 @@ def get_daily_spend(year: Optional[int] = None, month: Optional[int] = None) -> 
         rows = conn.execute(
             """SELECT date, SUM(amount) AS value
                FROM transactions
-               WHERE flow='expense' AND dest_account_id IS NULL AND date BETWEEN ? AND ?
+               WHERE flow='expense' AND dest_account_id IS NULL AND COALESCE(is_third_party,0)=0 AND date BETWEEN ? AND ?
                GROUP BY date ORDER BY date""",
             (start, end),
         ).fetchall()
@@ -1318,9 +1390,10 @@ def get_recent_activity(limit: int = 20) -> list[dict]:
     """
     with _connect() as conn:
         rows = conn.execute(
-            """SELECT t.id, t.date, t.description, t.amount, t.flow,
-                      t.account_id, a.bank,
-                      COALESCE(c.name, '') AS category
+            """SELECT t.id, t.date, t.description, t.display_name, t.amount, t.flow,
+                      t.method, t.account_id, a.bank,
+                      COALESCE(c.name, '') AS category,
+                      COALESCE(t.is_third_party, 0) AS is_third_party
                FROM transactions t
                JOIN accounts a ON a.id = t.account_id
                LEFT JOIN categories c ON c.id = t.category_id
@@ -1346,9 +1419,10 @@ def get_month_transactions(month: int, year: int) -> list[dict]:
     """
     with _connect() as conn:
         rows = conn.execute(
-            """SELECT t.id, t.date, t.description, t.amount, t.flow,
-                      t.account_id, a.bank,
-                      COALESCE(c.name, '') AS category, t.category_id
+            """SELECT t.id, t.date, t.description, t.display_name, t.amount, t.flow,
+                      t.method, t.account_id, a.bank,
+                      COALESCE(c.name, '') AS category, t.category_id,
+                      COALESCE(t.is_third_party, 0) AS is_third_party
                FROM transactions t
                JOIN accounts a ON a.id = t.account_id
                LEFT JOIN categories c ON c.id = t.category_id
@@ -1396,8 +1470,9 @@ def get_patrimonio_history(months: int = 12) -> list[dict]:
             for acc in checking_accounts:
                 row = conn.execute(
                     """SELECT
-                         COALESCE(SUM(CASE WHEN flow='income' AND dest_account_id IS NULL THEN amount ELSE 0 END), 0)
+                         COALESCE(SUM(CASE WHEN flow='income' AND dest_account_id IS NULL AND COALESCE(is_third_party,0)=0 THEN amount ELSE 0 END), 0)
                        - COALESCE(SUM(CASE WHEN flow='expense'
+                                          AND COALESCE(is_third_party,0)=0
                                           AND (dest_account_id IS NULL
                                                OR dest_account_id IN ('nu-cc','inter-cc'))
                                      THEN amount ELSE 0 END), 0)
@@ -1464,16 +1539,17 @@ def search_transactions(query: str, limit: int = 30) -> list[dict]:
     with _connect() as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            """SELECT t.id, t.date, t.description, t.amount, t.flow,
-                      t.account_id, a.bank, c.name AS category
+            """SELECT t.id, t.date, t.description, t.display_name, t.amount, t.flow,
+                      t.account_id, a.bank, c.name AS category,
+                      COALESCE(t.is_third_party, 0) AS is_third_party
                FROM transactions t
                JOIN accounts a ON a.id = t.account_id
                LEFT JOIN categories c ON c.id = t.category_id
                WHERE t.dest_account_id IS NULL
-                 AND (t.description LIKE ? OR c.name LIKE ?)
+                 AND (t.description LIKE ? OR t.display_name LIKE ? OR c.name LIKE ?)
                ORDER BY t.date DESC
                LIMIT ?""",
-            (q, q, limit),
+            (q, q, q, limit),
         ).fetchall()
         return [dict(r) for r in rows]
 
@@ -1628,3 +1704,102 @@ def delete_category(category_id: int, reassign_to_id: int) -> int:
         conn.execute("DELETE FROM budgets WHERE category_id=?", (category_id,))
         conn.execute("DELETE FROM categories WHERE id=?", (category_id,))
         return affected
+
+
+_CF_PT_SHORT = ["", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
+                "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
+
+
+def get_cashflow_statement(month: int, year: int) -> dict:
+    """Return the monthly cash flow statement: income, expenses, investments, free balance.
+
+    Uses three separate queries (transactions and investment_movements cannot be joined).
+    CC anti-duplication: ``dest_account_id IS NULL`` excludes fatura payments from expenses.
+    ``is_revenue=1`` excludes self-transfers from income.
+
+    Args:
+        month: Calendar month (1–12).
+        year:  Four-digit year.
+
+    Returns:
+        dict with keys: ``month``, ``year``, ``label``, ``income_total``,
+        ``expense_total``, ``expense_by_source`` (``cc``, ``direct``),
+        ``investment_deposits``, ``free_balance``, ``cc_by_category`` (list of
+        up to 4 dicts with ``category``, ``amount``, ``pct``).
+    """
+    first_day = f"{year:04d}-{month:02d}-01"
+    last_day  = f"{year:04d}-{month:02d}-{calendar.monthrange(year, month)[1]:02d}"
+    label = f"{_CF_PT_SHORT[month]}/{str(year)[-2:]}"
+
+    with _connect() as conn:
+        row = conn.execute(
+            """SELECT
+                 SUM(CASE WHEN flow='income' AND is_revenue=1 AND COALESCE(is_third_party,0)=0                                  THEN amount ELSE 0 END) AS income_total,
+                 SUM(CASE WHEN flow='expense' AND dest_account_id IS NULL AND COALESCE(is_third_party,0)=0
+                          AND account_id IN ('nu-cc','inter-cc')                                                                 THEN amount ELSE 0 END) AS cc_expenses,
+                 SUM(CASE WHEN flow='expense' AND dest_account_id IS NULL AND COALESCE(is_third_party,0)=0
+                          AND account_id IN ('nu-db','inter-db')                                                                 THEN amount ELSE 0 END) AS direct_expenses
+               FROM transactions
+               WHERE date BETWEEN ? AND ?""",
+            (first_day, last_day),
+        ).fetchone()
+        income_total    = float(row["income_total"] or 0)
+        cc_expenses     = float(row["cc_expenses"] or 0)
+        direct_expenses = float(row["direct_expenses"] or 0)
+
+        inv_row = conn.execute(
+            """SELECT
+                 COALESCE(SUM(CASE WHEN operation='deposit'    THEN amount ELSE 0 END), 0) AS deposits,
+                 COALESCE(SUM(CASE WHEN operation='withdrawal' THEN amount ELSE 0 END), 0) AS withdrawals
+               FROM investment_movements
+               WHERE date BETWEEN ? AND ?""",
+            (first_day, last_day),
+        ).fetchone()
+        investment_deposits    = float(inv_row["deposits"]    or 0)
+        investment_withdrawals = float(inv_row["withdrawals"] or 0)
+        investment_net         = investment_deposits - investment_withdrawals
+
+        cat_rows = conn.execute(
+            """SELECT COALESCE(c.name, 'Sem categoria') AS category, SUM(t.amount) AS total
+               FROM transactions t
+               LEFT JOIN categories c ON t.category_id = c.id
+               WHERE t.flow = 'expense'
+                 AND t.dest_account_id IS NULL
+                 AND COALESCE(t.is_third_party,0)=0
+                 AND t.account_id IN ('nu-cc', 'inter-cc')
+                 AND t.date BETWEEN ? AND ?
+               GROUP BY c.id
+               ORDER BY total DESC""",
+            (first_day, last_day),
+        ).fetchall()
+
+    expense_total = cc_expenses + direct_expenses
+
+    cc_rows = [{"category": r["category"], "amount": float(r["total"])} for r in cat_rows]
+    cc_by_category: list[dict] = []
+    if cc_rows and cc_expenses > 0:
+        for r in cc_rows[:3]:
+            cc_by_category.append({
+                "category": r["category"],
+                "amount":   r["amount"],
+                "pct":      round(r["amount"] / cc_expenses * 100, 1),
+            })
+        outros = sum(r["amount"] for r in cc_rows[3:])
+        if outros > 0:
+            cc_by_category.append({
+                "category": "Outros",
+                "amount":   outros,
+                "pct":      round(outros / cc_expenses * 100, 1),
+            })
+
+    return {
+        "month":                month,
+        "year":                 year,
+        "label":                label,
+        "income_total":         income_total,
+        "expense_total":        expense_total,
+        "expense_by_source":    {"cc": cc_expenses, "direct": direct_expenses},
+        "investment_net":       investment_net,
+        "free_balance":         income_total - expense_total - investment_net,
+        "cc_by_category":       cc_by_category,
+    }

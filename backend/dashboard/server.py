@@ -14,7 +14,7 @@ The server is started via :func:`start_dashboard`, which launches Waitress
 import logging
 import queue
 import threading
-from datetime import datetime
+from datetime import date, datetime
 
 from flask import Flask, Response, jsonify, request, send_from_directory, stream_with_context
 from waitress import serve
@@ -335,19 +335,35 @@ def api_expense_categories() -> Response:
 
 @app.route("/api/transactions/<int:transaction_id>", methods=["PATCH"])
 def api_patch_transaction(transaction_id: int) -> Response:
-    """Update the category of a single transaction.
+    """Update editable fields on a single transaction.
 
-    Request body (JSON):
-        category_id: integer — primary key of the target category.
+    Request body (JSON) — any combination of:
+        category_id:    int    — primary key of the target category.
+        display_name:   str|null — friendly display name (null clears it).
+        is_third_party: 0|1   — exclude from personal finance summaries.
 
     Returns:
         ``{"ok": true}`` on success, error JSON on failure.
     """
     data = request.get_json(silent=True) or {}
-    category_id = data.get("category_id")
-    if not isinstance(category_id, int):
-        return jsonify({"error": "category_id must be an integer"}), 400
-    database.update_transaction_category(transaction_id, category_id)
+    fields: dict = {}
+    if "category_id" in data:
+        if not isinstance(data["category_id"], int):
+            return jsonify({"error": "category_id must be an integer"}), 400
+        fields["category_id"] = data["category_id"]
+    if "display_name" in data:
+        v = data["display_name"]
+        if v is not None and not isinstance(v, str):
+            return jsonify({"error": "display_name must be a string or null"}), 400
+        fields["display_name"] = v.strip() if isinstance(v, str) else None
+    if "is_third_party" in data:
+        if data["is_third_party"] not in (0, 1, True, False):
+            return jsonify({"error": "is_third_party must be 0 or 1"}), 400
+        fields["is_third_party"] = int(bool(data["is_third_party"]))
+    if not fields:
+        return jsonify({"error": "no valid fields provided"}), 400
+    database.update_transaction_fields(transaction_id, **fields)
+    notify()
     return jsonify({"ok": True})
 
 
@@ -420,6 +436,23 @@ def api_month_transactions() -> Response:
     return jsonify(database.get_month_transactions(month, year))
 
 
+@app.route("/api/pix-top")
+def api_pix_top() -> Response:
+    """Return top PIX expense destinations for a given month, grouped by display_name/description.
+
+    Query params:
+        month: int (1–12, defaults to current month)
+        year:  int (defaults to current year)
+
+    Returns:
+        JSON array of ``{label, count, total}`` ordered by total descending.
+    """
+    now = date.today()
+    month = max(1, min(12, request.args.get("month", type=int) or now.month))
+    year  = max(2000, request.args.get("year",  type=int) or now.year)
+    return jsonify(database.get_top_pix_descriptions(month, year))
+
+
 @app.route("/api/search")
 def api_search() -> Response:
     """Full-text transaction search across the entire history.
@@ -434,6 +467,25 @@ def api_search() -> Response:
     if len(q) < 2:
         return jsonify([])
     return jsonify(database.search_transactions(q, limit=30))
+
+
+@app.route("/api/cashflow-statement")
+def api_cashflow_statement() -> Response:
+    """Return the monthly cash flow statement: income, expenses, investments, free balance.
+
+    Query params:
+        month: int (1–12, defaults to current month)
+        year:  int (defaults to current year)
+
+    Returns:
+        JSON with ``month``, ``year``, ``label``, ``income_total``, ``expense_total``,
+        ``expense_by_source``, ``investment_net``, ``free_balance``, ``cc_by_category``.
+        Always returns 200 — zeros when no data exist for the requested period.
+    """
+    now   = datetime.now()
+    month = max(1, min(12, request.args.get("month", type=int) or now.month))
+    year  = max(2000, request.args.get("year",  type=int) or now.year)
+    return jsonify(database.get_cashflow_statement(month, year))
 
 
 @app.route("/api/patrimonio-history")

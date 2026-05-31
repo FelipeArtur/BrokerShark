@@ -2,14 +2,20 @@
 /* global React, fetchFaturas, fetchRecentTransactions, fetchMonthlyByAccount,
           fetchCategoriesByAccount, fetchAccounts, fetchMonthly, fetchMonthlyFull,
           fetchInvestments, fetchAccountHistory, fetchMonthTransactions, deleteTransaction,
+          fetchCashflowStatement, fetchPixTop,
           ImportModal, fetchExpenseCategories */
 
 const { useState: _s2St, useEffect: _s2Ef, useMemo: _s2Memo } = React;
-const { fmtBRL, fmtBRLCompact, fmtDateBR, BankChip, Sparkline, BarChart, DualLine, Donut, PT_MONTHS, PT_SHORT, fmtCycleDate } = window.BS;
+const { fmtBRL, fmtBRLCompact, fmtDateBR, BankChip, Sparkline, BarChart, DualLine, Donut, Progress, PT_MONTHS, PT_SHORT, fmtCycleDate } = window.BS;
 
 /* ── CardsView ───────────────────────────────────────────────────────────── */
 function CardsView({ onEditCategory, onDeleteTx, refreshKey, filterMonth, onImportCsv }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
+  const _now = new Date();
+  const _isPastMonth = filterMonth && filterMonth !== "all" && (() => {
+    const [y, m] = filterMonth.split("-").map(Number);
+    return !(y === _now.getFullYear() && m === _now.getMonth() + 1);
+  })();
   const [faturas, setFaturas] = _s2St([]);
   const [activeAcc, setActiveAcc] = _s2St("nu-cc");
   const [txs, setTxs] = _s2St([]);
@@ -17,8 +23,14 @@ function CardsView({ onEditCategory, onDeleteTx, refreshKey, filterMonth, onImpo
   const [catData, setCatData] = _s2St([]);
   const [filterCat, setFilterCat] = _s2St("");
   const [deletingTxId, setDeletingTxId] = _s2St(null);
+  const [cashflow, setCashflow] = _s2St(null);
 
   _s2Ef(() => { fetchFaturas().then(setFaturas); }, [refreshKey]);
+  _s2Ef(() => {
+    const parts = filterMonth ? filterMonth.split("-").map(Number) : [];
+    const [y, m] = parts.length === 2 ? parts : [null, null];
+    fetchCashflowStatement(m && y ? { month: m, year: y } : {}).then(setCashflow);
+  }, [filterMonth, refreshKey]);
   _s2Ef(() => {
     if (!activeAcc) return;
     const parts = filterMonth ? filterMonth.split("-").map(Number) : [];
@@ -66,7 +78,10 @@ function CardsView({ onEditCategory, onDeleteTx, refreshKey, filterMonth, onImpo
                 h("div", { style: { fontSize: 10, opacity: 0.7, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 } }, f.label),
                 h("div", { style: { fontSize: 11, opacity: 0.7, marginTop: 2 } }, `${fmtCycleDate(f.cycle_start)} → ${fmtCycleDate(f.cycle_end)}`)
               ),
-              h("div", { style: { fontSize: 9, padding: "3px 7px", borderRadius: 4, background: "oklch(100% 0 0 / 0.18)", fontWeight: 600, textTransform: "uppercase" } }, due)
+              h("div", { style: { display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3 } },
+                h("div", { style: { fontSize: 9, padding: "3px 7px", borderRadius: 4, background: "oklch(100% 0 0 / 0.18)", fontWeight: 600, textTransform: "uppercase" } }, due),
+                _isPastMonth && h("div", { style: { fontSize: 8, padding: "2px 5px", borderRadius: 4, background: "oklch(100% 0 0 / 0.12)", opacity: 0.8, textTransform: "uppercase", letterSpacing: "0.06em" } }, "ciclo atual")
+              )
             ),
             h("div", { className: "num", style: { fontSize: 32, fontWeight: 700, lineHeight: 1.05, letterSpacing: "-0.02em" } }, fmtBRL(f.total)),
             h("div", { style: { display: "flex", justifyContent: "space-between", marginTop: 10, fontSize: 11 } },
@@ -143,7 +158,31 @@ function CardsView({ onEditCategory, onDeleteTx, refreshKey, filterMonth, onImpo
                 height: 140, valueKey: "value", labelKey: "label", color: "var(--neg)",
               }))
             : h("div", { style: { padding: "30px 12px", textAlign: "center", color: "var(--fg-3)", fontSize: 11 } },
-                "Sem lançamentos individuais registrados neste cartão"
+                "Sem gastos no cartão neste período"
+              )
+        ),
+        h("div", { className: "card" },
+          h("div", { className: "card-h" },
+            h("div", { className: "card-title" }, "Top categorias — cartão"),
+            cashflow?.label && h("span", { style: { fontSize: 10, color: "var(--fg-3)" } }, cashflow.label)
+          ),
+          cashflow && cashflow.cc_by_category.length > 0
+            ? h("div", { style: { padding: "8px 12px 12px" } },
+                cashflow.cc_by_category.map((c, i) =>
+                  h("div", { key: i, style: { marginBottom: 8 } },
+                    h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 11, marginBottom: 4 } },
+                      h("span", { style: { color: "var(--fg-1)" } }, c.category),
+                      h("div", { style: { display: "flex", gap: 8, alignItems: "center" } },
+                        h("span", { className: "num", style: { fontSize: 11, color: "var(--fg-2)" } }, fmtBRL(c.amount, { decimals: 0 })),
+                        h("span", { style: { fontSize: 10, color: "var(--fg-3)", width: 30, textAlign: "right", fontFamily: "var(--ff-mono)" } }, `${c.pct}%`)
+                      )
+                    ),
+                    h(Progress, { value: c.pct, max: 100, color: "var(--neg)" })
+                  )
+                )
+              )
+            : h("div", { style: { padding: "16px 12px", textAlign: "center", color: "var(--fg-3)", fontSize: 11 } },
+                "Sem gastos no cartão neste mês"
               )
         ),
         h("div", { className: "card" },
@@ -263,12 +302,17 @@ function AccountsView({ onEditCategory, onDeleteTx, refreshKey, filterMonth }) {
           h("tbody", null,
             ...safeTxs.flatMap(t => {
               const isTransfer = !!t.dest_account_id;
+              const isThirdPartyAcc = !!t.is_third_party;
+              const displayLabelAcc = t.display_name || t.description;
               const rows = [
-                h("tr", { key: t.id, style: isTransfer ? { opacity: 0.55 } : {} },
+                h("tr", { key: t.id, style: isTransfer ? { opacity: 0.55 } : isThirdPartyAcc ? { opacity: 0.6 } : {} },
                   h("td", { className: "mono", style: { color: "var(--fg-2)" } }, fmtDateBR(t.date)),
                   h("td", null,
-                    t.description,
-                    isTransfer && h("span", { style: { fontSize: 9, color: "var(--fg-3)", marginLeft: 4 } }, `→ ${t.dest_account_id}`)
+                    h("div", { style: { display: "flex", alignItems: "center", gap: 4 } },
+                      h("span", {}, displayLabelAcc),
+                      isTransfer && h("span", { style: { fontSize: 9, color: "var(--fg-3)" } }, `→ ${window.BS.accountNames?.[t.dest_account_id] || t.dest_account_id}`),
+                      isThirdPartyAcc && h("span", { title: "Não é meu", style: { fontSize: 9, padding: "1px 4px", borderRadius: 3, background: "var(--warn-bg,rgba(255,160,0,.15))", color: "var(--warn,#fa0)", fontWeight: 700 } }, "3°")
+                    )
                   ),
                   h("td", null,
                     t.flow === "expense" && !isTransfer
@@ -457,9 +501,11 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx }) {
   const [pickedIdx, setPickedIdx] = _s2St(-1);
   const [monthTx, setMonthTx] = _s2St([]);
   const [filterFlow, setFilterFlow] = _s2St("all");
+  const [filterMethod, setFilterMethod] = _s2St("all");
   const [filterCat, setFilterCat] = _s2St("all");
   const [search, setSearch] = _s2St("");
   const [deletingTxId, setDeletingTxId] = _s2St(null);
+  const [pixTop, setPixTop] = _s2St([]);
 
   _s2Ef(() => {
     fetchMonthlyFull().then(data => {
@@ -472,7 +518,8 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx }) {
     if (!monthly.length || pickedIdx < 0) return;
     const { month, year } = monthly[pickedIdx];
     fetchMonthTransactions({ month, year }).then(setMonthTx);
-    setFilterFlow("all"); setFilterCat("all"); setSearch("");
+    fetchPixTop({ month, year }).then(setPixTop).catch(() => setPixTop([]));
+    setFilterFlow("all"); setFilterMethod("all"); setFilterCat("all"); setSearch("");
   }, [pickedIdx, monthly, refreshKey]);
 
   const picked = monthly[pickedIdx] || null;
@@ -480,8 +527,8 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx }) {
   const monthLabel = picked ? `${PT_MONTHS[picked.month]} ${picked.year}` : "";
   const isCurrent = picked ? (picked.year === now.getFullYear() && picked.month === (now.getMonth() + 1)) : false;
 
-  const expenses    = monthTx.filter(t => t.flow === "expense");
-  const income      = monthTx.filter(t => t.flow === "income");
+  const expenses    = monthTx.filter(t => t.flow === "expense" && !t.is_third_party);
+  const income      = monthTx.filter(t => t.flow === "income"  && !t.is_third_party);
   const totalExp    = expenses.reduce((s, t) => s + t.amount, 0);
   const totalInc    = income.reduce((s, t)  => s + t.amount, 0);
   const net         = totalInc - totalExp;
@@ -507,11 +554,18 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx }) {
     return Object.values(g).sort((a, b) => b.total - a.total);
   })();
 
+  const METHOD_MAP = { pix: "pix", "pix_received": "pix", credit: "credit", ted: "ted" };
+  const METHOD_LABELS_H = { pix: "PIX", credit: "Crédito", ted: "TED" };
   const cats = [...new Set(monthTx.map(t => t.category).filter(Boolean))].sort();
   const filteredTx = monthTx.filter(t => {
     if (filterFlow !== "all" && t.flow !== filterFlow) return false;
+    if (filterMethod !== "all") {
+      const m = METHOD_MAP[t.method] || t.method;
+      if (m !== filterMethod) return false;
+    }
     if (filterCat !== "all" && t.category !== filterCat) return false;
-    if (search && !(t.description || "").toLowerCase().includes(search.toLowerCase())) return false;
+    const label = (t.display_name || t.description || "").toLowerCase();
+    if (search && !label.includes(search.toLowerCase())) return false;
     return true;
   });
 
@@ -519,7 +573,7 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx }) {
 
   const filtExp  = filteredTx.filter(t => t.flow === "expense").reduce((s, t) => s + t.amount, 0);
   const filtInc  = filteredTx.filter(t => t.flow === "income").reduce((s, t)  => s + t.amount, 0);
-  const hasFilter = filterFlow !== "all" || filterCat !== "all" || search;
+  const hasFilter = filterFlow !== "all" || filterMethod !== "all" || filterCat !== "all" || search;
 
   return h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 14 } },
 
@@ -611,34 +665,54 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx }) {
     // C — 2-column: categories | filterable table
     h("div", { style: { display: "grid", gridTemplateColumns: "var(--col-hist)", gap: 14 } },
 
-      // C1 — By category
-      h("div", { className: "card" },
-        h("div", { className: "card-h" },
-          h("div", { className: "card-title" }, "Por categoria"),
-          h("span", { style: { fontSize: 10, color: "var(--fg-3)" } }, `${byCat.length} categorias`)
-        ),
-        h("div", { style: { padding: 12 } },
-          byCat.length === 0
-            ? h("div", { style: { padding: 20, textAlign: "center", color: "var(--fg-3)", fontSize: 11 } }, "Sem despesas neste mês")
-            : byCat.map((c, i) => {
-                const pct = totalExp > 0 ? (c.total / totalExp) * 100 : 0;
-                const barW = byCat[0]?.total > 0 ? (c.total / byCat[0].total) * 100 : 0;
-                const barColor = i === 0 ? "var(--neg)" : i === 1 ? "oklch(72% 0.13 30)" : "var(--info)";
-                return h("div", { key: i, style: { marginBottom: 10 } },
-                  h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11, marginBottom: 3, gap: 6 } },
-                    h("span", { style: { color: "var(--fg-1)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, c.name),
-                    h("span", { className: "num", style: { fontWeight: 600, flexShrink: 0 } },
-                      fmtBRL(c.total, { decimals: 0 }),
-                      h("span", { style: { color: "var(--fg-3)", fontWeight: 400, marginLeft: 5, fontSize: 10 } }, `${pct.toFixed(0)}%`)
+      // C1 — left column: "Por categoria" + "Top PIX" (flex column)
+      h("div", { style: { display: "flex", flexDirection: "column", gap: 14 } },
+
+        // C1a — By category
+        h("div", { className: "card" },
+          h("div", { className: "card-h" },
+            h("div", { className: "card-title" }, "Por categoria"),
+            h("span", { style: { fontSize: 10, color: "var(--fg-3)" } }, `${byCat.length} categorias`)
+          ),
+          h("div", { style: { padding: 12 } },
+            byCat.length === 0
+              ? h("div", { style: { padding: 20, textAlign: "center", color: "var(--fg-3)", fontSize: 11 } }, "Sem despesas neste mês")
+              : byCat.map((c, i) => {
+                  const pct = totalExp > 0 ? (c.total / totalExp) * 100 : 0;
+                  const barW = byCat[0]?.total > 0 ? (c.total / byCat[0].total) * 100 : 0;
+                  const barColor = i === 0 ? "var(--neg)" : i === 1 ? "oklch(72% 0.13 30)" : "var(--info)";
+                  return h("div", { key: i, style: { marginBottom: 10 } },
+                    h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11, marginBottom: 3, gap: 6 } },
+                      h("span", { style: { color: "var(--fg-1)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, c.name),
+                      h("span", { className: "num", style: { fontWeight: 600, flexShrink: 0 } },
+                        fmtBRL(c.total, { decimals: 0 }),
+                        h("span", { style: { color: "var(--fg-3)", fontWeight: 400, marginLeft: 5, fontSize: 10 } }, `${pct.toFixed(0)}%`)
+                      )
+                    ),
+                    h("div", { style: { height: 5, background: "var(--bg-2)", borderRadius: 999 } },
+                      h("div", { style: { width: `${barW}%`, height: "100%", background: barColor, borderRadius: 999 } })
                     )
-                  ),
-                  h("div", { style: { height: 5, background: "var(--bg-2)", borderRadius: 999 } },
-                    h("div", { style: { width: `${barW}%`, height: "100%", background: barColor, borderRadius: 999 } })
-                  )
-                );
-              })
+                  );
+                })
+          )
+        ),
+
+        // C1b — Top PIX destinations (only when there are PIX expenses in the selected month)
+        pixTop.length > 0 && h("div", { className: "card" },
+          h("div", { className: "card-h" },
+            h("div", { className: "card-title" }, "Top PIX"),
+            h("span", { style: { fontSize: 10, color: "var(--fg-3)" } }, `${pixTop.length} destinatários`)
+          ),
+          h("div", { style: { padding: 12 } },
+            pixTop.map((p, i) => h("div", { key: i, style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 8, fontSize: 11 } },
+              h("span", { style: { color: "var(--fg-3)", fontFamily: "var(--ff-mono)", width: 14, textAlign: "right", flexShrink: 0 } }, `${i + 1}`),
+              h("span", { style: { flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--fg-1)" } }, p.label),
+              h("span", { style: { color: "var(--fg-3)", fontSize: 10, flexShrink: 0 } }, `${p.count}×`),
+              h("span", { className: "num", style: { fontWeight: 600, flexShrink: 0 } }, fmtBRL(p.total, { decimals: 0 }))
+            ))
+          )
         )
-      ),
+      ), // end C1 flex column
 
       // C2 — Filterable transaction table
       h("div", { className: "card", style: { display: "flex", flexDirection: "column" } },
@@ -648,11 +722,21 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx }) {
         h("div", { style: { padding: "8px 14px", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", borderBottom: "1px solid var(--line-1)", background: "var(--bg-0)" } },
           h("div", { style: { display: "flex", gap: 2, padding: 2, background: "var(--bg-1)", borderRadius: 5, border: "1px solid var(--line-1)" } },
             [["all", "Tudo"], ["expense", "Despesas"], ["income", "Receitas"]].map(([k, l]) =>
-              h("button", { key: k, onClick: () => setFilterFlow(k), style: {
+              h("button", { key: k, onClick: () => { setFilterFlow(k); if (k === "income") setFilterMethod("all"); }, style: {
                 padding: "3px 10px", fontSize: 10, borderRadius: 3,
                 background: filterFlow === k ? "var(--bg-2)" : "transparent",
                 color: filterFlow === k ? "var(--fg-0)" : "var(--fg-2)",
                 fontWeight: filterFlow === k ? 600 : 500,
+              } }, l)
+            )
+          ),
+          h("div", { style: { display: "flex", gap: 2, padding: 2, background: "var(--bg-1)", borderRadius: 5, border: "1px solid var(--line-1)" } },
+            [["all", "Método"], ["pix", "PIX"], ["credit", "Crédito"], ["ted", "TED"]].map(([k, l]) =>
+              h("button", { key: k, onClick: () => setFilterMethod(k), style: {
+                padding: "3px 8px", fontSize: 10, borderRadius: 3,
+                background: filterMethod === k ? "var(--bg-2)" : "transparent",
+                color: filterMethod === k ? "var(--fg-0)" : "var(--fg-2)",
+                fontWeight: filterMethod === k ? 600 : 500,
               } }, l)
             )
           ),
@@ -669,7 +753,7 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx }) {
             style: { height: 26, fontSize: 11, padding: "0 10px", width: 160 },
           }),
           hasFilter && h("button", {
-            onClick: () => { setFilterFlow("all"); setFilterCat("all"); setSearch(""); },
+            onClick: () => { setFilterFlow("all"); setFilterMethod("all"); setFilterCat("all"); setSearch(""); },
             className: "btn", style: { height: 26, padding: "0 10px", fontSize: 10 },
           }, "Limpar"),
           h("div", { style: { flex: 1 } }),
@@ -696,11 +780,16 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx }) {
             h("tbody", null,
               filteredTx.length === 0 && h("tr", null, h("td", { colSpan: 6, style: { textAlign: "center", padding: 30, color: "var(--fg-3)" } }, "Nenhuma transação.")),
               ...filteredTx.flatMap(t => {
+                const displayLabel = t.display_name || t.description;
+                const isThirdParty = !!t.is_third_party;
                 const rows = [
-                  h("tr", { key: t.id },
+                  h("tr", { key: t.id, style: isThirdParty ? { opacity: 0.6 } : undefined },
                     h("td", { className: "mono", style: { color: "var(--fg-2)" } }, fmtDateBR(t.date)),
                     h("td", { style: { maxWidth: 260 } },
-                      h("div", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, t.description)
+                      h("div", { style: { display: "flex", alignItems: "center", gap: 5, overflow: "hidden" } },
+                        h("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 } }, displayLabel),
+                        isThirdParty && h("span", { title: "Não é meu — excluído dos gastos", style: { fontSize: 9, padding: "1px 4px", borderRadius: 3, background: "var(--warn-bg,rgba(255,160,0,.15))", color: "var(--warn,#fa0)", fontWeight: 700, flexShrink: 0 } }, "3°")
+                      )
                     ),
                     h("td", null,
                       t.flow === "expense"

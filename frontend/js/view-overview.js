@@ -1,6 +1,7 @@
 /* view-overview.js — OverviewView + CategoriesPanel */
 /* global React, fetchSummary, fetchMonthly, fetchCategories, fetchFaturas,
           fetchPatrimonioHistory, fetchDailySpend, fetchRecentActivity, fetchBudgets,
+          fetchCashflowStatement,
           fetchExpenseCategoriesFull, patchBudget, postCategory, deleteCategory */
 
 const { useState: _ovSt, useEffect: _ovEf, useMemo: _ovMemo } = React;
@@ -19,6 +20,7 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
   const [dailySpend, setDailySpend] = _ovSt([]);
   const [activity, setActivity]     = _ovSt([]);
   const [budgets, setBudgets]       = _ovSt([]);
+  const [cashflow, setCashflow]     = _ovSt(null);
   const [editBudget, setEditBudget] = _ovSt(null);
   const [budgetInput, setBudgetInput] = _ovSt("");
   const [budgetErr, setBudgetErr]   = _ovSt(null);
@@ -37,9 +39,11 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
       isAllPeriod ? Promise.resolve([]) : fetchDailySpend({ month, year }),
       fetchRecentActivity(),
       fetchBudgets(),
-    ]).then(([s, m, c, f, p, d, a, b]) => {
+      fetchCashflowStatement((!isAllPeriod && month && year) ? { month, year } : {}),
+    ]).then(([s, m, c, f, p, d, a, b, cf]) => {
       setSummary(s); setMonthly(m); setCategories(c); setFaturas(f);
       setPatrimonio(p); setDailySpend(d); setActivity(a); setBudgets(b);
+      setCashflow(cf);
     });
   }, [refreshKey, filterMonth]);
 
@@ -124,6 +128,36 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
         h(BreakdownRow, { label: "Contas correntes", value: totalContas, pct: patrNow ? (totalContas / patrNow) * 100 : 0, color: "var(--pos)" }),
         h(BreakdownRow, { label: "Investimentos",    value: totalReservas, pct: patrNow ? (totalReservas / patrNow) * 100 : 0, color: "var(--reserve)" }),
         h(BreakdownRow, { label: "Faturas em aberto", value: totalFaturas, pct: patrNow ? (totalFaturas / (totalContas + totalReservas)) * 100 : 0, color: "var(--neg)", negative: true })
+      )
+    ),
+
+    // Este mês — cash flow statement
+    cashflow && h("div", { className: "card", style: { padding: 16 } },
+      h("div", { style: { marginBottom: 12 } },
+        h("div", { className: "card-title" }, isAllPeriod || _isCurrentMonth ? "Este mês" : cashflow.label)
+      ),
+      h("div", { style: { display: "flex", flexDirection: "column", gap: 7 } },
+        h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline" } },
+          h("span", { style: { color: "var(--neg)", fontSize: 12 } }, "↓ Despesas"),
+          h("span", { className: "num", style: { color: "var(--neg)", fontWeight: 700, fontSize: 15 } }, fmtBRL(cashflow.expense_total))
+        ),
+        (cashflow.expense_by_source.cc > 0 || cashflow.expense_by_source.direct > 0) && h("div", {
+          style: { textAlign: "right", fontSize: 10, color: "var(--fg-3)", fontFamily: "var(--ff-mono)", marginTop: -4 }
+        }, `${fmtBRL(cashflow.expense_by_source.cc, { decimals: 0 })} cartão · ${fmtBRL(cashflow.expense_by_source.direct, { decimals: 0 })} débito`),
+        h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline" } },
+          h("span", { style: { color: "var(--pos)", fontSize: 12 } }, "↑ Receitas"),
+          h("span", { className: "num", style: { color: "var(--pos)", fontWeight: 700, fontSize: 15 } }, fmtBRL(cashflow.income_total))
+        ),
+        cashflow.investment_net !== 0 && h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline" } },
+          h("span", { style: { color: cashflow.investment_net > 0 ? "var(--reserve)" : "var(--info)", fontSize: 12 } },
+            cashflow.investment_net > 0 ? "→ Investido" : "← Resgatado"),
+          h("span", { className: "num", style: { color: cashflow.investment_net > 0 ? "var(--reserve)" : "var(--info)", fontWeight: 700, fontSize: 15 } },
+            fmtBRL(Math.abs(cashflow.investment_net)))
+        ),
+        h("div", { style: { borderTop: "1px solid var(--line-1)", paddingTop: 8, marginTop: 2, display: "flex", justifyContent: "space-between", alignItems: "baseline" } },
+          h("span", { style: { fontSize: 12, color: "var(--fg-1)", fontWeight: 600 } }, "Saldo livre"),
+          h("span", { className: "num", style: { fontSize: 17, fontWeight: 700, color: cashflow.free_balance >= 0 ? "var(--pos)" : (_isCurrentMonth && cashflow.income_total === 0 ? "var(--warn)" : "var(--neg)") } }, fmtBRL(cashflow.free_balance))
+        )
       )
     ),
 

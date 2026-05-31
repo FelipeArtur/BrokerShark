@@ -46,11 +46,16 @@ async function fetchPatrimonioHistory()    { return _get("/api/patrimonio-histor
 async function fetchBudgets()              { return _get("/api/budgets"); }
 async function searchTransactions(q)       { return _get(`/api/search?q=${encodeURIComponent(q)}`); }
 async function fetchMonthlyFull(bank)      { return _get(`/api/monthly${_params({ bank, months: 36 })}`); }
+async function fetchCashflowStatement({ month, year } = {}) { return _get(`/api/cashflow-statement${_params({ month, year })}`); }
 
 /* ── Write endpoints ────────────────────────────────────────────────────── */
 async function patchTransactionCategory(txId, categoryId) {
   return _patch(`/api/transactions/${txId}`, { category_id: categoryId });
 }
+async function patchTransaction(txId, fields) {
+  return _patch(`/api/transactions/${txId}`, fields);
+}
+async function fetchPixTop({ month, year } = {}) { return _get(`/api/pix-top${_params({ month, year })}`); }
 async function patchBudget(budgetId, categoryId, amountLimit) {
   return _patch(`/api/budgets/${budgetId}`, { category_id: categoryId, amount_limit: amountLimit });
 }

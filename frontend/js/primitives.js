@@ -427,9 +427,10 @@ function useToasts() {
 }
 
 /* ── BankChip ───────────────────────────────────────────────────────────── */
+const _BANKCHIP_FALLBACK = { "nu-cc": "Nu Crédito", "nu-db": "Nu Conta", "inter-cc": "Inter Crédito", "inter-db": "Inter Conta" };
 function BankChip({ bank, accountId }) {
   const label = accountId
-    ? ({ "nu-cc": "Nu Crédito", "nu-db": "Nu Conta", "inter-cc": "Inter Crédito", "inter-db": "Inter Conta" }[accountId] || accountId)
+    ? (window.BS.accountNames?.[accountId] || _BANKCHIP_FALLBACK[accountId] || accountId)
     : (bank === "nubank" ? "Nubank" : "Inter");
   const cls = bank || (accountId?.startsWith("nu") ? "nubank" : "inter");
   return React.createElement("span", { className: `chip ${cls}` }, label);
