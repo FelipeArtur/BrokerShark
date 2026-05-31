@@ -41,3 +41,4 @@ Thumbs.db
 # Agentes
 .agents/
 PRODUCT.md
+.gstack/
