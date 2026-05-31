@@ -410,7 +410,7 @@ function InvestmentsView({ refreshKey, filterMonth }) {
               h("span", { style: { width: 10, height: 10, borderRadius: 2, background: COLORS[i % COLORS.length], display: "inline-block" } }),
               h("span", { style: { flex: 1, color: "var(--fg-1)" } }, inv.name),
               h("span", { className: "num", style: { color: "var(--fg-2)" } }, pct.toFixed(1), "%"),
-              h("span", { className: "num", style: { width: 90, textAlign: "right", fontWeight: 600 } }, fmtBRL(bal, { decimals: 0 }))
+              h("span", { className: "num", style: { width: 90, textAlign: "right", fontWeight: 600 } }, fmtBRL(bal))
             );
           })
         )

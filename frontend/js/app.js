@@ -483,12 +483,12 @@ function App() {
           onClick: () => { if (!isAllPeriod && fmIdx > 1) setFilterMonth(months12[fmIdx - 1].v); },
           style: { width: 22, padding: 0, fontSize: 14, opacity: (isAllPeriod || fmIdx <= 1) ? 0.3 : 1 }
         }, "‹"),
-        h("span", {
+        !isAllPeriod && h("span", {
           style: {
             fontSize: 11, fontWeight: 600, minWidth: 52, textAlign: "center", letterSpacing: "-0.01em",
-            color: isAllPeriod ? "var(--fg-3)" : isCurrentMonth ? "var(--fg-1)" : "var(--info)",
+            color: isCurrentMonth ? "var(--fg-1)" : "var(--info)",
           }
-        }, isAllPeriod ? "— —" : (months12[fmIdx]?.label || "")),
+        }, months12[fmIdx]?.label || ""),
         h("button", {
           className: "btn btn-ghost btn-sm",
           disabled: isAllPeriod || fmIdx >= months12.length - 1,

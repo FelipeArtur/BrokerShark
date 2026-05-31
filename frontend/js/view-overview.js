@@ -127,7 +127,7 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
       h("div", { className: "hero-right-col" },
         h(BreakdownRow, { label: "Contas correntes", value: totalContas, pct: patrNow ? (totalContas / patrNow) * 100 : 0, color: "var(--pos)" }),
         h(BreakdownRow, { label: "Investimentos",    value: totalReservas, pct: patrNow ? (totalReservas / patrNow) * 100 : 0, color: "var(--reserve)" }),
-        h(BreakdownRow, { label: "Faturas em aberto", value: totalFaturas, pct: patrNow ? (totalFaturas / (totalContas + totalReservas)) * 100 : 0, color: "var(--neg)", negative: true })
+        h(BreakdownRow, { label: "Faturas em aberto", value: totalFaturas, pct: patrNow ? (totalFaturas / (totalContas + totalReservas)) * 100 : 0, color: "var(--neg)", negative: totalFaturas > 0 })
       )
     ),
 
@@ -220,7 +220,7 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
               h("div", { style: { width: 80, height: 4, background: "var(--bg-2)", borderRadius: 999 } },
                 h("div", { style: { width: `${(c.total / catMax) * 100}%`, height: "100%", background: "var(--info)", borderRadius: 999 } })
               ),
-              h("div", { className: "num", style: { width: 70, textAlign: "right", color: "var(--fg-0)" } }, fmtBRL(c.total, { decimals: 0 }))
+              h("div", { className: "num", style: { width: 70, textAlign: "right", color: "var(--fg-0)" } }, fmtBRLCompact(c.total))
             )
           )
         )
