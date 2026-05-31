@@ -676,7 +676,7 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx }) {
                     h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11, marginBottom: 3, gap: 6 } },
                       h("span", { style: { color: "var(--fg-1)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, c.name),
                       h("span", { className: "num", style: { fontWeight: 600, flexShrink: 0 } },
-                        fmtBRL(c.total, { decimals: 0 }),
+                        fmtBRL(c.total),
                         h("span", { style: { color: "var(--fg-3)", fontWeight: 400, marginLeft: 5, fontSize: 10 } }, `${pct.toFixed(0)}%`)
                       )
                     ),
@@ -699,7 +699,7 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx }) {
               h("span", { style: { color: "var(--fg-3)", fontFamily: "var(--ff-mono)", width: 14, textAlign: "right", flexShrink: 0 } }, `${i + 1}`),
               h("span", { style: { flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--fg-1)" } }, p.label),
               h("span", { style: { color: "var(--fg-3)", fontSize: 10, flexShrink: 0 } }, `${p.count}×`),
-              h("span", { className: "num", style: { fontWeight: 600, flexShrink: 0 } }, fmtBRL(p.total, { decimals: 0 }))
+              h("span", { className: "num", style: { fontWeight: 600, flexShrink: 0 } }, fmtBRL(p.total))
             ))
           )
         )
