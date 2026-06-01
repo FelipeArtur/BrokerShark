@@ -80,7 +80,7 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
         h("span", { className: "num", style: { fontWeight: 600, fontSize: 14, color: negative ? "var(--neg)" : "var(--fg-0)" } },
           negative && "−", fmtBRL(Math.abs(value)))
       ),
-      h(Progress, { value: Math.min(Math.abs(value), Math.abs(patrNow)), max: Math.abs(patrNow), color }),
+      h(Progress, { value: Math.min(Math.abs(value), Math.abs(patrTotal)), max: Math.abs(patrTotal), color }),
       h("div", { style: { fontSize: 9, color: "var(--fg-3)", marginTop: 2, fontFamily: "var(--ff-mono)" } }, `${Math.abs(pct).toFixed(1)}% do total`)
     );
   }
@@ -105,8 +105,9 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
     return { ...b, spent: cat ? cat.total : 0 };
   }).filter(b => b.amount_limit > 0);
 
-  // Patrimônio breakdown: contas = patrNow − investimentos + faturas
-  const totalContas = patrNow - totalReservas + totalFaturas;
+  // Patrimônio breakdown: total = checking + investments (current_balance); contas = checking + faturas
+  const patrTotal = patrNow + totalReservas;
+  const totalContas = patrNow + totalFaturas;
 
   return h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 14 } },
 
@@ -115,7 +116,7 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
       // Left: value + sparkline (no % delta)
       h("div", null,
         h("div", { className: "eyebrow", style: { marginBottom: 4 } }, "Patrimônio total"),
-        h("div", { className: "num", style: { fontSize: 38, fontWeight: 700, lineHeight: 1.05, letterSpacing: "-0.02em" } }, fmtBRL(patrNow)),
+        h("div", { className: "num", style: { fontSize: 38, fontWeight: 700, lineHeight: 1.05, letterSpacing: "-0.02em" } }, fmtBRL(patrTotal)),
         h("div", { style: { marginTop: 14, height: 64 } },
           h(Sparkline, { data: patrimonio.map(p => p.value), width: "100%", height: 64, color: "var(--info)", strokeWidth: 1.8 })
         ),
@@ -125,9 +126,9 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
       ),
       // Right: breakdown rows
       h("div", { className: "hero-right-col" },
-        h(BreakdownRow, { label: "Contas correntes", value: totalContas, pct: patrNow ? (totalContas / patrNow) * 100 : 0, color: "var(--pos)" }),
-        h(BreakdownRow, { label: "Investimentos",    value: totalReservas, pct: patrNow ? (totalReservas / patrNow) * 100 : 0, color: "var(--reserve)" }),
-        h(BreakdownRow, { label: "Faturas em aberto", value: totalFaturas, pct: patrNow ? (totalFaturas / (totalContas + totalReservas)) * 100 : 0, color: "var(--neg)", negative: totalFaturas > 0 })
+        h(BreakdownRow, { label: "Contas correntes", value: totalContas, pct: patrTotal ? (totalContas / patrTotal) * 100 : 0, color: "var(--pos)" }),
+        h(BreakdownRow, { label: "Investimentos",    value: totalReservas, pct: patrTotal ? (totalReservas / patrTotal) * 100 : 0, color: "var(--reserve)" }),
+        h(BreakdownRow, { label: "Faturas em aberto", value: totalFaturas, pct: patrTotal ? (totalFaturas / patrTotal) * 100 : 0, color: "var(--neg)", negative: totalFaturas > 0 })
       )
     ),
 

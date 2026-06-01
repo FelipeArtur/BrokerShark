@@ -221,6 +221,29 @@ def _confirmation_transfer(d: dict) -> str:
 
 # ── Execução dos registros ────────────────────────────────────────────────────
 
+def _check_budget_alerts() -> str | None:
+    """Return formatted budget alert if any category is ≥80% spent this month, else None."""
+    today = datetime.now()
+    budgets = database.get_budgets()
+    if not budgets:
+        return None
+    expenses = database.get_expenses_by_category(today.year, today.month)
+    spent_by_cat = {e["name"]: e["total"] for e in expenses}
+    alerts: list[str] = []
+    for b in budgets:
+        limit = b["amount_limit"]
+        if limit <= 0:
+            continue
+        spent = spent_by_cat.get(b["category_name"], 0.0)
+        pct = spent / limit * 100
+        if pct >= 80:
+            icon = "🔴" if pct >= 100 else "🟡"
+            alerts.append(f"{icon} *{b['category_name']}*: {_fmt_brl(spent)} / {_fmt_brl(limit)} ({pct:.0f}%)")
+    if not alerts:
+        return None
+    return "⚠️ *Alerta de orçamento*\n" + "\n".join(alerts)
+
+
 def _do_confirm_expense(data: dict) -> str:
     cats = database.get_categories("expense")
     cat_id = next((c["id"] for c in cats if c["name"] == data["category"]), None)
@@ -353,6 +376,9 @@ async def _execute_tool(
             ptype = entry["type"]
             if ptype == "expense":
                 msg = _do_confirm_expense(entry["data"])
+                alert = _check_budget_alerts()
+                if alert:
+                    msg = f"{msg}\n\n{alert}"
             elif ptype == "income":
                 msg = _do_confirm_income(entry["data"])
             elif ptype == "investment":
