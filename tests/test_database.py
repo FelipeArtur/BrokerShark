@@ -160,3 +160,34 @@ def test_patrimonio_cc_fatura_counted_as_expense(db):
     history = analytics.get_patrimonio_history(months=1)
     # Expected: initial_balance(0) + 5000 - 500 - 800 = 3700
     assert history[0]["value"] == pytest.approx(3700.0, abs=1.0)
+
+
+def test_patrimonio_excludes_investment_movements(db):
+    """Investment deposits/withdrawals must NOT appear in patrimônio history."""
+    import sqlite3
+    from core.db import crud, analytics, schema
+
+    crud.insert_transaction(
+        date="2026-05-01",
+        flow="income",
+        method="pix",
+        account_id="nu-db",
+        amount=4000.0,
+        description="Salário",
+        is_revenue=1,
+    )
+    # Create an investment and register a deposit — must not shift patrimônio
+    with schema._connect() as conn:
+        conn.execute(
+            "INSERT INTO investments (name, type, bank, current_balance) VALUES (?,?,?,?)",
+            ("Caixinha Teste", "savings", "nubank", 0.0),
+        )
+        inv_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        conn.execute(
+            "INSERT INTO investment_movements (date, investment_id, operation, amount, description) VALUES (?,?,?,?,?)",
+            ("2026-05-10", inv_id, "deposit", 1000.0, "Aporte"),
+        )
+
+    history = analytics.get_patrimonio_history(months=1)
+    # Expected: initial_balance(0) + 4000 = 4000 (investment deposit does not affect total)
+    assert history[0]["value"] == pytest.approx(4000.0, abs=1.0)

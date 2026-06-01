@@ -2,7 +2,7 @@
 /* global React, ReactDOM, fetchExpenseCategories, patchTransactionCategory, patchTransaction,
           postTransaction, postIncome, postInvestmentMovement, searchTransactions,
           fetchExpenseCategoriesFull, postCategory, deleteCategory, deleteTransaction,
-          fetchAccounts */
+          fetchAccounts, importPreview, importConfirm */
 
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
 const {
@@ -374,6 +374,195 @@ function SearchModal({ onClose, onSelect }) {
 }
 
 /* ── Main App ────────────────────────────────────────────────────────────── */
+function IconImport({ size = 17 }) {
+  return React.createElement("svg", {
+    width: size, height: size, viewBox: "0 0 16 16", fill: "none",
+    stroke: "currentColor", strokeWidth: 1.6, strokeLinecap: "round", strokeLinejoin: "round",
+  },
+    React.createElement("path", { d: "M8 2 L8 10" }),
+    React.createElement("path", { d: "M5 7 L8 10 L11 7" }),
+    React.createElement("path", { d: "M3 12 L13 12" })
+  );
+}
+
+/* ── ImportModal — upload bank/broker export, review preview, confirm ─────── */
+function ImportModal({ onClose, onDone }) {
+  const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
+  const names = (window.BS && window.BS.accountNames) || {};
+  const ACCOUNTS = [
+    { id: "nu-db",    label: names["nu-db"]    || "Nubank Conta",  hint: "Extrato (CSV)" },
+    { id: "inter-db", label: names["inter-db"] || "Inter Conta",   hint: "Extrato (CSV)" },
+    { id: "inter-cc", label: names["inter-cc"] || "Inter Crédito", hint: "Fatura (CSV)" },
+  ];
+
+  const [account, setAccount]   = useState("nu-db");
+  const [file, setFile]         = useState(null);
+  const [preview, setPreview]   = useState(null);
+  const [excluded, setExcluded] = useState(() => new Set());
+  const [busy, setBusy]         = useState(false);
+  const [err, setErr]           = useState(null);
+
+  async function analyze() {
+    if (!file) { setErr("Escolha um arquivo CSV."); return; }
+    setBusy(true); setErr(null);
+    try {
+      const res = await importPreview(file, account);
+      setPreview(res);
+      setExcluded(new Set());
+    } catch (e) { setErr(e.message || "Falha ao analisar."); }
+    finally { setBusy(false); }
+  }
+
+  function toggle(id) {
+    setExcluded(prev => {
+      const n = new Set(prev);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
+  }
+
+  async function confirm() {
+    setBusy(true); setErr(null);
+    try {
+      const res = await importConfirm(preview.batch_id, [...excluded]);
+      onDone(res);
+    } catch (e) { setErr(e.message || "Falha ao confirmar."); setBusy(false); }
+  }
+
+  const willImport = preview ? (preview.counts.new - excluded.size) : 0;
+
+  const STATUS_META = {
+    new:       { label: "nova",      color: "var(--pos)" },
+    duplicate: { label: "já existe", color: "var(--fg-3)" },
+    skipped:   { label: "ignorada",  color: "var(--reserve)" },
+  };
+
+  function Chip({ n, meta }) {
+    return h("span", { style: {
+      fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 999,
+      background: "color-mix(in oklch, " + meta.color + " 16%, transparent)", color: meta.color,
+    } }, `${n} ${meta.label}${n === 1 ? "" : "s"}`);
+  }
+
+  // ── Step 1: choose account + file
+  const step1 = h("div", { style: { display: "flex", flexDirection: "column", gap: 14 } },
+    h("p", { style: { fontSize: 13, color: "var(--fg-2)", margin: 0 } },
+      "Suba o extrato ou fatura exportado do banco. Nada é gravado até você revisar e confirmar."),
+    h("div", null,
+      h("label", { style: { fontSize: 11, fontWeight: 600, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.05em" } }, "Conta de destino"),
+      h("div", { style: { display: "flex", flexDirection: "column", gap: 6, marginTop: 6 } },
+        ACCOUNTS.map(a => h("button", {
+          key: a.id, onClick: () => setAccount(a.id),
+          "aria-pressed": account === a.id,
+          style: {
+            display: "flex", justifyContent: "space-between", alignItems: "center",
+            padding: "9px 12px", borderRadius: 8, cursor: "pointer", textAlign: "left",
+            background: account === a.id ? "color-mix(in oklch, var(--info) 14%, transparent)" : "transparent",
+            border: `1px solid ${account === a.id ? "var(--info)" : "var(--line-1)"}`,
+            color: "var(--fg-1)",
+          },
+        },
+          h("span", { style: { fontWeight: 600, fontSize: 13 } }, a.label),
+          h("span", { style: { fontSize: 11, color: "var(--fg-3)" } }, a.hint)
+        ))
+      )
+    ),
+    h("div", null,
+      h("label", { style: { fontSize: 11, fontWeight: 600, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.05em" } }, "Arquivo"),
+      h("input", {
+        type: "file", accept: ".csv,text/csv", style: { display: "block", marginTop: 6, fontSize: 13 },
+        onChange: e => { setFile(e.target.files[0] || null); setErr(null); },
+      })
+    ),
+    err && h("div", { style: { color: "var(--neg)", fontSize: 12 } }, err),
+    h("div", { style: { display: "flex", justifyContent: "flex-end", gap: 8 } },
+      h("button", { className: "btn btn-ghost", onClick: onClose }, "Cancelar"),
+      h("button", { className: "btn btn-primary", disabled: busy || !file, onClick: analyze },
+        busy ? "Analisando…" : "Analisar")
+    )
+  );
+
+  // ── Step 2: preview + confirm
+  const nothingNew = preview && preview.counts.new === 0;
+  const thStyle = (w) => ({
+    padding: "6px 8px", textAlign: "left", fontSize: 10, fontWeight: 600,
+    color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.04em",
+    borderBottom: "1px solid var(--line-1)", ...(w ? { width: w } : {}),
+  });
+
+  const summaryChips = preview && h("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
+    h(Chip, { n: preview.counts.new,       meta: STATUS_META.new }),
+    h(Chip, { n: preview.counts.duplicate, meta: STATUS_META.duplicate }),
+    h(Chip, { n: preview.counts.skipped,   meta: STATUS_META.skipped })
+  );
+
+  // Empty state: re-uploading an already-imported file (the common monthly case).
+  const emptyState = preview && h("div", {
+    style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 10, padding: "28px 12px", textAlign: "center" }
+  },
+    h("div", { style: { fontSize: 28, color: "var(--pos)", lineHeight: 1 } }, "✓"),
+    h("div", { style: { fontSize: 14, fontWeight: 600, color: "var(--fg-1)" } }, "Tudo deste arquivo já está importado"),
+    h("div", { style: { fontSize: 12, color: "var(--fg-3)" } },
+      `Nada novo. ${preview.counts.duplicate} já existem · ${preview.counts.skipped} ignoradas`),
+    h("button", { className: "btn btn-primary", style: { marginTop: 6 }, onClick: onClose }, "Fechar")
+  );
+
+  const reviewBody = preview && h("div", { style: { display: "flex", flexDirection: "column", gap: 12 } },
+    summaryChips,
+    h("div", { style: { fontSize: 12, color: "var(--fg-2)" } },
+      "Revise abaixo — desmarque o que não quiser importar."),
+    h("div", { style: { maxHeight: "44vh", overflow: "auto", border: "1px solid var(--line-1)", borderRadius: 8 } },
+      h("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 12 } },
+        h("thead", null,
+          h("tr", { style: { position: "sticky", top: 0, background: "var(--bg-2)", zIndex: 1 } },
+            h("th", { style: thStyle(28) }, ""),
+            h("th", { style: thStyle() }, "Data"),
+            h("th", { style: thStyle() }, "Descrição"),
+            h("th", { style: { ...thStyle(), textAlign: "right" } }, "Valor")
+          )
+        ),
+        h("tbody", null,
+          preview.rows.map(r => {
+            const meta = STATUS_META[r.status] || STATUS_META.skipped;
+            const isNew = r.status === "new";
+            const checked = isNew && !excluded.has(r.id);
+            const sign = r.flow === "expense" ? "−" : "+";
+            return h("tr", { key: r.id, style: { borderTop: "1px solid var(--line-1)", opacity: isNew ? 1 : 0.55 } },
+              h("td", { style: { padding: "6px 8px", width: 28 } },
+                isNew
+                  ? h("input", { type: "checkbox", checked, "aria-label": `Importar ${r.description}`, onChange: () => toggle(r.id) })
+                  : h("span", { title: meta.label, style: { color: meta.color } }, "•")
+              ),
+              h("td", { style: { padding: "6px 8px", whiteSpace: "nowrap", color: "var(--fg-3)" } }, r.date),
+              h("td", { style: { padding: "6px 8px", maxWidth: 230, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } },
+                r.description,
+                r.method === "transfer" && h("span", {
+                  title: "não conta como gasto nem receita",
+                  style: { marginLeft: 6, fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 999, background: "var(--reserve-bg)", color: "var(--reserve)", whiteSpace: "nowrap" }
+                }, "transferência"),
+                r.note && r.status === "skipped" && h("span", { style: { marginLeft: 6, fontSize: 10, color: "var(--fg-3)" } }, r.note)
+              ),
+              h("td", { style: { padding: "6px 8px", textAlign: "right", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums", color: r.flow === "expense" ? "var(--neg)" : "var(--pos)" } },
+                `${sign} ${fmtBRL(r.amount)}`)
+            );
+          })
+        )
+      )
+    ),
+    err && h("div", { style: { color: "var(--neg)", fontSize: 12 } }, err),
+    h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 } },
+      h("button", { className: "btn btn-ghost", onClick: () => { setPreview(null); setErr(null); } }, "‹ Voltar"),
+      h("button", { className: "btn btn-primary", disabled: busy || willImport <= 0, onClick: confirm },
+        busy ? "Importando…" : `Importar ${willImport} ${willImport === 1 ? "lançamento" : "lançamentos"}`)
+    )
+  );
+
+  const step2 = preview && (nothingNew ? emptyState : reviewBody);
+
+  return h(Modal, { open: true, onClose, title: "Importar extrato / fatura", width: 620 },
+    preview ? step2 : step1);
+}
+
 function App() {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   const [tw, setTw] = useTweaks();
@@ -382,6 +571,7 @@ function App() {
   const [editTx, setEditTx] = useState(null);
   const [tweaksOpen, setTweaksOpen] = useState(false);
   const [searchModalOpen, setSearchModalOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [filterMonth, setFilterMonth] = useState("all");
   const { push, Toaster } = useToasts();
@@ -505,6 +695,17 @@ function App() {
 
       h("div", { style: { flex: 1 } }),
 
+      // Import button
+      h("button", {
+        className: "btn btn-ghost btn-sm",
+        onClick: () => setImportOpen(true),
+        title: "Importar extrato ou fatura (CSV)",
+        style: { display: "flex", alignItems: "center", gap: 6, padding: "0 10px", height: 30 }
+      },
+        h(IconImport, { size: 17 }),
+        h("span", { style: { fontSize: 12 } }, "Importar")
+      ),
+
       // Search button
       h("button", {
         className: "btn btn-ghost btn-sm",
@@ -546,6 +747,15 @@ function App() {
     searchModalOpen && h(SearchModal, {
       onClose: () => setSearchModalOpen(false),
       onSelect: t => setEditTx(t),
+    }),
+    importOpen && h(ImportModal, {
+      onClose: () => setImportOpen(false),
+      onDone: (res) => {
+        setImportOpen(false);
+        const n = res?.inserted ?? 0;
+        push(n > 0 ? `${n} ${n === 1 ? "lançamento importado" : "lançamentos importados"}` : "Nada novo para importar", n > 0 ? "success" : "info");
+        setRefreshKey(k => k + 1);
+      },
     }),
     tweaksOpen && h("div", { className: "tweaks-overlay", onClick: () => setTweaksOpen(false) }),
     tweaksOpen && h(TweaksPanel, {

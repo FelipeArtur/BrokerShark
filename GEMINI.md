@@ -4,6 +4,21 @@
 
 ---
 
+## AI Development Tools
+
+This project is co-developed using **Claude Code CLI** and **Gemini CLI**.
+
+| File | Purpose |
+|---|---|
+| `CLAUDE.md` | Full source of truth — architecture, flows, design decisions (Claude Code) |
+| `GEMINI.md` | Concise context guide for Gemini CLI |
+| `.agents/skills/` | Gemini CLI skills (e.g., `impeccable`) |
+| `.claude/commands/` | Claude Code slash-command skills |
+
+When making permanent changes (new categories, new accounts, schema changes), update **both** `CLAUDE.md` and `GEMINI.md`.
+
+---
+
 ## Overview
 
 BrokerShark is a personal finance assistant running **100% locally** on Linux.
@@ -35,7 +50,7 @@ bot/handlers/ — Telegram confirmation (if Telegram)
 
 - **SQLite = single source of truth.** No external write-back.
 - **Web = primary interface.** Telegram for quick entries + reports only.
-- **CSV import via web UI** (drag-and-drop with Ollama categorization).
+- **CSV import via web UI** ("+ Importar" modal → preview/staging → confirm; dedup por UUID/hash; sem categorização automática — categoriza depois). Pipeline em `backend/core/ingestion/`. Fontes: `nu-db`, `inter-db`, `inter-cc`.
 - **AI is Pierre-inspired:** tool calling, never fabricates data, always fetches via tools.
 - **Backup is monthly, condition-based:** 30-day check on startup → local HDD + Drive.
 - **No AI in button registration flow.**
@@ -96,7 +111,7 @@ Excluded from summaries via `AND dest_account_id IS NULL`.
 
 **CC anti-duplication:** Fatura total payment sits in nu-db/inter-db with `dest_account_id='nu-cc'/'inter-cc'` (for patrimônio); individual purchases sit in nu-cc/inter-cc with `dest_account_id IS NULL` (for expense summaries). They never overlap. Logic is symmetric for Nubank and Inter.
 
-**Patrimônio expenses:** `get_patrimonio_history()` uses `(dest_account_id IS NULL OR dest_account_id IN ('nu-cc','inter-cc'))` — CC fatura payments are real cash outflows.
+**Patrimônio:** `get_patrimonio_history()` returns **checking balance only** (`initial_balances + income - expenses`). Investment movements are excluded. Frontend computes `patrTotal = patrNow + totalReservas` (investments.current_balance) for the big number; sparkline shows checking history only. CC fatura payments are counted as outflows via `dest_account_id IN ('nu-cc','inter-cc')`.
 
 ---
 
@@ -131,8 +146,9 @@ Tools (13): `get_monthly_summary`, `get_monthly_comparison`, `get_expenses_by_ca
 | POST | `/api/transactions` | Create expense |
 | POST | `/api/incomes` | Create income/transfer |
 | POST | `/api/investment-movements` | Create investment movement |
-| POST | `/api/import-csv/preview` | Parse CSV, return preview |
-| POST | `/api/import-csv/confirm` | Confirm CSV import |
+| POST | `/api/import/preview` | Upload+parse+classify+stage (`file`, `account_id`) |
+| GET | `/api/import/staging/<batch_id>` | Re-read staged rows |
+| POST | `/api/import/confirm` | Promote `new` rows (`batch_id`, `exclude_ids[]`) |
 | POST | `/api/chat` | AI chat message |
 | PATCH | `/api/budgets/<id>` | Update budget |
 | PATCH | `/api/transactions/<id>` | Reassign category |
@@ -190,7 +206,7 @@ OLLAMA_TIMEOUT=60
 | `nu-cc` | **Sem lançamentos individuais** — apenas totais de fatura |
 | `inter-cc` | Lançamentos importados |
 | `nu-db`, `inter-db` | Histórico completo |
-| `budgets` | Tabela **vazia** — sem metas configuradas |
+| `budgets` | Seeded com limites padrão (Alimentação R$1500, etc.) — editáveis no dashboard |
 
 ## Running
 

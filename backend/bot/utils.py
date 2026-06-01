@@ -20,8 +20,14 @@ _PT_MONTHS: list[str] = [
 
 
 def _authorized(update: Update) -> bool:
-    """Return True if the update comes from the authorised chat."""
-    return update.effective_chat.id == config.TELEGRAM_CHAT_ID
+    """Return True only if the update comes from the configured owner chat.
+
+    Fails closed: updates without a resolvable chat (channel posts, some service
+    updates) return False instead of raising ``AttributeError`` — a crashing
+    auth check must never become a fail-open path.
+    """
+    chat = update.effective_chat
+    return chat is not None and chat.id == config.TELEGRAM_CHAT_ID
 
 
 def _fmt_brl(value: float) -> str:

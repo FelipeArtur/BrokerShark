@@ -29,7 +29,8 @@ def _mock_telegram():
 
     tg_ext = sys.modules["telegram.ext"]
     for attr in ["Application", "CommandHandler", "MessageHandler",
-                 "filters", "ContextTypes", "ConversationHandler"]:
+                 "filters", "ContextTypes", "ConversationHandler",
+                 "TypeHandler", "ApplicationHandlerStop"]:
         setattr(tg_ext, attr, mock.MagicMock())
 
     # Avoid re-initializing bot/__init__.py side effects

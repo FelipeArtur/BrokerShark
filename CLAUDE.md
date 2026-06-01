@@ -106,7 +106,7 @@ bot/handlers/ai_chat.py — confirmation message + spending alert if expenses �
 
 ### Patrimônio calculation
 
-`get_patrimonio_history()` computes net worth as: `initial_balances + income - expenses + investment_movements`.
+`get_patrimonio_history()` computes **checking account net worth only**: `initial_balances + income - expenses`. Investment movements are intentionally excluded — investments are added at display time via `investments.current_balance` (totalReservas). This separation prevents inconsistency between movement-based history and actual current balance.
 
 **Expenses include CC fatura payments:** condition is `(dest_account_id IS NULL OR dest_account_id IN ('nu-cc','inter-cc'))`. This ensures the total monthly CC payment (stored as a transfer from the checking account) is counted as a cash outflow — even though the individual purchases live in a separate account.
 
@@ -263,6 +263,20 @@ Excluded from summaries via `AND dest_account_id IS NULL`.
 | PATCH | `/api/budgets/<id>` | Update budget limit |
 | PATCH | `/api/transactions/<id>` | Update category_id, display_name, and/or is_third_party |
 | GET | `/api/pix-top` | Top PIX destinations (month, year) — `{label, count, total}[]` |
+| POST | `/api/import/preview` | Multipart upload (`file`, `account_id`) → parse + classify + stage. Returns `{batch_id, source, counts, rows[]}` |
+| GET | `/api/import/staging/<batch_id>` | Re-read staged rows for a batch |
+| POST | `/api/import/confirm` | Promote a batch's `new` rows to transactions (`{batch_id, exclude_ids[]}`) |
+
+### Web Import (ingestão mensal)
+
+Sources are uploaded via the **"+ Importar"** header button (3-step modal: conta+arquivo → preview → confirmar). Pipeline lives in `backend/core/ingestion/` (`adapters.py` parse, `dedup.py` classify, `service.py` orchestrate) — all DB access routes through `crud`/`analytics`.
+
+- **Supported now:** `nu-db` (extrato Nubank, comma/point, UUID dedup), `inter-db` (extrato Inter, semicolon/comma decimal, 5-line preamble), `inter-cc` (fatura Inter, quoted `R$`, bank category). `nu-cc` (fatura Nubank) deferred — sample dir empty, format unknown.
+- **Staging:** rows land in `import_staging` (batch_id + status `new`/`duplicate`/`skipped`); `confirm` promotes `new` rows then deletes the batch. Nothing is written to `transactions` until confirm.
+- **Dedup:** Nubank by `external_id` (partial UNIQUE index `idx_tx_external_id WHERE external_id IS NOT NULL` + `INSERT OR IGNORE`); Inter by occurrence count on `(account, date, round(amount,2), description)` — re-uploaded cumulative files add only the new tail, legitimate same-day duplicates preserved.
+- **Investment rows** (Nubank: `Aplicação RDB`, `NuInvest`, `IRRF/resgate`, `Cobrança de investimentos`) → `method='transfer'`, `is_revenue=0`. **CC bill payments** (extrato `…fatura…`) → `method='transfer'`, `dest_account_id=<bank>-cc`. Both keep the account balance correct but are excluded from consumption totals.
+- **Consumption-expense rule:** analytics expense totals now filter `dest_account_id IS NULL AND method != 'transfer'` — a transfer (investment leg or fatura payment) is never "despesa". Patrimônio query is intentionally **not** filtered by method (it must still count CC fatura payments via `dest IN ('nu-cc','inter-cc')`).
+- Imports enter with `category_id=NULL` (categorize later in `TransactionPanel`).
 
 ### API response shapes (selected)
 
@@ -328,8 +342,10 @@ All chart components receive **real API data only** — no placeholder/illustrat
 Layout: `gridTemplateColumns: "1.4fr 1fr"`
 
 - **Left column:** patrimônio total em BRL + tendência vs mês anterior (▲/▼ %) + `Sparkline` 12 meses de `fetchPatrimonioHistory()` + labels de mês
-- **Right column** (borderLeft separator): 3 × `BreakdownRow` com barra `Progress`:
-  - "Contas correntes" → `patrNow − reservas + totalFaturas` — cor `var(--pos)`
+- **Big number**: `patrTotal = patrNow + totalReservas` (checking balance + investments.current_balance)
+- **Sparkline**: mostra apenas `patrNow` (checking history) — investments não entram no histórico
+- **Right column** (borderLeft separator): 3 × `BreakdownRow` com barra `Progress` (max = `patrTotal`):
+  - "Contas correntes" → `patrNow + totalFaturas` — cor `var(--pos)` (checking + CC pendente)
   - "Investimentos" → `summary.reservas` — cor `var(--reserve)`
   - "Faturas em aberto" → `totalFaturas` (negativo) — cor `var(--neg)`
 - Fatura cards: exibem `▲/▼ X.X%` de tendência calculada de `last_total` (retornado por `/api/faturas`)
@@ -368,7 +384,9 @@ O chart "Gastos mensais no cartão" usa `BarChart` com dados de `/api/monthly?ac
 
 **Monthly closing (1st, 08:00):** full previous-month breakdown — income, expenses, categories, investments, net balance.
 
-**Proactive alert:** after every expense, if monthly expenses ≥ income → sends alert.
+**Proactive spending alert:** after every expense, if monthly expenses ≥ income → sends alert.
+
+**Budget alert:** after every confirmed expense, `_check_budget_alerts()` checks if any category is ≥80% of its monthly limit → sends alert with 🟡 (80–99%) or 🔴 (≥100%) per category. Runs only when `budgets` table has non-zero limits.
 
 ---
 
@@ -383,7 +401,7 @@ O chart "Gastos mensais no cartão" usa `BarChart` com dados de `/api/monthly?ac
 | Caixinha Nubank | 44 depósitos / 41 saques — saldo via movimentos de investimento |
 | Porquinho Inter | 22 depósitos / 28 saques — saldo via movimentos de investimento |
 | Tesouro Direto | Sem movimentos cadastrados ainda |
-| Orçamentos (`budgets`) | Tabela existe mas está **vazia** — sem metas configuradas |
+| Orçamentos (`budgets`) | Seeded com limites padrão por categoria via `_seed_budgets()` — editáveis no dashboard |
 
 **Todos os dados importados via pipeline one-time (2026-05-13):**
 - 1.291 transações + 135 movimentos de investimento
@@ -435,21 +453,43 @@ Bot flows (expense/income/investment), dashboard v1→v3, SSE, investments, hist
 - `should_backup()` agora verifica por mês calendário (não intervalo de 30 dias)
 - Removido código morto: `transaction_exists`, `suggest_category`, `get_categorization_patterns`, `ollama.suggest_categories`
 
-### Próximas fases
+**Fase 11c — Systemd service (concluída):**
+- `brokershark.service` — autostart, logs em `logs/brokershark.log`
+- Instruções de instalação no README
 
-**Fase 11c — Systemd service**
-- [ ] `brokershark.service` — autostart, low resource footprint
-
-**Fase 11d — Edição e ajustes históricos**
-- [ ] Manual investment balance adjustment (for RDB/CDB daily yield that doesn't appear as movements)
-- [ ] Spending goal alerts at 80% threshold (using `budgets` table)
+**Fase 11d — Orçamentos e alertas (concluída parcialmente):**
+- Alertas de 80% do limite implementados em `_check_budget_alerts()` (ai_chat.py)
+- Disparados após cada despesa confirmada via Telegram
+- [ ] Manual investment balance adjustment (para RDB/CDB com rendimento diário — B3 report import planejado)
 
 **Fase 11d — Entidade Evento (opcional)**
 - [ ] Tabela `events` + FK nas transactions — relatório por evento com saldo líquido
 
+### Próximas fases
+
+**Fase 12 — Patrimônio fix (concluída em 2026-05-31):**
+- `get_patrimonio_history()` retorna apenas saldo de contas correntes (sem investment_movements)
+- Frontend hero: `patrTotal = patrNow + totalReservas`; sparkline mostra só liquidez histórica
+- Elimina inconsistência entre investments_movements_net e investments.current_balance
+
+**Fase 13 — Ingestão web (concluída):**
+- Pipeline `backend/core/ingestion/` (adapters + dedup + service) + modal "+ Importar"
+- 3 fontes CSV: `nu-db`, `inter-db`, `inter-cc` com preview/staging + dedup (UUID + hash por ocorrência)
+- `import_staging` table; `insert_transaction(external_id=…)` + índice UNIQUE parcial
+- Regra "transferência nunca é consumo" nos totais de despesa (analytics)
+- Ver "Web Import" acima
+
+**Backlog (diferido da revisão CEO)**
+- [ ] Fase 2 — importar Relatório B3 (xlsx): posições CDB/Tesouro → `investments.current_balance` (precisa `openpyxl`)
+- [ ] Fase 2 — adapter fatura Nubank (`nu-cc`): diretório de exemplo está vazio, formato desconhecido
+- [ ] Desfazer última importação (reverter batch por `batch_id`)
+- [ ] Filtro "sem categoria" no HistoryView (categorizar importados em lote)
+
 **Dados pendentes**
-- [ ] Configurar orçamentos por categoria (tabela `budgets` vazia)
 - [ ] Registrar movimentos do Tesouro Direto
+- [ ] Importar relatórios B3 para histórico de investimentos
+
+**Bug conhecido (a confirmar):** `transactions.method` tem CHECK `IN ('pix','credit','ted','transfer','debit')`, mas `/api/incomes` insere `method='salary'|'freelance'|'pix_received'|'other'`. Num DB novo isso violaria o CHECK. O DB de produção provavelmente foi criado antes do CHECK. Verificar/normalizar.
 
 ## Skill routing
 

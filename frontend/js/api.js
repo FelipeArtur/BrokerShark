@@ -81,3 +81,16 @@ async function deleteTransaction(id) {
   if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || "request failed"); }
   return r.json();
 }
+
+/* ── File import (multipart upload + staged confirm) ─────────────────────── */
+async function importPreview(file, accountId) {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("account_id", accountId);
+  const r = await fetch("/api/import/preview", { method: "POST", body: form });
+  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || "falha ao analisar arquivo"); }
+  return r.json();
+}
+async function importConfirm(batchId, excludeIds = []) {
+  return _post("/api/import/confirm", { batch_id: batchId, exclude_ids: excludeIds });
+}
