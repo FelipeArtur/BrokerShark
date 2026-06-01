@@ -113,6 +113,31 @@ def init_db() -> None:
                 FOREIGN KEY (category_id) REFERENCES categories(id)
             );
 
+            -- Staging area for file imports (web ingestion).
+            -- Parsed rows land here with a classification status; the user
+            -- reviews them in the preview modal, then 'new' rows are promoted
+            -- to transactions on confirm and the whole batch is deleted.
+            CREATE TABLE IF NOT EXISTS import_staging (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                batch_id        TEXT NOT NULL,
+                created_at      TEXT NOT NULL,
+                source          TEXT NOT NULL,
+                status          TEXT NOT NULL
+                    CHECK (status IN ('new', 'duplicate', 'skipped')),
+                date            TEXT,
+                flow            TEXT,
+                method          TEXT,
+                account_id      TEXT,
+                amount          REAL,
+                description     TEXT,
+                dest_account_id TEXT,
+                external_id     TEXT,
+                is_revenue      INTEGER DEFAULT 0,
+                note            TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_staging_batch
+                ON import_staging(batch_id);
+
             -- Indices for common query patterns
             CREATE INDEX IF NOT EXISTS idx_tx_date
                 ON transactions(date);
@@ -166,6 +191,20 @@ def _apply_column_migrations(conn: sqlite3.Connection) -> None:
             "INSERT OR IGNORE INTO categories (name, flow) VALUES ('Eventos / Terceiros', 'expense')"
         )
         conn.commit()
+
+    # Partial UNIQUE index on external_id: enforces dedup for sources that
+    # carry a stable id (Nubank's Identificador), while allowing the many NULLs
+    # from manual entries and Inter rows (which dedup by content hash instead).
+    # Wrapped defensively: a pre-existing DB with duplicate external_ids would
+    # fail here, and import dedup must never block startup.
+    try:
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_tx_external_id "
+            "ON transactions(external_id) WHERE external_id IS NOT NULL"
+        )
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
 
 
 def _run_pending_migrations(conn: sqlite3.Connection) -> None:

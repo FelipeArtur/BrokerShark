@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from core.db.schema import _connect
@@ -21,6 +21,7 @@ def insert_transaction(
     dest_account_id: Optional[str] = None,
     counterpart: Optional[str] = None,
     is_revenue: int = 0,
+    external_id: Optional[str] = None,
 ) -> int:
     """Insert a new transaction and notify the dashboard via SSE.
 
@@ -36,9 +37,13 @@ def insert_transaction(
         dest_account_id: FK for internal transfers (usually ``None``).
         counterpart: Sender/recipient name for external PIX.
         is_revenue: 1 for real income, 0 for self-transfers.
+        external_id: Stable source id (e.g. Nubank's ``Identificador`` UUID) used
+            for import dedup. ``INSERT OR IGNORE`` skips rows that collide with the
+            partial UNIQUE index on ``external_id``.
 
     Returns:
-        The auto-incremented ``id`` of the newly inserted row.
+        The auto-incremented ``id`` of the newly inserted row, or ``-1`` when an
+        ``external_id`` collision caused the insert to be ignored.
     """
     try:
         datetime.strptime(date, "%Y-%m-%d")
@@ -46,14 +51,16 @@ def insert_transaction(
         raise ValueError(f"Invalid date format: '{date}'. Expected YYYY-MM-DD.")
     with _connect() as conn:
         cur = conn.execute(
-            """INSERT INTO transactions
+            """INSERT OR IGNORE INTO transactions
                (date, flow, method, account_id, amount, installments,
-                description, category_id, dest_account_id, counterpart, is_revenue)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                description, category_id, dest_account_id, counterpart, is_revenue,
+                external_id)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
             (date, flow, method, account_id, amount, installments,
-             description, category_id, dest_account_id, counterpart, is_revenue),
+             description, category_id, dest_account_id, counterpart, is_revenue,
+             external_id),
         )
-        last_id = cur.lastrowid
+        last_id = cur.lastrowid if cur.rowcount else -1
     events.notify()
     return last_id
 
@@ -213,3 +220,116 @@ def log_unrecognized(message: str) -> None:
             "INSERT INTO unrecognized_log (date, message) VALUES (?,?)",
             (datetime.now().isoformat(), message),
         )
+
+
+# ── Import staging ──────────────────────────────────────────────────────────
+# Rows parsed from an uploaded file land in import_staging with a classification
+# status ('new' | 'duplicate' | 'skipped'). The preview modal reads them; on
+# confirm, only 'new' rows are promoted to transactions and the batch is deleted.
+
+# Single source of truth for the staging column order. ``service.py`` imports
+# this so the parsed-record dict and the INSERT can never drift apart.
+STAGING_COLS = (
+    "date", "flow", "method", "account_id", "amount", "description",
+    "dest_account_id", "external_id", "is_revenue", "status", "note",
+)
+
+
+def insert_staging_rows(batch_id: str, source: str, rows: list[dict[str, Any]]) -> None:
+    """Persist a batch of classified, parsed rows into ``import_staging``.
+
+    Args:
+        batch_id: Opaque token identifying this upload (UUID hex).
+        source: Adapter key, e.g. ``"nubank_extrato"``.
+        rows: Dicts with keys from :data:`STAGING_COLS` (missing keys → NULL).
+    """
+    created = datetime.now().isoformat()
+    payload = [
+        (batch_id, created, source, *(r.get(c) for c in STAGING_COLS))
+        for r in rows
+    ]
+    placeholders = ", ".join(STAGING_COLS)
+    qmarks = ", ".join("?" for _ in STAGING_COLS)
+    with _connect() as conn:
+        conn.executemany(
+            f"INSERT INTO import_staging (batch_id, created_at, source, {placeholders}) "
+            f"VALUES (?,?,?,{qmarks})",
+            payload,
+        )
+
+
+def get_staging_batch(batch_id: str) -> list[sqlite3.Row]:
+    """Return all staged rows for a batch, ordered by date ascending."""
+    with _connect() as conn:
+        return conn.execute(
+            "SELECT * FROM import_staging WHERE batch_id = ? ORDER BY date ASC, id ASC",
+            (batch_id,),
+        ).fetchall()
+
+
+def delete_staging_batch(batch_id: str) -> int:
+    """Delete every staged row for a batch. Returns the number of rows removed."""
+    with _connect() as conn:
+        cur = conn.execute(
+            "DELETE FROM import_staging WHERE batch_id = ?", (batch_id,)
+        )
+        return cur.rowcount
+
+
+def confirm_staging_batch(batch_id: str, exclude_ids: Optional[set[int]] = None) -> dict:
+    """Atomically promote a batch's 'new' rows to transactions and drop the batch.
+
+    All inserts AND the batch delete run inside a single connection/transaction:
+    on any error the context manager rolls back, so the staging batch survives
+    intact and a retry is safe (no half-imported, no Inter duplicates). SSE is
+    notified exactly once, after commit — not once per row.
+
+    Args:
+        batch_id: Token from :func:`insert_staging_rows`.
+        exclude_ids: Staging-row ids the user unchecked in the preview.
+
+    Returns:
+        ``{"inserted": int, "skipped": int}``, or ``{"missing": True, …}`` if the
+        batch no longer exists (expired or already confirmed).
+    """
+    excluded = exclude_ids or set()
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM import_staging WHERE batch_id = ? ORDER BY date ASC, id ASC",
+            (batch_id,),
+        ).fetchall()
+        if not rows:
+            return {"inserted": 0, "skipped": 0, "missing": True}
+        inserted = 0
+        for r in rows:
+            if r["status"] != "new" or r["id"] in excluded:
+                continue
+            cur = conn.execute(
+                """INSERT OR IGNORE INTO transactions
+                   (date, flow, method, account_id, amount, installments,
+                    description, category_id, dest_account_id, counterpart,
+                    is_revenue, external_id)
+                   VALUES (?,?,?,?,?,1,?,NULL,?,NULL,?,?)""",
+                (r["date"], r["flow"], r["method"], r["account_id"], r["amount"],
+                 r["description"], r["dest_account_id"], r["is_revenue"] or 0,
+                 r["external_id"]),
+            )
+            if cur.rowcount:
+                inserted += 1
+        conn.execute("DELETE FROM import_staging WHERE batch_id = ?", (batch_id,))
+    events.notify()
+    return {"inserted": inserted, "skipped": len(rows) - inserted}
+
+
+def prune_staging(older_than_hours: int = 24) -> int:
+    """Delete abandoned staging rows older than ``older_than_hours``.
+
+    Previews the user never confirmed would otherwise accumulate forever.
+    Returns the number of rows removed.
+    """
+    cutoff = (datetime.now() - timedelta(hours=older_than_hours)).isoformat()
+    with _connect() as conn:
+        cur = conn.execute(
+            "DELETE FROM import_staging WHERE created_at < ?", (cutoff,)
+        )
+        return cur.rowcount

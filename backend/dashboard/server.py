@@ -21,13 +21,26 @@ from waitress import serve
 
 import config
 from core import database
+from core import ingestion
 from core import events as _events
+from core.ingestion.adapters import SourceMismatch
 _logger = logging.getLogger(__name__)
 
 DASHBOARD_PORT = config.DASHBOARD_PORT
 FRONTEND_DIR = config.FRONTEND_DIR
 
+# Largest upload accepted for file imports. Bank/broker exports are a few KB;
+# 8 MB is generous headroom while bounding memory and rejecting abuse.
+_MAX_UPLOAD_BYTES = 8 * 1024 * 1024
+
 app = Flask(__name__, static_folder=str(FRONTEND_DIR), static_url_path="/static")
+app.config["MAX_CONTENT_LENGTH"] = _MAX_UPLOAD_BYTES
+
+
+@app.errorhandler(413)
+def _too_large(_exc) -> Response:
+    """Return JSON (not HTML) when an upload exceeds MAX_CONTENT_LENGTH."""
+    return jsonify({"error": "Arquivo grande demais (máx. 8 MB)."}), 413
 
 
 @app.after_request
@@ -707,6 +720,69 @@ def api_post_investment_movement() -> Response:
         description=description,
     )
     return jsonify({"ok": True, "id": mv_id})
+
+
+@app.route("/api/import/preview", methods=["POST"])
+def api_import_preview() -> Response:
+    """Parse an uploaded export file, classify rows, and stage them for review.
+
+    Multipart form:
+        file:       the uploaded CSV.
+        account_id: target account (``nu-db`` | ``inter-db`` | ``inter-cc``).
+
+    Returns:
+        ``{batch_id, source, account_id, counts:{new,duplicate,skipped,total}, rows:[…]}``.
+        400 if the account is invalid or the file does not match the account.
+    """
+    account_id = (request.form.get("account_id") or "").strip()
+    if account_id not in _VALID_ACCOUNTS:
+        return jsonify({"error": "invalid account_id"}), 400
+    upload = request.files.get("file")
+    if upload is None:
+        return jsonify({"error": "file required"}), 400
+    data = upload.read()
+    if not data:
+        return jsonify({"error": "arquivo vazio"}), 400
+
+    try:
+        result = ingestion.preview_import(account_id, data)
+    except SourceMismatch as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify(result)
+
+
+@app.route("/api/import/staging/<batch_id>")
+def api_import_staging(batch_id: str) -> Response:
+    """Return the staged rows for a batch (re-read by the preview modal)."""
+    from core.ingestion.service import _row_view  # local import: internal helper
+    rows = database.get_staging_batch(batch_id)
+    return jsonify([_row_view(r) for r in rows])
+
+
+@app.route("/api/import/confirm", methods=["POST"])
+def api_import_confirm() -> Response:
+    """Promote a staged batch's 'new' rows to transactions.
+
+    Request body (JSON):
+        batch_id:    str        — token from the preview step.
+        exclude_ids: list[int]  — staging-row ids the user unchecked (optional).
+
+    Returns:
+        ``{"ok": true, "inserted": int, "skipped": int}``. 404 if the batch is
+        gone (expired or already confirmed).
+    """
+    body = request.get_json(silent=True) or {}
+    batch_id = (body.get("batch_id") or "").strip()
+    if not batch_id:
+        return jsonify({"error": "batch_id required"}), 400
+    exclude_ids = body.get("exclude_ids") or []
+    if not isinstance(exclude_ids, list):
+        return jsonify({"error": "exclude_ids must be a list"}), 400
+
+    result = ingestion.confirm_import(batch_id, exclude_ids)
+    if result.get("missing"):
+        return jsonify({"error": "Importação expirada, refaça o upload."}), 404
+    return jsonify({"ok": True, **result})
 
 
 @app.route("/api/expense-categories-full")
