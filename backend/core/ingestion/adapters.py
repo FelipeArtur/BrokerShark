@@ -76,11 +76,14 @@ def parse_money(raw: str) -> float:
         s = s.replace(".", "").replace(",", ".")
     try:
         val = Decimal(s)
+        if neg:
+            val = -val
+        val = val.quantize(Decimal("0.01"))  # may raise InvalidOperation for huge exponents
     except InvalidOperation as exc:
         raise ValueError(f"invalid amount: {raw!r}") from exc
-    if neg:
-        val = -val
-    return float(val.quantize(Decimal("0.01")))
+    if abs(val) > Decimal("1e12"):  # reject absurd magnitudes (crafted/garbage rows)
+        raise ValueError(f"amount out of range: {raw!r}")
+    return float(val)
 
 
 def parse_date_br(raw: str) -> str:

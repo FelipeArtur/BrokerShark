@@ -43,10 +43,11 @@ def test_parse_money(raw, expected):
     assert parse_money(raw) == expected
 
 
-def test_parse_money_invalid():
+@pytest.mark.parametrize("bad", ["abc", "1E999999999", "9" * 20])
+def test_parse_money_invalid(bad):
     from core.ingestion.adapters import parse_money
-    with pytest.raises(ValueError):
-        parse_money("abc")
+    with pytest.raises(ValueError):  # never InvalidOperation / never a 500
+        parse_money(bad)
 
 
 # ── Parsers ───────────────────────────────────────────────────────────────────

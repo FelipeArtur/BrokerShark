@@ -39,6 +39,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Cancel any pending AI registration."""
+    if not _authorized(update):
+        return
     chat_id = update.effective_chat.id
     pending = context.bot_data.get("pending", {})
     if pending.pop(chat_id, None):

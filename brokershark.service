@@ -1,0 +1,36 @@
+[Unit]
+Description=BrokerShark — personal finance assistant
+# Needs outbound network (Telegram, Google Drive) and the local Ollama daemon.
+After=network-online.target ollama.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=joao
+WorkingDirectory=/home/joao/Projetos/brokershark
+Environment="PATH=/home/joao/Projetos/brokershark/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+# Ensure the log directory exists before systemd opens the append targets below.
+ExecStartPre=/usr/bin/mkdir -p /home/joao/Projetos/brokershark/logs
+ExecStart=/home/joao/Projetos/brokershark/.venv/bin/python backend/main.py
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=60
+SyslogIdentifier=brokershark
+StandardOutput=append:/home/joao/Projetos/brokershark/logs/brokershark.log
+StandardError=append:/home/joao/Projetos/brokershark/logs/brokershark.log
+
+# ── Hardening (least privilege) ───────────────────────────────────────────────
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+
+[Install]
+WantedBy=multi-user.target

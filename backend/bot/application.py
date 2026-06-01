@@ -1,11 +1,28 @@
 """Application factory — monta todos os handlers e conecta os lifecycle hooks do scheduler."""
 import warnings
 
-from telegram.ext import Application, CommandHandler, MessageHandler, filters
+from telegram import Update
+from telegram.ext import (
+    Application, ApplicationHandlerStop, CommandHandler, MessageHandler,
+    TypeHandler, filters,
+)
 
 import config
 from bot.handlers.commands import cancel, cmd_ajuda, cmd_fatura, cmd_reservas, cmd_resumo, cmd_saldo, start
 from bot.handlers.ai_chat import ai_chat_handler
+from bot.utils import _authorized
+
+
+async def _auth_gate(update: Update, context: object) -> None:
+    """Group -1 gate: drop every update that is not from the owner chat.
+
+    Centralises authorization so no individual handler can forget it. Runs
+    before all other handlers; raising ``ApplicationHandlerStop`` prevents any
+    downstream handler (commands or the AI catch-all) from processing a
+    non-owner update.
+    """
+    if not _authorized(update):
+        raise ApplicationHandlerStop
 
 
 async def _post_init(app: Application) -> None:
@@ -32,6 +49,10 @@ def build_application() -> Application:
         .post_shutdown(_post_shutdown)
         .build()
     )
+
+    # Owner-only gate runs first (group -1) so no handler can be reached by a
+    # non-owner update, even if a future handler forgets its own check.
+    app.add_handler(TypeHandler(Update, _auth_gate), group=-1)
 
     app.add_handler(CommandHandler("novo",     start))
     app.add_handler(CommandHandler("start",    start))

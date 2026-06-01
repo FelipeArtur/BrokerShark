@@ -37,6 +37,28 @@ app = Flask(__name__, static_folder=str(FRONTEND_DIR), static_url_path="/static"
 app.config["MAX_CONTENT_LENGTH"] = _MAX_UPLOAD_BYTES
 
 
+# Hosts this unauthenticated API will answer to. The API exposes the user's full
+# financial history with no auth (single-user localhost design), so we defend the
+# two browser-reachable vectors: DNS-rebinding (reject foreign Host headers) and
+# cross-site writes (reject foreign Origin on state-changing methods).
+_ALLOWED_HOSTS = {
+    "127.0.0.1", "localhost",
+    f"127.0.0.1:{DASHBOARD_PORT}", f"localhost:{DASHBOARD_PORT}",
+}
+
+
+@app.before_request
+def _guard_host_origin():
+    from urllib.parse import urlparse
+    if request.host not in _ALLOWED_HOSTS:
+        return jsonify({"error": "invalid host"}), 403
+    if request.method not in ("GET", "HEAD", "OPTIONS"):
+        origin = request.headers.get("Origin")
+        if origin and urlparse(origin).netloc not in _ALLOWED_HOSTS:
+            return jsonify({"error": "cross-origin request blocked"}), 403
+    return None
+
+
 @app.errorhandler(413)
 def _too_large(_exc) -> Response:
     """Return JSON (not HTML) when an upload exceeds MAX_CONTENT_LENGTH."""

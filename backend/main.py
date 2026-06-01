@@ -22,6 +22,7 @@ def main() -> None:
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
+    config.validate()  # fail fast on missing TELEGRAM_TOKEN / TELEGRAM_CHAT_ID
     database.init_db()
     start_dashboard()
     app = build_application()

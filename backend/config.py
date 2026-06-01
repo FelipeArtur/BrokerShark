@@ -33,3 +33,22 @@ OLLAMA_TIMEOUT: int = int(os.getenv("OLLAMA_TIMEOUT", "60"))
 # ── Logging ───────────────────────────────────────────────────────────────────
 LOG_DIR: str = "logs"
 LOG_FORMAT: str = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+
+
+def validate() -> None:
+    """Fail fast if required secrets are missing.
+
+    Called at startup (``main.py``), never at import — so tests and tooling can
+    import this module with an empty environment. Without this, an empty ``.env``
+    boots a bot whose owner gate compares against ``TELEGRAM_CHAT_ID == 0`` and a
+    blank token, with no loud failure.
+    """
+    missing = [
+        name for name, val in (("TELEGRAM_TOKEN", TELEGRAM_TOKEN),
+                                ("TELEGRAM_CHAT_ID", TELEGRAM_CHAT_ID))
+        if not val
+    ]
+    if missing:
+        raise SystemExit(
+            f"Config inválida: defina {', '.join(missing)} no .env antes de iniciar."
+        )

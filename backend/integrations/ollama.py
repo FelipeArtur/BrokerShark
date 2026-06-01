@@ -32,6 +32,18 @@ if not _logger.handlers:
     _logger.addHandler(_handler)
 _logger.setLevel(logging.ERROR)
 
+# Guard against an env-tampered OLLAMA_URL turning every chat turn into an SSRF
+# pivot. The app is designed for a local Ollama; warn loudly if it points
+# elsewhere (logged, not blocked — remote Ollama remains possible by choice).
+from urllib.parse import urlparse as _urlparse  # noqa: E402
+_ollama_host = _urlparse(OLLAMA_URL).hostname or ""
+if _ollama_host not in ("localhost", "127.0.0.1", "::1"):
+    _logger.error("OLLAMA_URL aponta para host não-loopback %r — risco de SSRF se não confiável", _ollama_host)
+
+# Cap the accumulated streamed response so a hostile/buggy endpoint can't grow
+# memory without bound.
+_MAX_STREAM_CHARS = 100_000
+
 # ── Cache de disponibilidade ──────────────────────────────────────────────────
 _avail_ts: float = 0.0
 _avail_ok: bool = False
@@ -109,13 +121,16 @@ async def chat_stream(
             async with client.stream("POST", "/api/chat", json=payload) as r:
                 r.raise_for_status()
                 async for line in r.aiter_lines():
-                    if not line:
+                    if not line or len(line) > 1_000_000:  # skip empty / absurd single lines
                         continue
                     data = json.loads(line)
                     delta = data.get("message", {}).get("content", "")
                     accumulated += delta
                     done = data.get("done", False)
                     yield delta, accumulated, done
+                    if len(accumulated) > _MAX_STREAM_CHARS:
+                        _logger.error("chat_stream() excedeu %d chars; truncando", _MAX_STREAM_CHARS)
+                        break
     except Exception as exc:
         _logger.error("chat_stream() failed: %s", exc)
 
