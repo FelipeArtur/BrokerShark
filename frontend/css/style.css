@@ -115,7 +115,7 @@ select.select {
 }
 .fatura-btn:hover { background: var(--fatura-bg-hover); }
 .hero-right-col {
-  display: flex; flex-direction: column; gap: 14px;
+  display: flex; flex-direction: column; justify-content: center; gap: 6px;
   border-left: 1px solid var(--line-1); padding-left: 24px;
 }
 .card-h {
