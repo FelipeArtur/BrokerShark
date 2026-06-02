@@ -43,7 +43,7 @@ function IconSettings({ size = 17 }) {
 }
 
 /* ── Tweaks (localStorage) ──────────────────────────────────────────────── */
-const TWEAK_DEFAULTS = { theme: "dark" };
+const TWEAK_DEFAULTS = { theme: "Dark" };
 function useTweaks() {
   const stored = JSON.parse(localStorage.getItem("bs_tweaks") || "{}");
   const [tw, setTwState] = useState({ ...TWEAK_DEFAULTS, ...stored });
@@ -233,7 +233,7 @@ function TweaksPanel({ tw, setTw, onClose, onOpenCategories }) {
     ),
 
     h(Row, { label: "Tema" },
-      h(Radio, { options: ["dark", "light"], value: tw.theme, onChange: v => setTw("theme", v) })
+      h(Radio, { options: ["Dark", "Light"], value: tw.theme, onChange: v => setTw("theme", v) })
     ),
 
     h("div", { style: { marginTop: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 } },

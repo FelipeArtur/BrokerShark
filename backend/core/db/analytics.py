@@ -355,6 +355,46 @@ def get_monthly_history(months: int = 6, bank: Optional[str] = None) -> list[dic
     ]
 
 
+def get_monthly_history_present(bank: Optional[str] = None) -> list[dict]:
+    """Return income/expense totals for **only the months that have transactions**.
+
+    Unlike get_monthly_history (fixed N-month window from today, zero-filled), this
+    follows the real data: one entry per month present in the DB, ascending. Powers
+    the Histórico month strip so the timeline maps to the periods that actually exist.
+    """
+    j = "JOIN accounts a ON a.id = t.account_id" if bank else ""
+    b = "WHERE a.bank = ?" if bank else ""
+    p = (bank,) if bank else ()
+    with _connect() as conn:
+        sal_row = conn.execute("SELECT id FROM categories WHERE name='Salário' AND flow='income'").fetchone()
+        sal_id = sal_row[0] if sal_row else -1
+        rows = conn.execute(
+            f"""SELECT
+                   strftime('%Y-%m', t.date) AS ym,
+                   COALESCE(SUM(CASE WHEN t.flow='expense' AND t.dest_account_id IS NULL AND t.method != 'transfer' AND COALESCE(t.is_third_party,0)=0 THEN t.amount ELSE 0 END), 0) AS expenses,
+                   COALESCE(SUM(CASE WHEN t.flow='income' AND t.is_revenue=1 AND COALESCE(t.is_third_party,0)=0 THEN t.amount ELSE 0 END), 0) AS income,
+                   COALESCE(SUM(CASE WHEN t.flow='income' AND t.is_revenue=1 AND COALESCE(t.is_third_party,0)=0 AND t.category_id=? THEN t.amount ELSE 0 END), 0) AS salary_income
+               FROM transactions t
+               {j}
+               {b}
+               GROUP BY ym
+               ORDER BY ym""",
+            (sal_id, *p),
+        ).fetchall()
+    result: list[dict] = []
+    for r in rows:
+        y, m = int(r["ym"][:4]), int(r["ym"][5:7])
+        result.append({
+            "label":         f"{_PT_SHORT[m]}/{str(y)[-2:]}",
+            "month":         m,
+            "year":          y,
+            "expenses":      r["expenses"],
+            "income":        r["income"],
+            "salary_income": r["salary_income"],
+        })
+    return result
+
+
 def get_expenses_by_category(year: int, month: int, bank: Optional[str] = None) -> list[dict]:
     """Return expense totals grouped by category for a given month."""
     start = f"{year:04d}-{month:02d}-01"

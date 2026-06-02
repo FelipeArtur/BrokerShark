@@ -28,7 +28,7 @@ BrokerShark is a **personal money-analysis tool** running **100% locally** on Li
 
 **The product is the analysis (web dashboard, `http://localhost:8080`):**
 - **Dinheiro** (home) — the hero number **Disponível pra gastar** (liquidez = saldo das contas correntes − faturas em aberto), plus faturas, "Este mês", contas, atividade e projeções (fechamento do mês / próxima fatura).
-- **Histórico / Análise** — linha do tempo de 36 meses, métricas mensais, fluxo 6m, investimentos, por categoria, Top PIX e a tabela filtrável.
+- **Histórico / Análise** — linha do tempo dos meses com lançamentos (segue o intervalo real do banco), métricas mensais, fluxo 6m, investimentos, por categoria, Top PIX e a tabela filtrável.
 
 **Supporting roles (não são o centro):** Telegram bot (entradas rápidas em linguagem natural + relatórios/alertas agendados), importação mensal de CSV (extratos/faturas), e chat de IA local (Ollama) que sempre busca dados reais antes de responder.
 
@@ -335,7 +335,7 @@ The dashboard navigates **2 screens** (`app.js` `SECTIONS`): **Dinheiro** (`Over
 
 - **Dinheiro** = "como estou agora". Hero number is **Disponível pra gastar** (`fetchAvailable` → `/api/available`, liquidez = contas correntes − faturas em aberto), colored green/red, with the equation `Contas − Faturas` below and a real liquidity-trend sparkline (`/api/liquidity-history`). Right column = **ledger** mono (Patrimônio total / Contas / Investimentos / Faturas em aberto) via `LedgerRow` — sem barras de progresso decorativas. Layout: faturas em aberto logo abaixo do herói; depois **Este mês** + **Contas correntes** lado a lado (grid `var(--col-2)`); por fim atividade recente. Sempre no mês atual (sem seletor de período aqui). First-run (zero data) colapsa num único convite **Importar**. Clicar numa fatura/conta abre o Histórico filtrado por aquela conta.
 - **Fase 14b — money assistant (advisory):** "Este mês" card shows a run-rate month-close projection; fatura cards show a cycle run-rate "projeção fechamento ~R$Y" (attenuated in the first 5 days of the cycle). Projections are client-side estimates, labelled as such.
-- **Histórico** = "o que aconteceu". Hosts the **period selector** (36-month timeline), 4 metric cards, 6-month flow chart, embedded `InvestmentsView` (donut + movimentos), por categoria, Top PIX, and the **filterable table** (filtros: flow · método · categoria · **conta** · busca). `initialAccount`/`onAccountConsumed` props drive the drill-down filter.
+- **Histórico** = "o que aconteceu". Hosts the **period selector** (timeline dos meses com dados — `fetchMonthlyFull` → `/api/monthly?present=1` → `get_monthly_history_present`, só meses com lançamentos), 4 metric cards (número + Δ vs média, sem sparkline), 6-month flow chart, embedded `InvestmentsView` (donut + movimentos), por categoria, Top PIX, and the **filterable table** (filtros: flow · método · categoria · **conta** · busca). Resumos (Por categoria + Top PIX) lado a lado; tabela em largura total. `initialAccount`/`onAccountConsumed` props drive the drill-down filter.
 - **Categorias** (`CategoriesPanel`) is no longer a nav tab — reached via Configurações (`TweaksPanel`). The old `CardsView`/`AccountsView`/`AccountsCardsView` were **removed** (Fase 14 cleanup); their content lives in Histórico (`view-history.js` = `InvestmentsView` + `HistoryView`).
 
 ### Charts (`primitives.js`)
@@ -406,7 +406,7 @@ Produto = **análise do meu dinheiro**. A web (2 telas: **Dinheiro** + **Histór
 
 **Já entregue (resumo):**
 - Número herói **Disponível pra gastar** (liquidez = contas − faturas) + projeções (fechamento do mês / próxima fatura).
-- **Histórico**: 36 meses, 4 métricas, fluxo 6m, investimentos (donut + movimentos), por categoria, Top PIX, tabela filtrável (conta/método/categoria/busca).
+- **Histórico**: timeline dos meses com dados, 4 métricas, fluxo 6m, investimentos (donut + movimentos), por categoria, Top PIX, tabela filtrável (conta/método/categoria/busca).
 - Importação mensal de CSV (`nu-db`, `inter-db`, `inter-cc`) com preview + dedup; staging em `import_staging`.
 - Bot Telegram (entradas em linguagem natural + relatórios/alertas agendados; args das tools do LLM validados).
 - Backup mensal: HDD + Google Drive; SSE ao vivo.

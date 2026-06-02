@@ -193,6 +193,27 @@ def test_patrimonio_excludes_investment_movements(db):
     assert history[0]["value"] == pytest.approx(4000.0, abs=1.0)
 
 
+def test_monthly_history_present_only_months_with_data(db):
+    """The Histórico strip must follow the DB: only months that have transactions,
+    ascending, skipping empty months (no fixed window, no zero-fill)."""
+    from core.db import crud, analytics
+
+    # Two non-adjacent months; March is intentionally left empty.
+    crud.insert_transaction(date="2026-01-10", flow="expense", method="pix",
+                            account_id="nu-db", amount=100.0, description="Jan", is_revenue=0)
+    crud.insert_transaction(date="2026-01-20", flow="income", method="pix",
+                            account_id="nu-db", amount=3000.0, description="Salário jan", is_revenue=1)
+    crud.insert_transaction(date="2026-04-05", flow="expense", method="pix",
+                            account_id="nu-db", amount=250.0, description="Abr", is_revenue=0)
+
+    hist = analytics.get_monthly_history_present()
+    labels = [h["label"] for h in hist]
+    assert labels == ["Jan/26", "Abr/26"]            # only months with data, ascending, gap skipped
+    assert hist[0]["expenses"] == pytest.approx(100.0)
+    assert hist[0]["income"] == pytest.approx(3000.0)
+    assert hist[1]["expenses"] == pytest.approx(250.0)
+
+
 def test_available_to_spend(db):
     """available = Σ checking balances − Σ open fatura totals."""
     from datetime import date
