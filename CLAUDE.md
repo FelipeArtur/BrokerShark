@@ -504,7 +504,7 @@ Bot flows (expense/income/investment), dashboard v1→v3, SSE, investments, hist
 
 **Notas de segurança (revisão VibeSec + 3 subagentes):**
 - Hardening aplicado: gate de auth central no bot (owner-only), `_authorized` fail-closed, `config.validate()` no startup, gate Host/Origin no dashboard (DNS-rebinding + CSRF), OLLAMA_URL loopback + cap de stream, `Cache-Control: no-store` em `/api/`, systemd sandboxing.
-- [ ] **Pendente (entrelaçado com WIP de `ai_chat.py`):** validar argumentos das tools do LLM (`_execute_tool`) contra allow-lists (`account_id`/`method`/`flow`/`operation`, `amount>0`) antes de gravar — defesa contra prompt-injection. Aplicar quando o WIP de `ai_chat.py` for commitado/descartado.
+- [x] **Resolvido (VibeSec, 2026-06-02):** args das tools `register_*` do LLM agora são validados em `ai_chat.py` antes de encenar/gravar — allow-lists derivadas das constantes (`_VALID_ACCOUNTS`/`_VALID_EXPENSE_METHODS`/`_VALID_INCOME_TYPES`/`_VALID_OPERATIONS`/`_VALID_INVESTMENTS`) + `_pos_amount` (>0, finito) + parcelas 1–99 + origem≠destino. Falha fechada (ValueError → nada gravado). Defesa contra prompt-injection. Testes em `tests/test_ai_chat.py`.
 - [ ] **Ao construir B3 (xlsx):** xlsx é XML em zip → risco de XXE/zip-slip. Usar parser que desabilite entidades externas (openpyxl não resolve por padrão; confirmar) e validar caminhos extraídos.
 - [ ] **Se adicionar export (CSV/planilha):** neutralizar CSV formula injection (células começando com `= + - @`) — hoje os dados são só renderizados via React (escapados), sem export, então não explorável.
 

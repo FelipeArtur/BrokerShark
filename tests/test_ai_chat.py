@@ -103,3 +103,35 @@ def test_parse_tool_call_missing_tool_key_returns_none():
     ai_chat = _import_ai_chat()
     text = '{"name": "get_monthly_summary", "args": {"year": 2026}}'
     assert ai_chat._parse_tool_call(text) is None
+
+
+def test_pos_amount_accepts_positive():
+    ai_chat = _import_ai_chat()
+    assert ai_chat._pos_amount("80") == 80.0
+    assert ai_chat._pos_amount(12.345) == 12.35  # rounded to cents
+
+
+def test_pos_amount_rejects_nonpositive_and_garbage():
+    ai_chat = _import_ai_chat()
+    for bad in (0, -5, "-1", float("inf"), float("nan")):
+        with pytest.raises(ValueError):
+            ai_chat._pos_amount(bad)
+    with pytest.raises(ValueError):
+        ai_chat._pos_amount("not-a-number")
+
+
+def test_require_allowlist():
+    ai_chat = _import_ai_chat()
+    # valid account passes through
+    assert ai_chat._require("nu-cc", ai_chat._VALID_ACCOUNTS, "conta") == "nu-cc"
+    # prompt-injection style values are rejected (fail closed)
+    for bad in ("admin", "nu-cc; DROP TABLE", "", None, "../etc"):
+        with pytest.raises(ValueError):
+            ai_chat._require(bad, ai_chat._VALID_ACCOUNTS, "conta")
+
+
+def test_allowlists_match_constants():
+    ai_chat = _import_ai_chat()
+    assert ai_chat._VALID_ACCOUNTS == {"nu-cc", "nu-db", "inter-cc", "inter-db"}
+    assert ai_chat._VALID_EXPENSE_METHODS == {"pix", "credit", "ted"}
+    assert ai_chat._VALID_OPERATIONS == {"deposit", "withdrawal"}
