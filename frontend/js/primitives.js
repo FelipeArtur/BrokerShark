@@ -385,9 +385,9 @@ function Modal({ open, onClose, title, children, width = 480 }) {
   },
     React.createElement("div", {
       ref: dialogRef,
-      onClick: e => e.stopPropagation(), className: "card fade-in",
+      onClick: e => e.stopPropagation(), className: "pane fade-in",
       role: "dialog", "aria-modal": "true", "aria-labelledby": titleId,
-      style: { width, maxWidth: "92vw", maxHeight: "88vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px oklch(0% 0 0 / 0.4)", borderRadius: 12 }
+      style: { width, maxWidth: "92vw", maxHeight: "88vh", display: "flex", flexDirection: "column", boxShadow: "0 8px 32px oklch(0% 0 0 / 0.5)", borderRadius: "var(--r-2)" }
     },
       React.createElement("div", { style: { padding: "14px 18px", borderBottom: "1px solid var(--line-1)", display: "flex", alignItems: "center", justifyContent: "space-between" } },
         React.createElement("div", { id: titleId, style: { fontWeight: 600, fontSize: "var(--fz-5)" } }, title),
@@ -413,7 +413,7 @@ function useToasts() {
     list.map(t => {
       const _k = t.kind === "success" ? "pos" : t.kind === "error" ? "neg" : "info";
       return React.createElement("div", {
-        key: t.id, className: "toast card",
+        key: t.id, className: "toast pane",
         style: {
           background: `var(--${_k}-bg)`,
           border: `1px solid color-mix(in oklch, var(--${_k}) 30%, transparent)`,
@@ -513,52 +513,45 @@ function BrokerSharkLogo({ size = 28 }) {
 }
 
 /* ── TxRow ──────────────────────────────────────────────────────────────── */
-const TxRow = React.memo(({ t, cols, deleting, onEditCategory, onSetDeleting, onDeleteTx }) => {
+const TxRow = React.memo(({ t, cols, onEditCategory }) => {
   const h = React.createElement;
+  const isThirdParty = !!t.is_third_party;
   const rows = [
-    h("tr", { key: t.id },
-      cols.includes("date") && h("td", { className: "mono", style: { color: "var(--fg-2)" } }, fmtDateBR(t.date)),
+    h("tr", { 
+      key: t.id, 
+      onClick: () => onEditCategory && onEditCategory(t),
+      style: { cursor: "pointer", opacity: isThirdParty ? 0.6 : 1, filter: isThirdParty ? "grayscale(100%)" : "none" }
+    },
+      cols.includes("date") && h("td", { className: "mono", style: { color: "var(--fg-3)", fontSize: 10 } }, fmtDateBR(t.date)),
       cols.includes("desc") && h("td", { style: { maxWidth: cols.includes("account") ? 260 : "none" } },
-        h("div", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, t.description)
+        h("div", { style: { display: "flex", alignItems: "center", gap: 6, overflow: "hidden" } },
+          h("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: isThirdParty ? "var(--fg-3)" : "var(--fg-0)", fontWeight: 500, textDecoration: isThirdParty ? "line-through" : "none" } }, t.display_name || t.description),
+          isThirdParty && h("span", { title: "Despesa de terceiros: não contabilizada", style: { fontSize: 9, padding: "2px 6px", borderRadius: 4, border: "1px dashed var(--fg-3)", color: "var(--fg-2)", fontWeight: 600, flexShrink: 0 } }, "TERCEIROS")
+        )
       ),
       cols.includes("cat") && h("td", null,
         t.flow === "expense"
-          ? h("button", { onClick: () => onEditCategory && onEditCategory(t), style: { fontSize: 10, color: "var(--fg-2)", borderBottom: "1px dashed var(--line-2)", paddingBottom: 1 } }, t.category || "—")
-          : h("span", { className: "chip pos" }, t.category || "Receita")
+          ? h("span", { className: "data-tag" }, t.category || "—")
+          : h("span", { className: "data-tag", style: { borderColor: "color-mix(in oklch, var(--pos) 30%, transparent)", color: "var(--pos)" } }, t.category || "Receita")
       ),
       cols.includes("account") && h("td", null, h(BankChip, { accountId: t.account_id, bank: t.bank })),
-      cols.includes("amount") && h("td", { className: "num", style: { color: t.flow === "expense" ? "var(--neg)" : "var(--pos)", fontWeight: 600 } },
-        t.flow === "expense" ? "−" : "+", fmtBRL(t.amount)
-      ),
-      cols.includes("actions") && h("td", { style: { width: 32, textAlign: "center", padding: "0 4px" } },
-        h("button", {
-          className: "btn btn-ghost btn-sm",
-          "aria-label": `Excluir ${t.description}`,
-          onClick: () => onSetDeleting(deleting ? null : t.id),
-          style: { width: 24, height: 24, padding: 0, fontSize: 14, opacity: 0.3, color: "var(--neg)" }
-        }, "×")
+      cols.includes("amount") && h("td", { className: "num" },
+        h("div", { style: { display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 6, width: "100%" } },
+          h("span", { style: { color: "var(--fg-3)", fontSize: 10 } }, t.flow === "expense" ? "−" : "+"),
+          h("span", { style: { color: t.flow === "expense" ? "var(--fg-0)" : "var(--pos)", fontWeight: 600, textDecoration: isThirdParty ? "line-through" : "none" } },
+            fmtBRL(t.amount)
+          )
+        )
       )
     )
   ];
-  if (deleting) {
-    rows.push(h("tr", { key: `${t.id}-del`, style: { background: "color-mix(in oklch, var(--neg) 10%, transparent)" } },
-      h("td", { colSpan: cols.length, style: { padding: "6px 12px" } },
-        h("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
-          h("span", { style: { flex: 1, fontSize: "var(--fz-7)", color: "var(--fg-1)" } },
-            "Excluir ", h("strong", null, t.description), "?"
-          ),
-          h("button", { className: "btn btn-ghost btn-sm", "aria-label": "Fechar", onClick: () => onSetDeleting(null) }, "Cancelar"),
-          h("button", {
-            className: "btn btn-sm",
-            onClick: async () => { await onDeleteTx(t.id); onSetDeleting(null); },
-            style: { background: "var(--neg)", color: "var(--fg-0)", borderColor: "var(--neg)" }
-          }, "Excluir")
-        )
-      )
-    ));
-  }
   return h(React.Fragment, null, ...rows);
-}, (prev, next) => prev.t.id === next.t.id && prev.t.category === next.t.category && prev.deleting === next.deleting);
+}, (prev, next) => 
+  prev.t.id === next.t.id && 
+  prev.t.category === next.t.category &&
+  prev.t.is_third_party === next.t.is_third_party &&
+  prev.t.display_name === next.t.display_name
+);
 
 window.BS = window.BS || {};
 Object.assign(window.BS, {

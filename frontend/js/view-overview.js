@@ -17,7 +17,6 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
   const [accounts, setAccounts]     = _ovSt([]);
   const [activity, setActivity]     = _ovSt([]);
   const [cashflow, setCashflow]     = _ovSt(null);
-  const [deletingTxId, setDeletingTxId] = _ovSt(null);
 
   _ovEf(() => {
     const parts = filterMonth ? filterMonth.split("-").map(Number) : [];
@@ -67,7 +66,7 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
 
   if (isFirstRun) {
     return h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 14 } },
-      h("div", { className: "card", style: { padding: 48, display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 12 } },
+      h("div", { className: "pane", style: { padding: 48, display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 12 } },
         h("div", { className: "eyebrow" }, "Disponível pra gastar"),
         h("div", { style: { fontSize: 20, fontWeight: 700, color: "var(--fg-0)" } }, "Importe seu extrato pra ver seu dinheiro"),
         h("div", { style: { fontSize: 13, color: "var(--fg-2)", maxWidth: 460 } },
@@ -79,60 +78,65 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
 
   return h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 14 } },
 
-    // Hero: Disponível pra gastar (liquidez) — número herói + contexto à direita
-    h("div", { className: "card", style: { padding: 16, display: "grid", gridTemplateColumns: "var(--col-hero)", gap: 24 } },
+    // Hero: Disponível pra gastar (liquidez) — 2 cards pane
+    h("div", { style: { display: "grid", gridTemplateColumns: "var(--col-hero)", gap: 14, marginBottom: 14 } },
       // Left: número herói + equação + sparkline de liquidez
-      h("div", null,
-        h("div", { className: "eyebrow", style: { marginBottom: 4 } }, "Disponível pra gastar"),
-        availErr
-          ? h("div", { style: { display: "flex", flexDirection: "column", gap: 6 } },
-              h("div", { style: { fontSize: 20, fontWeight: 600, color: "var(--neg)" } }, "Não consegui calcular agora"),
-              h("div", { style: { fontSize: 12, color: "var(--fg-2)" } }, "Atualize a página pra tentar de novo.")
-            )
-          : !available
-            ? h("div", { className: "num", style: { fontSize: 38, fontWeight: 700, color: "var(--fg-3)" } }, "—")
-            : h("div", null,
-                h("div", { className: "num", style: { fontSize: 44, fontWeight: 700, lineHeight: 1.05, letterSpacing: "-0.02em", color: availNeg ? "var(--neg)" : "var(--pos)" } },
-                  (availNeg ? "−" : "") + fmtBRL(Math.abs(availValue))),
-                h("div", { style: { fontSize: 12, color: "var(--fg-2)", fontFamily: "var(--ff-mono)", marginTop: 6 } },
-                  "Contas ", h("span", { style: { color: "var(--fg-1)", fontWeight: 600 } }, fmtBRL(available.checking_total)),
-                  "  −  Faturas ", h("span", { style: { color: "var(--fg-1)", fontWeight: 600 } }, fmtBRL(available.faturas_total))
-                ),
-                availNeg && h("div", { style: { fontSize: 11, color: "var(--neg)", marginTop: 4 } },
-                  `Suas faturas superam o caixa em ${fmtBRL(Math.abs(availValue))}.`)
-              ),
-        h("div", { style: { marginTop: 14, height: 56 } },
-          h(Sparkline, { data: liquidity.map(p => p.value), width: "100%", height: 56, color: "var(--info)", strokeWidth: 1.8 })
+      h("div", { className: "pane", style: { display: "flex", flexDirection: "column", justifyContent: "space-between" } },
+        h("div", { className: "pane-h" },
+          h("div", { className: "pane-title" }, "Disponível pra gastar"),
+          h("span", { style: { fontSize: 10, color: "var(--fg-3)", fontFamily: "var(--ff-mono)" } }, "liquidez · 12m")
         ),
-        h("div", { style: { textAlign: "right", fontFamily: "var(--ff-mono)", fontSize: 9, color: "var(--fg-3)", marginTop: 2 } }, "liquidez · 12 meses")
+        h("div", { className: "pane-content", style: { paddingBottom: 12 } },
+          availErr
+            ? h("div", { style: { display: "flex", flexDirection: "column", gap: 6 } },
+                h("div", { style: { fontSize: 16, fontWeight: 600, color: "var(--neg)" } }, "Não consegui calcular agora"),
+                h("div", { style: { fontSize: 12, color: "var(--fg-2)" } }, "Atualize a página pra tentar de novo.")
+              )
+            : !available
+              ? h("div", { className: "num", style: { fontSize: 38, fontWeight: 700, color: "var(--fg-3)" } }, "—")
+              : h("div", null,
+                  h("div", { className: "num", style: { fontSize: 40, fontWeight: 700, lineHeight: 1.05, letterSpacing: "-0.02em", color: availNeg ? "var(--neg)" : "var(--pos)" } },
+                    (availNeg ? "−" : "") + fmtBRL(Math.abs(availValue))),
+                  h("div", { style: { fontSize: 11, color: "var(--fg-2)", fontFamily: "var(--ff-mono)", marginTop: 8 } },
+                    "Contas ", h("span", { style: { color: "var(--fg-1)", fontWeight: 600 } }, fmtBRL(available.checking_total)),
+                    "  −  Faturas ", h("span", { style: { color: "var(--fg-1)", fontWeight: 600 } }, fmtBRL(available.faturas_total))
+                  ),
+                  availNeg && h("div", { style: { fontSize: 11, color: "var(--neg)", marginTop: 4 } },
+                    `Suas faturas superam o caixa em ${fmtBRL(Math.abs(availValue))}.`)
+                )
+        )
       ),
       // Right: contexto — ledger de patrimônio (sem barras decorativas)
-      h("div", { className: "hero-right-col" },
-        h(LedgerRow, { label: "Patrimônio total", value: patrimonioTotal, strong: true }),
-        h(LedgerRow, { label: "Contas", value: checkingTotal, sub: true }),
-        h(LedgerRow, { label: "Investimentos", value: totalReservas, sub: true, color: "var(--reserve)" }),
-        h("div", { style: { borderTop: "1px solid var(--line-1)", marginTop: 4, paddingTop: 4 } },
-          h(LedgerRow, { label: "Faturas em aberto", value: totalFaturas, color: totalFaturas > 0 ? "var(--neg)" : "var(--fg-0)", negative: totalFaturas > 0 })
+      h("div", { className: "pane" },
+        h("div", { className: "pane-h" },
+          h("div", { className: "pane-title" }, "Patrimônio total")
+        ),
+        h("div", { className: "pane-content" },
+          h(LedgerRow, { label: "Patrimônio total", value: patrimonioTotal, strong: true }),
+          h(LedgerRow, { label: "Contas", value: checkingTotal, sub: true }),
+          h(LedgerRow, { label: "Investimentos", value: totalReservas, sub: true, color: "var(--reserve)" }),
+          h("div", { style: { borderTop: "1px solid var(--line-1)", marginTop: 8, paddingTop: 8 } },
+            h(LedgerRow, { label: "Faturas em aberto", value: totalFaturas, color: totalFaturas > 0 ? "var(--neg)" : "var(--fg-0)", negative: totalFaturas > 0 })
+          )
         )
       )
     ),
 
     // Faturas em aberto — o que vence (cards lado a lado)
     h("div", null,
-      // Section label for a free-standing card row — bare card-title (no card-h border).
       h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "0 2px 8px" } },
-        h("div", { className: "card-title" }, "Faturas em aberto"),
+        h("div", { className: "pane-title" }, "Faturas em aberto"),
         h("span", { className: "num", style: { fontSize: "var(--fz-7)", fontWeight: 600 } }, fmtBRL(totalFaturas))
       ),
       faturas.length === 0
-        ? h("div", { className: "card", style: { padding: "20px 12px", textAlign: "center", color: "var(--fg-2)", fontSize: 12 } }, "Nenhuma fatura em aberto.")
+        ? h("div", { className: "pane", style: { padding: "20px 12px", textAlign: "center", color: "var(--fg-2)", fontSize: 12 } }, "Nenhuma fatura em aberto.")
         : h("div", { style: { display: "grid", gridTemplateColumns: faturas.length > 1 ? "1fr 1fr" : "1fr", gap: 14 } },
             faturas.map((f, i) => {
               const tone = f.days_until_due <= 3 ? "neg" : f.days_until_due <= 7 ? "warn" : "ok";
               const color = tone === "neg" ? "var(--neg)" : tone === "warn" ? "var(--warn)" : "var(--pos)";
               const due = f.days_until_due > 0 ? `em ${f.days_until_due}d` : f.days_until_due === 0 ? "hoje" : `há ${Math.abs(f.days_until_due)}d`;
               const trend = (f.last_total > 0) ? ((f.total - f.last_total) / f.last_total) * 100 : null;
-              // Projeção de fechamento do ciclo (run-rate). Atenua nos primeiros dias (baixa confiança).
+              
               const _parseBR = s => { const p = (s || "").split("/").map(Number); return (p.length === 3 && p[0] && p[1] && p[2]) ? new Date(p[2], p[1] - 1, p[0]) : null; };
               let cycleProj = null;
               const _cs = _parseBR(f.cycle_start), _ce = _parseBR(f.cycle_end);
@@ -144,9 +148,10 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
               }
               const _bg0 = `color-mix(in oklch, ${color} 8%, var(--bg-1))`;
               const _bg1 = `color-mix(in oklch, ${color} 14%, var(--bg-2))`;
+              
               return h("button", {
                 key: i, onClick: () => onJumpToAccount && onJumpToAccount(f.accountId),
-                className: "fatura-btn card",
+                className: "fatura-btn pane",
                 style: { "--fatura-bg": _bg0, "--fatura-bg-hover": _bg1, display: "block", textAlign: "left", padding: 14, border: `1px solid color-mix(in oklch, ${color} 28%, var(--line-1))`, cursor: "pointer", minHeight: 44 },
               },
                 h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 } },
@@ -170,13 +175,13 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
     ),
 
     // Este mês + Contas correntes (2 colunas, sem empilhar)
-    h("div", { style: { display: "grid", gridTemplateColumns: "var(--col-2)", gap: 14, alignItems: "start" } },
+    h("div", { style: { display: "grid", gridTemplateColumns: "var(--col-2)", gap: 14 } },
     // Este mês — cash flow statement
-    cashflow && h("div", { className: "card", style: { padding: 16 } },
-      h("div", { style: { marginBottom: 12 } },
-        h("div", { className: "card-title" }, "Este mês")
+    cashflow && h("div", { className: "pane" },
+      h("div", { className: "pane-h" },
+        h("div", { className: "pane-title" }, "Este mês")
       ),
-      h("div", { style: { display: "flex", flexDirection: "column", gap: 7 } },
+      h("div", { className: "pane-content", style: { display: "flex", flexDirection: "column", gap: 7 } },
         h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline" } },
           h("span", { style: { color: "var(--neg)", fontSize: 12 } }, "↓ Despesas"),
           h("span", { className: "num", style: { color: "var(--neg)", fontWeight: 700, fontSize: 15 } }, fmtBRL(cashflow.expense_total))
@@ -217,53 +222,51 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
     ),
 
     // Contas correntes — onde está o caixa
-    h("div", { className: "card" },
-      h("div", { className: "card-h" },
-        h("div", { className: "card-title" }, "Contas correntes"),
+    h("div", { className: "pane" },
+      h("div", { className: "pane-h" },
+        h("div", { className: "pane-title" }, "Contas correntes"),
         h("span", { className: "num", style: { fontSize: "var(--fz-7)", fontWeight: 600 } }, fmtBRL(checkingTotal))
       ),
-      h("div", { style: { padding: 8, display: "flex", flexDirection: "column", gap: 2 } },
+      h("div", { className: "pane-content", style: { display: "flex", flexDirection: "column", gap: 2 } },
         checkingAccounts.length === 0
           ? h("div", { style: { padding: "16px 12px", textAlign: "center", color: "var(--fg-2)", fontSize: 12 } }, "Nenhuma conta corrente.")
           : checkingAccounts.map(a => h("button", {
               key: a.id, onClick: () => onJumpToAccount && onJumpToAccount(a.id),
               className: "fatura-btn",
-              style: { "--fatura-bg": "transparent", "--fatura-bg-hover": "var(--bg-2)", display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", padding: "10px 8px", borderRadius: "var(--r-2)", cursor: "pointer", minHeight: 44, textAlign: "left" },
+              style: { "--fatura-bg": "transparent", "--fatura-bg-hover": "var(--bg-2)", display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", padding: "6px 8px", borderRadius: "var(--r-2)", cursor: "pointer", minHeight: 36, textAlign: "left" },
             },
               h("span", { style: { display: "flex", alignItems: "center", gap: 8 } },
                 h(BankChip, { bank: a.bank }),
                 h("span", { style: { fontSize: 13, color: "var(--fg-1)" } }, a.name)
               ),
-              h("span", { className: "num", style: { fontSize: 14, fontWeight: 600, color: (a.balance || 0) < 0 ? "var(--neg)" : "var(--fg-0)" } }, fmtBRL(a.balance || 0))
+              h("span", { className: "num", style: { fontSize: 16, fontWeight: 600, color: (a.balance || 0) < 0 ? "var(--neg)" : "var(--fg-0)" } }, fmtBRL(a.balance || 0))
             ))
       )
     ),
-
     ),
 
     // Recent activity
-    h("div", { className: "card" },
-      h("div", { className: "card-h" },
-        h("div", { className: "card-title" }, "Atividade recente"),
+    h("div", { className: "pane" },
+      h("div", { className: "pane-h" },
+        h("div", { className: "pane-title" }, "Atividade recente"),
         h("span", { style: { fontSize: 10, color: "var(--fg-3)" } }, `${activity.length} últimos lançamentos`)
       ),
-      h("div", { style: { maxHeight: 320, overflow: "auto" } },
+      h("div", { style: { overflow: "auto", borderBottomLeftRadius: 4, borderBottomRightRadius: 4 } },
         h("table", { className: "grid-table" },
-          h("thead", null, h("tr", null,
-            h("th", { style: { width: 70 } }, "Data"),
-            h("th", null, "Descrição"),
-            h("th", null, "Conta"),
-            h("th", null, "Categoria"),
-            h("th", { style: { textAlign: "right", width: 110 } }, "Valor"),
-            h("th", { style: { width: 32 } })
-          )),
+          h("thead", null,
+            h("tr", null,
+              h("th", { style: { width: 70 } }, "Data"),
+              h("th", null, "Descrição"),
+              h("th", null, "Categoria"),
+              h("th", null, "Conta"),
+              h("th", { style: { textAlign: "right", width: 110 } }, "Valor")
+            )
+          ),
           h("tbody", null,
+            activity.length === 0 && h("tr", null, h("td", { colSpan: 5, style: { textAlign: "center", padding: 20, color: "var(--fg-3)" } }, "Nenhuma atividade.")),
             ...activity.map(t => h(window.BS.TxRow, {
-              key: t.id, t, cols: ["date", "desc", "account", "cat", "amount", "actions"],
-              deleting: deletingTxId === t.id,
-              onEditCategory,
-              onSetDeleting: setDeletingTxId,
-              onDeleteTx
+              key: t.id, t, cols: ["date", "desc", "cat", "account", "amount"],
+              onEditCategory
             }))
           )
         )
@@ -342,20 +345,29 @@ function CategoriesPanel({ refreshKey, onRefresh }) {
     err ? h("p", { style: { color: "var(--neg)", fontSize: "var(--fz-8)", marginBottom: 12 } }, err) : null,
 
     // Category list
-    h("div", { style: { display: "flex", flexDirection: "column", gap: 6 } },
-      cats.map(cat =>
-        h("div", { key: cat.id, style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", background: "var(--bg-1)", borderRadius: "var(--r-3)", border: "1px solid var(--line-1)" } },
-          h("span", { style: { fontSize: "var(--fz-6)", fontWeight: 500 } }, cat.name),
-          h("div", { style: { display: "flex", alignItems: "center", gap: 12 } },
-            h("span", { style: { fontSize: "var(--fz-8)", color: "var(--fg-2)" } }, `${cat.transaction_count} transações`),
-            h("button", {
-              className: "btn btn-ghost btn-sm",
-              onClick: () => { setDeleteModal(cat); setReassignTo(""); setErr(""); },
-              style: { color: "var(--neg)" },
-            }, "×"),
-          ),
+    h("div", { style: { overflow: "auto", borderBottomLeftRadius: 4, borderBottomRightRadius: 4 } },
+      h("table", { className: "grid-table" },
+        h("thead", null,
+          h("tr", null,
+            h("th", null, "Nome da Categoria"),
+            h("th", { style: { width: 120, textAlign: "right" } }, "Lançamentos"),
+            h("th", { style: { width: 80 } })
+          )
+        ),
+        h("tbody", null,
+          cats.map(cat => h("tr", { key: cat.id },
+            h("td", { style: { fontWeight: 500, color: "var(--fg-1)" } }, cat.name),
+            h("td", { className: "num", style: { textAlign: "right", color: "var(--fg-2)" } }, cat.transaction_count),
+            h("td", { style: { textAlign: "right", paddingRight: 8 } },
+              h("button", {
+                className: "btn btn-ghost btn-sm",
+                style: { color: "var(--neg)", padding: "2px 6px", fontSize: 11, minHeight: 24 },
+                onClick: () => { setDeleteModal(cat); setReassignTo(""); setErr(""); }
+              }, "Excluir")
+            )
+          ))
         )
-      ),
+      )
     ),
 
     // Delete confirmation modal

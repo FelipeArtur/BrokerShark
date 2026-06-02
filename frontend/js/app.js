@@ -130,76 +130,83 @@ function CategoryEditor({ tx, onClose, onSave }) {
   const flowIsExpense = tx?.flow === "expense";
 
   return h(Modal, { open: !!tx, onClose, title: "Transação", width: 480 },
-    tx && h("div", { style: { display: "flex", flexDirection: "column", gap: 14 } },
-
-      h("div", { style: { display: "flex", flexDirection: "column", gap: 4 } },
-        h("div", { style: { fontSize: 11, color: "var(--fg-3)", fontFamily: "monospace", wordBreak: "break-all" } }, tx.description),
-        h("div", { style: { display: "flex", gap: 6, flexWrap: "wrap", marginTop: 2 } },
-          methodLabel && h("span", { className: "chip", style: { fontSize: 10 } }, methodLabel),
-          tx.bank && h("span", { className: "chip", style: { fontSize: 10 } }, tx.bank),
-          h("span", { style: { fontSize: 11, color: "var(--fg-2)", marginLeft: "auto" } }, fmtDateBR(tx.date)),
-          h("span", { style: { fontSize: 13, fontWeight: 700, color: flowIsExpense ? "var(--neg)" : "var(--pos)" } },
-            (flowIsExpense ? "−" : "+") + fmtBRL(tx.amount))
+    tx && h("div", { style: { display: "flex", flexDirection: "column" } },
+      h("div", { style: { background: "var(--bg-1)", padding: "12px 16px", borderBottom: "1px solid var(--line-1)" } },
+        h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 } },
+          h("div", { style: { fontSize: 9, color: "var(--fg-3)", fontFamily: "var(--ff-mono)", textTransform: "uppercase", letterSpacing: "0.05em" } }, flowIsExpense ? "Comprovante de Despesa" : "Comprovante de Receita"),
+          h("div", { style: { fontSize: 10, color: "var(--fg-3)", fontFamily: "var(--ff-mono)" } }, fmtDateBR(tx.date))
+        ),
+        h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline" } },
+          h("div", { style: { fontSize: 14, fontWeight: 500, color: "var(--fg-1)", flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", paddingRight: 16 } },
+            displayName || tx.description
+          ),
+          h("span", { className: "num", style: { fontSize: 32, fontWeight: 700, letterSpacing: "-0.04em", color: flowIsExpense ? "var(--fg-0)" : "var(--pos)", lineHeight: 1 } },
+            (flowIsExpense ? "−" : "+") + fmtBRL(tx.amount)
+          )
         )
       ),
 
-      h("div", { style: { display: "flex", flexDirection: "column", gap: 4 } },
-        h("label", { style: { fontSize: 11, color: "var(--fg-2)", fontWeight: 600 } }, "Nome fantasia"),
-        h("input", {
-          className: "input", type: "text",
-          placeholder: tx.description?.slice(0, 50) || "Nome amigável…",
-          value: displayName,
-          onChange: e => setDisplayName(e.target.value),
-          style: { fontSize: 13 }
-        })
-      ),
+      h("div", { style: { display: "flex", flexDirection: "column", gap: 16, padding: "16px 20px" } },
 
-      flowIsExpense && h("div", { style: { display: "flex", flexDirection: "column", gap: 6 } },
-        h("div", { style: { fontSize: 11, color: "var(--fg-2)", fontWeight: 600 } }, "Categoria"),
-        h("div", { style: { display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 5 } },
-          cats.map(c => h("button", {
-            key: c.id, type: "button",
-            onClick: () => setSelected(c.id),
-            "aria-pressed": selected === c.id,
-            style: {
-              padding: "7px 10px", borderRadius: 6, textAlign: "left",
-              fontSize: "var(--fz-7)", fontWeight: selected === c.id ? 600 : 400,
-              background: selected === c.id ? "var(--info-bg)" : "var(--bg-0)",
-              border: selected === c.id ? "1px solid var(--info)" : "1px solid var(--line-1)",
-              color: selected === c.id ? "var(--fg-0)" : "var(--fg-1)",
-            }
-          }, c.name))
-        )
-      ),
+        h("div", { style: { display: "flex", flexDirection: "column", gap: 6 } },
+          h("label", { style: { fontSize: 10, color: "var(--fg-2)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.02em" } }, "Nome fantasia"),
+          h("input", {
+            className: "input", type: "text",
+            placeholder: tx.description?.slice(0, 50) || "Nome amigável…",
+            value: displayName,
+            onChange: e => setDisplayName(e.target.value),
+            style: { fontSize: 13, background: "var(--bg-2)", border: "1px solid var(--line-2)", padding: "8px 10px" }
+          })
+        ),
 
-      h("button", {
-        type: "button",
-        onClick: handleToggleThirdParty,
-        style: {
-          display: "flex", alignItems: "center", gap: 8,
-          padding: "8px 12px", borderRadius: 6, textAlign: "left",
-          background: isThirdParty ? "var(--warn-bg, rgba(255,160,0,0.12))" : "var(--bg-0)",
-          border: isThirdParty ? "1px solid var(--warn, #fa0)" : "1px solid var(--line-1)",
-          color: isThirdParty ? "var(--warn, #fa0)" : "var(--fg-2)",
-          fontSize: 12, fontWeight: isThirdParty ? 600 : 400, cursor: "pointer",
-        }
-      },
-        h("span", { style: { fontSize: 14 } }, isThirdParty ? "🔒" : "🔓"),
-        h("span", {}, isThirdParty ? "Excluído dos meus gastos" : "Não é meu — excluir dos meus gastos")
-      ),
+        flowIsExpense && h("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
+          h("div", { style: { fontSize: 10, color: "var(--fg-2)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.02em" } }, "Categoria"),
+          h("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 4 } },
+            cats.map(c => h("button", {
+              key: c.id, type: "button",
+              onClick: () => setSelected(c.id),
+              "aria-pressed": selected === c.id,
+              style: {
+                padding: "6px 8px", borderRadius: 4, textAlign: "center",
+                fontSize: 11, fontWeight: selected === c.id ? 600 : 500,
+                background: selected === c.id ? "var(--info-bg)" : "var(--bg-1)",
+                border: selected === c.id ? "1px solid var(--info)" : "1px solid var(--line-1)",
+                color: selected === c.id ? "var(--fg-0)" : "var(--fg-1)",
+                whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis"
+              }
+            }, c.name))
+          )
+        ),
 
-      err && h("div", { style: { fontSize: 11, color: "var(--neg)", padding: "2px 0" } }, err),
-
-      h("div", { style: { display: "flex", gap: 8, justifyContent: "space-between", marginTop: 2 } },
         h("button", {
-          className: "btn btn-ghost btn-sm",
-          onClick: handleDelete, disabled: deleting,
-          style: { color: "var(--neg)", borderColor: "var(--neg)", fontSize: 12 }
-        }, deleting ? "Excluindo…" : "🗑 Excluir"),
-        h("div", { style: { display: "flex", gap: 8 } },
-          h("button", { className: "btn btn-ghost btn-sm", onClick: onClose }, "Cancelar"),
-          h("button", { className: "btn btn-primary", onClick: save, disabled: saving, style: { minWidth: 80 } },
-            saving ? "Salvando…" : "Salvar")
+          type: "button",
+          onClick: handleToggleThirdParty,
+          style: {
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            padding: "8px 12px", borderRadius: 4, textAlign: "left",
+            background: isThirdParty ? "var(--warn-bg, rgba(255,160,0,0.12))" : "var(--bg-1)",
+            border: isThirdParty ? "1px solid var(--warn, #fa0)" : "1px solid var(--line-1)",
+            color: isThirdParty ? "var(--warn, #fa0)" : "var(--fg-2)",
+            fontSize: 11, fontWeight: isThirdParty ? 600 : 500, cursor: "pointer",
+          }
+        },
+          h("span", {}, isThirdParty ? "Excluído dos meus gastos (Terceiros)" : "Não é meu — excluir dos meus gastos"),
+          h("span", { style: { fontSize: 12 } }, isThirdParty ? "🔒" : "🔓")
+        ),
+
+        err && h("div", { style: { fontSize: 11, color: "var(--neg)", padding: "2px 0" } }, err),
+
+        h("div", { style: { display: "flex", gap: 8, justifyContent: "space-between", marginTop: 4, paddingTop: 16, borderTop: "1px solid var(--line-1)" } },
+          h("button", {
+            className: "btn btn-ghost btn-sm",
+            onClick: handleDelete, disabled: deleting,
+            style: { color: "var(--neg)", fontSize: 12, padding: "0 8px" }
+          }, deleting ? "Excluindo…" : "Excluir lançamento"),
+          h("div", { style: { display: "flex", gap: 8 } },
+            h("button", { className: "btn btn-ghost btn-sm", onClick: onClose }, "Cancelar"),
+            h("button", { className: "btn btn-primary btn-sm", onClick: save, disabled: saving, style: { minWidth: 80, fontSize: 12 } },
+              saving ? "Salvando…" : "Salvar")
+          )
         )
       )
     )
@@ -306,7 +313,7 @@ function SearchModal({ onClose, onSelect }) {
       ref: panelRef,
       role: "dialog", "aria-modal": "true", "aria-label": "Buscar transações",
       onClick: e => e.stopPropagation(),
-      style: { width: 520, background: "var(--bg-1)", border: "1px solid var(--line-2)", borderRadius: 12, boxShadow: "0 20px 60px oklch(0% 0 0 / 0.6)", overflow: "hidden" }
+      style: { width: 520, background: "var(--bg-1)", border: "1px solid var(--line-2)", borderRadius: "var(--r-2)", boxShadow: "0 8px 32px oklch(0% 0 0 / 0.5)", overflow: "hidden" }
     },
       h("div", {
         "aria-live": "polite", "aria-atomic": "true",
@@ -614,7 +621,7 @@ function App() {
   }
 
   const SECTIONS = [
-    { id: "money",   label: "Dinheiro"  },
+    { id: "money",   label: "Visão do Mês"  },
     { id: "history", label: "Histórico" },
   ];
 
@@ -672,19 +679,21 @@ function App() {
     // ── Body
     h("div", { className: "app-body" },
       h("main", { className: "app-main" },
-        section === "money"      && h(OverviewView, {
-          onJumpToAccount: (accId) => { setHistoryAccount(accId || null); setSection("history"); },
-          onEditCategory: setEditTx, onDeleteTx: handleDeleteTx, refreshKey, filterMonth: currentMonth,
-          onImport: () => setImportOpen(true)
-        }),
-        section === "history"    && h(HistoryView, {
-          onEditCategory: setEditTx, onDeleteTx: handleDeleteTx, refreshKey,
-          initialAccount: historyAccount, onAccountConsumed: () => setHistoryAccount(null)
-        }),
-        section === "categories" && h(CategoriesPanel, { refreshKey, onRefresh: () => setRefreshKey(k => k + 1) }),
+        h("div", { className: "main-content" },
+          section === "money"      && h(OverviewView, {
+            onJumpToAccount: (accId) => { setHistoryAccount(accId || null); setSection("history"); },
+            onEditCategory: setEditTx, onDeleteTx: handleDeleteTx, refreshKey, filterMonth: currentMonth,
+            onImport: () => setImportOpen(true)
+          }),
+          section === "history"    && h(HistoryView, {
+            onEditCategory: setEditTx, onDeleteTx: handleDeleteTx, refreshKey,
+            initialAccount: historyAccount, onAccountConsumed: () => setHistoryAccount(null)
+          }),
+          section === "categories" && h(CategoriesPanel, { refreshKey, onRefresh: () => setRefreshKey(k => k + 1) }),
 
-        h("footer", { style: { marginTop: 20, padding: "12px 0", borderTop: "1px solid var(--line-1)", fontSize: 10, color: "var(--fg-3)" } },
-          h("span", null, "BrokerShark · localhost:8080 · SQLite")
+          h("footer", { style: { marginTop: 20, padding: "12px 0", borderTop: "1px solid var(--line-1)", fontSize: 10, color: "var(--fg-3)" } },
+            h("span", null, "BrokerShark · localhost:8080 · SQLite")
+          )
         )
       )
     ),
