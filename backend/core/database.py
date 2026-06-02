@@ -20,6 +20,7 @@ from core.db.crud import (  # noqa: F401
     update_transaction_category,
     update_transaction_fields,
     upsert_investment,
+    set_investment_balance_by_name,
     insert_investment_movement,
     update_investment_balance,
     get_investment_movement,

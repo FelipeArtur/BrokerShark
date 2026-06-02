@@ -207,6 +207,18 @@ def _apply_column_migrations(conn: sqlite3.Connection) -> None:
     except sqlite3.OperationalError:
         pass
 
+    # Investments are keyed by name (B3 positions upsert by name; the seeded
+    # savings are unique too). The UNIQUE index makes upsert_investment's
+    # INSERT OR IGNORE actually dedup. Wrapped defensively: a pre-existing DB
+    # with duplicate investment names would fail, and that must not block startup.
+    try:
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_investments_name ON investments(name)"
+        )
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+
 
 def _run_pending_migrations(conn: sqlite3.Connection) -> None:
     """Execute one-time data migrations that have not yet been applied."""

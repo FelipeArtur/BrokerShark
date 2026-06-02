@@ -63,7 +63,7 @@ bot/handlers/ — Telegram confirmation (if Telegram)
 backend/
   main.py, config.py
   core/     database.py (shim), events.py, backup.py,
-            db/ (schema, crud, analytics, categories), ingestion/ (adapters, dedup, service)
+            db/ (schema, crud, analytics, categories), ingestion/ (adapters, dedup, service, b3)
   integrations/  ollama.py
   dashboard/     server.py
   bot/      application.py, scheduler.py, utils.py, constants.py, handlers/ (commands, ai_chat)
@@ -72,7 +72,7 @@ frontend/
   js/  api.js, primitives.js, view-overview.js, view-history.js, app.js
 deploy/  brokershark.service
 docs/    (PRODUCT.md, notas)
-tests/   conftest.py, test_database.py, test_ingestion.py, test_ai_chat.py
+tests/   conftest.py, test_database.py, test_ingestion.py, test_ai_chat.py, test_b3.py, test_server_writes.py
 ```
 
 ---
@@ -179,6 +179,7 @@ Tools (13): `get_monthly_summary`, `get_monthly_comparison`, `get_expenses_by_ca
 - **Internal transfers ≠ income:** `flow='expense', method='transfer', dest_account_id=<dest>`
 - **`ollama.py` is pure HTTP client:** no business logic, no system prompts
 - **CSV ingestion:** `core/ingestion/` — `adapters.py` (parse), `dedup.py` (classify), `service.py` (orchestrate). Fontes: `nu-db`, `inter-db`, `inter-cc`
+- **B3 ingestion:** `core/ingestion/b3.py` — parseia posições do Relatório B3 (.xlsx) → `investments` (snapshot, upsert idempotente por nome). Renda Fixa usa valor CURVA, Tesouro usa Valor líquido. Lido em memória (sem zip-slip), openpyxl não resolve XXE, cap de tamanho.
 
 ---
 

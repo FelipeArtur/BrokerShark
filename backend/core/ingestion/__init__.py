@@ -7,6 +7,7 @@ testable; all database access goes through :mod:`core.db.crud` and
     adapters.py  — parse raw file bytes → list[Record]  (pure)
     dedup.py     — classify records as new/duplicate     (pure)
     service.py   — orchestration: preview → staging, confirm → transactions
+    b3.py        — parse B3 .xlsx investment positions → investments (snapshot upsert)
 """
 from core.ingestion.service import confirm_import, preview_import  # noqa: F401
 

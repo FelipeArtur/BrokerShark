@@ -374,13 +374,12 @@ All chart components receive **real API data only** — no placeholder data.
 
 | Conta | Situação |
 |-------|----------|
-| `nu-db` | Extrato histórico completo importado (2020–2026, 67 arquivos) |
-| `nu-cc` | Faturas individuais importadas (2024–2026, 28 arquivos) |
-| `inter-db` | Extrato histórico importado (2025-01 a 2026-05) |
-| `inter-cc` | Faturas individuais importadas (2025-01 a 2026-07) |
-| Caixinha Nubank | 44 depósitos / 41 saques — saldo via movimentos de investimento |
-| Porquinho Inter | 22 depósitos / 28 saques — saldo via movimentos de investimento |
-| Tesouro Direto | Sem movimentos cadastrados ainda |
+| `nu-db` | Extrato histórico completo importado (out/2020 → abr/2026, 67 arquivos, 583 lançamentos) |
+| `nu-cc` | Sem dados — fatura Nubank não exportada (pasta de exemplo ausente; adapter `nu-cc` ainda não existe) |
+| `inter-db` | Extrato importado (out/2025 → mai/2026, 155 lançamentos) |
+| `inter-cc` | Fatura importada (jan → mai/2026, 89 lançamentos) |
+| Investimentos (B3) | Posições da Relatório B3 abr/2026: 2 CDBs Inter + Tesouro IPCA+ 2029 (`investments.current_balance`, sem `investment_movements`) |
+| Caixinha Nubank / Porquinho Inter | Não cadastrados como `investments` — aplicações/resgates aparecem no extrato como transferências |
 | Orçamentos (`budgets`) | Seeded com limites padrão por categoria via `_seed_budgets()` — editáveis no dashboard |
 
 **Todos os dados importados via pipeline one-time (2026-05-13):**
@@ -397,11 +396,11 @@ Produto = **análise do meu dinheiro**. A web (2 telas: **Dinheiro** + **Histór
 - Número herói **Disponível pra gastar** (liquidez = contas − faturas) + projeções (fechamento do mês / próxima fatura).
 - **Histórico**: timeline dos meses com dados, 4 métricas, fluxo 6m, investimentos (donut + movimentos), por categoria, Top PIX, tabela filtrável (conta/método/categoria/busca).
 - Importação mensal de CSV (`nu-db`, `inter-db`, `inter-cc`) com preview + dedup; staging em `import_staging`.
+- Importação de posições B3 (xlsx) → `investments` (`core/ingestion/b3.py`): parseia "Posição - Renda Fixa" (CDB, valor CURVA) e "Posição - Tesouro Direto" (Valor líquido), uma posição por investimento, upsert idempotente por nome. Lido em memória (sem extrair → sem zip-slip); openpyxl 3.x não resolve entidades externas (XXE); cap de tamanho; não-xlsx → `B3ParseError`.
 - Bot Telegram (entradas em linguagem natural + relatórios/alertas agendados; args das tools do LLM validados).
 - Backup mensal: HDD local; SSE ao vivo.
 
 **Backlog (diferido):**
-- [ ] Importar Relatório B3 (xlsx) → posições CDB/Tesouro em `investments.current_balance` (precisa `openpyxl`; tratar XXE/zip-slip).
 - [ ] Adapter fatura Nubank (`nu-cc`) — formato desconhecido (diretório de exemplo vazio).
 - [ ] Desfazer última importação (reverter batch por `batch_id`).
 - [ ] Filtro "sem categoria" no Histórico (categorizar importados em lote).
@@ -419,7 +418,7 @@ Produto = **análise do meu dinheiro**. A web (2 telas: **Dinheiro** + **Histór
 **Notas de segurança (revisão VibeSec + 3 subagentes):**
 - Hardening aplicado: gate de auth central no bot (owner-only), `_authorized` fail-closed, `config.validate()` no startup, gate Host/Origin no dashboard (DNS-rebinding + CSRF), OLLAMA_URL loopback + cap de stream, `Cache-Control: no-store` em `/api/`, systemd sandboxing.
 - [x] **Resolvido (VibeSec, 2026-06-02):** args das tools `register_*` do LLM agora são validados em `ai_chat.py` antes de encenar/gravar — allow-lists derivadas das constantes (`_VALID_ACCOUNTS`/`_VALID_EXPENSE_METHODS`/`_VALID_INCOME_TYPES`/`_VALID_OPERATIONS`/`_VALID_INVESTMENTS`) + `_pos_amount` (>0, finito) + parcelas 1–99 + origem≠destino. Falha fechada (ValueError → nada gravado). Defesa contra prompt-injection. Testes em `tests/test_ai_chat.py`.
-- [ ] **Ao construir B3 (xlsx):** xlsx é XML em zip → risco de XXE/zip-slip. Usar parser que desabilite entidades externas (openpyxl não resolve por padrão; confirmar) e validar caminhos extraídos.
+- [x] **Resolvido — B3 (xlsx):** `core/ingestion/b3.py` lê o arquivo em memória (`io.BytesIO`, sem extrair → zip-slip não aplicável); openpyxl 3.x não resolve entidades externas nem busca rede (XXE não exposto); cap de tamanho (16 MB) antes do parse; não-xlsx/corrupto → `B3ParseError` (sem 500). Testes em `tests/test_b3.py`.
 - [ ] **Se adicionar export (CSV/planilha):** neutralizar CSV formula injection (células começando com `= + - @`) — hoje os dados são só renderizados via React (escapados), sem export, então não explorável.
 
 ## Skill routing

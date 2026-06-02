@@ -225,6 +225,38 @@ def upsert_investment(name: str, type_: str, bank: str) -> int:
         return row["id"]
 
 
+def set_investment_balance_by_name(
+    name: str, type_: str, bank: str, balance: float
+) -> tuple[int, bool]:
+    """Idempotent upsert of a position snapshot keyed by ``name``.
+
+    Creates the investment with ``balance`` if it does not exist; otherwise updates
+    its ``current_balance`` (and refreshes type/bank). Used by the B3 import, where
+    each report is a point-in-time snapshot and re-running must not duplicate rows.
+
+    Returns:
+        ``(investment_id, created)`` — ``created`` is ``True`` on insert.
+    """
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT id FROM investments WHERE name = ?", (name,)
+        ).fetchone()
+        if row:
+            conn.execute(
+                "UPDATE investments SET current_balance=?, type=?, bank=? WHERE id=?",
+                (balance, type_, bank, row["id"]),
+            )
+            inv_id, created = row["id"], False
+        else:
+            cur = conn.execute(
+                "INSERT INTO investments (name, type, bank, current_balance) VALUES (?,?,?,?)",
+                (name, type_, bank, balance),
+            )
+            inv_id, created = cur.lastrowid, True
+    events.notify()
+    return inv_id, created
+
+
 def insert_investment_movement(
     date: str,
     investment_id: int,
