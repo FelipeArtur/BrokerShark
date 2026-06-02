@@ -64,7 +64,8 @@ def init_db() -> None:
                 flow            TEXT NOT NULL
                     CHECK (flow IN ('expense', 'income')),
                 method          TEXT NOT NULL
-                    CHECK (method IN ('pix', 'credit', 'ted', 'transfer', 'debit')),
+                    CHECK (method IN ('pix', 'credit', 'ted', 'transfer', 'debit',
+                                      'salary', 'freelance', 'pix_received', 'other')),
                 account_id      TEXT NOT NULL,
                 amount          REAL NOT NULL,
                 installments    INTEGER DEFAULT 1,

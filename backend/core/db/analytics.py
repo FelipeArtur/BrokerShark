@@ -38,14 +38,14 @@ def get_all_accounts_with_balance() -> list[sqlite3.Row]:
             """SELECT
                    a.*,
                    a.initial_balance
-                       + COALESCE(SUM(CASE WHEN t.flow='income'  THEN t.amount ELSE 0 END), 0)
-                       - COALESCE(SUM(CASE WHEN t.flow='expense' THEN t.amount ELSE 0 END), 0)
+                       + COALESCE(SUM(CASE WHEN t.flow='income'  AND COALESCE(t.is_third_party,0)=0 THEN t.amount ELSE 0 END), 0)
+                       - COALESCE(SUM(CASE WHEN t.flow='expense' AND COALESCE(t.is_third_party,0)=0 THEN t.amount ELSE 0 END), 0)
                        + COALESCE(inb.total, 0)
                        - CASE WHEN a.type='checking' THEN COALESCE(inv_net.net, 0) ELSE 0 END
                    AS balance,
                    a.initial_balance
-                       + COALESCE(SUM(CASE WHEN t.flow='income'  THEN t.amount ELSE 0 END), 0)
-                       - COALESCE(SUM(CASE WHEN t.flow='expense' THEN t.amount ELSE 0 END), 0)
+                       + COALESCE(SUM(CASE WHEN t.flow='income'  AND COALESCE(t.is_third_party,0)=0 THEN t.amount ELSE 0 END), 0)
+                       - COALESCE(SUM(CASE WHEN t.flow='expense' AND COALESCE(t.is_third_party,0)=0 THEN t.amount ELSE 0 END), 0)
                        + COALESCE(inb.total, 0)
                    AS gross_balance,
                    CASE WHEN a.type='checking' THEN COALESCE(inv_cur.current, 0) ELSE 0 END
@@ -233,7 +233,13 @@ def get_expenses_by_method(year: int, month: int, bank: Optional[str] = None) ->
 
 
 def get_credit_card_statement(account_id: str, start_date: str, end_date: str) -> float:
-    """Sum all expenses on a credit card account within a date range."""
+    """Sum all expenses on a credit card account within a date range.
+
+    Deliberately *not* filtered by ``is_third_party``: a third-party purchase made
+    on the card is still owed to the bank, so it belongs in the fatura total (and
+    therefore reduces "disponível pra gastar"). This is the one place that diverges
+    from the personal-spend summaries, on purpose.
+    """
     with _connect() as conn:
         row = conn.execute(
             """SELECT COALESCE(SUM(amount),0) FROM transactions
@@ -614,7 +620,15 @@ def get_month_transactions(month: int, year: int) -> list[dict]:
 
 
 def get_patrimonio_history(months: int = 12) -> list[dict]:
-    """Return approximate monthly net worth for the last N months, oldest first."""
+    """Return approximate monthly net worth for the last N months, oldest first.
+
+    Note: this computes a *different* point-in-time checking series than
+    ``_checking_balance_at`` (used by the liquidity sparkline). Here CC fatura
+    payments are counted as cash outflow (``dest IN ('nu-cc','inter-cc')``) and
+    third-party rows are excluded, because this is the net-worth view. The
+    liquidity series instead mirrors the live ``get_all_accounts_with_balance``
+    formula. The two are intentionally distinct; do not unify them.
+    """
     today_dt = date.today()
     result = []
     with _connect() as conn:

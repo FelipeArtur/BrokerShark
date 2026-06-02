@@ -74,6 +74,13 @@ def parse_money(raw: str) -> float:
     s = s.lstrip("+-")
     if "," in s:  # Brazilian convention: dot = thousands, comma = decimal
         s = s.replace(".", "").replace(",", ".")
+    elif s.count(".") > 1:  # dot-only with groups: "1.234.567" → thousands
+        s = s.replace(".", "")
+    elif "." in s and len(s.rsplit(".", 1)[1]) == 3:
+        # Single dot, exactly 3 trailing digits: a thousands separator, not a
+        # decimal point ("1.000" → 1000). Bank exports always use 2 decimals,
+        # so a 3-digit "fraction" can only be a thousands group.
+        s = s.replace(".", "")
     try:
         val = Decimal(s)
         if neg:

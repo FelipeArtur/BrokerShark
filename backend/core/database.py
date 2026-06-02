@@ -13,6 +13,7 @@ from core.db.schema import init_db  # noqa: F401
 
 from core.db.crud import (  # noqa: F401
     insert_transaction,
+    insert_expense,
     get_transaction,
     delete_transaction,
     get_transactions_by_period,

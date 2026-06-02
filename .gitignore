@@ -43,3 +43,4 @@ Thumbs.db
 PRODUCT.md
 .gstack/
 .antigravitycli
+node_modules/

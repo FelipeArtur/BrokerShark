@@ -37,6 +37,9 @@ INTER_FATURA = (
 @pytest.mark.parametrize("raw,expected", [
     ("-6.19", -6.19), ("4200.00", 4200.0), ("182,20", 182.2),
     ("R$ 1.830,62", 1830.62), ("R$ 9,50", 9.5), ("-15,00", -15.0),
+    # dot-only thousands separator (no comma): must not collapse to a fraction
+    ("1.000", 1000.0), ("100.000", 100000.0), ("1.234.567", 1234567.0),
+    ("-2.500", -2500.0), ("1830.62", 1830.62),  # 2-digit fraction stays decimal
 ])
 def test_parse_money(raw, expected):
     from core.ingestion.adapters import parse_money

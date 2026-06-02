@@ -1,6 +1,7 @@
 """Insert, update, and delete operations for all tables."""
 from __future__ import annotations
 
+import calendar
 import sqlite3
 from datetime import datetime, timedelta
 from typing import Any, Optional
@@ -44,14 +45,25 @@ def insert_transaction(
     Returns:
         The auto-incremented ``id`` of the newly inserted row, or ``-1`` when an
         ``external_id`` collision caused the insert to be ignored.
+
+    Raises:
+        sqlite3.IntegrityError: When a manual insert (no ``external_id``) violates a
+            constraint (bad ``method``/``flow`` CHECK, missing FK, NULL column). Only
+            the dedup path (``external_id`` present) swallows collisions via
+            ``INSERT OR IGNORE`` — manual writes must fail loudly instead of
+            silently vanishing.
     """
     try:
         datetime.strptime(date, "%Y-%m-%d")
     except (ValueError, TypeError):
         raise ValueError(f"Invalid date format: '{date}'. Expected YYYY-MM-DD.")
+    # OR IGNORE only for the dedup path: an external_id collision is the one
+    # constraint we want to swallow. Without an external_id, a constraint failure
+    # is a real bug (bad method, broken FK) and must raise, not return -1.
+    verb = "INSERT OR IGNORE" if external_id is not None else "INSERT"
     with _connect() as conn:
         cur = conn.execute(
-            """INSERT OR IGNORE INTO transactions
+            f"""{verb} INTO transactions
                (date, flow, method, account_id, amount, installments,
                 description, category_id, dest_account_id, counterpart, is_revenue,
                 external_id)
@@ -63,6 +75,66 @@ def insert_transaction(
         last_id = cur.lastrowid if cur.rowcount else -1
     events.notify()
     return last_id
+
+
+def _add_months(iso_date: str, months: int) -> str:
+    """Return ``iso_date`` shifted forward by ``months``, clamping the day.
+
+    A purchase made on the 31st whose next installment lands in a 30-day month
+    is clamped to the 30th (never rolls into the following month).
+    """
+    d = datetime.strptime(iso_date, "%Y-%m-%d").date()
+    total = (d.month - 1) + months
+    year = d.year + total // 12
+    month = total % 12 + 1
+    day = min(d.day, calendar.monthrange(year, month)[1])
+    return f"{year:04d}-{month:02d}-{day:02d}"
+
+
+def insert_expense(
+    date: str,
+    method: str,
+    account_id: str,
+    amount: float,
+    description: str,
+    installments: int = 1,
+    category_id: Optional[int] = None,
+    dest_account_id: Optional[str] = None,
+) -> int:
+    """Insert an expense, expanding a multi-installment purchase into one row per month.
+
+    A single ``credit`` purchase split into N installments is stored as N separate
+    transactions — one per monthly billing cycle, each carrying ``amount / N`` — so
+    each fatura and each monthly summary reflect only the installment due that month
+    (matching how imported card statements already arrive). The cents remainder is
+    placed on the final installment so the parts sum back to ``amount`` exactly.
+
+    Single-installment purchases (``installments <= 1``) insert one row, unchanged.
+
+    Returns:
+        The ``id`` of the first inserted row.
+    """
+    if installments <= 1:
+        return insert_transaction(
+            date=date, flow="expense", method=method, account_id=account_id,
+            amount=amount, description=description, installments=installments,
+            category_id=category_id, dest_account_id=dest_account_id,
+        )
+    per = round(amount / installments, 2)
+    parts = [per] * (installments - 1)
+    parts.append(round(amount - per * (installments - 1), 2))  # remainder on the last
+    first_id = -1
+    for k, part in enumerate(parts):
+        label = f"{description} ({k + 1}/{installments})"
+        tx_id = insert_transaction(
+            date=_add_months(date, k), flow="expense", method=method,
+            account_id=account_id, amount=part, description=label,
+            installments=installments, category_id=category_id,
+            dest_account_id=dest_account_id,
+        )
+        if k == 0:
+            first_id = tx_id
+    return first_id
 
 
 def get_transaction(transaction_id: int) -> Optional[sqlite3.Row]:

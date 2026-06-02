@@ -331,6 +331,10 @@ def api_faturas() -> Response:
 
 
 _VALID_ACCOUNTS = {"nu-cc", "nu-db", "inter-cc", "inter-db"}
+# Payment methods accepted by the expense quick-entry form.
+_VALID_EXPENSE_METHODS = {"credit", "pix", "ted", "debit"}
+# Income subtypes accepted by the income quick-entry form (mapped to a stored method).
+_VALID_INCOME_TYPES = {"salary", "freelance", "pix", "other"}
 
 
 @app.route("/api/account/<account_id>")
@@ -636,16 +640,19 @@ def api_post_transaction() -> Response:
 
     if account_id not in _VALID_ACCOUNTS:
         return jsonify({"error": "invalid account_id"}), 400
+    if method not in _VALID_EXPENSE_METHODS:
+        return jsonify({"error": "invalid method"}), 400
     if not isinstance(amount, (int, float)) or amount <= 0:
         return jsonify({"error": "amount must be a positive number"}), 400
     if not description:
         return jsonify({"error": "description required"}), 400
     if not date_str:
         return jsonify({"error": "date required"}), 400
+    if installments < 1 or installments > 99:
+        return jsonify({"error": "installments must be between 1 and 99"}), 400
 
-    tx_id = database.insert_transaction(
+    tx_id = database.insert_expense(
         date=date_str,
-        flow="expense",
         method=method,
         account_id=account_id,
         amount=float(amount),
@@ -707,9 +714,14 @@ def api_post_income() -> Response:
         return jsonify({"ok": True, "id": tx_id})
 
     account_id  = data.get("account_id", "")
+    if tx_type not in _VALID_INCOME_TYPES:
+        return jsonify({"error": "invalid type"}), 400
     description = data.get("description", "").strip() or tx_type
     method      = METHOD_MAP.get(tx_type, "other")
-    is_revenue  = 1 if data.get("is_revenue") else 0
+    # A real income is revenue by default — it must count in income summaries
+    # (which filter is_revenue=1). Self-transfers go through the transfer branch
+    # above, not here. Only an explicit is_revenue=0 opts a row out.
+    is_revenue  = 0 if data.get("is_revenue") in (0, False) else 1
 
     if account_id not in _VALID_ACCOUNTS:
         return jsonify({"error": "invalid account_id"}), 400

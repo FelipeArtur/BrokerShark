@@ -260,3 +260,102 @@ def test_liquidity_history_is_investment_adjusted(db):
     # Consistency: latest liquidity point lines up with the hero checking_total
     avail = analytics.get_available_to_spend()
     assert avail["checking_total"] == pytest.approx(series[-1]["value"], abs=1.0)
+
+
+def test_income_method_check_allows_subtypes(db):
+    """Regression (#1): income methods (salary/freelance/pix_received/other) must
+    satisfy the transactions.method CHECK on a fresh DB. Before the fix, INSERT OR
+    IGNORE silently dropped these rows."""
+    from core.db import crud, analytics
+
+    tx_id = crud.insert_transaction(
+        date="2026-05-01", flow="income", method="salary",
+        account_id="nu-db", amount=5000.0, description="Salário", is_revenue=1,
+    )
+    assert tx_id > 0  # actually inserted, not silently ignored (-1)
+    summary = analytics.get_monthly_summary(2026, 5)
+    assert summary["income"] == 5000.0
+
+
+def test_manual_insert_raises_on_bad_method(db):
+    """Regression (#4): a manual insert (no external_id) with a constraint-violating
+    method must raise, not silently return -1."""
+    import sqlite3
+    import pytest
+    from core.db import crud
+
+    with pytest.raises(sqlite3.IntegrityError):
+        crud.insert_transaction(
+            date="2026-05-01", flow="expense", method="bogus",
+            account_id="nu-db", amount=10.0, description="x",
+        )
+
+
+def test_external_id_collision_still_silently_ignored(db):
+    """The dedup path (external_id present) keeps swallowing collisions via
+    INSERT OR IGNORE — re-inserting the same id returns -1, not an error."""
+    from core.db import crud
+
+    first = crud.insert_transaction(
+        date="2026-05-01", flow="expense", method="pix",
+        account_id="nu-db", amount=10.0, description="x", external_id="uuid-1",
+    )
+    second = crud.insert_transaction(
+        date="2026-05-01", flow="expense", method="pix",
+        account_id="nu-db", amount=10.0, description="x", external_id="uuid-1",
+    )
+    assert first > 0
+    assert second == -1
+
+
+def test_insert_expense_expands_installments(db):
+    """Regression (#5): a 3x credit purchase becomes 3 monthly rows that sum to the
+    total — one per fatura cycle — instead of the full amount on a single cycle."""
+    from core.db import crud, analytics
+
+    crud.insert_expense(
+        date="2026-01-15", method="credit", account_id="nu-cc",
+        amount=300.0, description="Notebook", installments=3,
+    )
+    rows = analytics.get_recent_transactions("nu-cc", limit=10)
+    assert len(rows) == 3
+    assert sum(r["amount"] for r in rows) == pytest.approx(300.0, abs=0.001)
+    dates = sorted(r["date"] for r in rows)
+    assert dates == ["2026-01-15", "2026-02-15", "2026-03-15"]
+    # Each month's fatura sees only its installment, not the full 300.
+    jan = analytics.get_credit_card_statement("nu-cc", "2026-01-01", "2026-01-31")
+    assert jan == pytest.approx(100.0, abs=0.001)
+
+
+def test_insert_expense_installment_cents_remainder(db):
+    """The cents remainder lands on the final installment so parts sum exactly."""
+    from core.db import crud, analytics
+
+    crud.insert_expense(
+        date="2026-01-31", method="credit", account_id="nu-cc",
+        amount=100.0, description="Curso", installments=3,
+    )
+    rows = analytics.get_recent_transactions("nu-cc", limit=10)
+    amounts = sorted(r["amount"] for r in rows)
+    assert amounts == [33.33, 33.33, 33.34]
+    # Day clamps when the target month is shorter (Jan 31 → Feb 28).
+    dates = sorted(r["date"] for r in rows)
+    assert dates == ["2026-01-31", "2026-02-28", "2026-03-31"]
+
+
+def test_third_party_excluded_from_account_balance(db):
+    """Regression (#2): is_third_party rows must be excluded from the account balance
+    used by the hero 'Disponível' number, matching get_account_balance."""
+    from core.db import crud, analytics
+
+    crud.insert_transaction(date="2026-05-01", flow="income", method="salary",
+                            account_id="nu-db", amount=1000.0, description="Salário", is_revenue=1)
+    tx_id = crud.insert_transaction(date="2026-05-02", flow="income", method="pix",
+                                    account_id="nu-db", amount=500.0, description="Evento", is_revenue=1)
+    crud.update_transaction_fields(tx_id, is_third_party=1)
+
+    accounts = {a["id"]: a for a in analytics.get_all_accounts_with_balance()}
+    nu_db = accounts["nu-db"]
+    # Third-party 500 excluded → balance is 1000, consistent with both functions.
+    assert nu_db["balance"] == pytest.approx(1000.0, abs=0.001)
+    assert analytics.get_account_balance("nu-db") == pytest.approx(nu_db["balance"], abs=0.001)

@@ -250,8 +250,8 @@ def _check_budget_alerts() -> str | None:
 def _do_confirm_expense(data: dict) -> str:
     cats = database.get_categories("expense")
     cat_id = next((c["id"] for c in cats if c["name"] == data["category"]), None)
-    tx_id = database.insert_transaction(
-        date=data["date"], flow="expense", method=data["method"],
+    tx_id = database.insert_expense(
+        date=data["date"], method=data["method"],
         account_id=data["account_id"], amount=data["amount"],
         description=data["description"], installments=data.get("installments", 1),
         category_id=cat_id,

@@ -105,8 +105,12 @@ investment_movements (id, date, investment_id, operation, amount, description)
 budgets (id, category_id, amount_limit)
 ```
 
+`method` CHECK: `pix | credit | ted | transfer | debit | salary | freelance | pix_received | other` (os 4 últimos são subtipos de receita — sem eles, `INSERT OR IGNORE` descartava receitas silenciosamente num DB novo).
+
 Internal transfers: `flow='expense', method='transfer', dest_account_id=<dest>`.
 Excluded from summaries via `AND dest_account_id IS NULL`.
+
+Compra parcelada no crédito é expandida em N lançamentos mensais via `crud.insert_expense` (1/N por fatura). Insert manual sem `external_id` levanta erro em vez de retornar `-1`; `is_third_party` é excluído de saldos e resumos.
 
 **`is_revenue`:** Integer flag — `1` for real income, `0` for self-transfers (`counterpart='SELF'`). Critical: must be set explicitly on every `insert_transaction()` for income rows.
 

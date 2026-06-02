@@ -418,7 +418,14 @@ Produto = **análise do meu dinheiro**. A web (2 telas: **Dinheiro** + **Histór
 - [ ] Filtro "sem categoria" no Histórico (categorizar importados em lote).
 - [ ] Registrar movimentos do Tesouro Direto.
 
-**Bug conhecido (a confirmar):** `transactions.method` tem CHECK `IN ('pix','credit','ted','transfer','debit')`, mas `/api/incomes` insere `method='salary'|'freelance'|'pix_received'|'other'`. Num DB novo isso violaria o CHECK. O DB de produção provavelmente foi criado antes do CHECK. Verificar/normalizar.
+**Revisão da lógica financeira (2026-06-02) — corrigido:**
+- **CHECK de `method`** agora inclui os subtipos de receita: `IN ('pix','credit','ted','transfer','debit','salary','freelance','pix_received','other')`. Antes, num DB novo, `/api/incomes` e o registro de receita do bot violavam o CHECK e o `INSERT OR IGNORE` **descartava a receita silenciosamente** (retornando `id=-1` com `ok:True`).
+- **`insert_transaction`** só usa `INSERT OR IGNORE` quando há `external_id` (caminho de dedup). Insert manual sem `external_id` agora **levanta** `IntegrityError` em vez de sumir com `-1`.
+- **Parcelamento:** compra parcelada no crédito é expandida em N lançamentos mensais (`crud.insert_expense` → 1/N por ciclo, resto nos centavos da última parcela, dia clampado). Antes o valor cheio caía numa única fatura. Bot e web usam `insert_expense`. Faturas importadas já vinham por parcela.
+- **`is_third_party`** agora é excluído também de `get_all_accounts_with_balance` (saldo do herói "Disponível"), consistente com `get_account_balance` e com os resumos.
+- **`/api/incomes`** marca receita como `is_revenue=1` por padrão (só `is_revenue=0` explícito opta por fora); valida `type` e `method`/`installments` nas rotas de escrita.
+- **`parse_money`** trata ponto-milhar sem decimais (`"1.000"` → 1000).
+- Decisões deliberadas documentadas no código: `get_credit_card_statement` inclui terceiros de propósito (dívida com o banco); `get_patrimonio_history` e `_checking_balance_at` são séries distintas e não devem ser unificadas. Dinheiro continua como `REAL` (migração para centavos inteiros avaliada e descartada — risco desproporcional). Testes em `tests/test_database.py`, `tests/test_ingestion.py`, `tests/test_server_writes.py`.
 
 **Notas de segurança (revisão VibeSec + 3 subagentes):**
 - Hardening aplicado: gate de auth central no bot (owner-only), `_authorized` fail-closed, `config.validate()` no startup, gate Host/Origin no dashboard (DNS-rebinding + CSRF), OLLAMA_URL loopback + cap de stream, `Cache-Control: no-store` em `/api/`, systemd sandboxing.
