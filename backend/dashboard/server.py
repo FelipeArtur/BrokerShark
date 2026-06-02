@@ -22,6 +22,7 @@ from waitress import serve
 import config
 from core import database
 from core import ingestion
+from core.ingestion import b3
 from core import events as _events
 from core.ingestion.adapters import SourceMismatch
 _logger = logging.getLogger(__name__)
@@ -785,6 +786,32 @@ def api_post_investment_movement() -> Response:
         description=description,
     )
     return jsonify({"ok": True, "id": mv_id})
+
+
+@app.route("/api/import/b3", methods=["POST"])
+def api_import_b3() -> Response:
+    """Parse a B3 XLSX report and upsert investment positions.
+
+    Multipart form: ``file`` (the .xlsx). Returns the upsert summary
+    (``{created, updated, total, positions}``). A malformed/non-xlsx file is a
+    client error (400); only truly unexpected failures return 500.
+    """
+    upload = request.files.get("file")
+    if upload is None:
+        return jsonify({"error": "Nenhum arquivo enviado."}), 400
+    if not (upload.filename or "").lower().endswith(".xlsx"):
+        return jsonify({"error": "Relatório B3 deve ser um arquivo .xlsx"}), 400
+
+    data = upload.read()
+    try:
+        summary = b3.load_b3_positions(data)
+    except b3.B3ParseError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception:
+        _logger.exception("Erro inesperado importando B3")
+        return jsonify({"error": "Falha ao processar o relatório B3."}), 500
+    _events.notify()
+    return jsonify(summary)
 
 
 @app.route("/api/import/preview", methods=["POST"])
