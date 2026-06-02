@@ -21,12 +21,13 @@ When making permanent changes (new categories, new accounts, schema changes), up
 
 ## Overview
 
-BrokerShark is a personal finance assistant running **100% locally** on Linux.
+BrokerShark is a **personal money-analysis tool** running **100% locally** on Linux. Pergunta central: **"quanto eu posso gastar agora?"**, e então análise do dinheiro ao longo do tempo.
 
-**Primary interface:** Web dashboard (React 18 + Flask) at `http://localhost:8080`
-**Secondary interface:** Telegram bot — quick registrations and scheduled reports only
+**O centro é a análise (web, React 18 + Flask, `http://localhost:8080`):**
+- **Dinheiro** — herói **Disponível pra gastar** (liquidez = contas − faturas) + faturas, "Este mês", contas, atividade, projeções e reserva.
+- **Histórico / Análise** — 36 meses, métricas, fluxo 6m, investimentos, categorias, Top PIX, tabela filtrável.
 
-SQLite is the single source of truth. Monthly backups go to local HDD + Google Drive.
+**Apoio:** Telegram (entradas rápidas + relatórios/alertas), importação CSV mensal, chat de IA local. SQLite é a fonte única; backup mensal HDD + Drive.
 
 **User:** Single user, Nubank + Inter (CC + conta corrente). No debit card. Investments: Caixinha Nubank, Porquinho Inter, Tesouro Direto.
 
@@ -49,11 +50,10 @@ bot/handlers/ — Telegram confirmation (if Telegram)
 ### Key principles
 
 - **SQLite = single source of truth.** No external write-back.
-- **Web = primary interface.** Telegram for quick entries + reports only.
+- **A análise é o produto.** Web (Dinheiro + Histórico) no centro; Telegram/import/IA são apoio.
 - **CSV import via web UI** ("+ Importar" modal → preview/staging → confirm; dedup por UUID/hash; sem categorização automática — categoriza depois). Pipeline em `backend/core/ingestion/`. Fontes: `nu-db`, `inter-db`, `inter-cc`.
-- **AI is Pierre-inspired:** tool calling, never fabricates data, always fetches via tools.
-- **Backup is monthly, condition-based:** 30-day check on startup → local HDD + Drive.
-- **No AI in button registration flow.**
+- **AI is Pierre-inspired:** tool calling, never fabricates data, always fetches via tools; args das tools validados no servidor.
+- **Backup is monthly:** `should_backup()` checa por mês-calendário → local HDD + Drive.
 
 ---
 
@@ -62,16 +62,17 @@ bot/handlers/ — Telegram confirmation (if Telegram)
 ```
 backend/
   main.py, config.py
-  core/     database.py, events.py, backup.py, ai_service.py
+  core/     database.py (shim), events.py, backup.py,
+            db/ (schema, crud, analytics, categories), ingestion/ (adapters, dedup, service)
   integrations/  drive.py, ollama.py
   dashboard/     server.py
-  bot/      application.py, scheduler.py, handlers/, parsers/
+  bot/      application.py, scheduler.py, utils.py, constants.py, handlers/ (commands, ai_chat)
 frontend/
-  js/  api.js, primitives.js, view-overview.js,
-       view-history.js, app.js
-load_data/  import_history.py, Extrato completo Nubank/,
-            Extrato completo Inter/, Fatura banco Inter/, Fatura Nubank/
-scripts/  recover.py
+  css/ style.css   img/ favicon.ico
+  js/  api.js, primitives.js, view-overview.js, view-history.js, app.js
+deploy/  brokershark.service
+docs/    (PRODUCT.md, notas)
+tests/   conftest.py, test_database.py, test_ingestion.py, test_ai_chat.py
 ```
 
 ---
@@ -117,9 +118,9 @@ Excluded from summaries via `AND dest_account_id IS NULL`.
 
 ## AI Architecture (Pierre-inspired)
 
-`backend/core/ai_service.py` — shared by Telegram (`ai_chat.py`) and web (`POST /api/chat`):
+`backend/bot/handlers/ai_chat.py` — **Telegram only** (não há chat de IA na web):
 - Tool calling via prompt engineering (not native tools API — qwen2.5:7b compatible)
-- MAX_ROUNDS=3 agentic loop
+- MAX_ROUNDS=3 agentic loop; args das tools `register_*` validados contra allow-lists antes de gravar
 - Persona: "BrokerShark" — direct, analytical, finance-scoped only
 
 Tools (13): `get_monthly_summary`, `get_monthly_comparison`, `get_expenses_by_category`, `get_account_balances`, `get_investments`, `get_recent_transactions`, `get_budgets`, `register_expense`, `register_income`, `register_investment`, `register_transfer`, `confirm`, `cancel`
@@ -151,7 +152,6 @@ Tools (13): `get_monthly_summary`, `get_monthly_comparison`, `get_expenses_by_ca
 | POST | `/api/import/preview` | Upload+parse+classify+stage (`file`, `account_id`) |
 | GET | `/api/import/staging/<batch_id>` | Re-read staged rows |
 | POST | `/api/import/confirm` | Promote `new` rows (`batch_id`, `exclude_ids[]`) |
-| POST | `/api/chat` | AI chat message |
 | PATCH | `/api/budgets/<id>` | Update budget |
 | PATCH | `/api/transactions/<id>` | Reassign category |
 
@@ -174,7 +174,7 @@ Tools (13): `get_monthly_summary`, `get_monthly_comparison`, `get_expenses_by_ca
 - **Authorization check first** in every Telegram handler (chat_id)
 - **Internal transfers ≠ income:** `flow='expense', method='transfer', dest_account_id=<dest>`
 - **`ollama.py` is pure HTTP client:** no business logic, no system prompts
-- **CSV parsers:** `inter_cc.parse(content, adjust_installment_dates=False)` for historical monthly faturas
+- **CSV ingestion:** `core/ingestion/` — `adapters.py` (parse), `dedup.py` (classify), `service.py` (orchestrate). Fontes: `nu-db`, `inter-db`, `inter-cc`
 
 ---
 
@@ -184,7 +184,6 @@ Tools (13): `get_monthly_summary`, `get_monthly_comparison`, `get_expenses_by_ca
 TELEGRAM_TOKEN=seu_token_aqui
 TELEGRAM_CHAT_ID=seu_chat_id_aqui
 DB_PATH=/home/SEU_USUARIO/brokershark/data/brokershark.db
-LOCAL_BACKUP_DIR=/mnt/seu-hdd/brokershark/backups
 GOOGLE_CREDENTIALS=/home/SEU_USUARIO/brokershark/credentials/service_account.json
 DRIVE_BACKUP_FOLDER=BrokerShark Backups
 DASHBOARD_PORT=8080

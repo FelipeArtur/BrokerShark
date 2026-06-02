@@ -24,12 +24,15 @@ When making permanent changes (new categories, new accounts, schema changes), up
 
 ## Overview
 
-BrokerShark is a personal finance assistant running **100% locally** on Linux.
+BrokerShark is a **personal money-analysis tool** running **100% locally** on Linux. Its job is to answer one question first — **"quanto eu posso gastar agora?"** — and then let me dig into where my money goes over time.
 
-**Primary interface:** Web dashboard (React 18 + Flask) at `http://localhost:8080`
-**Secondary interface:** Telegram bot — quick registrations and scheduled reports only
+**The product is the analysis (web dashboard, `http://localhost:8080`):**
+- **Dinheiro** (home) — the hero number **Disponível pra gastar** (liquidez = saldo das contas correntes − faturas em aberto), plus faturas, "Este mês", contas, atividade e projeções (fechamento do mês / próxima fatura) + reserva opcional.
+- **Histórico / Análise** — linha do tempo de 36 meses, métricas mensais, fluxo 6m, investimentos, por categoria, Top PIX e a tabela filtrável.
 
-Every transaction is persisted in a local SQLite database. Monthly backups go to a local HDD directory and to Google Drive (same service account).
+**Supporting roles (não são o centro):** Telegram bot (entradas rápidas em linguagem natural + relatórios/alertas agendados), importação mensal de CSV (extratos/faturas), e chat de IA local (Ollama) que sempre busca dados reais antes de responder.
+
+Every transaction is persisted in a local SQLite database (single source of truth). Monthly backups go to a local HDD directory and to Google Drive (same service account).
 
 **User profile:** Single user, accounts at Nubank and Inter (credit card + conta corrente). Does **not** use debit card. Investments: Caixinha Nubank, Porquinho Inter, Tesouro Direto.
 
@@ -99,9 +102,9 @@ bot/handlers/ai_chat.py — confirmation message + spending alert if expenses �
 ### Key principles
 
 - **SQLite is the single source of truth.** No external write-back.
-- **Web dashboard is the primary interface.** Telegram handles quick entries and reports.
-- **AI is Pierre-inspired:** tool calling, context injection, conversation-as-interface. Never fabricates data — always fetches via tools before answering.
-- **Backup runs on the 1st of each month** (cron 07:00): `should_backup()` guards against double-runs by checking if `brokershark_YYYY-MM.db` already exists this month. Path hardcoded to `/mnt/HDD_Arquivos/brokershark/backups`.
+- **A análise (web: Dinheiro + Histórico) é o produto.** Telegram, importação CSV e chat de IA são apoio.
+- **AI is Pierre-inspired:** tool calling, context injection, conversation-as-interface (Telegram only). Never fabricates data — always fetches via tools before answering.
+- **Backup runs on the 1st of each month** (cron 07:00): `should_backup()` guards against double-runs by checking if `brokershark_YYYY-MM.db` already exists this month. Path hardcoded to `/mnt/HDD_Arquivos/Backups/brokershark`.
 - **All Telegram registrations go through AI.** The bot has a single `MessageHandler` catch-all → `ai_chat_handler`. No `ConversationHandler` flows exist.
 
 ### Patrimônio calculation
@@ -161,7 +164,7 @@ python backend/main.py
 ## Backup Strategy
 
 **Local (HDD):**
-- Path hardcoded: `/mnt/HDD_Arquivos/brokershark/backups`
+- Path hardcoded: `/mnt/HDD_Arquivos/Backups/brokershark`
 - `should_backup()` — returns `True` if `brokershark_YYYY-MM.db` does not yet exist this calendar month
 - `run_backup()` — copies DB if due; keeps last 12 monthly files
 - Triggered by monthly cron job (1st of each month at 07:00)
@@ -320,7 +323,7 @@ OLLAMA_MODEL=qwen2.5:7b
 OLLAMA_TIMEOUT=60
 ```
 
-> `LOCAL_BACKUP_DIR` is hardcoded to `/mnt/HDD_Arquivos/brokershark/backups` in `config.py` — no longer an env variable.
+> `LOCAL_BACKUP_DIR` is hardcoded to `/mnt/HDD_Arquivos/Backups/brokershark` in `config.py` — no longer an env variable.
 
 ---
 
@@ -339,57 +342,34 @@ The dashboard navigates **2 screens** (`app.js` `SECTIONS`): **Dinheiro** (`Over
 
 | Component | Type | Used in |
 |-----------|------|---------|
-| `Sparkline` | Chart.js line, no axes | Overview hero (patrimônio 12M), HistoryView metric cards |
-| `BarChart` | Chart.js bar | Overview (gasto diário), CardsView (gastos mensais cartão) |
-| `DualLine` | Chart.js 2-line with axes | Overview (receitas × despesas 6M) |
-| `PatrimonioChart` | Chart.js filled area | Defined in primitives.js but **not currently used** in any view |
-| `Donut` | Chart.js doughnut | InvestmentsView |
-| `Progress` | Pure CSS bar | Overview (orçamentos, hero breakdown rows) |
+| `Sparkline` | Chart.js line, no axes | Dinheiro hero (liquidez 12M), Histórico metric cards |
+| `DualLine` | Chart.js 2-line with axes | Histórico (fluxo 6 meses) |
+| `Donut` | Chart.js doughnut | Histórico → InvestmentsView |
+| `Progress` | Pure CSS bar | Dinheiro (hero breakdown rows) |
+| `BarChart` | Chart.js bar | definido; disponível para barras mensais |
+| `PatrimonioChart` | Chart.js filled area | definido, **não usado** |
 
-All chart components receive **real API data only** — no placeholder/illustrative data is passed to any chart.
+All chart components receive **real API data only** — no placeholder data.
 
-### OverviewView — hero card (2-column grid)
+### Telas (arquivos)
 
-Layout: `gridTemplateColumns: "1.4fr 1fr"`
-
-- **Left column:** patrimônio total em BRL + tendência vs mês anterior (▲/▼ %) + `Sparkline` 12 meses de `fetchPatrimonioHistory()` + labels de mês
-- **Big number**: `patrTotal = patrNow + totalReservas` (checking balance + investments.current_balance)
-- **Sparkline**: mostra apenas `patrNow` (checking history) — investments não entram no histórico
-- **Right column** (borderLeft separator): 3 × `BreakdownRow` com barra `Progress` (max = `patrTotal`):
-  - "Contas correntes" → `patrNow + totalFaturas` — cor `var(--pos)` (checking + CC pendente)
-  - "Investimentos" → `summary.reservas` — cor `var(--reserve)`
-  - "Faturas em aberto" → `totalFaturas` (negativo) — cor `var(--neg)`
-- Fatura cards: exibem `▲/▼ X.X%` de tendência calculada de `last_total` (retornado por `/api/faturas`)
-
-### CardsView — gastos mensais cartão
-
-O chart "Gastos mensais no cartão" usa `BarChart` com dados de `/api/monthly?account=<id>` — apenas a coluna `expenses` (CC nunca tem receita). Quando não há gastos no período selecionado, exibe mensagem `"Sem gastos no cartão neste período"` em vez de gráfico plano em zero.
-
-### HistoryView ("Lupa do mês") — 3 seções
-
-1. **Seletor de mês** — barra timeline de 36 meses via `fetchMonthlyFull()` (`/api/monthly?months=36`). Cada barra é clicável; altura proporcional ao gasto; mês selecionado destacado em `var(--info)`.
-
-2. **4 cards de métrica** — alimentados por `fetchMonthTransactions({ month, year })` (`/api/month-transactions`):
-   - Receitas / Despesas / Saldo do mês / Taxa de poupança
-   - Cada card: valor em destaque + comparação vs média dos 6 meses anteriores (▲/▼ %) + `Sparkline` dos últimos 12 meses
-
-3. **Grade 260px | 1fr:**
-   - "Por categoria" — barras de % sobre total de despesas do mês selecionado
-   - Tabela filtrável — filtros: Tudo/Despesas/Receitas + categoria + busca textual + linha de totais correntes
+- `view-overview.js` → **Dinheiro** (`OverviewView`) + `CategoriesPanel`. Comportamento detalhado na seção "Navigation — 2-screen IA" acima.
+- `view-history.js` → **Histórico / Análise** (`InvestmentsView` + `HistoryView`).
+- `app.js` → shell (nav de 2 telas, SSE, busca, Configurações, importação).
 
 ### Outros
 
-- **Date labels:** formato `"Jan/26"` (mês abreviado PT + ano 2 dígitos) em todos os endpoints. Definido em `_PT_SHORT` / `_PT_SHORT_ACC` em `database.py`.
-- **Daily spend:** `fetchDailySpend({ month, year })` → sempre retorna o mês calendário inteiro zerado. Sem parâmetros = mês atual. Não usa mais janela de "últimos 30 dias".
+- **Date labels:** formato `"Jan/26"` (mês abreviado PT + ano 2 dígitos). Definido em `_PT_SHORT` / `_PT_SHORT_ACC` em `database.py`.
+- **Daily spend:** `fetchDailySpend({ month, year })` sempre retorna o mês calendário inteiro zerado (sem parâmetros = mês atual).
 - **Fatura dates:** formato `"19 Abr → 18 Mai"` via `_fmtCycleDate()` em `view-overview.js` e `view-history.js`.
-- **Configurações panel:** 3 seções (Aparência / Layout / Interface) com "Restaurar padrões".
-- **`backup.py` resilience:** `run_backup()` captura `PermissionError`/`OSError` — retorna `False` silenciosamente quando HDD não montado.
+- **Configurações (`TweaksPanel`):** tema, densidade, **reserva** (colchão pra "Seguro pra gastar"), atalho pra Categorias, "Restaurar padrões". Tweaks persistidos em localStorage.
+- **`backup.py` resilience:** `run_backup()` captura `PermissionError`/`OSError` — retorna `False` silenciosamente quando o HDD não está montado.
 
 ---
 
 ## Automated Jobs
 
-**Monthly backup (1st, 07:00):** local backup to `/mnt/HDD_Arquivos/brokershark/backups` if not yet done this month + Drive upload + prune.
+**Monthly backup (1st, 07:00):** local backup to `/mnt/HDD_Arquivos/Backups/brokershark` if not yet done this month + Drive upload + prune.
 
 **Weekly report (Monday 08:00):** expenses, income, top category, reserves, fatura due dates.
 
@@ -420,85 +400,24 @@ O chart "Gastos mensais no cartão" usa `BarChart` com dados de `/api/monthly?ac
 
 ---
 
-## Roadmap
+## Estado atual
 
-### Concluído (Fases 1–9d)
-Bot flows (expense/income/investment), dashboard v1→v3, SSE, investments, history, global month selector, AI chat with 13 tools, Ollama streaming, web-first pivot, Drive backup, Pierre-inspired AI architecture (`ai_service.py` shared module), `ChatView` (section 6 keyboard shortcut), patrimônio calculation fix (CC fatura payments), `is_revenue` flag, HistoryView 36-month range, Configurações panel.
+Produto = **análise do meu dinheiro**. A web (2 telas: **Dinheiro** + **Histórico/Análise**) é o centro; Telegram, importação CSV e chat de IA são apoio. O histórico completo das fases vive no `git log`.
 
-**Fase 9d — UX Redesign (dashboard):**
-- Hero card com Sparkline 12M + 3 BreakdownRows (contas / investimentos / faturas)
-- Tendência ▲/▼ % em cada fatura (campo `last_total` na API)
-- HistoryView substituída por: seletor 36 meses + 4 métricas com sparklines + tabela filtrável + por categoria
-- Novo endpoint `GET /api/month-transactions` + função `get_month_transactions()`
-- `get_daily_spend()` sempre zero-fill do mês completo
-- `get_monthly_history()` e `get_monthly_history_by_account()` passam a retornar `month` e `year` como int
-- CardsView: DualLine substituído por BarChart de gastos mensais para CC
+**Já entregue (resumo):**
+- Número herói **Disponível pra gastar** (liquidez = contas − faturas) + projeções (fechamento do mês / próxima fatura) + reserva ("Seguro pra gastar").
+- **Histórico**: 36 meses, 4 métricas, fluxo 6m, investimentos (donut + movimentos), por categoria, Top PIX, tabela filtrável (conta/método/categoria/busca).
+- Importação mensal de CSV (`nu-db`, `inter-db`, `inter-cc`) com preview + dedup; staging em `import_staging`.
+- Bot Telegram (entradas em linguagem natural + relatórios/alertas agendados; args das tools do LLM validados).
+- Backup mensal: HDD + Google Drive; SSE ao vivo.
 
-**Fase 10 — Money Story Dashboard (concluída):**
-- Novo endpoint `GET /api/cashflow-statement` + função `get_cashflow_statement()` em `database.py`
-- Seção "Este mês" em `OverviewView`: ↓ Despesas | ↑ Receitas | → Investido / ← Resgatado | Saldo livre
-- `investment_net = deposits − withdrawals` — sem dupla contagem em meses de resgate
-- `CCCategoryBreakdown` em `CardsView`: top 3 categorias + "Outros" com Progress bars
-- `BankChip` data-driven via `window.BS.accountNames` (boot em `app.js`)
-- Título do card dinâmico: "Este mês" ou mês selecionado
-- Saldo livre: cor âmbar quando receitas = 0 no mês atual (não pânico-vermelho)
-- Proteção contra HTTP 500: clamp month/year em `/api/cashflow-statement`
-
-**Fase 11a — Transaction UX + Exclusão de Terceiros + PIX Analytics (concluída):**
-- `is_third_party INTEGER NOT NULL DEFAULT 0` + `display_name TEXT` nas `transactions` — migração automática
-- Categoria "Eventos / Terceiros" auto-criada na migração (`INSERT OR IGNORE`)
-- `is_third_party` exclui transações de TODOS os cálculos analíticos (summaries, categories, patrimônio, saldo de conta)
-- `update_transaction_fields(tx_id, **fields)` — atualiza display_name, category_id, is_third_party atomicamente
-- `get_top_pix_descriptions(month, year)` — top PIX agrupado por `COALESCE(display_name, description)`
-- `GET /api/pix-top` — endpoint para top PIX destinations
-- `PATCH /api/transactions/:id` — expandido: aceita display_name, is_third_party além de category_id
-- `TransactionPanel` (era `CategoryEditor`): modal 480px com nome fantasia, categoria, toggle "Não é meu", excluir
-- HistoryView: filtro de método PIX/Crédito/TED + card "Top PIX" no painel esquerdo
-- Tabela de transações: mostra `display_name` (se set) + badge "3°" para is_third_party
-- AccountsView: mesmos badges de display_name e is_third_party
-- `patchTransaction(id, fields)` em api.js + `fetchPixTop({ month, year })`
-
-**Fase 11b — Remoção CSV + Backup Mensal (concluída):**
-- Removido todo o pipeline de import CSV: `backend/adapters/`, `backend/bot/parsers/`, `load_data/`, endpoints `/api/import-csv/*`, `ImportModal` frontend
-- Backup ajustado para cron day=1 07:00 + path hardcoded `/mnt/HDD_Arquivos/brokershark/backups`
-- `should_backup()` agora verifica por mês calendário (não intervalo de 30 dias)
-- Removido código morto: `transaction_exists`, `suggest_category`, `get_categorization_patterns`, `ollama.suggest_categories`
-
-**Fase 11c — Systemd service (concluída):**
-- `deploy/brokershark.service` — autostart, logs em `logs/brokershark.log` (`config.LOG_DIR` é ancorado na raiz do repo, então logs caem em `logs/` independente do CWD)
-- Instruções de instalação no README
-
-**Fase 11d — Orçamentos e alertas (concluída parcialmente):**
-- Alertas de 80% do limite implementados em `_check_budget_alerts()` (ai_chat.py)
-- Disparados após cada despesa confirmada via Telegram
-- [ ] Manual investment balance adjustment (para RDB/CDB com rendimento diário — B3 report import planejado)
-
-**Fase 11d — Entidade Evento (opcional)**
-- [ ] Tabela `events` + FK nas transactions — relatório por evento com saldo líquido
-
-### Próximas fases
-
-**Fase 12 — Patrimônio fix (concluída em 2026-05-31):**
-- `get_patrimonio_history()` retorna apenas saldo de contas correntes (sem investment_movements)
-- Frontend hero: `patrTotal = patrNow + totalReservas`; sparkline mostra só liquidez histórica
-- Elimina inconsistência entre investments_movements_net e investments.current_balance
-
-**Fase 13 — Ingestão web (concluída):**
-- Pipeline `backend/core/ingestion/` (adapters + dedup + service) + modal "+ Importar"
-- 3 fontes CSV: `nu-db`, `inter-db`, `inter-cc` com preview/staging + dedup (UUID + hash por ocorrência)
-- `import_staging` table; `insert_transaction(external_id=…)` + índice UNIQUE parcial
-- Regra "transferência nunca é consumo" nos totais de despesa (analytics)
-- Ver "Web Import" acima
-
-**Backlog (diferido da revisão CEO)**
-- [ ] Fase 2 — importar Relatório B3 (xlsx): posições CDB/Tesouro → `investments.current_balance` (precisa `openpyxl`)
-- [ ] Fase 2 — adapter fatura Nubank (`nu-cc`): diretório de exemplo está vazio, formato desconhecido
-- [ ] Desfazer última importação (reverter batch por `batch_id`)
-- [ ] Filtro "sem categoria" no HistoryView (categorizar importados em lote)
-
-**Dados pendentes**
-- [ ] Registrar movimentos do Tesouro Direto
-- [ ] Importar relatórios B3 para histórico de investimentos
+**Backlog (diferido):**
+- [ ] Importar Relatório B3 (xlsx) → posições CDB/Tesouro em `investments.current_balance` (precisa `openpyxl`; tratar XXE/zip-slip).
+- [ ] Adapter fatura Nubank (`nu-cc`) — formato desconhecido (diretório de exemplo vazio).
+- [ ] Desfazer última importação (reverter batch por `batch_id`).
+- [ ] Filtro "sem categoria" no Histórico (categorizar importados em lote).
+- [ ] Reserva server-side (hoje localStorage; o bot não enxerga).
+- [ ] Registrar movimentos do Tesouro Direto.
 
 **Bug conhecido (a confirmar):** `transactions.method` tem CHECK `IN ('pix','credit','ted','transfer','debit')`, mas `/api/incomes` insere `method='salary'|'freelance'|'pix_received'|'other'`. Num DB novo isso violaria o CHECK. O DB de produção provavelmente foi criado antes do CHECK. Verificar/normalizar.
 

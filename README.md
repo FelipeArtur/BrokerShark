@@ -1,15 +1,20 @@
 # BrokerShark
 
-Personal finance assistant running 100% locally on Linux. Nubank + Inter, dashboard-first, Telegram for quick entries.
+A local tool to **understand and analyze my money**. Runs 100% on Linux, accounts at Nubank + Inter. It answers one question first — **"quanto eu posso gastar agora?"** — and then lets me dig into where the money goes.
 
 ## What it does
 
-- **Web dashboard** at `http://localhost:8080` — primary interface. Overview, accounts, credit cards, investments, 36-month history, transaction search and editing, budget tracking.
-- **Telegram bot** — quick expense/income/investment registration via natural language, scheduled weekly and monthly reports, proactive spending alerts.
-- **AI chat** — conversational analysis via local Ollama (`qwen2.5:7b`). Fetches live data before answering — never fabricates.
-- **Real-time updates** — SSE push to the dashboard on every write, < 1s latency.
-- **Monthly backup** — local HDD + Google Drive on the 1st of each month.
-- **Budget alerts** — Telegram notification when a category reaches 80% of its monthly limit.
+The product is the **analysis**, in a two-screen web dashboard at `http://localhost:8080`:
+
+- **Dinheiro** (home) — one honest hero number, **Disponível pra gastar** = checking balance − open credit-card bills. Around it: open faturas, a "this month" cash-flow summary, account balances, recent activity, run-rate projections (month close, next fatura), and an optional reserve buffer ("Seguro pra gastar").
+- **Histórico / Análise** — 36-month timeline, monthly metrics with sparklines, a 6-month cash-flow chart, investments, spending by category, top PIX destinations, and a filterable transaction table (by account, method, category, free text).
+
+Supporting roles (not the center):
+
+- **Telegram bot** — quick expense/income/investment entries in natural language; scheduled weekly/monthly reports; spending and budget alerts.
+- **Monthly import** — bank/broker CSV (extratos + faturas) with preview and dedup.
+- **AI chat** — conversational analysis via local Ollama. Fetches live data before answering — never fabricates; tool arguments are validated server-side.
+- **Local-first** — SQLite is the single source of truth, SSE pushes live updates (< 1s), monthly backup to local HDD + Google Drive.
 
 ## Accounts
 
