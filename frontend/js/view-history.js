@@ -3,7 +3,7 @@
           fetchMonthlyFull, fetchMonthTransactions, fetchPixTop, deleteTransaction */
 
 const { useState: _s2St, useEffect: _s2Ef, useMemo: _s2Memo } = React;
-const { fmtBRL, fmtBRLCompact, fmtDateBR, BankChip, Sparkline, BarChart, DualLine, Donut, Progress, PT_MONTHS, PT_SHORT, fmtCycleDate } = window.BS;
+const { fmtBRL, fmtBRLCompact, fmtDateBR, BankChip, DualLine, Donut, PT_MONTHS, PT_SHORT, fmtCycleDate } = window.BS;
 
 /* ── InvestmentsView ─────────────────────────────────────────────────────── */
 function InvestmentsView({ refreshKey, filterMonth }) {

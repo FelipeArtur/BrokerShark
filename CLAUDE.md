@@ -334,14 +334,11 @@ The dashboard navigates **2 screens** (`app.js` `SECTIONS`): **Dinheiro** (`Over
 
 | Component | Type | Used in |
 |-----------|------|---------|
-| `Sparkline` | Chart.js line, no axes | Dinheiro hero (liquidez 12M), Histórico metric cards |
 | `DualLine` | Chart.js 2-line with axes | Histórico (fluxo 6 meses) |
 | `Donut` | Chart.js doughnut | Histórico → InvestmentsView |
-| `Progress` | Pure CSS bar | definido, **não usado** (era hero breakdown, agora ledger) |
-| `BarChart` | Chart.js bar | definido; disponível para barras mensais |
-| `PatrimonioChart` | Chart.js filled area | definido, **não usado** |
 
 All chart components receive **real API data only** — no placeholder data.
+(`Sparkline`, `BarChart`, `Progress` e `PatrimonioChart` foram removidos — não eram mais renderizados após o redesign.)
 
 ### Telas (arquivos)
 

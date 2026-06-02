@@ -42,186 +42,6 @@ function yesterdayISO() {
   return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
 }
 
-/* ── Sparkline ──────────────────────────────────────────────────────────── */
-function Sparkline({ data, color = "var(--info)", width = 100, height = 28, fill = true, strokeWidth = 1.5, highlightLast = false }) {
-  const canvasRef = _useRef(null);
-  const chartRef = _useRef(null);
-
-  _useEffect(() => () => { if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; } }, []);
-
-  _useEffect(() => {
-    if (!canvasRef.current || !data || !data.length) return;
-
-    const n = data.length;
-    const minVal = Math.min(...data);
-    const maxVal = Math.max(...data);
-
-    if (chartRef.current) {
-      const ds = chartRef.current.data.datasets[0];
-      chartRef.current.data.labels = data.map((_, i) => i);
-      ds.data = data;
-      if (highlightLast) {
-        ds.pointRadius = data.map((_, i) => i === n - 1 ? 3 : 0);
-        ds.pointHoverRadius = data.map((_, i) => i === n - 1 ? 4 : 0);
-      }
-      chartRef.current.options.scales.y.min = minVal === maxVal ? minVal - 1 : minVal;
-      chartRef.current.options.scales.y.max = minVal === maxVal ? maxVal + 1 : maxVal;
-      chartRef.current.update('none');
-      return;
-    }
-
-    let resolvedColor = color;
-    if (color.startsWith("var(")) {
-      const match = color.match(/var\(([^)]+)\)/);
-      if (match) resolvedColor = getComputedStyle(document.documentElement).getPropertyValue(match[1]).trim();
-    }
-
-    const ctx = canvasRef.current.getContext("2d");
-    chartRef.current = new Chart(ctx, {
-      type: "line",
-      data: {
-        labels: data.map((_, i) => i),
-        datasets: [{
-          data: data,
-          borderColor: resolvedColor || color,
-          borderWidth: strokeWidth,
-          tension: 0.3,
-          pointRadius: highlightLast ? data.map((_, i) => i === n - 1 ? 3 : 0) : 0,
-          pointHoverRadius: highlightLast ? data.map((_, i) => i === n - 1 ? 4 : 0) : 0,
-          pointBackgroundColor: resolvedColor || color,
-          fill: fill,
-          backgroundColor: fill ? (resolvedColor ? resolvedColor.replace(')', ' / 0.18)') : color) : 'transparent',
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: false,
-        plugins: { legend: { display: false }, tooltip: { enabled: false } },
-        scales: {
-          x: { display: false },
-          y: { display: false, min: minVal === maxVal ? minVal - 1 : minVal, max: minVal === maxVal ? maxVal + 1 : maxVal }
-        },
-        layout: { padding: highlightLast ? { top: 4, bottom: 4, left: 2, right: 4 } : 0 }
-      }
-    });
-  }, [data, color, fill, strokeWidth, highlightLast]);
-
-  return React.createElement("div", { style: { width, height } },
-    React.createElement("canvas", { ref: canvasRef })
-  );
-}
-
-/* ── BarChart ───────────────────────────────────────────────────────────── */
-function BarChart({ data, height = 140, valueKey = "value", labelKey = "day", color = "var(--info)", highlightMax = false, referenceValue }) {
-  const canvasRef = _useRef(null);
-  const chartRef = _useRef(null);
-  const refValueRef = _useRef(referenceValue);
-
-  _useEffect(() => () => { if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; } }, []);
-
-  _useEffect(() => {
-    refValueRef.current = referenceValue;
-    if (!canvasRef.current || !data || !data.length) return;
-
-    const root = getComputedStyle(document.documentElement);
-    let resolvedColor = color;
-    if (color.startsWith("var(")) {
-      const match = color.match(/var\(([^)]+)\)/);
-      if (match) resolvedColor = root.getPropertyValue(match[1]).trim();
-    }
-    const negColor = root.getPropertyValue("--neg").trim();
-    const fg3Color = root.getPropertyValue("--fg-3").trim();
-    const warn50   = root.getPropertyValue("--warn").trim() || "#f5a623";
-
-    const values = data.map(d => d[valueKey]);
-    const maxVal = Math.max(...values);
-
-    const bgColors = values.map(v => {
-      if (v === 0) return (resolvedColor || color).replace(/oklch\(([^)]+)\)/, (_m, inner) => `oklch(${inner} / 0.18)`);
-      if (highlightMax && v === maxVal && v > 0) return negColor;
-      return resolvedColor || color;
-    });
-
-    if (chartRef.current) {
-      chartRef.current.data.labels = data.map(d => d[labelKey]);
-      chartRef.current.data.datasets[0].data = values;
-      chartRef.current.data.datasets[0].backgroundColor = bgColors;
-      chartRef.current.update('none');
-      return;
-    }
-
-    const annotationPlugin = {
-      id: "refLine",
-      afterDraw(chart) {
-        const rv = refValueRef.current;
-        if (!rv || rv <= 0) return;
-        const { ctx: c, chartArea: { left, right }, scales: { y } } = chart;
-        const yPos = y.getPixelForValue(rv);
-        c.save();
-        c.setLineDash([4, 4]);
-        c.strokeStyle = warn50;
-        c.lineWidth = 1;
-        c.globalAlpha = 0.7;
-        c.beginPath();
-        c.moveTo(left, yPos);
-        c.lineTo(right, yPos);
-        c.stroke();
-        c.restore();
-      }
-    };
-
-    const ctx = canvasRef.current.getContext("2d");
-    chartRef.current = new Chart(ctx, {
-      type: "bar",
-      data: {
-        labels: data.map(d => d[labelKey]),
-        datasets: [{ data: values, backgroundColor: bgColors, borderRadius: { topLeft: 2, topRight: 2 }, barPercentage: 0.85, categoryPercentage: 0.9 }]
-      },
-      plugins: [annotationPlugin],
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: false,
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            callbacks: {
-              label: ctx => fmtBRL(ctx.raw),
-              title: ctx => `Dia ${ctx[0].label}`,
-            }
-          }
-        },
-        scales: {
-          x: {
-            grid: { display: false },
-            border: { display: false },
-            ticks: {
-              color: fg3Color,
-              font: { size: 9 },
-              maxTicksLimit: 7,
-              maxRotation: 0,
-              callback: function(val) {
-                const label = this.getLabelForValue(val);
-                const n = parseInt(label);
-                const allLabels = data.map(d => parseInt(d[labelKey]));
-                const lastDay = Math.max(...allLabels);
-                if ([1, 5, 10, 15, 20, 25].includes(n) || n === lastDay) return label;
-                return "";
-              }
-            }
-          },
-          y: { display: false, beginAtZero: true }
-        }
-      }
-    });
-  }, [data, color, valueKey, labelKey, highlightMax, referenceValue]);
-
-  return React.createElement("div", { style: { height, width: "100%", padding: "4px 0" } },
-    React.createElement("canvas", { ref: canvasRef })
-  );
-}
-
 /* ── DualLine ───────────────────────────────────────────────────────────── */
 function DualLine({ data, height = 180 }) {
   const canvasRef = _useRef(null);
@@ -343,15 +163,6 @@ function Donut({ data, size = 140, thickness = 18, valueKey = "balance", colors 
 
   return React.createElement("div", { style: { width: size, height: size } },
     React.createElement("canvas", { ref: canvasRef })
-  );
-}
-
-/* ── Progress ───────────────────────────────────────────────────────────── */
-function Progress({ value, max, color = "var(--info)" }) {
-  const pct = Math.min(100, ((value || 0) / (max || 1)) * 100);
-  const over = value > max;
-  return React.createElement("div", { className: "progress-bar" },
-    React.createElement("div", { className: "progress-fill", style: { transform: `scaleX(${pct / 100})`, background: over ? "var(--neg)" : color } })
   );
 }
 
@@ -557,7 +368,7 @@ window.BS = window.BS || {};
 Object.assign(window.BS, {
   fmtBRL, fmtBRLCompact, fmtDateBR, todayISO, yesterdayISO,
   PT_MONTHS, PT_SHORT, fmtCycleDate,
-  Sparkline, BarChart, DualLine, Donut, Progress,
+  DualLine, Donut,
   Modal, useToasts, BankChip, SegmentControl, CurrencyInput, DateChooser, FieldRow,
   BrokerSharkLogo, TxRow,
 });

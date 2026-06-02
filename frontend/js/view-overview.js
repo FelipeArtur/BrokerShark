@@ -4,7 +4,7 @@
           fetchExpenseCategoriesFull, postCategory, deleteCategory */
 
 const { useState: _ovSt, useEffect: _ovEf, useMemo: _ovMemo } = React;
-const { fmtBRL, fmtBRLCompact, fmtDateBR, BankChip, Sparkline, BarChart, DualLine, Progress, Modal, PT_MONTHS, PT_SHORT, fmtCycleDate } = window.BS;
+const { fmtBRL, fmtBRLCompact, fmtDateBR, BankChip, DualLine, Modal, PT_MONTHS, PT_SHORT, fmtCycleDate } = window.BS;
 
 function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey, filterMonth, onImport }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
