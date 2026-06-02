@@ -119,9 +119,10 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
 
     // Faturas em aberto — o que vence (cards lado a lado)
     h("div", null,
-      h("div", { className: "card-h", style: { padding: "0 0 8px" } },
+      // Section label for a free-standing card row — bare card-title (no card-h border).
+      h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "0 2px 8px" } },
         h("div", { className: "card-title" }, "Faturas em aberto"),
-        h("span", { className: "num", style: { fontSize: 12, fontWeight: 600 } }, fmtBRL(totalFaturas))
+        h("span", { className: "num", style: { fontSize: "var(--fz-7)", fontWeight: 600 } }, fmtBRL(totalFaturas))
       ),
       faturas.length === 0
         ? h("div", { className: "card", style: { padding: "20px 12px", textAlign: "center", color: "var(--fg-2)", fontSize: 12 } }, "Nenhuma fatura em aberto.")
@@ -219,8 +220,7 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
     h("div", { className: "card" },
       h("div", { className: "card-h" },
         h("div", { className: "card-title" }, "Contas correntes"),
-        h("span", { className: "num", style: { fontSize: 12, fontWeight: 600 } },
-          fmtBRL(available ? available.checking_total : checkingAccounts.reduce((s, a) => s + (a.balance || 0), 0)))
+        h("span", { className: "num", style: { fontSize: "var(--fz-7)", fontWeight: 600 } }, fmtBRL(checkingTotal))
       ),
       h("div", { style: { padding: 8, display: "flex", flexDirection: "column", gap: 2 } },
         checkingAccounts.length === 0
