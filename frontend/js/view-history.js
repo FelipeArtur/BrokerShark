@@ -333,11 +333,8 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
     // B3 — Investimentos (resumo + donut + movimentos do mês)
     h(InvestmentsView, { refreshKey, filterMonth: picked ? `${picked.year}-${String(picked.month).padStart(2, "0")}` : "all" }),
 
-    // C — 2-column: categories | filterable table
-    h("div", { style: { display: "grid", gridTemplateColumns: "var(--col-hist)", gap: 14 } },
-
-      // C1 — left column: "Por categoria" + "Top PIX" (flex column)
-      h("div", { style: { display: "flex", flexDirection: "column", gap: 14 } },
+    // Resumos do mês — Por categoria | Top PIX (lado a lado)
+    h("div", { style: { display: "grid", gridTemplateColumns: "var(--col-2)", gap: 14, alignItems: "start" } },
 
         // C1a — By category
         h("div", { className: "card" },
@@ -383,10 +380,10 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
             ))
           )
         )
-      ), // end C1 flex column
+      ), // end resumos row
 
-      // C2 — Filterable transaction table
-      h("div", { className: "card", style: { display: "flex", flexDirection: "column" } },
+    // Tabela — largura total
+    h("div", { className: "card", style: { display: "flex", flexDirection: "column" } },
         h("div", { className: "card-h" },
           h("div", { className: "card-title" }, `Transações · ${filteredTx.length}`)
         ),
@@ -511,7 +508,6 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
           )
         )
       )
-    )
   );
 }
 
