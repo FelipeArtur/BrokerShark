@@ -196,9 +196,6 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
   const expVsAvg = avgExp > 0 ? ((totalExp - avgExp) / avgExp) * 100 : 0;
   const incVsAvg = avgInc > 0 ? ((totalInc - avgInc) / avgInc) * 100 : 0;
 
-  // Janela de até 12 meses terminando no mês selecionado — atualiza ao trocar de mês
-  const sparkWindow = monthly.slice(Math.max(0, pickedIdx - 11), pickedIdx + 1);
-
   const byCat = (() => {
     const g = {};
     expenses.forEach(t => {
@@ -286,25 +283,21 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
           l: "Receitas", v: fmtBRL(totalInc), c: "var(--pos)",
           sub: prevMonths.length ? (incVsAvg !== 0 ? `${incVsAvg >= 0 ? "▲" : "▼"} ${Math.abs(incVsAvg).toFixed(1)}% vs. ${prevMonths.length}M ant.` : "= média anterior") : "sem histórico",
           subColor: incVsAvg >= 0 ? "var(--pos)" : "var(--neg)",
-          sparkData: sparkWindow.map(m => m.income),
         },
         {
           l: "Despesas", v: fmtBRL(totalExp), c: "var(--neg)",
           sub: prevMonths.length ? (expVsAvg !== 0 ? `${expVsAvg >= 0 ? "▲" : "▼"} ${Math.abs(expVsAvg).toFixed(1)}% vs. ${prevMonths.length}M ant.` : "= média anterior") : "sem histórico",
           subColor: expVsAvg >= 0 ? "var(--neg)" : "var(--pos)",
-          sparkData: sparkWindow.map(m => m.expenses),
         },
         {
           l: "Saldo do mês", v: `${net >= 0 ? "+" : "−"}${fmtBRL(Math.abs(net))}`, c: net >= 0 ? "var(--pos)" : "var(--neg)",
           sub: `${monthTx.length} lançamentos`,
           subColor: "var(--fg-3)",
-          sparkData: sparkWindow.map(m => m.income - m.expenses),
         },
         {
           l: "Taxa de poupança", v: `${savingsRate.toFixed(1)}%`, c: savingsRate >= 20 ? "var(--pos)" : savingsRate >= 0 ? "var(--warn)" : "var(--neg)",
           sub: savingsRate >= 20 ? "saudável" : savingsRate >= 0 ? "abaixo da meta" : "negativa",
           subColor: savingsRate >= 20 ? "var(--pos)" : savingsRate >= 0 ? "var(--warn)" : "var(--neg)",
-          sparkData: sparkWindow.map(m => m.income > 0 ? ((m.income - m.expenses) / m.income) * 100 : 0),
         },
       ].map((s, i) =>
         h("div", { key: i, style: { padding: "14px 16px", borderLeft: i === 0 ? "none" : "1px solid var(--line-1)" } },
@@ -312,9 +305,6 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
           h("div", { className: "num", style: { fontSize: 24, fontWeight: 700, color: s.c, marginTop: 4, letterSpacing: "-0.02em" } }, s.v),
           h("div", { style: { marginTop: 6 } },
             h("span", { style: { fontSize: 10, color: s.subColor, fontWeight: 500 } }, s.sub)
-          ),
-          s.sparkData && s.sparkData.length > 1 && h("div", { style: { marginTop: 10 } },
-            h(Sparkline, { data: s.sparkData, color: s.c, height: 28, fill: true, strokeWidth: 1.5 })
           )
         )
       )
@@ -333,11 +323,8 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
     // B3 — Investimentos (resumo + donut + movimentos do mês)
     h(InvestmentsView, { refreshKey, filterMonth: picked ? `${picked.year}-${String(picked.month).padStart(2, "0")}` : "all" }),
 
-    // C — 2-column: categories | filterable table
-    h("div", { style: { display: "grid", gridTemplateColumns: "var(--col-hist)", gap: 14 } },
-
-      // C1 — left column: "Por categoria" + "Top PIX" (flex column)
-      h("div", { style: { display: "flex", flexDirection: "column", gap: 14 } },
+    // Resumos do mês — Por categoria | Top PIX (lado a lado)
+    h("div", { style: { display: "grid", gridTemplateColumns: "var(--col-2)", gap: 14, alignItems: "start" } },
 
         // C1a — By category
         h("div", { className: "card" },
@@ -383,10 +370,10 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
             ))
           )
         )
-      ), // end C1 flex column
+      ), // end resumos row
 
-      // C2 — Filterable transaction table
-      h("div", { className: "card", style: { display: "flex", flexDirection: "column" } },
+    // Tabela — largura total
+    h("div", { className: "card", style: { display: "flex", flexDirection: "column" } },
         h("div", { className: "card-h" },
           h("div", { className: "card-title" }, `Transações · ${filteredTx.length}`)
         ),
@@ -511,7 +498,6 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
           )
         )
       )
-    )
   );
 }
 

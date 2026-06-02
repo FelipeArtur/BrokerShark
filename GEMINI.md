@@ -25,7 +25,7 @@ BrokerShark is a **personal money-analysis tool** running **100% locally** on Li
 
 **O centro é a análise (web, React 18 + Flask, `http://localhost:8080`):**
 - **Dinheiro** — herói **Disponível pra gastar** (liquidez = contas − faturas) + faturas, "Este mês", contas, atividade e projeções.
-- **Histórico / Análise** — 36 meses, métricas, fluxo 6m, investimentos, categorias, Top PIX, tabela filtrável.
+- **Histórico / Análise** — meses com dados (intervalo real do banco), métricas, fluxo 6m, investimentos, categorias, Top PIX, tabela filtrável.
 
 **Apoio:** Telegram (entradas rápidas + relatórios/alertas), importação CSV mensal, chat de IA local. SQLite é a fonte única; backup mensal HDD + Drive.
 
@@ -198,7 +198,7 @@ Navegação = **2 telas**: **Dinheiro** (`OverviewView`) e **Histórico** (`Hist
 
 **Dinheiro (tela "agora"):** herói = **Disponível pra gastar** (`fetchAvailable` → `/api/available`, liquidez = contas − faturas), verde/vermelho, com equação `Contas − Faturas` + sparkline de liquidez; direita = contexto (Patrimônio/Investimentos/Faturas). Abaixo: cards de fatura, "Este mês", lista de contas correntes, atividade recente. Sempre mês atual. Estado de 1ª vez (zero dados) = convite **Importar**. Clicar fatura/conta → vai pra Histórico filtrado pela conta.
 
-**HistoryView (tela "análise"):** seletor de 36 meses + 4 métricas com Sparkline + gráfico fluxo 6m + `InvestmentsView` embutido (donut + movimentos) + por categoria + Top PIX + tabela filtrável (flow · método · categoria · **conta** · busca). Props `initialAccount`/`onAccountConsumed` = drill-down.
+**HistoryView (tela "análise"):** seletor dos meses com dados (`/api/monthly?present=1`, só meses com lançamentos) + 4 métricas (número + Δ vs média, sem sparkline) + gráfico fluxo 6m + `InvestmentsView` embutido (donut + movimentos) + por categoria + Top PIX (lado a lado) + tabela filtrável em largura total (flow · método · categoria · **conta** · busca). Props `initialAccount`/`onAccountConsumed` = drill-down.
 
 ## Estado dos dados
 

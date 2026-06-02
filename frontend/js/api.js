@@ -46,7 +46,7 @@ async function fetchPatrimonioHistory()    { return _get("/api/patrimonio-histor
 async function fetchLiquidityHistory()     { return _get("/api/liquidity-history"); }
 async function fetchBudgets()              { return _get("/api/budgets"); }
 async function searchTransactions(q)       { return _get(`/api/search?q=${encodeURIComponent(q)}`); }
-async function fetchMonthlyFull(bank)      { return _get(`/api/monthly${_params({ bank, months: 36 })}`); }
+async function fetchMonthlyFull(bank)      { return _get(`/api/monthly${_params({ bank, present: 1 })}`); }
 async function fetchCashflowStatement({ month, year } = {}) { return _get(`/api/cashflow-statement${_params({ month, year })}`); }
 async function fetchAvailable() {
   const r = await fetch("/api/available");

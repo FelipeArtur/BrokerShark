@@ -245,13 +245,18 @@ def api_monthly() -> Response:
     Query params:
         bank:    ``nubank`` | ``inter`` (optional)
         account: account id (optional — takes precedence over bank)
+        present: ``1`` to return only months that have transactions (real data
+                 range, no zero-filled window). Used by the Histórico month strip.
 
     Returns:
-        JSON array of ``{label, income, expenses}`` objects, oldest first.
+        JSON array of ``{label, month, year, income, expenses}`` objects, oldest first.
     """
     bank    = request.args.get("bank") or None
     account = request.args.get("account") or None
     months  = request.args.get("months", default=6, type=int)
+    present = request.args.get("present")
+    if present and not account:
+        return jsonify(database.get_monthly_history_present(bank=bank))
     if account:
         return jsonify(database.get_monthly_history_by_account(account, months=months))
     return jsonify(database.get_monthly_history(months=months, bank=bank))

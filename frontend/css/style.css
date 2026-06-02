@@ -46,7 +46,7 @@
 :root[data-density="compact"]     { --fz-6: 12px; --fz-5: 13px; --topbar-h: 44px; }
 :root[data-density="comfortable"] { --fz-6: 14px; --fz-5: 15px; --topbar-h: 60px; }
 
-:root[data-theme="light"] {
+:root[data-theme="Light"] {
   --bg-0: oklch(99% 0.003 250); --bg-1: oklch(97% 0.004 250);
   --bg-2: oklch(94% 0.005 250); --bg-3: oklch(90% 0.006 250);
   --line-1: oklch(89% 0.008 250); --line-2: oklch(82% 0.01 250);

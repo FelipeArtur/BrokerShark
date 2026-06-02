@@ -43,6 +43,7 @@ from core.db.analytics import (  # noqa: F401
     get_credit_card_statement,
     get_credit_card_billing_info,
     get_monthly_history,
+    get_monthly_history_present,
     get_expenses_by_category,
     get_account_monthly_summary,
     get_monthly_history_by_account,

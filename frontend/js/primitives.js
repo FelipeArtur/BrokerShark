@@ -480,7 +480,7 @@ function DateChooser({ value, onChange }) {
     React.createElement("input", {
       type: "date", className: "input", value, onChange: e => onChange(e.target.value),
       style: { height: 32, padding: "4px 8px", fontSize: "var(--fz-7)", flex: 1,
-        colorScheme: document.documentElement.dataset.theme === "light" ? "light" : "dark" }
+        colorScheme: document.documentElement.dataset.theme === "light" ? "light" : "Dark" }
     })
   );
 }
