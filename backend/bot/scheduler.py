@@ -1,7 +1,7 @@
 """APScheduler jobs — monthly backup, weekly report, and monthly closing report.
 
 Jobs registered:
-- ``monthly_backup``  — 1st of each month 07:00; local backup + Drive upload (only if due)
+- ``monthly_backup``  — 1st of each month 07:00; local (HDD) backup (only if due)
 - ``weekly_report``   — Monday 08:00 with income/expense summary and fatura info
 - ``monthly_closing`` — 1st of each month 08:00 with full previous-month breakdown
 """
@@ -14,7 +14,6 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from telegram import Bot
 
 from core import backup, database
-from integrations import drive
 from bot.utils import _fmt_brl as _fmt, _PT_MONTHS
 from integrations import ollama
 import config
@@ -153,11 +152,8 @@ async def _send_monthly_closing_report(bot: Bot) -> None:
 
 
 async def _run_monthly_backup() -> None:
-    """Run local backup + Drive upload on the 1st of each month if not yet done."""
-    created = await asyncio.to_thread(backup.run_backup)
-    if created:
-        await asyncio.to_thread(drive.upload_backup, config.DB_PATH)
-        await asyncio.to_thread(drive.prune_old_backups, 6)
+    """Run the local (HDD) backup on the 1st of each month if not yet done."""
+    await asyncio.to_thread(backup.run_backup)
 
 
 def build_scheduler(bot: Bot) -> AsyncIOScheduler:

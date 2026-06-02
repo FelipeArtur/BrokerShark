@@ -32,7 +32,7 @@ BrokerShark is a **personal money-analysis tool** running **100% locally** on Li
 
 **Supporting roles (não são o centro):** Telegram bot (entradas rápidas em linguagem natural + relatórios/alertas agendados), importação mensal de CSV (extratos/faturas), e chat de IA local (Ollama) que sempre busca dados reais antes de responder.
 
-Every transaction is persisted in a local SQLite database (single source of truth). Monthly backups go to a local HDD directory and to Google Drive (same service account).
+Every transaction is persisted in a local SQLite database (single source of truth). Monthly backups go to a local HDD directory.
 
 **User profile:** Single user, accounts at Nubank and Inter (credit card + conta corrente). Does **not** use debit card. Investments: Caixinha Nubank, Porquinho Inter, Tesouro Direto.
 
@@ -51,7 +51,6 @@ brokershark/
 │   │   ├── events.py      # SSE pub/sub — notify() after writes
 │   │   └── backup.py      # Monthly backup: local HDD (should_backup + run_backup)
 │   ├── integrations/
-│   │   ├── drive.py       # Google Drive — monthly backup upload + recovery
 │   │   └── ollama.py      # Ollama async client — chat, chat_stream
 │   ├── dashboard/
 │   │   └── server.py      # Flask routes + Waitress WSGI (32 threads, SSE)
@@ -76,8 +75,6 @@ brokershark/
 │                          # /month-report, /venv
 ├── data/                  # SQLite database (not versioned)
 ├── logs/                  # Runtime logs (not versioned)
-├── credentials/
-│   └── service_account.json  # Google API credentials (not versioned)
 ├── requirements.txt
 ├── .env
 └── .env.example
@@ -138,7 +135,7 @@ This logic is symmetric for both Nubank CC and Inter CC.
 | Language | Python 3.12 |
 | Bot framework | python-telegram-bot v21 |
 | Database | SQLite (WAL mode) |
-| Backup (cloud) | google-api-python-client + google-auth (Drive) |
+| Backup | local HDD copy (monthly cron) |
 | Scheduler | APScheduler |
 | Dashboard API | Flask 3.1 + Waitress 3.0 (32 threads, daemon thread) |
 | Dashboard frontend | React 18 + Babel standalone (no build step), Chart.js |
@@ -169,10 +166,7 @@ python backend/main.py
 - `run_backup()` — copies DB if due; keeps last 12 monthly files
 - Triggered by monthly cron job (1st of each month at 07:00)
 
-**Google Drive:**
-- Upload runs after successful local backup (same cron job)
-- Folder: `DRIVE_BACKUP_FOLDER` (default: "BrokerShark Backups")
-- Files named `brokershark_YYYY-MM.db`; keeps last 6
+> Cloud backup (Google Drive) was removed — backup is local-only.
 
 ---
 
@@ -304,7 +298,7 @@ Sources are uploaded via the **"+ Importar"** header button (3-step modal: conta
 - **All DB access through `core/database.py`** — no inline SQL elsewhere
 - **Bot never writes directly to DB** — data validated before INSERT
 - `PRAGMA journal_mode=WAL` and `PRAGMA foreign_keys=ON` at connection time
-- **Drive/backup failures never propagate** — logged silently
+- **Backup failures never propagate** — logged silently
 - **Dashboard Flask server runs in a daemon thread** — never block the event loop
 
 ---
@@ -315,8 +309,6 @@ Sources are uploaded via the **"+ Importar"** header button (3-step modal: conta
 TELEGRAM_TOKEN=seu_token_aqui
 TELEGRAM_CHAT_ID=seu_chat_id_aqui
 DB_PATH=/home/SEU_USUARIO/brokershark/data/brokershark.db
-GOOGLE_CREDENTIALS=/home/SEU_USUARIO/brokershark/credentials/service_account.json
-DRIVE_BACKUP_FOLDER=BrokerShark Backups
 DASHBOARD_PORT=8080
 OLLAMA_URL=http://localhost:11434
 OLLAMA_MODEL=qwen2.5:7b
@@ -369,7 +361,7 @@ All chart components receive **real API data only** — no placeholder data.
 
 ## Automated Jobs
 
-**Monthly backup (1st, 07:00):** local backup to `/mnt/HDD_Arquivos/Backups/brokershark` if not yet done this month + Drive upload + prune.
+**Monthly backup (1st, 07:00):** local backup to `/mnt/HDD_Arquivos/Backups/brokershark` if not yet done this month (keeps last 12 files).
 
 **Weekly report (Monday 08:00):** expenses, income, top category, reserves, fatura due dates.
 
@@ -409,7 +401,7 @@ Produto = **análise do meu dinheiro**. A web (2 telas: **Dinheiro** + **Histór
 - **Histórico**: timeline dos meses com dados, 4 métricas, fluxo 6m, investimentos (donut + movimentos), por categoria, Top PIX, tabela filtrável (conta/método/categoria/busca).
 - Importação mensal de CSV (`nu-db`, `inter-db`, `inter-cc`) com preview + dedup; staging em `import_staging`.
 - Bot Telegram (entradas em linguagem natural + relatórios/alertas agendados; args das tools do LLM validados).
-- Backup mensal: HDD + Google Drive; SSE ao vivo.
+- Backup mensal: HDD local; SSE ao vivo.
 
 **Backlog (diferido):**
 - [ ] Importar Relatório B3 (xlsx) → posições CDB/Tesouro em `investments.current_balance` (precisa `openpyxl`; tratar XXE/zip-slip).

@@ -1,4 +1,4 @@
-"""Monthly SQLite backup — local (HDD) + Google Drive.
+"""Monthly SQLite backup — local (HDD).
 
 Backup runs on the 1st of each month via APScheduler cron.
 `should_backup()` guards against double-runs within the same calendar month.

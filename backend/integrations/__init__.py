@@ -1,1 +1,1 @@
-"""External integrations package — Google Drive backup, Ollama AI."""
+"""External integrations package — Ollama AI."""

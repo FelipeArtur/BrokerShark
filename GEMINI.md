@@ -27,7 +27,7 @@ BrokerShark is a **personal money-analysis tool** running **100% locally** on Li
 - **Dinheiro** — herói **Disponível pra gastar** (liquidez = contas − faturas) + faturas, "Este mês", contas, atividade e projeções.
 - **Histórico / Análise** — meses com dados (intervalo real do banco), métricas, fluxo 6m, investimentos, categorias, Top PIX, tabela filtrável.
 
-**Apoio:** Telegram (entradas rápidas + relatórios/alertas), importação CSV mensal, chat de IA local. SQLite é a fonte única; backup mensal HDD + Drive.
+**Apoio:** Telegram (entradas rápidas + relatórios/alertas), importação CSV mensal, chat de IA local. SQLite é a fonte única; backup mensal local (HDD).
 
 **User:** Single user, Nubank + Inter (CC + conta corrente). No debit card. Investments: Caixinha Nubank, Porquinho Inter, Tesouro Direto.
 
@@ -53,7 +53,7 @@ bot/handlers/ — Telegram confirmation (if Telegram)
 - **A análise é o produto.** Web (Dinheiro + Histórico) no centro; Telegram/import/IA são apoio.
 - **CSV import via web UI** ("+ Importar" modal → preview/staging → confirm; dedup por UUID/hash; sem categorização automática — categoriza depois). Pipeline em `backend/core/ingestion/`. Fontes: `nu-db`, `inter-db`, `inter-cc`.
 - **AI is Pierre-inspired:** tool calling, never fabricates data, always fetches via tools; args das tools validados no servidor.
-- **Backup is monthly:** `should_backup()` checa por mês-calendário → local HDD + Drive.
+- **Backup is monthly:** `should_backup()` checa por mês-calendário → local HDD (sem cloud).
 
 ---
 
@@ -64,7 +64,7 @@ backend/
   main.py, config.py
   core/     database.py (shim), events.py, backup.py,
             db/ (schema, crud, analytics, categories), ingestion/ (adapters, dedup, service)
-  integrations/  drive.py, ollama.py
+  integrations/  ollama.py
   dashboard/     server.py
   bot/      application.py, scheduler.py, utils.py, constants.py, handlers/ (commands, ai_chat)
 frontend/
@@ -84,7 +84,7 @@ tests/   conftest.py, test_database.py, test_ingestion.py, test_ai_chat.py
 | Language | Python 3.12 |
 | Bot | python-telegram-bot v21 |
 | Database | SQLite (WAL mode) |
-| Backup | google-api-python-client + google-auth (Drive) |
+| Backup | local HDD copy (monthly cron) |
 | Scheduler | APScheduler |
 | Dashboard API | Flask 3.1 + Waitress 3.0 (32 threads) |
 | Frontend | React 18 + Babel standalone, Chart.js |
@@ -173,7 +173,7 @@ Tools (13): `get_monthly_summary`, `get_monthly_comparison`, `get_expenses_by_ca
 - **Type hints mandatory** on every function signature
 - **`PRAGMA journal_mode=WAL` + `PRAGMA foreign_keys=ON`** at connection time
 - **Bot never writes to DB directly** — data validated before INSERT
-- **Drive/backup failures silent** — logged, never raised
+- **Backup failures silent** — logged, never raised
 - **Async:** Dashboard in daemon thread, never block event loop
 - **Authorization check first** in every Telegram handler (chat_id)
 - **Internal transfers ≠ income:** `flow='expense', method='transfer', dest_account_id=<dest>`
@@ -188,8 +188,6 @@ Tools (13): `get_monthly_summary`, `get_monthly_comparison`, `get_expenses_by_ca
 TELEGRAM_TOKEN=seu_token_aqui
 TELEGRAM_CHAT_ID=seu_chat_id_aqui
 DB_PATH=/home/SEU_USUARIO/brokershark/data/brokershark.db
-GOOGLE_CREDENTIALS=/home/SEU_USUARIO/brokershark/credentials/service_account.json
-DRIVE_BACKUP_FOLDER=BrokerShark Backups
 DASHBOARD_PORT=8080
 OLLAMA_URL=http://localhost:11434
 OLLAMA_MODEL=qwen2.5:7b

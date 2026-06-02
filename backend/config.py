@@ -14,12 +14,8 @@ TELEGRAM_CHAT_ID: int = int(os.getenv("TELEGRAM_CHAT_ID", "0"))
 DB_PATH: str = os.getenv("DB_PATH", "data/brokershark.db")
 MAX_BACKUPS: int = 12
 
-# ── Backup — local (HDD) + Google Drive ───────────────────────────────────────
+# ── Backup — local (HDD) ──────────────────────────────────────────────────────
 LOCAL_BACKUP_DIR: str = "/mnt/HDD_Arquivos/Backups/brokershark"
-GOOGLE_CREDENTIALS: str = os.getenv(
-    "GOOGLE_CREDENTIALS", "credentials/service_account.json"
-)
-DRIVE_BACKUP_FOLDER: str = os.getenv("DRIVE_BACKUP_FOLDER", "BrokerShark Backups")
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 DASHBOARD_PORT: int = int(os.getenv("DASHBOARD_PORT", "8080"))
