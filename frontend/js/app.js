@@ -8,7 +8,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
 const {
   fmtBRL, fmtDateBR, Modal, useToasts, BankChip, BrokerSharkLogo,
   PT_SHORT,
-  OverviewView, HistoryView,
+  OverviewView, HistoryView, InvestmentsView,
   CategoriesPanel,
 } = window.BS;
 
@@ -384,9 +384,10 @@ function ImportModal({ onClose, onDone }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   const names = (window.BS && window.BS.accountNames) || {};
   const ACCOUNTS = [
-    { id: "nu-db",    label: names["nu-db"]    || "Nubank Conta",  hint: "Extrato (CSV)" },
-    { id: "inter-db", label: names["inter-db"] || "Inter Conta",   hint: "Extrato (CSV)" },
-    { id: "inter-cc", label: names["inter-cc"] || "Inter Crédito", hint: "Fatura (CSV)" },
+    { id: "nu-db",    label: names["nu-db"]    || "Nubank Conta",   hint: "Extrato (CSV)" },
+    { id: "inter-db", label: names["inter-db"] || "Inter Conta",    hint: "Extrato (CSV)" },
+    { id: "inter-cc", label: names["inter-cc"] || "Inter Crédito",  hint: "Fatura (CSV)" },
+    { id: "b3",       label: "Relatório B3",                        hint: "Posições (XLSX)" },
   ];
 
   const [account, setAccount]   = useState("nu-db");
@@ -397,9 +398,18 @@ function ImportModal({ onClose, onDone }) {
   const [err, setErr]           = useState(null);
 
   async function analyze() {
-    if (!file) { setErr("Escolha um arquivo CSV."); return; }
+    if (!file) { setErr("Escolha um arquivo."); return; }
     setBusy(true); setErr(null);
     try {
+      if (account === "b3") {
+        const formData = new FormData();
+        formData.append("file", file);
+        const req = await fetch("/api/import/b3", { method: "POST", body: formData });
+        const res = await req.json();
+        if (!req.ok) throw new Error(res.error || "Falha ao importar B3.");
+        onDone({ created: res.created || 0, updated: res.updated || 0, inserted: res.total || 0 });
+        return;
+      }
       const res = await importPreview(file, account);
       setPreview(res);
       setExcluded(new Set());
@@ -464,7 +474,7 @@ function ImportModal({ onClose, onDone }) {
     h("div", null,
       h("label", { style: { fontSize: 11, fontWeight: 600, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.05em" } }, "Arquivo"),
       h("input", {
-        type: "file", accept: ".csv,text/csv", style: { display: "block", marginTop: 6, fontSize: 13 },
+        type: "file", accept: account === "b3" ? ".xlsx" : ".csv,text/csv", style: { display: "block", marginTop: 6, fontSize: 13 },
         onChange: e => { setFile(e.target.files[0] || null); setErr(null); },
       })
     ),
@@ -600,7 +610,7 @@ function App() {
 
   // Keyboard shortcuts (functional, no visual hints shown)
   useEffect(() => {
-    const SECTION_MAP = { "1": "money", "2": "history" };
+    const SECTION_MAP = { "1": "money", "2": "history", "3": "investments" };
     function onKey(e) {
       if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || e.target.tagName === "SELECT") return;
       if (e.key === "Escape") { setSearchModalOpen(false); setTweaksOpen(false); }
@@ -621,8 +631,9 @@ function App() {
   }
 
   const SECTIONS = [
-    { id: "money",   label: "Visão do Mês"  },
-    { id: "history", label: "Histórico" },
+    { id: "money",       label: "Visão do Mês"  },
+    { id: "history",     label: "Histórico" },
+    { id: "investments", label: "Investimentos" },
   ];
 
   return h("div", { id: "app", style: { height: "100vh", display: "flex", flexDirection: "column" } },
@@ -689,6 +700,7 @@ function App() {
             onEditCategory: setEditTx, onDeleteTx: handleDeleteTx, refreshKey,
             initialAccount: historyAccount, onAccountConsumed: () => setHistoryAccount(null)
           }),
+          section === "investments" && h(InvestmentsView, { refreshKey, filterMonth: "all" }),
           section === "categories" && h(CategoriesPanel, { refreshKey, onRefresh: () => setRefreshKey(k => k + 1) }),
 
           h("footer", { style: { marginTop: 20, padding: "12px 0", borderTop: "1px solid var(--line-1)", fontSize: 10, color: "var(--fg-3)" } },

@@ -50,7 +50,7 @@ bot/handlers/ — Telegram confirmation (if Telegram)
 ### Key principles
 
 - **SQLite = single source of truth.** No external write-back.
-- **A análise é o produto.** Web (Dinheiro + Histórico) no centro; Telegram/import/IA são apoio.
+- **A análise é o produto.** Web (Visão do Mês + Histórico + Investimentos) no centro; Telegram/import/IA são apoio.
 - **CSV import via web UI** ("+ Importar" modal → preview/staging → confirm; dedup por UUID/hash; sem categorização automática — categoriza depois). Pipeline em `backend/core/ingestion/`. Fontes: `nu-db`, `inter-db`, `inter-cc`.
 - **AI is Pierre-inspired:** tool calling, never fabricates data, always fetches via tools; args das tools validados no servidor.
 - **Backup is monthly:** `should_backup()` checa por mês-calendário → local HDD (sem cloud).
@@ -195,9 +195,9 @@ OLLAMA_MODEL=qwen2.5:7b
 OLLAMA_TIMEOUT=60
 ```
 
-## Dashboard frontend — 2 telas (Fase 14)
+## Dashboard frontend — 3 telas
 
-Navegação = **2 telas**: **Dinheiro** (`OverviewView`) e **Histórico** (`HistoryView`). Atalhos `1`/`2`. Categorias saiu da nav → vive em Configurações.
+Navegação = **3 telas**: **Visão do Mês** (`OverviewView`), **Histórico** (`HistoryView`) e **Investimentos** (`view-investments.js` → `InvestmentsView`). Atalhos `1`/`2`/`3`. Categorias saiu da nav → vive em Configurações. A aba Investimentos mostra donut + total (Σ `investments.current_balance`) + lista editável por posição (B3 CDB/Tesouro + Caixinha + Porquinho).
 
 **Dinheiro (tela "agora"):** herói = **Disponível pra gastar** (`fetchAvailable` → `/api/available`, liquidez = contas − faturas), verde/vermelho, com equação `Contas − Faturas` + sparkline de liquidez; direita = contexto (Patrimônio/Investimentos/Faturas). Abaixo: cards de fatura, "Este mês", lista de contas correntes, atividade recente. Sempre mês atual. Estado de 1ª vez (zero dados) = convite **Importar**. Clicar fatura/conta → vai pra Histórico filtrado pela conta.
 

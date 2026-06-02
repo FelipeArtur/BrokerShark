@@ -1,143 +1,8 @@
-/* view-history.js — InvestmentsView + HistoryView (tela Histórico/Análise) */
-/* global React, fetchInvestments, fetchInvestmentMovements, patchInvestmentBalance,
-          fetchMonthlyFull, fetchMonthTransactions, fetchPixTop, deleteTransaction */
+/* view-history.js — HistoryView (tela Histórico/Análise) */
+/* global React, fetchMonthlyFull, fetchMonthTransactions, fetchPixTop, deleteTransaction */
 
 const { useState: _s2St, useEffect: _s2Ef, useMemo: _s2Memo } = React;
-const { fmtBRL, fmtBRLCompact, fmtDateBR, BankChip, DualLine, Donut, PT_MONTHS, PT_SHORT, fmtCycleDate } = window.BS;
-
-/* ── InvestmentsView ─────────────────────────────────────────────────────── */
-function InvestmentsView({ refreshKey, filterMonth }) {
-  const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
-  const [investments, setInvestments] = _s2St([]);
-  const [editingId, setEditingId] = _s2St(null);
-  const [editInput, setEditInput] = _s2St("");
-  const [editErr, setEditErr] = _s2St("");
-  const [periodMovements, setPeriodMovements] = _s2St([]);
-
-  _s2Ef(() => { fetchInvestments().then(setInvestments); }, [refreshKey]);
-  _s2Ef(() => {
-    if (filterMonth && filterMonth !== "all") {
-      const [year, month] = filterMonth.split("-").map(Number);
-      fetchInvestmentMovements({ month, year }).then(setPeriodMovements);
-    } else {
-      setPeriodMovements([]);
-    }
-  }, [filterMonth, refreshKey]);
-
-  async function saveBalance(inv) {
-    const val = parseFloat(editInput.replace(",", "."));
-    if (isNaN(val) || val < 0) { setEditErr("Valor inválido"); return; }
-    setEditErr("");
-    try {
-      await patchInvestmentBalance(inv.id, val);
-      setInvestments(prev => prev.map(i => i.id === inv.id ? { ...i, balance: val } : i));
-      setEditingId(null);
-    } catch (e) {
-      setEditErr(e.message || "Erro");
-    }
-  }
-
-  const total = investments.reduce((s, i) => s + (i.balance || 0), 0);
-  const COLORS = ["oklch(72% 0.12 290)", "oklch(72% 0.13 230)", "oklch(72% 0.14 155)"];
-  const donutData = investments.map(i => ({ ...i }));
-
-  if (investments.length === 0) {
-    return h("div", { className: "fade-in pane", style: { padding: 40, textAlign: "center", color: "var(--fg-3)" } },
-      h("div", { style: { fontSize: 32, marginBottom: 10, opacity: 0.3 } }, "◈"),
-      h("div", { style: { fontSize: 13, fontWeight: 600, color: "var(--fg-2)", marginBottom: 6 } }, "Nenhum investimento cadastrado"),
-      h("div", { style: { fontSize: 11 } }, "Registre movimentos de investimento pelo bot ou pelo formulário de entrada.")
-    );
-  }
-
-  return h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 14 } },
-    h("div", { style: { display: "grid", gridTemplateColumns: "var(--col-inv)", gap: 14 } },
-      h("div", { style: { paddingBottom: 24 } },
-        h("div", { className: "eyebrow", style: { marginBottom: 6 } }, "Patrimônio em investimentos"),
-        h("div", { className: "num", style: { fontSize: 32, fontWeight: 700, letterSpacing: "-0.02em" } }, fmtBRL(total)),
-        h("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", marginTop: 18 } },
-          h(Donut, { data: donutData, size: 200, thickness: 28, valueKey: "balance", colors: COLORS })
-        ),
-        h("div", { style: { marginTop: 16, display: "flex", flexDirection: "column", gap: 6 } },
-          investments.map((inv, i) => {
-            const bal = inv.balance || 0;
-            const pct = total ? (bal / total) * 100 : 0;
-            return h("div", { key: i, style: { display: "flex", alignItems: "center", gap: 8, fontSize: 11 } },
-              h("span", { style: { width: 10, height: 10, borderRadius: 2, background: COLORS[i % COLORS.length], display: "inline-block" } }),
-              h("span", { style: { flex: 1, color: "var(--fg-1)" } }, inv.name),
-              h("span", { className: "num", style: { color: "var(--fg-2)" } }, pct.toFixed(1), "%"),
-              h("span", { className: "num", style: { width: 90, textAlign: "right", fontWeight: 600 } }, fmtBRL(bal))
-            );
-          })
-        )
-      ),
-      h("div", { className: "pane" },
-        h("div", { className: "pane-h" },
-          h("div", { className: "pane-title" }, "Investimentos"),
-          h("span", { style: { fontSize: 10, color: "var(--fg-3)" } }, "clique no valor para corrigir")
-        ),
-        h("div", { className: "pane-content", style: { display: "flex", flexDirection: "column", gap: 14 } },
-          investments.map((inv, i) => {
-            const bal = inv.balance || 0;
-            const isEditing = editingId === inv.id;
-            return h("div", { key: i, style: { padding: "10px 0", borderBottom: "1px solid var(--line-1)" } },
-              h("div", { style: { display: "flex", alignItems: "center", gap: 14 } },
-                h("div", { style: { flex: 1 } },
-                  h("div", { style: { fontWeight: 600, fontSize: 13 } }, inv.name),
-                  h(BankChip, { bank: inv.bank })
-                ),
-                !isEditing
-                  ? h("button", {
-                      onClick: () => { setEditingId(inv.id); setEditInput(bal.toFixed(2).replace(".", ",")); setEditErr(""); },
-                      style: { textAlign: "right", background: "none", border: "none", cursor: "pointer", padding: 0 }
-                    },
-                      h("div", { className: "num", style: { fontSize: 18, fontWeight: 700, borderBottom: "1px dashed var(--line-2)" } }, fmtBRL(bal)),
-                      h("div", { style: { fontSize: 10, color: "var(--fg-3)", marginTop: 2 } }, inv.type === "savings" ? "Poupança" : "Tesouro")
-                    )
-                  : h("div", { style: { display: "flex", gap: 4, alignItems: "center" } },
-                      h("input", {
-                        autoFocus: true, className: "input", value: editInput,
-                        onChange: e => { setEditInput(e.target.value); setEditErr(""); },
-                        onKeyDown: e => { if (e.key === "Enter") saveBalance(inv); if (e.key === "Escape") { setEditingId(null); setEditErr(""); } },
-                        style: { height: 30, width: 100, padding: "0 6px", fontSize: 13, borderColor: editErr ? "var(--neg)" : undefined }
-                      }),
-                      h("button", { className: "btn btn-primary btn-sm", onClick: () => saveBalance(inv), style: { height: 30 } }, "✓"),
-                      h("button", { className: "btn btn-ghost btn-sm", onClick: () => { setEditingId(null); setEditErr(""); }, style: { height: 30 } }, "✕")
-                    )
-              ),
-              isEditing && editErr && h("div", { style: { fontSize: 10, color: "var(--neg)", marginTop: 4 } }, editErr)
-            );
-          })
-        ),
-        periodMovements.length > 0 && h("div", { style: { borderTop: "1px solid var(--line-1)", padding: "12px 14px" } },
-          h("div", { style: { fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--fg-3)", marginBottom: 10 } }, "Movimentos no período"),
-          h("div", { style: { display: "flex", flexDirection: "column", gap: 6 } },
-            periodMovements.map((m, i) => {
-              const isDeposit = m.operation === "deposit";
-              return h("div", { key: i, style: { display: "flex", alignItems: "center", gap: 8, fontSize: 11 } },
-                h("span", { style: { fontSize: 9, color: "var(--fg-3)", width: 42, fontFamily: "var(--ff-mono)" } }, m.date.slice(5)),
-                h("span", { style: { flex: 1, color: "var(--fg-1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, m.investment_name),
-                h("span", { style: { fontSize: 9, padding: "1px 5px", borderRadius: 3, background: isDeposit ? "color-mix(in oklch, var(--pos) 15%, transparent)" : "color-mix(in oklch, var(--neg) 15%, transparent)", color: isDeposit ? "var(--pos)" : "var(--neg)", fontWeight: 600 } }, isDeposit ? "dep." : "res."),
-                h("span", { className: "num", style: { fontWeight: 600, color: isDeposit ? "var(--pos)" : "var(--neg)" } },
-                  isDeposit ? "+" : "−", fmtBRL(m.amount, { decimals: 0 }))
-              );
-            })
-          ),
-          (() => {
-            const netMov = periodMovements.reduce((s, m) => s + (m.operation === "deposit" ? m.amount : -m.amount), 0);
-            return h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10, paddingTop: 8, borderTop: "1px solid var(--line-1)" } },
-              h("span", { style: { fontSize: 10, color: "var(--fg-3)" } }, `${periodMovements.length} movimento${periodMovements.length !== 1 ? "s" : ""}`),
-              h("span", { className: "num", style: { fontSize: 11, fontWeight: 700, color: netMov >= 0 ? "var(--pos)" : "var(--neg)" } },
-                netMov >= 0 ? "+" : "−", fmtBRL(Math.abs(netMov), { decimals: 0 }))
-            );
-          })()
-        ),
-        periodMovements.length === 0 && filterMonth && filterMonth !== "all" && h("div", { style: { borderTop: "1px solid var(--line-1)", padding: "14px", textAlign: "center", color: "var(--fg-3)", fontSize: 11 } },
-          "Sem movimentos neste período"
-        )
-      )
-    )
-  );
-}
+const { fmtBRL, fmtBRLCompact, fmtDateBR, BankChip, DualLine, PT_MONTHS, PT_SHORT, fmtCycleDate } = window.BS;
 
 /* ── HistoryView — Lupa do mês ───────────────────────────────────────────── */
 
@@ -340,9 +205,6 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
         h(DualLine, { data: monthly.slice(Math.max(0, pickedIdx - 5), pickedIdx + 1), height: 200 }))
     ),
 
-    // B3 — Investimentos (resumo + donut + movimentos do mês)
-    h(InvestmentsView, { refreshKey, filterMonth: picked ? `${picked.year}-${String(picked.month).padStart(2, "0")}` : "all" }),
-
     // Resumos do mês — Por categoria | Top PIX (lado a lado)
     h("div", { style: { display: "grid", gridTemplateColumns: pixTop.length > 0 ? "var(--col-2)" : "1fr", gap: 14, alignItems: "start" } },
 
@@ -476,4 +338,4 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
 }
 
 window.BS = window.BS || {};
-Object.assign(window.BS, { InvestmentsView, HistoryView });
+Object.assign(window.BS, { HistoryView });

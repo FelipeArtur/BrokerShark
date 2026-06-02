@@ -69,7 +69,8 @@ brokershark/
 │       ├── api.js             # Fetch wrappers for all endpoints
 │       ├── primitives.js      # Charts, shared UI components
 │       ├── view-overview.js   # OverviewView (tela Dinheiro) + CategoriesPanel
-│       ├── view-history.js     # InvestmentsView + HistoryView (tela Histórico/Análise)
+│       ├── view-history.js     # HistoryView (tela Histórico/Análise)
+│       ├── view-investments.js # InvestmentsView (tela Investimentos)
 │       └── app.js             # App shell — nav, SSE, search, tweaks
 ├── .claude/commands/      # /db-reset, /add-category, /check-health,
 │                          # /month-report, /venv
@@ -99,7 +100,7 @@ bot/handlers/ai_chat.py — confirmation message + spending alert if expenses �
 ### Key principles
 
 - **SQLite is the single source of truth.** No external write-back.
-- **A análise (web: Dinheiro + Histórico) é o produto.** Telegram, importação CSV e chat de IA são apoio.
+- **A análise (web: Visão do Mês + Histórico + Investimentos) é o produto.** Telegram, importação CSV e chat de IA são apoio.
 - **AI is Pierre-inspired:** tool calling, context injection, conversation-as-interface (Telegram only). Never fabricates data — always fetches via tools before answering.
 - **Backup runs on the 1st of each month** (cron 07:00): `should_backup()` guards against double-runs by checking if `brokershark_YYYY-MM.db` already exists this month. Path hardcoded to `/mnt/HDD_Arquivos/Backups/brokershark`.
 - **All Telegram registrations go through AI.** The bot has a single `MessageHandler` catch-all → `ai_chat_handler`. No `ConversationHandler` flows exist.
@@ -321,30 +322,32 @@ OLLAMA_TIMEOUT=60
 
 ## Dashboard Frontend Notes
 
-### Navigation — 2-screen IA (Fase 14 redesign)
+### Navigation — 3-screen IA
 
-The dashboard navigates **2 screens** (`app.js` `SECTIONS`): **Dinheiro** (`OverviewView`) and **Histórico** (`HistoryView`). Keyboard shortcuts `1`=Dinheiro, `2`=Histórico.
+The dashboard navigates **3 screens** (`app.js` `SECTIONS`): **Visão do Mês** (`OverviewView`), **Histórico** (`HistoryView`) e **Investimentos** (`InvestmentsView`). Keyboard shortcuts `1`=Visão do Mês, `2`=Histórico, `3`=Investimentos.
 
 - **Dinheiro** = "como estou agora". Hero number is **Disponível pra gastar** (`fetchAvailable` → `/api/available`, liquidez = contas correntes − faturas em aberto), colored green/red, with the equation `Contas − Faturas` below and a real liquidity-trend sparkline (`/api/liquidity-history`). Right column = **ledger** mono (Patrimônio total / Contas / Investimentos / Faturas em aberto) via `LedgerRow` — sem barras de progresso decorativas. Layout: faturas em aberto logo abaixo do herói; depois **Este mês** + **Contas correntes** lado a lado (grid `var(--col-2)`); por fim atividade recente. Sempre no mês atual (sem seletor de período aqui). First-run (zero data) colapsa num único convite **Importar**. Clicar numa fatura/conta abre o Histórico filtrado por aquela conta.
 - **Fase 14b — money assistant (advisory):** "Este mês" card shows a run-rate month-close projection; fatura cards show a cycle run-rate "projeção fechamento ~R$Y" (attenuated in the first 5 days of the cycle). Projections are client-side estimates, labelled as such.
-- **Histórico** = "o que aconteceu". Hosts the **period selector** (timeline dos meses com dados — `fetchMonthlyFull` → `/api/monthly?present=1` → `get_monthly_history_present`, só meses com lançamentos), 4 metric cards (número + Δ vs média, sem sparkline), 6-month flow chart, embedded `InvestmentsView` (donut + movimentos), por categoria, Top PIX, and the **filterable table** (filtros: flow · método · categoria · **conta** · busca). Resumos (Por categoria + Top PIX) lado a lado; tabela em largura total. `initialAccount`/`onAccountConsumed` props drive the drill-down filter.
-- **Categorias** (`CategoriesPanel`) is no longer a nav tab — reached via Configurações (`TweaksPanel`). The old `CardsView`/`AccountsView`/`AccountsCardsView` were **removed** (Fase 14 cleanup); their content lives in Histórico (`view-history.js` = `InvestmentsView` + `HistoryView`).
+- **Histórico** = "o que aconteceu". Hosts the **period selector** (timeline dos meses com dados — `fetchMonthlyFull` → `/api/monthly?present=1` → `get_monthly_history_present`, só meses com lançamentos), 4 metric cards (número + Δ vs média, sem sparkline), 6-month flow chart, por categoria, Top PIX, and the **filterable table** (filtros: flow · método · categoria · **conta** · busca). Resumos (Por categoria + Top PIX) lado a lado; tabela em largura total. `initialAccount`/`onAccountConsumed` props drive the drill-down filter.
+- **Investimentos** = aba dedicada (`view-investments.js` → `InvestmentsView`). Donut + "Patrimônio em investimentos" (Σ `investments.current_balance`) + lista editável por posição (clique no valor → `PATCH /api/investments/<id>/balance`). Posições B3 (CDB/Tesouro) + Caixinha Nubank + Porquinho Inter. Rótulos de tipo: Poupança / Tesouro Direto / CDB / Renda fixa.
+- **Categorias** (`CategoriesPanel`) is no longer a nav tab — reached via Configurações (`TweaksPanel`). The old `CardsView`/`AccountsView`/`AccountsCardsView` were **removed** (Fase 14 cleanup).
 
 ### Charts (`primitives.js`)
 
 | Component | Type | Used in |
 |-----------|------|---------|
 | `DualLine` | Chart.js 2-line with axes | Histórico (fluxo 6 meses) |
-| `Donut` | Chart.js doughnut | Histórico → InvestmentsView |
+| `Donut` | Chart.js doughnut | Investimentos → InvestmentsView |
 
 All chart components receive **real API data only** — no placeholder data.
 (`Sparkline`, `BarChart`, `Progress` e `PatrimonioChart` foram removidos — não eram mais renderizados após o redesign.)
 
 ### Telas (arquivos)
 
-- `view-overview.js` → **Dinheiro** (`OverviewView`) + `CategoriesPanel`. Comportamento detalhado na seção "Navigation — 2-screen IA" acima.
-- `view-history.js` → **Histórico / Análise** (`InvestmentsView` + `HistoryView`).
-- `app.js` → shell (nav de 2 telas, SSE, busca, Configurações, importação).
+- `view-overview.js` → **Visão do Mês** (`OverviewView`) + `CategoriesPanel`. Comportamento detalhado na seção "Navigation — 3-screen IA" acima.
+- `view-history.js` → **Histórico / Análise** (`HistoryView`).
+- `view-investments.js` → **Investimentos** (`InvestmentsView`).
+- `app.js` → shell (nav de 3 telas, SSE, busca, Configurações, importação).
 
 ### Outros
 
@@ -390,7 +393,7 @@ All chart components receive **real API data only** — no placeholder data.
 
 ## Estado atual
 
-Produto = **análise do meu dinheiro**. A web (2 telas: **Dinheiro** + **Histórico/Análise**) é o centro; Telegram, importação CSV e chat de IA são apoio. O histórico completo das fases vive no `git log`.
+Produto = **análise do meu dinheiro**. A web (3 telas: **Visão do Mês** + **Histórico/Análise** + **Investimentos**) é o centro; Telegram, importação CSV e chat de IA são apoio. O histórico completo das fases vive no `git log`.
 
 **Já entregue (resumo):**
 - Número herói **Disponível pra gastar** (liquidez = contas − faturas) + projeções (fechamento do mês / próxima fatura).
