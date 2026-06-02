@@ -15,7 +15,7 @@ DB_PATH: str = os.getenv("DB_PATH", "data/brokershark.db")
 MAX_BACKUPS: int = 12
 
 # ── Backup — local (HDD) + Google Drive ───────────────────────────────────────
-LOCAL_BACKUP_DIR: str = "/mnt/HDD_Arquivos/brokershark/backups"
+LOCAL_BACKUP_DIR: str = "/mnt/HDD_Arquivos/Backups/brokershark"
 GOOGLE_CREDENTIALS: str = os.getenv(
     "GOOGLE_CREDENTIALS", "credentials/service_account.json"
 )
