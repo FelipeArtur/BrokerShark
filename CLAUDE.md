@@ -66,8 +66,8 @@ brokershark/
 │   └── js/
 │       ├── api.js             # Fetch wrappers for all endpoints
 │       ├── primitives.js      # Charts, shared UI components
-│       ├── view-overview.js   # OverviewView
-│       ├── view-secondary.js  # CardsView, AccountsView, InvestmentsView, HistoryView
+│       ├── view-overview.js   # OverviewView (tela Dinheiro) + CategoriesPanel
+│       ├── view-history.js     # InvestmentsView + HistoryView (tela Histórico/Análise)
 │       └── app.js             # App shell — nav, SSE, search, tweaks
 ├── .claude/commands/      # /db-reset, /add-category, /check-health,
 │                          # /month-report, /venv
@@ -333,7 +333,7 @@ The dashboard navigates **2 screens** (`app.js` `SECTIONS`): **Dinheiro** (`Over
 - **Dinheiro** = "como estou agora". Hero number is **Disponível pra gastar** (`fetchAvailable` → `/api/available`, liquidez = contas correntes − faturas em aberto), colored green/red, with the equation `Contas − Faturas` below and a real liquidity-trend sparkline (`/api/liquidity-history`). Right column = contexto (Patrimônio total / Investimentos / Faturas). Below: faturas cards, "Este mês" cashflow, contas correntes list, atividade recente. Always scoped to the current month (no period selector here). First-run (zero data) collapses to a single **Importar** invite. Clicking a fatura/conta jumps to Histórico filtered by that account.
 - **Fase 14b — money assistant (advisory):** hero shows "Seguro pra gastar" = disponível − **reserva** (reserva is a localStorage tweak set in Configurações, `TWEAK_DEFAULTS.reserva`, passed to `OverviewView`); "Este mês" card shows a run-rate month-close projection; fatura cards show a cycle run-rate "projeção fechamento ~R$Y" (attenuated in the first 5 days of the cycle). Projections are client-side estimates labelled as such; reserva is v1 localStorage-only (not visible to the bot).
 - **Histórico** = "o que aconteceu". Hosts the **period selector** (36-month timeline), 4 metric cards, 6-month flow chart, embedded `InvestmentsView` (donut + movimentos), por categoria, Top PIX, and the **filterable table** (filtros: flow · método · categoria · **conta** · busca). `initialAccount`/`onAccountConsumed` props drive the drill-down filter.
-- **Categorias** (`CategoriesPanel`) is no longer a nav tab — reached via Configurações (`TweaksPanel`). `CardsView`/`AccountsView`/`AccountsCardsView` remain in `view-secondary.js` but are no longer mounted in nav (their content lives in Histórico).
+- **Categorias** (`CategoriesPanel`) is no longer a nav tab — reached via Configurações (`TweaksPanel`). The old `CardsView`/`AccountsView`/`AccountsCardsView` were **removed** (Fase 14 cleanup); their content lives in Histórico (`view-history.js` = `InvestmentsView` + `HistoryView`).
 
 ### Charts (`primitives.js`)
 
@@ -381,7 +381,7 @@ O chart "Gastos mensais no cartão" usa `BarChart` com dados de `/api/monthly?ac
 
 - **Date labels:** formato `"Jan/26"` (mês abreviado PT + ano 2 dígitos) em todos os endpoints. Definido em `_PT_SHORT` / `_PT_SHORT_ACC` em `database.py`.
 - **Daily spend:** `fetchDailySpend({ month, year })` → sempre retorna o mês calendário inteiro zerado. Sem parâmetros = mês atual. Não usa mais janela de "últimos 30 dias".
-- **Fatura dates:** formato `"19 Abr → 18 Mai"` via `_fmtCycleDate()` em `view-overview.js` e `view-secondary.js`.
+- **Fatura dates:** formato `"19 Abr → 18 Mai"` via `_fmtCycleDate()` em `view-overview.js` e `view-history.js`.
 - **Configurações panel:** 3 seções (Aparência / Layout / Interface) com "Restaurar padrões".
 - **`backup.py` resilience:** `run_backup()` captura `PermissionError`/`OSError` — retorna `False` silenciosamente quando HDD não montado.
 
@@ -465,7 +465,7 @@ Bot flows (expense/income/investment), dashboard v1→v3, SSE, investments, hist
 - Removido código morto: `transaction_exists`, `suggest_category`, `get_categorization_patterns`, `ollama.suggest_categories`
 
 **Fase 11c — Systemd service (concluída):**
-- `brokershark.service` — autostart, logs em `logs/brokershark.log`
+- `deploy/brokershark.service` — autostart, logs em `logs/brokershark.log` (`config.LOG_DIR` é ancorado na raiz do repo, então logs caem em `logs/` independente do CWD)
 - Instruções de instalação no README
 
 **Fase 11d — Orçamentos e alertas (concluída parcialmente):**

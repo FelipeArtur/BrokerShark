@@ -8,7 +8,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
 const {
   fmtBRL, fmtDateBR, Modal, useToasts, BankChip, BrokerSharkLogo,
   PT_SHORT,
-  OverviewView, AccountsCardsView, InvestmentsView, HistoryView,
+  OverviewView, HistoryView,
   CategoriesPanel,
 } = window.BS;
 

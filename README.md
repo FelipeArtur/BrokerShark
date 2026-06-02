@@ -62,7 +62,7 @@ python backend/main.py
 ## Running as a system service (optional)
 
 ```bash
-sudo cp brokershark.service /etc/systemd/system/
+sudo cp deploy/brokershark.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now brokershark
 ```

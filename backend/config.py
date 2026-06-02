@@ -31,7 +31,9 @@ OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
 OLLAMA_TIMEOUT: int = int(os.getenv("OLLAMA_TIMEOUT", "60"))
 
 # ── Logging ───────────────────────────────────────────────────────────────────
-LOG_DIR: str = "logs"
+# Anchored to the repo root so logs land in one place regardless of CWD
+# (running `python backend/main.py` from root vs running tests from backend/).
+LOG_DIR: str = str(Path(__file__).parent.parent / "logs")
 LOG_FORMAT: str = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 
 

@@ -67,8 +67,8 @@ backend/
   dashboard/     server.py
   bot/      application.py, scheduler.py, handlers/, parsers/
 frontend/
-  js/  api.js, primitives.js, quick-entry.js, view-overview.js,
-       view-secondary.js, view-chat.js, app.js
+  js/  api.js, primitives.js, view-overview.js,
+       view-history.js, app.js
 load_data/  import_history.py, Extrato completo Nubank/,
             Extrato completo Inter/, Fatura banco Inter/, Fatura Nubank/
 scripts/  recover.py
