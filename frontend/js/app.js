@@ -12,16 +12,6 @@ const {
   CategoriesPanel,
 } = window.BS;
 
-function _buildMonths(n) {
-  const now = new Date();
-  const months = Array.from({ length: n }).map((_, i) => {
-    const d = new Date(now.getFullYear(), now.getMonth() - (n - 1 - i), 1);
-    const v = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-    return { v, label: `${PT_SHORT[d.getMonth() + 1]} ${d.getFullYear()}` };
-  });
-  return [{ v: "all", label: "Todo período" }, ...months];
-}
-
 function _currentMonth() {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -53,7 +43,7 @@ function IconSettings({ size = 17 }) {
 }
 
 /* ── Tweaks (localStorage) ──────────────────────────────────────────────── */
-const TWEAK_DEFAULTS = { theme: "dark", density: "comfortable" };
+const TWEAK_DEFAULTS = { theme: "dark", density: "comfortable", reserva: 0 };
 function useTweaks() {
   const stored = JSON.parse(localStorage.getItem("bs_tweaks") || "{}");
   const [tw, setTwState] = useState({ ...TWEAK_DEFAULTS, ...stored });
@@ -247,6 +237,16 @@ function TweaksPanel({ tw, setTw, onClose, onOpenCategories }) {
     ),
     h(Row, { label: "Densidade" },
       h(Radio, { options: ["compact", "default", "comfortable"], value: tw.density, onChange: v => setTw("density", v) })
+    ),
+    h(Row, { label: "Reserva (R$)" },
+      h("input", {
+        type: "number", min: 0, step: 100,
+        className: "input",
+        value: tw.reserva || 0,
+        onChange: e => setTw("reserva", Math.max(0, parseFloat(e.target.value) || 0)),
+        title: "Colchão a descontar do disponível para mostrar 'seguro pra gastar'",
+        style: { width: 110, height: 28, padding: "0 8px", fontSize: 12 }
+      })
     ),
 
     h("div", { style: { marginTop: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 } },
@@ -566,17 +566,18 @@ function ImportModal({ onClose, onDone }) {
 function App() {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   const [tw, setTw] = useTweaks();
-  const [section, setSection] = useState("overview");
+  const [section, setSection] = useState("money");
   const [entryKind, setEntryKind] = useState("expense");
   const [editTx, setEditTx] = useState(null);
   const [tweaksOpen, setTweaksOpen] = useState(false);
   const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [filterMonth, setFilterMonth] = useState("all");
+  const [historyAccount, setHistoryAccount] = useState(null); // drill-down: filter Histórico by account
   const { push, Toaster } = useToasts();
 
-  const months12 = useMemo(() => _buildMonths(12), []);
+  // Dinheiro is always "now"; the period selector lives inside Histórico.
+  const currentMonth = _currentMonth();
 
   // Boot: populate account names for data-driven BankChip
   useEffect(() => {
@@ -605,7 +606,7 @@ function App() {
 
   // Keyboard shortcuts (functional, no visual hints shown)
   useEffect(() => {
-    const SECTION_MAP = { "1": "overview", "2": "accounts", "3": "investments", "4": "history" };
+    const SECTION_MAP = { "1": "money", "2": "history" };
     function onKey(e) {
       if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || e.target.tagName === "SELECT") return;
       if (e.key === "Escape") { setSearchModalOpen(false); setTweaksOpen(false); }
@@ -626,15 +627,9 @@ function App() {
   }
 
   const SECTIONS = [
-    { id: "overview",    label: "Visão Geral"     },
-    { id: "accounts",    label: "Contas & Cartões" },
-    { id: "investments", label: "Investimentos"    },
-    { id: "history",     label: "Histórico"        },
+    { id: "money",   label: "Dinheiro"  },
+    { id: "history", label: "Histórico" },
   ];
-
-  const isCurrentMonth = filterMonth === _currentMonth();
-  const isAllPeriod    = filterMonth === "all";
-  const fmIdx          = months12.findIndex(m => m.v === filterMonth);
 
   return h("div", { id: "app", style: { height: "100vh", display: "flex", flexDirection: "column" } },
 
@@ -650,47 +645,6 @@ function App() {
           onClick: () => setSection(s.id),
           "aria-current": section === s.id ? "page" : undefined,
         }, s.label))
-      ),
-
-      h("div", { style: { width: 1, height: 20, background: "var(--line-1)", margin: "0 8px" } }),
-
-      // Month selector — global (arrow navigation)
-      h("div", { style: { display: "flex", alignItems: "center", gap: 3 } },
-        h("span", { className: "topbar-label", style: { fontSize: 10, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 600, whiteSpace: "nowrap", marginRight: 3 } }, "Período"),
-        h("button", {
-          onClick: () => setFilterMonth(isAllPeriod ? _currentMonth() : "all"),
-          title: isAllPeriod ? "Ir para mês atual" : "Ver todo o período",
-          style: {
-            padding: "2px 7px", height: 22, borderRadius: 4, fontSize: 10, fontWeight: 600, lineHeight: 1,
-            background: isAllPeriod ? "var(--reserve)" : "transparent",
-            border: isAllPeriod ? "1px solid var(--reserve)" : "1px solid var(--line-1)",
-            color: isAllPeriod ? "var(--bg-0)" : "var(--fg-3)", cursor: "pointer",
-          }
-        }, "Todos"),
-        h("button", {
-          className: "btn btn-ghost btn-sm",
-          disabled: isAllPeriod || fmIdx <= 1,
-          onClick: () => { if (!isAllPeriod && fmIdx > 1) setFilterMonth(months12[fmIdx - 1].v); },
-          style: { width: 22, padding: 0, fontSize: 14, opacity: (isAllPeriod || fmIdx <= 1) ? 0.3 : 1 }
-        }, "‹"),
-        !isAllPeriod && h("span", {
-          style: {
-            fontSize: 11, fontWeight: 600, minWidth: 52, textAlign: "center", letterSpacing: "-0.01em",
-            color: isCurrentMonth ? "var(--fg-1)" : "var(--info)",
-          }
-        }, months12[fmIdx]?.label || ""),
-        h("button", {
-          className: "btn btn-ghost btn-sm",
-          disabled: isAllPeriod || fmIdx >= months12.length - 1,
-          onClick: () => { if (!isAllPeriod && fmIdx < months12.length - 1) setFilterMonth(months12[fmIdx + 1].v); },
-          style: { width: 22, padding: 0, fontSize: 14, opacity: (isAllPeriod || fmIdx >= months12.length - 1) ? 0.3 : 1 }
-        }, "›"),
-        !isCurrentMonth && !isAllPeriod && h("button", {
-          className: "btn btn-ghost btn-sm",
-          onClick: () => setFilterMonth(_currentMonth()),
-          title: "Mês atual",
-          style: { fontSize: 10, padding: "2px 5px", height: 22, color: "var(--info)", marginLeft: 1 }
-        }, "↺")
       ),
 
       h("div", { style: { flex: 1 } }),
@@ -731,11 +685,16 @@ function App() {
     // ── Body
     h("div", { className: "app-body" },
       h("main", { className: "app-main" },
-        section === "overview"    && h(OverviewView,      { onJumpToAccount: () => setSection("accounts"), onEditCategory: setEditTx, onDeleteTx: handleDeleteTx, refreshKey, filterMonth }),
-        section === "accounts"    && h(AccountsCardsView, { onEditCategory: setEditTx, onDeleteTx: handleDeleteTx, refreshKey, filterMonth }),
-        section === "investments" && h(InvestmentsView,   { refreshKey, filterMonth }),
-        section === "history"     && h(HistoryView,       { onEditCategory: setEditTx, onDeleteTx: handleDeleteTx, refreshKey }),
-        section === "categories"  && h(CategoriesPanel,   { refreshKey, onRefresh: () => setRefreshKey(k => k + 1) }),
+        section === "money"      && h(OverviewView, {
+          onJumpToAccount: (accId) => { setHistoryAccount(accId || null); setSection("history"); },
+          onEditCategory: setEditTx, onDeleteTx: handleDeleteTx, refreshKey, filterMonth: currentMonth,
+          onImport: () => setImportOpen(true), reserva: tw.reserva || 0
+        }),
+        section === "history"    && h(HistoryView, {
+          onEditCategory: setEditTx, onDeleteTx: handleDeleteTx, refreshKey,
+          initialAccount: historyAccount, onAccountConsumed: () => setHistoryAccount(null)
+        }),
+        section === "categories" && h(CategoriesPanel, { refreshKey, onRefresh: () => setRefreshKey(k => k + 1) }),
 
         h("footer", { style: { marginTop: 20, padding: "12px 0", borderTop: "1px solid var(--line-1)", fontSize: 10, color: "var(--fg-3)" } },
           h("span", null, "BrokerShark · localhost:8080 · SQLite")

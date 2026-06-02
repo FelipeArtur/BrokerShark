@@ -191,3 +191,51 @@ def test_patrimonio_excludes_investment_movements(db):
     history = analytics.get_patrimonio_history(months=1)
     # Expected: initial_balance(0) + 4000 = 4000 (investment deposit does not affect total)
     assert history[0]["value"] == pytest.approx(4000.0, abs=1.0)
+
+
+def test_available_to_spend(db):
+    """available = Σ checking balances − Σ open fatura totals."""
+    from datetime import date
+    from core.db import crud, analytics
+
+    today = date.today().isoformat()  # always inside the current billing cycle
+    crud.insert_transaction(date=today, flow="income", method="pix",
+                            account_id="nu-db", amount=5000.0, description="Salário", is_revenue=1)
+    crud.insert_transaction(date=today, flow="expense", method="pix",
+                            account_id="nu-db", amount=500.0, description="Mercado", is_revenue=0)
+    # CC purchase dated today → lands in the open fatura
+    crud.insert_transaction(date=today, flow="expense", method="credit",
+                            account_id="nu-cc", amount=300.0, description="Compra cartão", is_revenue=0)
+
+    res = analytics.get_available_to_spend()
+    assert res["checking_total"] == pytest.approx(4500.0, abs=1.0)   # 5000 − 500
+    assert res["faturas_total"]  == pytest.approx(300.0, abs=1.0)
+    assert res["available"]      == pytest.approx(4200.0, abs=1.0)   # 4500 − 300
+
+
+def test_liquidity_history_is_investment_adjusted(db):
+    """Regression (eng-review Issue 1): the liquidity series must subtract investment
+    movements so its latest point matches the hero 'Disponível' checking_total."""
+    from datetime import date
+    from core.db import crud, analytics, schema
+
+    today = date.today().isoformat()
+    crud.insert_transaction(date=today, flow="income", method="pix",
+                            account_id="nu-db", amount=4000.0, description="Salário", is_revenue=1)
+    # Investment deposit must reduce checking liquidity (same as the live balance)
+    with schema._connect() as conn:
+        conn.execute("INSERT INTO investments (name, type, bank, current_balance) VALUES (?,?,?,?)",
+                     ("Caixinha Teste", "savings", "nubank", 0.0))
+        inv_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        conn.execute(
+            "INSERT INTO investment_movements (date, investment_id, operation, amount, description) VALUES (?,?,?,?,?)",
+            (today, inv_id, "deposit", 1000.0, "Aporte"),
+        )
+
+    series = analytics.get_liquidity_history(months=1)
+    assert len(series) == 1
+    # 4000 income − 1000 invested − 0 card spend = 3000
+    assert series[-1]["value"] == pytest.approx(3000.0, abs=1.0)
+    # Consistency: latest liquidity point lines up with the hero checking_total
+    avail = analytics.get_available_to_spend()
+    assert avail["checking_total"] == pytest.approx(series[-1]["value"], abs=1.0)

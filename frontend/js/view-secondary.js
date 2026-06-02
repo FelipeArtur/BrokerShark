@@ -486,7 +486,7 @@ function InvestmentsView({ refreshKey, filterMonth }) {
 
 /* ── HistoryView — Lupa do mês ───────────────────────────────────────────── */
 
-function HistoryView({ refreshKey, onEditCategory, onDeleteTx }) {
+function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, onAccountConsumed }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   const [monthly, setMonthly] = _s2St([]);
   const [pickedIdx, setPickedIdx] = _s2St(-1);
@@ -494,6 +494,7 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx }) {
   const [filterFlow, setFilterFlow] = _s2St("all");
   const [filterMethod, setFilterMethod] = _s2St("all");
   const [filterCat, setFilterCat] = _s2St("all");
+  const [filterAccount, setFilterAccount] = _s2St("all");
   const [search, setSearch] = _s2St("");
   const [deletingTxId, setDeletingTxId] = _s2St(null);
   const [pixTop, setPixTop] = _s2St([]);
@@ -512,6 +513,14 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx }) {
     fetchPixTop({ month, year }).then(setPixTop).catch(() => setPixTop([]));
     setFilterFlow("all"); setFilterMethod("all"); setFilterCat("all"); setSearch("");
   }, [pickedIdx, monthly, refreshKey]);
+
+  // Drill-down: a fatura/conta click on the Dinheiro screen lands here pre-filtered.
+  _s2Ef(() => {
+    if (initialAccount) {
+      setFilterAccount(initialAccount);
+      onAccountConsumed && onAccountConsumed();
+    }
+  }, [initialAccount]);
 
   const picked = monthly[pickedIdx] || null;
   const now = new Date();
@@ -548,6 +557,8 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx }) {
   const METHOD_MAP = { pix: "pix", "pix_received": "pix", credit: "credit", ted: "ted" };
   const METHOD_LABELS_H = { pix: "PIX", credit: "Crédito", ted: "TED" };
   const cats = [...new Set(monthTx.map(t => t.category).filter(Boolean))].sort();
+  const acctNames = (window.BS && window.BS.accountNames) || {};
+  const acctIds = [...new Set(monthTx.map(t => t.account_id).filter(Boolean))].sort();
   const filteredTx = monthTx.filter(t => {
     if (filterFlow !== "all" && t.flow !== filterFlow) return false;
     if (filterMethod !== "all") {
@@ -555,6 +566,7 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx }) {
       if (m !== filterMethod) return false;
     }
     if (filterCat !== "all" && t.category !== filterCat) return false;
+    if (filterAccount !== "all" && t.account_id !== filterAccount) return false;
     const label = (t.display_name || t.description || "").toLowerCase();
     if (search && !label.includes(search.toLowerCase())) return false;
     return true;
@@ -564,7 +576,7 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx }) {
 
   const filtExp  = filteredTx.filter(t => t.flow === "expense").reduce((s, t) => s + t.amount, 0);
   const filtInc  = filteredTx.filter(t => t.flow === "income").reduce((s, t)  => s + t.amount, 0);
-  const hasFilter = filterFlow !== "all" || filterMethod !== "all" || filterCat !== "all" || search;
+  const hasFilter = filterFlow !== "all" || filterMethod !== "all" || filterCat !== "all" || filterAccount !== "all" || search;
 
   return h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 14 } },
 
@@ -653,6 +665,19 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx }) {
       )
     ),
 
+    // B2 — Fluxo de caixa (6 meses até o mês selecionado)
+    h("div", { className: "card" },
+      h("div", { className: "card-h" },
+        h("div", { className: "card-title" }, "Fluxo de caixa"),
+        h("span", { style: { fontSize: 10, color: "var(--fg-3)" } }, `6 meses até ${monthLabel}`)
+      ),
+      h("div", { style: { padding: 12 } },
+        h(DualLine, { data: monthly.slice(Math.max(0, pickedIdx - 5), pickedIdx + 1), height: 200 }))
+    ),
+
+    // B3 — Investimentos (resumo + donut + movimentos do mês)
+    h(InvestmentsView, { refreshKey, filterMonth: picked ? `${picked.year}-${String(picked.month).padStart(2, "0")}` : "all" }),
+
     // C — 2-column: categories | filterable table
     h("div", { style: { display: "grid", gridTemplateColumns: "var(--col-hist)", gap: 14 } },
 
@@ -738,13 +763,20 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx }) {
             h("option", { value: "all" }, "Todas categorias"),
             cats.map(c => h("option", { key: c, value: c }, c))
           ),
+          h("select", {
+            value: filterAccount, onChange: e => setFilterAccount(e.target.value),
+            className: "select", style: { height: 26, fontSize: 11, padding: "0 8px", width: "auto" },
+          },
+            h("option", { value: "all" }, "Todas contas"),
+            acctIds.map(id => h("option", { key: id, value: id }, acctNames[id] || id))
+          ),
           h("input", {
             value: search, onChange: e => setSearch(e.target.value),
             placeholder: "Buscar…", className: "input",
             style: { height: 26, fontSize: 11, padding: "0 10px", width: 160 },
           }),
           hasFilter && h("button", {
-            onClick: () => { setFilterFlow("all"); setFilterMethod("all"); setFilterCat("all"); setSearch(""); },
+            onClick: () => { setFilterFlow("all"); setFilterMethod("all"); setFilterCat("all"); setFilterAccount("all"); setSearch(""); },
             className: "btn", style: { height: 26, padding: "0 10px", fontSize: 10 },
           }, "Limpar"),
           h("div", { style: { flex: 1 } }),

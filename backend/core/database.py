@@ -59,6 +59,8 @@ from core.db.analytics import (  # noqa: F401
     get_budgets,
     search_transactions,
     get_cashflow_statement,
+    get_available_to_spend,
+    get_liquidity_history,
 )
 
 from core.db.categories import (  # noqa: F401

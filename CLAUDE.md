@@ -253,6 +253,8 @@ Excluded from summaries via `AND dest_account_id IS NULL`.
 | GET | `/api/faturas` | Credit card billing — returns `total`, `last_total`, `cycle_start`, `cycle_end`, `days_until_due` |
 | GET | `/api/transactions` | Account transactions (account, limit, month, year) |
 | GET | `/api/recent-activity` | 20 most recent transactions |
+| GET | `/api/available` | Real liquidity ("disponível pra gastar"): `{checking_total, faturas_total, available}` where `available = checking_total − faturas_total` (hero number of the Dinheiro screen) |
+| GET | `/api/liquidity-history` | 12-month liquidity trend `{label, value}[]` (checking net worth EOM − card spend that month; proxy series powering the hero sparkline) |
 | GET | `/api/patrimonio-history` | 12-month net worth (CC fatura payments counted as expenses) |
 | GET | `/api/daily-spend` | Full calendar month zero-filled (`month=M&year=Y`; defaults to current month) |
 | GET | `/api/month-transactions` | All non-transfer transactions for a month (`month=M&year=Y` required) |
@@ -323,6 +325,15 @@ OLLAMA_TIMEOUT=60
 ---
 
 ## Dashboard Frontend Notes
+
+### Navigation — 2-screen IA (Fase 14 redesign)
+
+The dashboard navigates **2 screens** (`app.js` `SECTIONS`): **Dinheiro** (`OverviewView`) and **Histórico** (`HistoryView`). Keyboard shortcuts `1`=Dinheiro, `2`=Histórico.
+
+- **Dinheiro** = "como estou agora". Hero number is **Disponível pra gastar** (`fetchAvailable` → `/api/available`, liquidez = contas correntes − faturas em aberto), colored green/red, with the equation `Contas − Faturas` below and a real liquidity-trend sparkline (`/api/liquidity-history`). Right column = contexto (Patrimônio total / Investimentos / Faturas). Below: faturas cards, "Este mês" cashflow, contas correntes list, atividade recente. Always scoped to the current month (no period selector here). First-run (zero data) collapses to a single **Importar** invite. Clicking a fatura/conta jumps to Histórico filtered by that account.
+- **Fase 14b — money assistant (advisory):** hero shows "Seguro pra gastar" = disponível − **reserva** (reserva is a localStorage tweak set in Configurações, `TWEAK_DEFAULTS.reserva`, passed to `OverviewView`); "Este mês" card shows a run-rate month-close projection; fatura cards show a cycle run-rate "projeção fechamento ~R$Y" (attenuated in the first 5 days of the cycle). Projections are client-side estimates labelled as such; reserva is v1 localStorage-only (not visible to the bot).
+- **Histórico** = "o que aconteceu". Hosts the **period selector** (36-month timeline), 4 metric cards, 6-month flow chart, embedded `InvestmentsView` (donut + movimentos), por categoria, Top PIX, and the **filterable table** (filtros: flow · método · categoria · **conta** · busca). `initialAccount`/`onAccountConsumed` props drive the drill-down filter.
+- **Categorias** (`CategoriesPanel`) is no longer a nav tab — reached via Configurações (`TweaksPanel`). `CardsView`/`AccountsView`/`AccountsCardsView` remain in `view-secondary.js` but are no longer mounted in nav (their content lives in Histórico).
 
 ### Charts (`primitives.js`)
 
@@ -490,6 +501,12 @@ Bot flows (expense/income/investment), dashboard v1→v3, SSE, investments, hist
 - [ ] Importar relatórios B3 para histórico de investimentos
 
 **Bug conhecido (a confirmar):** `transactions.method` tem CHECK `IN ('pix','credit','ted','transfer','debit')`, mas `/api/incomes` insere `method='salary'|'freelance'|'pix_received'|'other'`. Num DB novo isso violaria o CHECK. O DB de produção provavelmente foi criado antes do CHECK. Verificar/normalizar.
+
+**Notas de segurança (revisão VibeSec + 3 subagentes):**
+- Hardening aplicado: gate de auth central no bot (owner-only), `_authorized` fail-closed, `config.validate()` no startup, gate Host/Origin no dashboard (DNS-rebinding + CSRF), OLLAMA_URL loopback + cap de stream, `Cache-Control: no-store` em `/api/`, systemd sandboxing.
+- [ ] **Pendente (entrelaçado com WIP de `ai_chat.py`):** validar argumentos das tools do LLM (`_execute_tool`) contra allow-lists (`account_id`/`method`/`flow`/`operation`, `amount>0`) antes de gravar — defesa contra prompt-injection. Aplicar quando o WIP de `ai_chat.py` for commitado/descartado.
+- [ ] **Ao construir B3 (xlsx):** xlsx é XML em zip → risco de XXE/zip-slip. Usar parser que desabilite entidades externas (openpyxl não resolve por padrão; confirmar) e validar caminhos extraídos.
+- [ ] **Se adicionar export (CSV/planilha):** neutralizar CSV formula injection (células começando com `= + - @`) — hoje os dados são só renderizados via React (escapados), sem export, então não explorável.
 
 ## Skill routing
 
