@@ -1,6 +1,6 @@
 /* view-overview.js — OverviewView (tela "Dinheiro") + CategoriesPanel */
 /* global React, fetchSummary, fetchFaturas, fetchAvailable, fetchAccounts,
-          fetchLiquidityHistory, fetchRecentActivity, fetchCashflowStatement,
+          fetchLiquidityHistory, fetchMonthTransactions, fetchCashflowStatement,
           fetchExpenseCategoriesFull, postCategory, deleteCategory */
 
 const { useState: _ovSt, useEffect: _ovEf, useMemo: _ovMemo } = React;
@@ -28,7 +28,7 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
       fetchFaturas(),
       fetchLiquidityHistory(),
       fetchAccounts(),
-      fetchRecentActivity(),
+      fetchMonthTransactions((month && year) ? { month, year } : {}),
       fetchCashflowStatement((month && year) ? { month, year } : {}),
     ]).then(([s, f, lq, ac, a, cf]) => {
       setSummary(s); setFaturas(f); setLiquidity(lq);
@@ -55,11 +55,10 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
   const availValue = available ? available.available : 0;
   const availNeg   = available ? available.available < 0 : false;
 
-  // Terminal-style ledger row: label left, mono value right. No progress bars.
   function LedgerRow({ label, value, color, negative, strong, sub }) {
-    return h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: sub ? "1px 0" : "2px 0" } },
-      h("span", { style: { fontSize: sub ? 11 : 11, color: sub ? "var(--fg-3)" : "var(--fg-2)", textTransform: strong ? "uppercase" : "none", letterSpacing: strong ? "0.04em" : "0", fontWeight: strong ? 600 : 400, paddingLeft: sub ? 10 : 0 } }, label),
-      h("span", { className: "num", style: { fontWeight: strong ? 700 : 600, fontSize: strong ? 15 : 13, color: color || "var(--fg-0)" } },
+    return h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: sub ? "2px 0" : "4px 0" } },
+      h("span", { style: { fontSize: sub ? 12 : 13, color: sub ? "var(--fg-3)" : "var(--fg-2)", textTransform: strong ? "uppercase" : "none", letterSpacing: strong ? "0.04em" : "0", fontWeight: strong ? 600 : 400, paddingLeft: sub ? 10 : 0 } }, label),
+      h("span", { className: "num", style: { fontWeight: strong ? 700 : 600, fontSize: strong ? 18 : 15, color: color || "var(--fg-0)" } },
         (negative ? "−" : "") + fmtBRL(Math.abs(value)))
     );
   }
@@ -80,29 +79,26 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
 
     // Hero: Disponível pra gastar (liquidez) — 2 cards pane
     h("div", { style: { display: "grid", gridTemplateColumns: "var(--col-hero)", gap: 14, marginBottom: 14 } },
-      // Left: número herói + equação + sparkline de liquidez
-      h("div", { className: "pane", style: { display: "flex", flexDirection: "column", justifyContent: "space-between" } },
+      // Left: número herói + equação + sparkline de liquidez (now converted to Ledger UI)
+      h("div", { className: "pane" },
         h("div", { className: "pane-h" },
-          h("div", { className: "pane-title" }, "Disponível pra gastar"),
-          h("span", { style: { fontSize: 10, color: "var(--fg-3)", fontFamily: "var(--ff-mono)" } }, "liquidez · 12m")
+          h("div", { className: "pane-title" }, "Disponível pra gastar")
         ),
-        h("div", { className: "pane-content", style: { paddingBottom: 12 } },
+        h("div", { className: "pane-content" },
           availErr
-            ? h("div", { style: { display: "flex", flexDirection: "column", gap: 6 } },
-                h("div", { style: { fontSize: 16, fontWeight: 600, color: "var(--neg)" } }, "Não consegui calcular agora"),
-                h("div", { style: { fontSize: 12, color: "var(--fg-2)" } }, "Atualize a página pra tentar de novo.")
-              )
+            ? h("div", { style: { padding: "8px 0", color: "var(--neg)", fontSize: 12 } }, "Falha ao carregar liquidez")
             : !available
-              ? h("div", { className: "num", style: { fontSize: 38, fontWeight: 700, color: "var(--fg-3)" } }, "—")
+              ? h(LedgerRow, { label: "Disponível", value: 0, strong: true })
               : h("div", null,
-                  h("div", { className: "num", style: { fontSize: 40, fontWeight: 700, lineHeight: 1.05, letterSpacing: "-0.02em", color: availNeg ? "var(--neg)" : "var(--pos)" } },
-                    (availNeg ? "−" : "") + fmtBRL(Math.abs(availValue))),
-                  h("div", { style: { fontSize: 11, color: "var(--fg-2)", fontFamily: "var(--ff-mono)", marginTop: 8 } },
-                    "Contas ", h("span", { style: { color: "var(--fg-1)", fontWeight: 600 } }, fmtBRL(available.checking_total)),
-                    "  −  Faturas ", h("span", { style: { color: "var(--fg-1)", fontWeight: 600 } }, fmtBRL(available.faturas_total))
-                  ),
-                  availNeg && h("div", { style: { fontSize: 11, color: "var(--neg)", marginTop: 4 } },
-                    `Suas faturas superam o caixa em ${fmtBRL(Math.abs(availValue))}.`)
+                  h(LedgerRow, { 
+                    label: "Disponível", 
+                    value: Math.abs(availValue), 
+                    color: availNeg ? "var(--neg)" : "var(--pos)", 
+                    negative: availNeg, 
+                    strong: true 
+                  }),
+                  h(LedgerRow, { label: "Caixa (Contas)", value: available.checking_total, sub: true }),
+                  h(LedgerRow, { label: "Faturas", value: available.faturas_total, sub: true, color: available.faturas_total > 0 ? "var(--neg)" : "var(--fg-3)", negative: available.faturas_total > 0 })
                 )
         )
       ),
@@ -126,7 +122,7 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
     h("div", null,
       h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "0 2px 8px" } },
         h("div", { className: "pane-title" }, "Faturas em aberto"),
-        h("span", { className: "num", style: { fontSize: "var(--fz-7)", fontWeight: 600 } }, fmtBRL(totalFaturas))
+        h("span", { className: "num", style: { fontSize: "var(--fz-4)", fontWeight: 600 } }, fmtBRL(totalFaturas))
       ),
       faturas.length === 0
         ? h("div", { className: "pane", style: { padding: "20px 12px", textAlign: "center", color: "var(--fg-2)", fontSize: 12 } }, "Nenhuma fatura em aberto.")
@@ -183,25 +179,25 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
       ),
       h("div", { className: "pane-content", style: { display: "flex", flexDirection: "column", gap: 7 } },
         h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline" } },
-          h("span", { style: { color: "var(--neg)", fontSize: 12 } }, "↓ Despesas"),
-          h("span", { className: "num", style: { color: "var(--neg)", fontWeight: 700, fontSize: 15 } }, fmtBRL(cashflow.expense_total))
+          h("span", { style: { color: "var(--neg)", fontSize: 13 } }, "↓ Despesas"),
+          h("span", { className: "num", style: { color: "var(--neg)", fontWeight: 700, fontSize: 16 } }, fmtBRL(cashflow.expense_total))
         ),
         (cashflow.expense_by_source.cc > 0 || cashflow.expense_by_source.direct > 0) && h("div", {
           style: { textAlign: "right", fontSize: 10, color: "var(--fg-3)", fontFamily: "var(--ff-mono)", marginTop: -4 }
         }, `${fmtBRL(cashflow.expense_by_source.cc, { decimals: 0 })} cartão · ${fmtBRL(cashflow.expense_by_source.direct, { decimals: 0 })} débito`),
         h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline" } },
-          h("span", { style: { color: "var(--pos)", fontSize: 12 } }, "↑ Receitas"),
-          h("span", { className: "num", style: { color: "var(--pos)", fontWeight: 700, fontSize: 15 } }, fmtBRL(cashflow.income_total))
+          h("span", { style: { color: "var(--pos)", fontSize: 13 } }, "↑ Receitas"),
+          h("span", { className: "num", style: { color: "var(--pos)", fontWeight: 700, fontSize: 16 } }, fmtBRL(cashflow.income_total))
         ),
         cashflow.investment_net !== 0 && h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline" } },
-          h("span", { style: { color: cashflow.investment_net > 0 ? "var(--reserve)" : "var(--info)", fontSize: 12 } },
+          h("span", { style: { color: cashflow.investment_net > 0 ? "var(--reserve)" : "var(--info)", fontSize: 13 } },
             cashflow.investment_net > 0 ? "→ Investido" : "← Resgatado"),
-          h("span", { className: "num", style: { color: cashflow.investment_net > 0 ? "var(--reserve)" : "var(--info)", fontWeight: 700, fontSize: 15 } },
+          h("span", { className: "num", style: { color: cashflow.investment_net > 0 ? "var(--reserve)" : "var(--info)", fontWeight: 700, fontSize: 16 } },
             fmtBRL(Math.abs(cashflow.investment_net)))
         ),
         h("div", { style: { borderTop: "1px solid var(--line-1)", paddingTop: 8, marginTop: 2, display: "flex", justifyContent: "space-between", alignItems: "baseline" } },
-          h("span", { style: { fontSize: 12, color: "var(--fg-1)", fontWeight: 600 } }, "Saldo livre"),
-          h("span", { className: "num", style: { fontSize: 17, fontWeight: 700, color: cashflow.free_balance >= 0 ? "var(--pos)" : (cashflow.income_total === 0 ? "var(--warn)" : "var(--neg)") } }, fmtBRL(cashflow.free_balance))
+          h("span", { style: { fontSize: 13, color: "var(--fg-1)", fontWeight: 600 } }, "Saldo livre"),
+          h("span", { className: "num", style: { fontSize: 20, fontWeight: 700, color: cashflow.free_balance >= 0 ? "var(--pos)" : (cashflow.income_total === 0 ? "var(--warn)" : "var(--neg)") } }, fmtBRL(cashflow.free_balance))
         ),
         // Projeção de fechamento (run-rate) — só no mês atual
         (() => {
@@ -225,7 +221,7 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
     h("div", { className: "pane" },
       h("div", { className: "pane-h" },
         h("div", { className: "pane-title" }, "Contas correntes"),
-        h("span", { className: "num", style: { fontSize: "var(--fz-7)", fontWeight: 600 } }, fmtBRL(checkingTotal))
+        h("span", { className: "num", style: { fontSize: "var(--fz-4)", fontWeight: 600 } }, fmtBRL(checkingTotal))
       ),
       h("div", { className: "pane-content", style: { display: "flex", flexDirection: "column", gap: 2 } },
         checkingAccounts.length === 0
@@ -237,19 +233,19 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
             },
               h("span", { style: { display: "flex", alignItems: "center", gap: 8 } },
                 h(BankChip, { bank: a.bank }),
-                h("span", { style: { fontSize: 13, color: "var(--fg-1)" } }, a.name)
+                h("span", { style: { fontSize: 14, color: "var(--fg-1)" } }, a.name)
               ),
-              h("span", { className: "num", style: { fontSize: 16, fontWeight: 600, color: (a.balance || 0) < 0 ? "var(--neg)" : "var(--fg-0)" } }, fmtBRL(a.balance || 0))
+              h("span", { className: "num", style: { fontSize: 17, fontWeight: 600, color: (a.balance || 0) < 0 ? "var(--neg)" : "var(--fg-0)" } }, fmtBRL(a.balance || 0))
             ))
       )
     ),
     ),
 
-    // Recent activity
+    // Recent activity (now all month transactions)
     h("div", { className: "pane" },
       h("div", { className: "pane-h" },
-        h("div", { className: "pane-title" }, "Atividade recente"),
-        h("span", { style: { fontSize: 10, color: "var(--fg-3)" } }, `${activity.length} últimos lançamentos`)
+        h("div", { className: "pane-title" }, "Transações do mês"),
+        h("span", { style: { fontSize: 10, color: "var(--fg-3)" } }, `${activity.length} lançamentos`)
       ),
       h("div", { style: { overflow: "auto", borderBottomLeftRadius: 4, borderBottomRightRadius: 4 } },
         h("table", { className: "grid-table" },
