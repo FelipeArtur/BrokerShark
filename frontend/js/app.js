@@ -43,7 +43,7 @@ function IconSettings({ size = 17 }) {
 }
 
 /* ── Tweaks (localStorage) ──────────────────────────────────────────────── */
-const TWEAK_DEFAULTS = { theme: "dark", reserva: 0 };
+const TWEAK_DEFAULTS = { theme: "dark" };
 function useTweaks() {
   const stored = JSON.parse(localStorage.getItem("bs_tweaks") || "{}");
   const [tw, setTwState] = useState({ ...TWEAK_DEFAULTS, ...stored });
@@ -234,16 +234,6 @@ function TweaksPanel({ tw, setTw, onClose, onOpenCategories }) {
 
     h(Row, { label: "Tema" },
       h(Radio, { options: ["dark", "light"], value: tw.theme, onChange: v => setTw("theme", v) })
-    ),
-    h(Row, { label: "Reserva (R$)" },
-      h("input", {
-        type: "number", min: 0, step: 100,
-        className: "input",
-        value: tw.reserva || 0,
-        onChange: e => setTw("reserva", Math.max(0, parseFloat(e.target.value) || 0)),
-        title: "Colchão a descontar do disponível para mostrar 'seguro pra gastar'",
-        style: { width: 110, height: 28, padding: "0 8px", fontSize: 12 }
-      })
     ),
 
     h("div", { style: { marginTop: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 } },
@@ -685,7 +675,7 @@ function App() {
         section === "money"      && h(OverviewView, {
           onJumpToAccount: (accId) => { setHistoryAccount(accId || null); setSection("history"); },
           onEditCategory: setEditTx, onDeleteTx: handleDeleteTx, refreshKey, filterMonth: currentMonth,
-          onImport: () => setImportOpen(true), reserva: tw.reserva || 0
+          onImport: () => setImportOpen(true)
         }),
         section === "history"    && h(HistoryView, {
           onEditCategory: setEditTx, onDeleteTx: handleDeleteTx, refreshKey,

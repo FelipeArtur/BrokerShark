@@ -7,7 +7,7 @@
 const { useState: _ovSt, useEffect: _ovEf, useMemo: _ovMemo } = React;
 const { fmtBRL, fmtBRLCompact, fmtDateBR, BankChip, Sparkline, BarChart, DualLine, Progress, Modal, PT_MONTHS, PT_SHORT, fmtCycleDate } = window.BS;
 
-function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey, filterMonth, onImport, reserva = 0 }) {
+function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey, filterMonth, onImport }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
 
   const [summary, setSummary]       = _ovSt(null);
@@ -104,13 +104,7 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
                   "  −  Faturas ", h("span", { style: { color: "var(--fg-1)", fontWeight: 600 } }, fmtBRL(available.faturas_total))
                 ),
                 availNeg && h("div", { style: { fontSize: 11, color: "var(--neg)", marginTop: 4 } },
-                  `Suas faturas superam o caixa em ${fmtBRL(Math.abs(availValue))}.`),
-                reserva > 0 && h("div", { style: { fontSize: 11, color: "var(--fg-2)", marginTop: 4 } },
-                  "Seguro pra gastar ",
-                  h("span", { className: "num", style: { color: (availValue - reserva) >= 0 ? "var(--pos)" : "var(--neg)", fontWeight: 600 } },
-                    fmtBRL(availValue - reserva)),
-                  h("span", { style: { color: "var(--fg-3)" } }, ` (reserva ${fmtBRL(reserva, { decimals: 0 })})`)
-                )
+                  `Suas faturas superam o caixa em ${fmtBRL(Math.abs(availValue))}.`)
               ),
         h("div", { style: { marginTop: 14, height: 56 } },
           h(Sparkline, { data: liquidity.map(p => p.value), width: "100%", height: 56, color: "var(--info)", strokeWidth: 1.8 })

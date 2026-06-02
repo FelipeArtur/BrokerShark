@@ -6,7 +6,7 @@ A local tool to **understand and analyze my money**. Runs 100% on Linux, account
 
 The product is the **analysis**, in a two-screen web dashboard at `http://localhost:8080`:
 
-- **Dinheiro** (home) — one honest hero number, **Disponível pra gastar** = checking balance − open credit-card bills. Around it: open faturas, a "this month" cash-flow summary, account balances, recent activity, run-rate projections (month close, next fatura), and an optional reserve buffer ("Seguro pra gastar").
+- **Dinheiro** (home) — one honest hero number, **Disponível pra gastar** = checking balance − open credit-card bills. Around it: open faturas, a "this month" cash-flow summary, account balances, recent activity, and run-rate projections (month close, next fatura).
 - **Histórico / Análise** — 36-month timeline, monthly metrics with sparklines, a 6-month cash-flow chart, investments, spending by category, top PIX destinations, and a filterable transaction table (by account, method, category, free text).
 
 Supporting roles (not the center):

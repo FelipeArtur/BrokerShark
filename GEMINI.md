@@ -24,7 +24,7 @@ When making permanent changes (new categories, new accounts, schema changes), up
 BrokerShark is a **personal money-analysis tool** running **100% locally** on Linux. Pergunta central: **"quanto eu posso gastar agora?"**, e então análise do dinheiro ao longo do tempo.
 
 **O centro é a análise (web, React 18 + Flask, `http://localhost:8080`):**
-- **Dinheiro** — herói **Disponível pra gastar** (liquidez = contas − faturas) + faturas, "Este mês", contas, atividade, projeções e reserva.
+- **Dinheiro** — herói **Disponível pra gastar** (liquidez = contas − faturas) + faturas, "Este mês", contas, atividade e projeções.
 - **Histórico / Análise** — 36 meses, métricas, fluxo 6m, investimentos, categorias, Top PIX, tabela filtrável.
 
 **Apoio:** Telegram (entradas rápidas + relatórios/alertas), importação CSV mensal, chat de IA local. SQLite é a fonte única; backup mensal HDD + Drive.

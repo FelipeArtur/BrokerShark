@@ -27,7 +27,7 @@ When making permanent changes (new categories, new accounts, schema changes), up
 BrokerShark is a **personal money-analysis tool** running **100% locally** on Linux. Its job is to answer one question first — **"quanto eu posso gastar agora?"** — and then let me dig into where my money goes over time.
 
 **The product is the analysis (web dashboard, `http://localhost:8080`):**
-- **Dinheiro** (home) — the hero number **Disponível pra gastar** (liquidez = saldo das contas correntes − faturas em aberto), plus faturas, "Este mês", contas, atividade e projeções (fechamento do mês / próxima fatura) + reserva opcional.
+- **Dinheiro** (home) — the hero number **Disponível pra gastar** (liquidez = saldo das contas correntes − faturas em aberto), plus faturas, "Este mês", contas, atividade e projeções (fechamento do mês / próxima fatura).
 - **Histórico / Análise** — linha do tempo de 36 meses, métricas mensais, fluxo 6m, investimentos, por categoria, Top PIX e a tabela filtrável.
 
 **Supporting roles (não são o centro):** Telegram bot (entradas rápidas em linguagem natural + relatórios/alertas agendados), importação mensal de CSV (extratos/faturas), e chat de IA local (Ollama) que sempre busca dados reais antes de responder.
@@ -334,7 +334,7 @@ OLLAMA_TIMEOUT=60
 The dashboard navigates **2 screens** (`app.js` `SECTIONS`): **Dinheiro** (`OverviewView`) and **Histórico** (`HistoryView`). Keyboard shortcuts `1`=Dinheiro, `2`=Histórico.
 
 - **Dinheiro** = "como estou agora". Hero number is **Disponível pra gastar** (`fetchAvailable` → `/api/available`, liquidez = contas correntes − faturas em aberto), colored green/red, with the equation `Contas − Faturas` below and a real liquidity-trend sparkline (`/api/liquidity-history`). Right column = contexto (Patrimônio total / Investimentos / Faturas). Below: faturas cards, "Este mês" cashflow, contas correntes list, atividade recente. Always scoped to the current month (no period selector here). First-run (zero data) collapses to a single **Importar** invite. Clicking a fatura/conta jumps to Histórico filtered by that account.
-- **Fase 14b — money assistant (advisory):** hero shows "Seguro pra gastar" = disponível − **reserva** (reserva is a localStorage tweak set in Configurações, `TWEAK_DEFAULTS.reserva`, passed to `OverviewView`); "Este mês" card shows a run-rate month-close projection; fatura cards show a cycle run-rate "projeção fechamento ~R$Y" (attenuated in the first 5 days of the cycle). Projections are client-side estimates labelled as such; reserva is v1 localStorage-only (not visible to the bot).
+- **Fase 14b — money assistant (advisory):** "Este mês" card shows a run-rate month-close projection; fatura cards show a cycle run-rate "projeção fechamento ~R$Y" (attenuated in the first 5 days of the cycle). Projections are client-side estimates, labelled as such.
 - **Histórico** = "o que aconteceu". Hosts the **period selector** (36-month timeline), 4 metric cards, 6-month flow chart, embedded `InvestmentsView` (donut + movimentos), por categoria, Top PIX, and the **filterable table** (filtros: flow · método · categoria · **conta** · busca). `initialAccount`/`onAccountConsumed` props drive the drill-down filter.
 - **Categorias** (`CategoriesPanel`) is no longer a nav tab — reached via Configurações (`TweaksPanel`). The old `CardsView`/`AccountsView`/`AccountsCardsView` were **removed** (Fase 14 cleanup); their content lives in Histórico (`view-history.js` = `InvestmentsView` + `HistoryView`).
 
@@ -362,7 +362,7 @@ All chart components receive **real API data only** — no placeholder data.
 - **Date labels:** formato `"Jan/26"` (mês abreviado PT + ano 2 dígitos). Definido em `_PT_SHORT` / `_PT_SHORT_ACC` em `database.py`.
 - **Daily spend:** `fetchDailySpend({ month, year })` sempre retorna o mês calendário inteiro zerado (sem parâmetros = mês atual).
 - **Fatura dates:** formato `"19 Abr → 18 Mai"` via `_fmtCycleDate()` em `view-overview.js` e `view-history.js`.
-- **Configurações (`TweaksPanel`):** tema, **reserva** (colchão pra "Seguro pra gastar"), atalho pra Categorias, "Restaurar padrões". Densidade é fixa em `comfortable` (não editável). Tweaks persistidos em localStorage.
+- **Configurações (`TweaksPanel`):** tema, atalho pra Categorias, "Restaurar padrões". Densidade é fixa em `comfortable` (não editável). Tweaks persistidos em localStorage.
 - **`backup.py` resilience:** `run_backup()` captura `PermissionError`/`OSError` — retorna `False` silenciosamente quando o HDD não está montado.
 
 ---
@@ -405,7 +405,7 @@ All chart components receive **real API data only** — no placeholder data.
 Produto = **análise do meu dinheiro**. A web (2 telas: **Dinheiro** + **Histórico/Análise**) é o centro; Telegram, importação CSV e chat de IA são apoio. O histórico completo das fases vive no `git log`.
 
 **Já entregue (resumo):**
-- Número herói **Disponível pra gastar** (liquidez = contas − faturas) + projeções (fechamento do mês / próxima fatura) + reserva ("Seguro pra gastar").
+- Número herói **Disponível pra gastar** (liquidez = contas − faturas) + projeções (fechamento do mês / próxima fatura).
 - **Histórico**: 36 meses, 4 métricas, fluxo 6m, investimentos (donut + movimentos), por categoria, Top PIX, tabela filtrável (conta/método/categoria/busca).
 - Importação mensal de CSV (`nu-db`, `inter-db`, `inter-cc`) com preview + dedup; staging em `import_staging`.
 - Bot Telegram (entradas em linguagem natural + relatórios/alertas agendados; args das tools do LLM validados).
@@ -416,7 +416,6 @@ Produto = **análise do meu dinheiro**. A web (2 telas: **Dinheiro** + **Histór
 - [ ] Adapter fatura Nubank (`nu-cc`) — formato desconhecido (diretório de exemplo vazio).
 - [ ] Desfazer última importação (reverter batch por `batch_id`).
 - [ ] Filtro "sem categoria" no Histórico (categorizar importados em lote).
-- [ ] Reserva server-side (hoje localStorage; o bot não enxerga).
 - [ ] Registrar movimentos do Tesouro Direto.
 
 **Bug conhecido (a confirmar):** `transactions.method` tem CHECK `IN ('pix','credit','ted','transfer','debit')`, mas `/api/incomes` insere `method='salary'|'freelance'|'pix_received'|'other'`. Num DB novo isso violaria o CHECK. O DB de produção provavelmente foi criado antes do CHECK. Verificar/normalizar.
