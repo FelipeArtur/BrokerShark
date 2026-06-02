@@ -362,7 +362,7 @@ All chart components receive **real API data only** — no placeholder data.
 - **Date labels:** formato `"Jan/26"` (mês abreviado PT + ano 2 dígitos). Definido em `_PT_SHORT` / `_PT_SHORT_ACC` em `database.py`.
 - **Daily spend:** `fetchDailySpend({ month, year })` sempre retorna o mês calendário inteiro zerado (sem parâmetros = mês atual).
 - **Fatura dates:** formato `"19 Abr → 18 Mai"` via `_fmtCycleDate()` em `view-overview.js` e `view-history.js`.
-- **Configurações (`TweaksPanel`):** tema, densidade, **reserva** (colchão pra "Seguro pra gastar"), atalho pra Categorias, "Restaurar padrões". Tweaks persistidos em localStorage.
+- **Configurações (`TweaksPanel`):** tema, **reserva** (colchão pra "Seguro pra gastar"), atalho pra Categorias, "Restaurar padrões". Densidade é fixa em `comfortable` (não editável). Tweaks persistidos em localStorage.
 - **`backup.py` resilience:** `run_backup()` captura `PermissionError`/`OSError` — retorna `False` silenciosamente quando o HDD não está montado.
 
 ---

@@ -43,7 +43,7 @@ function IconSettings({ size = 17 }) {
 }
 
 /* ── Tweaks (localStorage) ──────────────────────────────────────────────── */
-const TWEAK_DEFAULTS = { theme: "dark", density: "comfortable", reserva: 0 };
+const TWEAK_DEFAULTS = { theme: "dark", reserva: 0 };
 function useTweaks() {
   const stored = JSON.parse(localStorage.getItem("bs_tweaks") || "{}");
   const [tw, setTwState] = useState({ ...TWEAK_DEFAULTS, ...stored });
@@ -56,8 +56,8 @@ function useTweaks() {
   }, []);
   useEffect(() => {
     document.documentElement.dataset.theme   = tw.theme;
-    document.documentElement.dataset.density = tw.density;
-  }, [tw.theme, tw.density]);
+    document.documentElement.dataset.density = "comfortable";  // fixo — densidade não é editável
+  }, [tw.theme]);
   return [tw, setTw];
 }
 
@@ -234,9 +234,6 @@ function TweaksPanel({ tw, setTw, onClose, onOpenCategories }) {
 
     h(Row, { label: "Tema" },
       h(Radio, { options: ["dark", "light"], value: tw.theme, onChange: v => setTw("theme", v) })
-    ),
-    h(Row, { label: "Densidade" },
-      h(Radio, { options: ["compact", "default", "comfortable"], value: tw.density, onChange: v => setTw("density", v) })
     ),
     h(Row, { label: "Reserva (R$)" },
       h("input", {
