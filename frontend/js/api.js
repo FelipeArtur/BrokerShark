@@ -100,3 +100,14 @@ async function importPreview(file, accountId) {
 async function importConfirm(batchId, excludeIds = []) {
   return _post("/api/import/confirm", { batch_id: batchId, exclude_ids: excludeIds });
 }
+
+/* ── B3 investment-position import (XLSX): preview parses, confirm upserts ── */
+async function importB3(file, { confirm = false } = {}) {
+  const form = new FormData();
+  form.append("file", file);
+  const url = confirm ? "/api/import/b3" : "/api/import/b3/preview";
+  const r = await fetch(url, { method: "POST", body: form });
+  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || "falha ao ler relatório B3"); }
+  return r.json();
+}
+async function fetchInvestmentEvolution()    { return _get("/api/investment-evolution"); }

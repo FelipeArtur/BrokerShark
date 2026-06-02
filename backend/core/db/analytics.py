@@ -1005,3 +1005,48 @@ def get_key_counts(account_id: str, date_lo: str, date_hi: str) -> dict[tuple, i
     for r in rows:
         counts[(r["date"], r["amt"], r["description"])] = r["n"]
     return counts
+
+def get_investment_evolution(months: int = 12) -> list[dict]:
+    """Return deposit and withdrawal totals for the last N months, zero-filled."""
+    today   = date.today()
+    periods: list[tuple[int, int]] = []
+    for i in range(months - 1, -1, -1):
+        m = today.month - i
+        y = today.year
+        while m <= 0:
+            m += 12
+            y -= 1
+        periods.append((y, m))
+
+    start_y, start_m = periods[0]
+    end_y,   end_m   = periods[-1]
+    start = f"{start_y:04d}-{start_m:02d}-01"
+    end   = f"{end_y:04d}-{end_m:02d}-31"
+
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT
+                   strftime('%Y-%m', date) AS ym,
+                   COALESCE(SUM(CASE WHEN operation='deposit' THEN amount ELSE 0 END), 0) AS deposit,
+                   COALESCE(SUM(CASE WHEN operation='withdrawal' THEN amount ELSE 0 END), 0) AS withdrawal
+               FROM investment_movements
+               WHERE date BETWEEN ? AND ?
+               GROUP BY ym""",
+            (start, end),
+        ).fetchall()
+        
+        lookup = {r["ym"]: {"deposit": float(r["deposit"]), "withdrawal": float(r["withdrawal"])} for r in rows}
+
+        out = []
+        for y, m in periods:
+            ym = f"{y:04d}-{m:02d}"
+            label = f"{_CF_PT_SHORT[m]}/{str(y)[-2:]}"
+            d = lookup.get(ym, {"deposit": 0.0, "withdrawal": 0.0})
+            out.append({
+                "label": label,
+                "month": m,
+                "year": y,
+                "deposit": d["deposit"],
+                "withdrawal": d["withdrawal"],
+            })
+        return out

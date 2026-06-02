@@ -1,8 +1,8 @@
 /* view-investments.js — InvestmentsView (aba "Investimentos") */
-/* global React, fetchInvestments, fetchInvestmentMovements, patchInvestmentBalance */
+/* global React, fetchInvestments, fetchInvestmentMovements, patchInvestmentBalance, fetchInvestmentEvolution */
 
-const { useState: _s3St, useEffect: _s3Ef } = React;
-const { fmtBRL, BankChip, Donut } = window.BS;
+const { useState: _s3St, useEffect: _s3Ef, useMemo: _s3Memo } = React;
+const { fmtBRL, BankChip, Donut, DualLine } = window.BS;
 
 const _INV_TYPE_LABEL = {
   savings:  "Poupança",
@@ -25,8 +25,12 @@ function InvestmentsView({ refreshKey, filterMonth }) {
   const [editInput, setEditInput] = _s3St("");
   const [editErr, setEditErr] = _s3St("");
   const [periodMovements, setPeriodMovements] = _s3St([]);
+  const [evolution, setEvolution] = _s3St([]);
 
-  _s3Ef(() => { fetchInvestments().then(setInvestments); }, [refreshKey]);
+  _s3Ef(() => { 
+    fetchInvestments().then(setInvestments); 
+    fetchInvestmentEvolution().then(setEvolution);
+  }, [refreshKey]);
   _s3Ef(() => {
     if (filterMonth && filterMonth !== "all") {
       const [year, month] = filterMonth.split("-").map(Number);
@@ -49,9 +53,19 @@ function InvestmentsView({ refreshKey, filterMonth }) {
     }
   }
 
-  const total = investments.reduce((s, i) => s + (i.balance || 0), 0);
+  const total = investments.reduce((sum, inv) => sum + (inv.balance || 0), 0);
   const typeLabel = (t) => _INV_TYPE_LABEL[t] || (t ? t[0].toUpperCase() + t.slice(1) : "Investimento");
-  const donutData = investments.map(i => ({ ...i }));
+  const donutData = investments.filter(inv => (inv.balance || 0) > 0);
+
+  const grouped = _s3Memo(() => {
+    const g = {};
+    investments.forEach(inv => {
+      const t = typeLabel(inv.type);
+      if (!g[t]) g[t] = [];
+      g[t].push(inv);
+    });
+    return Object.entries(g).sort((a, b) => b[1].reduce((s, x) => s + x.balance, 0) - a[1].reduce((s, x) => s + x.balance, 0));
+  }, [investments]);
 
   if (investments.length === 0) {
     return h("div", { className: "fade-in pane", style: { padding: 40, textAlign: "center", color: "var(--fg-3)" } },
@@ -84,41 +98,47 @@ function InvestmentsView({ refreshKey, filterMonth }) {
       ),
       h("div", { className: "pane" },
         h("div", { className: "pane-h" },
-          h("div", { className: "pane-title" }, "Investimentos"),
+          h("div", { className: "pane-title" }, "Ativos em carteira"),
           h("span", { style: { fontSize: 10, color: "var(--fg-3)" } }, "clique no valor para corrigir")
         ),
-        h("div", { className: "pane-content", style: { display: "flex", flexDirection: "column", gap: 14 } },
-          investments.map((inv, i) => {
-            const bal = inv.balance || 0;
-            const isEditing = editingId === inv.id;
-            return h("div", { key: i, style: { padding: "10px 0", borderBottom: "1px solid var(--line-1)" } },
-              h("div", { style: { display: "flex", alignItems: "center", gap: 14 } },
-                h("div", { style: { flex: 1 } },
-                  h("div", { style: { fontWeight: 600, fontSize: 13 } }, inv.name),
-                  h(BankChip, { bank: inv.bank })
-                ),
-                !isEditing
-                  ? h("button", {
-                      onClick: () => { setEditingId(inv.id); setEditInput(bal.toFixed(2).replace(".", ",")); setEditErr(""); },
-                      style: { textAlign: "right", background: "none", border: "none", cursor: "pointer", padding: 0 }
-                    },
-                      h("div", { className: "num", style: { fontSize: 18, fontWeight: 700, borderBottom: "1px dashed var(--line-2)" } }, fmtBRL(bal)),
-                      h("div", { style: { fontSize: 10, color: "var(--fg-3)", marginTop: 2 } }, typeLabel(inv.type))
-                    )
-                  : h("div", { style: { display: "flex", gap: 4, alignItems: "center" } },
-                      h("input", {
-                        autoFocus: true, className: "input", value: editInput,
-                        onChange: e => { setEditInput(e.target.value); setEditErr(""); },
-                        onKeyDown: e => { if (e.key === "Enter") saveBalance(inv); if (e.key === "Escape") { setEditingId(null); setEditErr(""); } },
-                        style: { height: 30, width: 100, padding: "0 6px", fontSize: 13, borderColor: editErr ? "var(--neg)" : undefined }
-                      }),
-                      h("button", { className: "btn btn-primary btn-sm", onClick: () => saveBalance(inv), style: { height: 30 } }, "✓"),
-                      h("button", { className: "btn btn-ghost btn-sm", onClick: () => { setEditingId(null); setEditErr(""); }, style: { height: 30 } }, "✕")
-                    )
-              ),
-              isEditing && editErr && h("div", { style: { fontSize: 10, color: "var(--neg)", marginTop: 4 } }, editErr)
-            );
-          })
+        h("div", { className: "pane-content", style: { display: "flex", flexDirection: "column", gap: 20 } },
+          grouped.map(([groupName, groupInvs]) => h("div", { key: groupName },
+            h("div", { style: { fontSize: 10, fontWeight: 700, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: "1px solid var(--line-1)", paddingBottom: 6, marginBottom: 8 } }, groupName),
+            h("div", { style: { display: "flex", flexDirection: "column", gap: 10 } },
+              groupInvs.map((inv, i) => {
+                const bal = inv.balance || 0;
+                const isEditing = editingId === inv.id;
+                return h("div", { key: i, style: { padding: "10px 0", borderBottom: "1px solid var(--line-1)" } },
+                  h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between" } },
+                    h("div", { style: { flex: 1 } },
+                      h("div", { style: { fontWeight: 600, fontSize: 14 } }, inv.name),
+                      h(BankChip, { bank: inv.bank, style: { marginTop: 4 } })
+                    ),
+                    !isEditing
+                      ? h("button", {
+                          onClick: () => { setEditingId(inv.id); setEditInput(bal.toFixed(2).replace(".", ",")); setEditErr(""); },
+                          style: { textAlign: "right", background: "none", border: "none", cursor: "pointer", padding: 0 }
+                        },
+                          h("div", { className: "num", style: { fontSize: 17, fontWeight: 700, borderBottom: "1px dashed var(--line-2)" } }, fmtBRL(bal))
+                        )
+                      : h("div", { style: { display: "flex", gap: 4, alignItems: "center" } },
+                          h("input", {
+                            autoFocus: true, className: "input", value: editInput,
+                            onChange: e => { setEditInput(e.target.value); setEditErr(""); },
+                            onKeyDown: e => { if (e.key === "Enter") saveBalance(inv); if (e.key === "Escape") { setEditingId(null); setEditErr(""); } },
+                            style: { width: 100, textAlign: "right", fontSize: 16 }
+                          }),
+                          h("div", { style: { display: "flex", flexDirection: "column", gap: 2 } },
+                            h("button", { className: "btn btn-primary btn-sm", onClick: () => saveBalance(inv), style: { height: 26, padding: "0 6px" } }, "✓"),
+                            h("button", { className: "btn btn-ghost btn-sm", onClick: () => { setEditingId(null); setEditErr(""); }, style: { height: 26, padding: "0 6px" } }, "✕")
+                          )
+                        )
+                  ),
+                  isEditing && editErr && h("div", { style: { fontSize: 10, color: "var(--neg)", marginTop: 4 } }, editErr)
+                );
+              })
+            )
+          ))
         ),
         periodMovements.length > 0 && h("div", { style: { borderTop: "1px solid var(--line-1)", padding: "12px 14px" } },
           h("div", { style: { fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--fg-3)", marginBottom: 10 } }, "Movimentos no período"),
@@ -134,6 +154,25 @@ function InvestmentsView({ refreshKey, filterMonth }) {
               );
             })
           )
+        )
+      )
+    ),
+
+    // Evolução chart
+    evolution.length > 0 && h("div", { className: "pane", style: { marginTop: 14 } },
+      h("div", { className: "pane-h" },
+        h("div", { className: "pane-title" }, "Evolução de Aportes"),
+        h("span", { style: { fontSize: 10, color: "var(--fg-3)" } }, "12 meses")
+      ),
+      h("div", { className: "pane-content", style: { height: 220, paddingBottom: 16 } },
+        h(DualLine, { data: evolution.map(e => ({ label: e.label, income: e.deposit, expenses: e.withdrawal })), height: 200 })
+      ),
+      h("div", { style: { display: "flex", gap: 16, padding: "0 14px 14px", fontSize: 11, color: "var(--fg-2)" } },
+        h("span", { style: { display: "flex", alignItems: "center", gap: 6 } },
+          h("span", { style: { display: "inline-block", width: 8, height: 8, borderRadius: 2, background: "var(--pos)" } }), "Aportes"
+        ),
+        h("span", { style: { display: "flex", alignItems: "center", gap: 6 } },
+          h("span", { style: { display: "inline-block", width: 8, height: 8, borderRadius: 2, background: "var(--neg)" } }), "Resgates"
         )
       )
     )

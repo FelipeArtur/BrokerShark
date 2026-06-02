@@ -2,7 +2,7 @@
 /* global React, ReactDOM, fetchExpenseCategories, patchTransactionCategory, patchTransaction,
           postTransaction, postIncome, postInvestmentMovement, searchTransactions,
           fetchExpenseCategoriesFull, postCategory, deleteCategory, deleteTransaction,
-          fetchAccounts, importPreview, importConfirm */
+          fetchAccounts, importPreview, importConfirm, importB3 */
 
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
 const {
@@ -393,6 +393,7 @@ function ImportModal({ onClose, onDone }) {
   const [account, setAccount]   = useState("nu-db");
   const [file, setFile]         = useState(null);
   const [preview, setPreview]   = useState(null);
+  const [b3Preview, setB3Preview] = useState(null);
   const [excluded, setExcluded] = useState(() => new Set());
   const [busy, setBusy]         = useState(false);
   const [err, setErr]           = useState(null);
@@ -402,17 +403,13 @@ function ImportModal({ onClose, onDone }) {
     setBusy(true); setErr(null);
     try {
       if (account === "b3") {
-        const formData = new FormData();
-        formData.append("file", file);
-        const req = await fetch("/api/import/b3", { method: "POST", body: formData });
-        const res = await req.json();
-        if (!req.ok) throw new Error(res.error || "Falha ao importar B3.");
-        onDone({ created: res.created || 0, updated: res.updated || 0, inserted: res.total || 0 });
-        return;
+        const res = await importB3(file);          // preview only — nothing written
+        setB3Preview(res);
+      } else {
+        const res = await importPreview(file, account);
+        setPreview(res);
+        setExcluded(new Set());
       }
-      const res = await importPreview(file, account);
-      setPreview(res);
-      setExcluded(new Set());
     } catch (e) { setErr(e.message || "Falha ao analisar."); }
     finally { setBusy(false); }
   }
@@ -428,6 +425,11 @@ function ImportModal({ onClose, onDone }) {
   async function confirm() {
     setBusy(true); setErr(null);
     try {
+      if (b3Preview) {
+        const res = await importB3(file, { confirm: true });
+        onDone({ inserted: res.total || 0, created: res.created || 0, updated: res.updated || 0, kind: "b3" });
+        return;
+      }
       const res = await importConfirm(preview.batch_id, [...excluded]);
       onDone(res);
     } catch (e) { setErr(e.message || "Falha ao confirmar."); setBusy(false); }
@@ -561,10 +563,56 @@ function ImportModal({ onClose, onDone }) {
     )
   );
 
-  const step2 = preview && (nothingNew ? emptyState : reviewBody);
+  // ── Step 2 (B3): review parsed investment positions before upsert
+  const B3_TYPE_LABEL = { savings: "Poupança", treasury: "Tesouro Direto", cdb: "CDB / Renda fixa", lci: "LCI / Renda fixa", lca: "LCA / Renda fixa" };
+  const b3Total = b3Preview ? b3Preview.total : 0;
+  const b3Body = b3Preview && h("div", { style: { display: "flex", flexDirection: "column", gap: 12 } },
+    h("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
+      h(Chip, { n: b3Preview.created, meta: STATUS_META.new }),
+      h(Chip, { n: b3Preview.updated, meta: { label: "atualiza", color: "var(--info)" } })
+    ),
+    b3Total === 0
+      ? h("div", { style: { padding: "20px 0", textAlign: "center", color: "var(--fg-3)", fontSize: 13 } }, "Nenhuma posição encontrada no relatório.")
+      : h("div", { style: { fontSize: 12, color: "var(--fg-2)" } },
+          "Cada posição vira/atualiza um investimento (saldo = valor atual). Nenhum lançamento de extrato é tocado."),
+    b3Total > 0 && h("div", { style: { maxHeight: "44vh", overflow: "auto", border: "1px solid var(--line-1)", borderRadius: 8 } },
+      h("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 12 } },
+        h("thead", null,
+          h("tr", { style: { position: "sticky", top: 0, background: "var(--bg-2)", zIndex: 1 } },
+            h("th", { style: thStyle() }, "Posição"),
+            h("th", { style: thStyle() }, "Tipo"),
+            h("th", { style: { ...thStyle(), textAlign: "right" } }, "Valor")
+          )
+        ),
+        h("tbody", null,
+          b3Preview.positions.map((p, i) => h("tr", { key: i, style: { borderTop: "1px solid var(--line-1)" } },
+            h("td", { style: { padding: "6px 8px" } },
+              h("div", { style: { display: "flex", alignItems: "center", gap: 6 } },
+                h("span", { style: { maxWidth: 230, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, p.name),
+                p.status === "new"
+                  ? h("span", { style: { fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 999, background: "color-mix(in oklch, var(--pos) 16%, transparent)", color: "var(--pos)" } }, "nova")
+                  : h("span", { style: { fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 999, background: "color-mix(in oklch, var(--info) 16%, transparent)", color: "var(--info)" } }, "atualiza")
+              ),
+              h(BankChip, { bank: p.bank })
+            ),
+            h("td", { style: { padding: "6px 8px", color: "var(--fg-3)", whiteSpace: "nowrap" } }, B3_TYPE_LABEL[p.type] || p.type),
+            h("td", { style: { padding: "6px 8px", textAlign: "right", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums", fontWeight: 600 } }, fmtBRL(p.balance))
+          ))
+        )
+      )
+    ),
+    err && h("div", { style: { color: "var(--neg)", fontSize: 12 } }, err),
+    h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 } },
+      h("button", { className: "btn btn-ghost", onClick: () => { setB3Preview(null); setErr(null); } }, "‹ Voltar"),
+      h("button", { className: "btn btn-primary", disabled: busy || b3Total <= 0, onClick: confirm },
+        busy ? "Importando…" : `Importar ${b3Total} ${b3Total === 1 ? "posição" : "posições"}`)
+    )
+  );
+
+  const step2 = preview ? (nothingNew ? emptyState : reviewBody) : b3Body;
 
   return h(Modal, { open: true, onClose, title: "Importar extrato / fatura", width: 620 },
-    preview ? step2 : step1);
+    (preview || b3Preview) ? step2 : step1);
 }
 
 function App() {
@@ -720,7 +768,10 @@ function App() {
       onDone: (res) => {
         setImportOpen(false);
         const n = res?.inserted ?? 0;
-        push(n > 0 ? `${n} ${n === 1 ? "lançamento importado" : "lançamentos importados"}` : "Nada novo para importar", n > 0 ? "success" : "info");
+        const msg = res?.kind === "b3"
+          ? (n > 0 ? `${n} ${n === 1 ? "posição importada" : "posições importadas"}` : "Nenhuma posição encontrada")
+          : (n > 0 ? `${n} ${n === 1 ? "lançamento importado" : "lançamentos importados"}` : "Nada novo para importar");
+        push(msg, n > 0 ? "success" : "info");
         setRefreshKey(k => k + 1);
       },
     }),

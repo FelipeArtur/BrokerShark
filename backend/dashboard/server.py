@@ -225,6 +225,16 @@ def api_investments() -> Response:
     ])
 
 
+@app.route("/api/investment-evolution")
+def api_investment_evolution() -> Response:
+    """Return historical investment deposits vs withdrawals for the last 12 months.
+
+    Returns:
+        JSON array of ``{label, month, year, deposit, withdrawal}`` objects ordered oldest first.
+    """
+    return jsonify(database.get_investment_evolution(12))
+
+
 @app.route("/api/investments/<int:inv_id>/balance", methods=["PATCH"])
 def api_patch_investment_balance(inv_id: int) -> Response:
     """Update the current balance of an investment to its real-world value.
@@ -786,6 +796,44 @@ def api_post_investment_movement() -> Response:
         description=description,
     )
     return jsonify({"ok": True, "id": mv_id})
+
+
+@app.route("/api/import/b3/preview", methods=["POST"])
+def api_import_b3_preview() -> Response:
+    """Parse a B3 XLSX report WITHOUT writing — for review before confirm.
+
+    Multipart form: ``file`` (the .xlsx). Returns ``{positions, created, updated,
+    total}`` where each position is tagged ``status`` (``"new"`` if its name is not
+    yet an investment, else ``"update"``). Nothing is persisted.
+    """
+    upload = request.files.get("file")
+    if upload is None:
+        return jsonify({"error": "Nenhum arquivo enviado."}), 400
+    if not (upload.filename or "").lower().endswith(".xlsx"):
+        return jsonify({"error": "Relatório B3 deve ser um arquivo .xlsx"}), 400
+
+    data = upload.read()
+    try:
+        positions = b3.parse_b3(data)
+    except b3.B3ParseError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception:
+        _logger.exception("Erro inesperado lendo B3 (preview)")
+        return jsonify({"error": "Falha ao processar o relatório B3."}), 500
+
+    existing = {inv["name"] for inv in database.get_all_investments()}
+    rows = [
+        {"name": p.name, "type": p.type, "bank": p.bank, "balance": p.balance,
+         "status": "update" if p.name in existing else "new"}
+        for p in positions
+    ]
+    created = sum(1 for r in rows if r["status"] == "new")
+    return jsonify({
+        "positions": rows,
+        "created": created,
+        "updated": len(rows) - created,
+        "total": len(rows),
+    })
 
 
 @app.route("/api/import/b3", methods=["POST"])
