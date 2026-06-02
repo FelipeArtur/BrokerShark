@@ -333,7 +333,7 @@ OLLAMA_TIMEOUT=60
 
 The dashboard navigates **2 screens** (`app.js` `SECTIONS`): **Dinheiro** (`OverviewView`) and **Histórico** (`HistoryView`). Keyboard shortcuts `1`=Dinheiro, `2`=Histórico.
 
-- **Dinheiro** = "como estou agora". Hero number is **Disponível pra gastar** (`fetchAvailable` → `/api/available`, liquidez = contas correntes − faturas em aberto), colored green/red, with the equation `Contas − Faturas` below and a real liquidity-trend sparkline (`/api/liquidity-history`). Right column = contexto (Patrimônio total / Investimentos / Faturas). Below: faturas cards, "Este mês" cashflow, contas correntes list, atividade recente. Always scoped to the current month (no period selector here). First-run (zero data) collapses to a single **Importar** invite. Clicking a fatura/conta jumps to Histórico filtered by that account.
+- **Dinheiro** = "como estou agora". Hero number is **Disponível pra gastar** (`fetchAvailable` → `/api/available`, liquidez = contas correntes − faturas em aberto), colored green/red, with the equation `Contas − Faturas` below and a real liquidity-trend sparkline (`/api/liquidity-history`). Right column = **ledger** mono (Patrimônio total / Contas / Investimentos / Faturas em aberto) via `LedgerRow` — sem barras de progresso decorativas. Layout: faturas em aberto logo abaixo do herói; depois **Este mês** + **Contas correntes** lado a lado (grid `var(--col-2)`); por fim atividade recente. Sempre no mês atual (sem seletor de período aqui). First-run (zero data) colapsa num único convite **Importar**. Clicar numa fatura/conta abre o Histórico filtrado por aquela conta.
 - **Fase 14b — money assistant (advisory):** "Este mês" card shows a run-rate month-close projection; fatura cards show a cycle run-rate "projeção fechamento ~R$Y" (attenuated in the first 5 days of the cycle). Projections are client-side estimates, labelled as such.
 - **Histórico** = "o que aconteceu". Hosts the **period selector** (36-month timeline), 4 metric cards, 6-month flow chart, embedded `InvestmentsView` (donut + movimentos), por categoria, Top PIX, and the **filterable table** (filtros: flow · método · categoria · **conta** · busca). `initialAccount`/`onAccountConsumed` props drive the drill-down filter.
 - **Categorias** (`CategoriesPanel`) is no longer a nav tab — reached via Configurações (`TweaksPanel`). The old `CardsView`/`AccountsView`/`AccountsCardsView` were **removed** (Fase 14 cleanup); their content lives in Histórico (`view-history.js` = `InvestmentsView` + `HistoryView`).
@@ -345,7 +345,7 @@ The dashboard navigates **2 screens** (`app.js` `SECTIONS`): **Dinheiro** (`Over
 | `Sparkline` | Chart.js line, no axes | Dinheiro hero (liquidez 12M), Histórico metric cards |
 | `DualLine` | Chart.js 2-line with axes | Histórico (fluxo 6 meses) |
 | `Donut` | Chart.js doughnut | Histórico → InvestmentsView |
-| `Progress` | Pure CSS bar | Dinheiro (hero breakdown rows) |
+| `Progress` | Pure CSS bar | definido, **não usado** (era hero breakdown, agora ledger) |
 | `BarChart` | Chart.js bar | definido; disponível para barras mensais |
 | `PatrimonioChart` | Chart.js filled area | definido, **não usado** |
 

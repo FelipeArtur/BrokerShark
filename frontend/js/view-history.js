@@ -259,7 +259,7 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
           const isCur2 = m.year === now.getFullYear() && m.month === (now.getMonth() + 1);
           return h("button", {
             key: i, onClick: () => setPickedIdx(i),
-            title: `${PT_MONTHS[m.month]} ${m.year} — ${fmtBRL(m.expenses, { decimals: 0 })}`,
+            title: `${PT_MONTHS[m.month]} ${m.year}: ${fmtBRL(m.expenses, { decimals: 0 })}`,
             style: {
               flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
               background: "transparent", borderRadius: 4, padding: "2px 1px",
@@ -279,8 +279,8 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
       )
     ),
 
-    // B — 4 headline metric cards
-    h("div", { style: { display: "grid", gridTemplateColumns: "var(--col-4)", gap: 10 } },
+    // B — faixa de métricas (uma faixa única, não 4 cards soltos)
+    h("div", { className: "card", style: { display: "grid", gridTemplateColumns: "var(--col-4)" } },
       [
         {
           l: "Receitas", v: fmtBRL(totalInc), c: "var(--pos)",
@@ -307,7 +307,7 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
           sparkData: sparkWindow.map(m => m.income > 0 ? ((m.income - m.expenses) / m.income) * 100 : 0),
         },
       ].map((s, i) =>
-        h("div", { key: i, className: "card", style: { padding: 14 } },
+        h("div", { key: i, style: { padding: "14px 16px", borderLeft: i === 0 ? "none" : "1px solid var(--line-1)" } },
           h("div", { className: "eyebrow", style: { fontSize: 9 } }, s.l),
           h("div", { className: "num", style: { fontSize: 24, fontWeight: 700, color: s.c, marginTop: 4, letterSpacing: "-0.02em" } }, s.v),
           h("div", { style: { marginTop: 6 } },
@@ -466,7 +466,7 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
                     h("td", { style: { maxWidth: 260 } },
                       h("div", { style: { display: "flex", alignItems: "center", gap: 5, overflow: "hidden" } },
                         h("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 } }, displayLabel),
-                        isThirdParty && h("span", { title: "Não é meu — excluído dos gastos", style: { fontSize: 9, padding: "1px 4px", borderRadius: 3, background: "var(--warn-bg,rgba(255,160,0,.15))", color: "var(--warn,#fa0)", fontWeight: 700, flexShrink: 0 } }, "3°")
+                        isThirdParty && h("span", { title: "Não é meu: excluído dos gastos", style: { fontSize: 9, padding: "1px 4px", borderRadius: 3, background: "var(--warn-bg,rgba(255,160,0,.15))", color: "var(--warn,#fa0)", fontWeight: 700, flexShrink: 0 } }, "3°")
                       )
                     ),
                     h("td", null,

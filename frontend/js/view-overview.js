@@ -1,7 +1,6 @@
 /* view-overview.js — OverviewView (tela "Dinheiro") + CategoriesPanel */
 /* global React, fetchSummary, fetchFaturas, fetchAvailable, fetchAccounts,
-          fetchPatrimonioHistory, fetchLiquidityHistory, fetchRecentActivity,
-          fetchCashflowStatement,
+          fetchLiquidityHistory, fetchRecentActivity, fetchCashflowStatement,
           fetchExpenseCategoriesFull, postCategory, deleteCategory */
 
 const { useState: _ovSt, useEffect: _ovEf, useMemo: _ovMemo } = React;
@@ -14,7 +13,6 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
   const [available, setAvailable]   = _ovSt(null);
   const [availErr, setAvailErr]     = _ovSt(false);
   const [faturas, setFaturas]       = _ovSt([]);
-  const [patrimonio, setPatrimonio] = _ovSt([]);
   const [liquidity, setLiquidity]   = _ovSt([]);
   const [accounts, setAccounts]     = _ovSt([]);
   const [activity, setActivity]     = _ovSt([]);
@@ -29,26 +27,26 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
     Promise.all([
       fetchSummary({ month, year }),
       fetchFaturas(),
-      fetchPatrimonioHistory(),
       fetchLiquidityHistory(),
       fetchAccounts(),
       fetchRecentActivity(),
       fetchCashflowStatement((month && year) ? { month, year } : {}),
-    ]).then(([s, f, p, lq, ac, a, cf]) => {
-      setSummary(s); setFaturas(f); setPatrimonio(p); setLiquidity(lq);
+    ]).then(([s, f, lq, ac, a, cf]) => {
+      setSummary(s); setFaturas(f); setLiquidity(lq);
       setAccounts(ac); setActivity(a); setCashflow(cf);
     });
   }, [refreshKey, filterMonth]);
 
   if (!summary) return h("div", { style: { padding: 24, color: "var(--fg-2)" } }, "Carregando…");
 
-  const totalFaturas  = faturas.reduce((s, f) => s + (f.total || 0), 0);
-  const patrNow       = patrimonio.length ? patrimonio[patrimonio.length - 1].value : 0;
-  const totalReservas = summary.reservas || 0;
-  const patrTotal     = patrNow + totalReservas;
-
   // Checking accounts only, for the "Contas correntes" card.
   const checkingAccounts = accounts.filter(a => a.type === "checking");
+
+  const totalFaturas    = faturas.reduce((s, f) => s + (f.total || 0), 0);
+  const totalReservas   = summary.reservas || 0;
+  // Use the same checking number as the hero (investment-adjusted) for consistency.
+  const checkingTotal   = available ? available.checking_total : checkingAccounts.reduce((s, a) => s + (a.balance || 0), 0);
+  const patrimonioTotal = checkingTotal + totalReservas;
 
   // First-run: nothing imported yet → single invite, no ghost zero-cards.
   const isFirstRun = !availErr && available
@@ -58,15 +56,12 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
   const availValue = available ? available.available : 0;
   const availNeg   = available ? available.available < 0 : false;
 
-  function BreakdownRow({ label, value, pct, color, negative }) {
-    return h("div", null,
-      h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 } },
-        h("span", { style: { fontSize: 11, color: "var(--fg-2)", textTransform: "uppercase", letterSpacing: "0.04em", fontWeight: 600 } }, label),
-        h("span", { className: "num", style: { fontWeight: 600, fontSize: 14, color: negative ? "var(--neg)" : "var(--fg-0)" } },
-          negative && "−", fmtBRL(Math.abs(value)))
-      ),
-      h(Progress, { value: Math.min(Math.abs(value), Math.abs(patrTotal) || 1), max: Math.abs(patrTotal) || 1, color }),
-      h("div", { style: { fontSize: 9, color: "var(--fg-3)", marginTop: 2, fontFamily: "var(--ff-mono)" } }, `${Math.abs(pct).toFixed(1)}% do patrimônio`)
+  // Terminal-style ledger row: label left, mono value right. No progress bars.
+  function LedgerRow({ label, value, color, negative, strong, sub }) {
+    return h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: sub ? "1px 0" : "2px 0" } },
+      h("span", { style: { fontSize: sub ? 11 : 11, color: sub ? "var(--fg-3)" : "var(--fg-2)", textTransform: strong ? "uppercase" : "none", letterSpacing: strong ? "0.04em" : "0", fontWeight: strong ? 600 : 400, paddingLeft: sub ? 10 : 0 } }, label),
+      h("span", { className: "num", style: { fontWeight: strong ? 700 : 600, fontSize: strong ? 15 : 13, color: color || "var(--fg-0)" } },
+        (negative ? "−" : "") + fmtBRL(Math.abs(value)))
     );
   }
 
@@ -76,7 +71,7 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
         h("div", { className: "eyebrow" }, "Disponível pra gastar"),
         h("div", { style: { fontSize: 20, fontWeight: 700, color: "var(--fg-0)" } }, "Importe seu extrato pra ver seu dinheiro"),
         h("div", { style: { fontSize: 13, color: "var(--fg-2)", maxWidth: 460 } },
-          "Suba o extrato ou a fatura exportada do banco. Em segundos você vê quanto pode gastar de verdade — saldo das contas menos as faturas em aberto."),
+          "Suba o extrato ou a fatura exportada do banco. Em segundos você vê quanto pode gastar de verdade: saldo das contas menos as faturas em aberto."),
         onImport && h("button", { className: "btn btn-primary", style: { marginTop: 6 }, onClick: onImport }, "Importar extrato")
       )
     );
@@ -109,61 +104,16 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
         h("div", { style: { marginTop: 14, height: 56 } },
           h(Sparkline, { data: liquidity.map(p => p.value), width: "100%", height: 56, color: "var(--info)", strokeWidth: 1.8 })
         ),
-        h("div", { style: { display: "flex", justifyContent: "space-between", fontFamily: "var(--ff-mono)", fontSize: 9, color: "var(--fg-2)", marginTop: 4 } },
-          liquidity.filter((_, i) => i % 3 === 0).map((p, i) => h("span", { key: i }, p.label)),
-          h("span", { style: { color: "var(--fg-3)" } }, "liquidez 12M")
-        )
+        h("div", { style: { textAlign: "right", fontFamily: "var(--ff-mono)", fontSize: 9, color: "var(--fg-3)", marginTop: 2 } }, "liquidez · 12 meses")
       ),
-      // Right: contexto (patrimônio / investimentos / faturas)
+      // Right: contexto — ledger de patrimônio (sem barras decorativas)
       h("div", { className: "hero-right-col" },
-        h(BreakdownRow, { label: "Patrimônio total", value: patrTotal,     pct: patrTotal ? 100 : 0, color: "var(--pos)" }),
-        h(BreakdownRow, { label: "Investimentos",    value: totalReservas, pct: patrTotal ? (totalReservas / patrTotal) * 100 : 0, color: "var(--reserve)" }),
-        h(BreakdownRow, { label: "Faturas em aberto", value: totalFaturas, pct: patrTotal ? (totalFaturas / patrTotal) * 100 : 0, color: "var(--neg)", negative: totalFaturas > 0 })
-      )
-    ),
-
-    // Este mês — cash flow statement
-    cashflow && h("div", { className: "card", style: { padding: 16 } },
-      h("div", { style: { marginBottom: 12 } },
-        h("div", { className: "card-title" }, "Este mês")
-      ),
-      h("div", { style: { display: "flex", flexDirection: "column", gap: 7 } },
-        h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline" } },
-          h("span", { style: { color: "var(--neg)", fontSize: 12 } }, "↓ Despesas"),
-          h("span", { className: "num", style: { color: "var(--neg)", fontWeight: 700, fontSize: 15 } }, fmtBRL(cashflow.expense_total))
-        ),
-        (cashflow.expense_by_source.cc > 0 || cashflow.expense_by_source.direct > 0) && h("div", {
-          style: { textAlign: "right", fontSize: 10, color: "var(--fg-3)", fontFamily: "var(--ff-mono)", marginTop: -4 }
-        }, `${fmtBRL(cashflow.expense_by_source.cc, { decimals: 0 })} cartão · ${fmtBRL(cashflow.expense_by_source.direct, { decimals: 0 })} débito`),
-        h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline" } },
-          h("span", { style: { color: "var(--pos)", fontSize: 12 } }, "↑ Receitas"),
-          h("span", { className: "num", style: { color: "var(--pos)", fontWeight: 700, fontSize: 15 } }, fmtBRL(cashflow.income_total))
-        ),
-        cashflow.investment_net !== 0 && h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline" } },
-          h("span", { style: { color: cashflow.investment_net > 0 ? "var(--reserve)" : "var(--info)", fontSize: 12 } },
-            cashflow.investment_net > 0 ? "→ Investido" : "← Resgatado"),
-          h("span", { className: "num", style: { color: cashflow.investment_net > 0 ? "var(--reserve)" : "var(--info)", fontWeight: 700, fontSize: 15 } },
-            fmtBRL(Math.abs(cashflow.investment_net)))
-        ),
-        h("div", { style: { borderTop: "1px solid var(--line-1)", paddingTop: 8, marginTop: 2, display: "flex", justifyContent: "space-between", alignItems: "baseline" } },
-          h("span", { style: { fontSize: 12, color: "var(--fg-1)", fontWeight: 600 } }, "Saldo livre"),
-          h("span", { className: "num", style: { fontSize: 17, fontWeight: 700, color: cashflow.free_balance >= 0 ? "var(--pos)" : (cashflow.income_total === 0 ? "var(--warn)" : "var(--neg)") } }, fmtBRL(cashflow.free_balance))
-        ),
-        // Projeção de fechamento (run-rate) — só no mês atual
-        (() => {
-          const now = new Date();
-          const isCur = cashflow.month === now.getMonth() + 1 && cashflow.year === now.getFullYear();
-          if (!isCur || cashflow.expense_total <= 0) return null;
-          const daysElapsed = now.getDate();
-          const daysInMonth = new Date(cashflow.year, cashflow.month, 0).getDate();
-          const projExpense = cashflow.expense_total / daysElapsed * daysInMonth;
-          const projFree = cashflow.income_total - projExpense - cashflow.investment_net;
-          return h("div", { style: { fontSize: 11, color: "var(--fg-2)", marginTop: 4, display: "flex", justifyContent: "space-between" } },
-            h("span", null, "No ritmo atual, fecha em"),
-            h("span", { className: "num", style: { color: projFree >= 0 ? "var(--fg-1)" : "var(--neg)", fontWeight: 600 } },
-              (projFree >= 0 ? "" : "−") + fmtBRL(Math.abs(projFree), { decimals: 0 }), " · estimativa")
-          );
-        })()
+        h(LedgerRow, { label: "Patrimônio total", value: patrimonioTotal, strong: true }),
+        h(LedgerRow, { label: "Contas", value: checkingTotal, sub: true }),
+        h(LedgerRow, { label: "Investimentos", value: totalReservas, sub: true, color: "var(--reserve)" }),
+        h("div", { style: { borderTop: "1px solid var(--line-1)", marginTop: 4, paddingTop: 4 } },
+          h(LedgerRow, { label: "Faturas em aberto", value: totalFaturas, color: totalFaturas > 0 ? "var(--neg)" : "var(--fg-0)", negative: totalFaturas > 0 })
+        )
       )
     ),
 
@@ -218,6 +168,53 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
           )
     ),
 
+    // Este mês + Contas correntes (2 colunas, sem empilhar)
+    h("div", { style: { display: "grid", gridTemplateColumns: "var(--col-2)", gap: 14, alignItems: "start" } },
+    // Este mês — cash flow statement
+    cashflow && h("div", { className: "card", style: { padding: 16 } },
+      h("div", { style: { marginBottom: 12 } },
+        h("div", { className: "card-title" }, "Este mês")
+      ),
+      h("div", { style: { display: "flex", flexDirection: "column", gap: 7 } },
+        h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline" } },
+          h("span", { style: { color: "var(--neg)", fontSize: 12 } }, "↓ Despesas"),
+          h("span", { className: "num", style: { color: "var(--neg)", fontWeight: 700, fontSize: 15 } }, fmtBRL(cashflow.expense_total))
+        ),
+        (cashflow.expense_by_source.cc > 0 || cashflow.expense_by_source.direct > 0) && h("div", {
+          style: { textAlign: "right", fontSize: 10, color: "var(--fg-3)", fontFamily: "var(--ff-mono)", marginTop: -4 }
+        }, `${fmtBRL(cashflow.expense_by_source.cc, { decimals: 0 })} cartão · ${fmtBRL(cashflow.expense_by_source.direct, { decimals: 0 })} débito`),
+        h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline" } },
+          h("span", { style: { color: "var(--pos)", fontSize: 12 } }, "↑ Receitas"),
+          h("span", { className: "num", style: { color: "var(--pos)", fontWeight: 700, fontSize: 15 } }, fmtBRL(cashflow.income_total))
+        ),
+        cashflow.investment_net !== 0 && h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline" } },
+          h("span", { style: { color: cashflow.investment_net > 0 ? "var(--reserve)" : "var(--info)", fontSize: 12 } },
+            cashflow.investment_net > 0 ? "→ Investido" : "← Resgatado"),
+          h("span", { className: "num", style: { color: cashflow.investment_net > 0 ? "var(--reserve)" : "var(--info)", fontWeight: 700, fontSize: 15 } },
+            fmtBRL(Math.abs(cashflow.investment_net)))
+        ),
+        h("div", { style: { borderTop: "1px solid var(--line-1)", paddingTop: 8, marginTop: 2, display: "flex", justifyContent: "space-between", alignItems: "baseline" } },
+          h("span", { style: { fontSize: 12, color: "var(--fg-1)", fontWeight: 600 } }, "Saldo livre"),
+          h("span", { className: "num", style: { fontSize: 17, fontWeight: 700, color: cashflow.free_balance >= 0 ? "var(--pos)" : (cashflow.income_total === 0 ? "var(--warn)" : "var(--neg)") } }, fmtBRL(cashflow.free_balance))
+        ),
+        // Projeção de fechamento (run-rate) — só no mês atual
+        (() => {
+          const now = new Date();
+          const isCur = cashflow.month === now.getMonth() + 1 && cashflow.year === now.getFullYear();
+          if (!isCur || cashflow.expense_total <= 0) return null;
+          const daysElapsed = now.getDate();
+          const daysInMonth = new Date(cashflow.year, cashflow.month, 0).getDate();
+          const projExpense = cashflow.expense_total / daysElapsed * daysInMonth;
+          const projFree = cashflow.income_total - projExpense - cashflow.investment_net;
+          return h("div", { style: { fontSize: 11, color: "var(--fg-2)", marginTop: 4, display: "flex", justifyContent: "space-between" } },
+            h("span", null, "No ritmo atual, fecha em"),
+            h("span", { className: "num", style: { color: projFree >= 0 ? "var(--fg-1)" : "var(--neg)", fontWeight: 600 } },
+              (projFree >= 0 ? "" : "−") + fmtBRL(Math.abs(projFree), { decimals: 0 }), " · estimativa")
+          );
+        })()
+      )
+    ),
+
     // Contas correntes — onde está o caixa
     h("div", { className: "card" },
       h("div", { className: "card-h" },
@@ -240,6 +237,8 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
               h("span", { className: "num", style: { fontSize: 14, fontWeight: 600, color: (a.balance || 0) < 0 ? "var(--neg)" : "var(--fg-0)" } }, fmtBRL(a.balance || 0))
             ))
       )
+    ),
+
     ),
 
     // Recent activity
