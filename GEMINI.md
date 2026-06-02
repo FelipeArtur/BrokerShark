@@ -67,8 +67,8 @@ backend/
   dashboard/     server.py
   bot/      application.py, scheduler.py, handlers/, parsers/
 frontend/
-  js/  api.js, primitives.js, quick-entry.js, view-overview.js,
-       view-secondary.js, view-chat.js, app.js
+  js/  api.js, primitives.js, view-overview.js,
+       view-history.js, app.js
 load_data/  import_history.py, Extrato completo Nubank/,
             Extrato completo Inter/, Fatura banco Inter/, Fatura Nubank/
 scripts/  recover.py
@@ -140,6 +140,8 @@ Tools (13): `get_monthly_summary`, `get_monthly_comparison`, `get_expenses_by_ca
 | GET | `/api/faturas` | CC billing — includes `last_total` for trend display |
 | GET | `/api/transactions` | Account transactions |
 | GET | `/api/recent-activity` | 20 latest |
+| GET | `/api/available` | Liquidez "disponível pra gastar": `{checking_total, faturas_total, available}` (available = checking − faturas) |
+| GET | `/api/liquidity-history` | Tendência de liquidez 12M `{label, value}[]` (sparkline do herói) |
 | GET | `/api/patrimonio-history` | 12-month net worth |
 | GET | `/api/budgets` | Budget limits |
 | GET | `/api/events` | SSE stream |
@@ -191,13 +193,13 @@ OLLAMA_MODEL=qwen2.5:7b
 OLLAMA_TIMEOUT=60
 ```
 
-## Dashboard frontend — layout atual
+## Dashboard frontend — 2 telas (Fase 14)
 
-**OverviewView hero:** grade 2 colunas — esquerda: valor + Sparkline 12M patrimônio; direita: 3 BreakdownRows (contas / investimentos / faturas). Fatura cards exibem tendência ▲/▼ % via `last_total`.
+Navegação = **2 telas**: **Dinheiro** (`OverviewView`) e **Histórico** (`HistoryView`). Atalhos `1`/`2`. Categorias saiu da nav → vive em Configurações.
 
-**HistoryView ("Lupa do mês"):** seletor de 36 meses clicável + 4 métricas com Sparkline (Receitas/Despesas/Saldo/Poupança) + coluna por categoria + tabela filtrável. Usa `fetchMonthlyFull()` + `fetchMonthTransactions()`.
+**Dinheiro (tela "agora"):** herói = **Disponível pra gastar** (`fetchAvailable` → `/api/available`, liquidez = contas − faturas), verde/vermelho, com equação `Contas − Faturas` + sparkline de liquidez; direita = contexto (Patrimônio/Investimentos/Faturas). Abaixo: cards de fatura, "Este mês", lista de contas correntes, atividade recente. Sempre mês atual. Estado de 1ª vez (zero dados) = convite **Importar**. Clicar fatura/conta → vai pra Histórico filtrado pela conta.
 
-**CardsView:** BarChart de gastos mensais por cartão (substitui DualLine que tinha linha de receita sempre zero). Exibe fallback quando cartão não tem lançamentos individuais.
+**HistoryView (tela "análise"):** seletor de 36 meses + 4 métricas com Sparkline + gráfico fluxo 6m + `InvestmentsView` embutido (donut + movimentos) + por categoria + Top PIX + tabela filtrável (flow · método · categoria · **conta** · busca). Props `initialAccount`/`onAccountConsumed` = drill-down.
 
 ## Estado dos dados
 

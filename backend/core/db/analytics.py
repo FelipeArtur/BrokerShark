@@ -618,6 +618,85 @@ def get_patrimonio_history(months: int = 12) -> list[dict]:
     return result
 
 
+def _checking_balance_at(conn: sqlite3.Connection, account_id: str, bank: str,
+                          initial_balance: float, cutoff: str) -> float:
+    """Checking-account balance as of ``cutoff`` (YYYY-MM-DD).
+
+    Mirrors ``get_all_accounts_with_balance`` (the source of the hero "Disponível" number)
+    so any point-in-time series stays consistent with the live balance:
+    initial + income − expense + inbound transfers − investment net (by bank).
+    """
+    net = conn.execute(
+        """SELECT COALESCE(SUM(CASE WHEN flow='income'  THEN amount ELSE 0 END), 0)
+                - COALESCE(SUM(CASE WHEN flow='expense' THEN amount ELSE 0 END), 0)
+           FROM transactions WHERE account_id=? AND date<=?""",
+        (account_id, cutoff),
+    ).fetchone()[0]
+    inbound = conn.execute(
+        "SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE dest_account_id=? AND date<=?",
+        (account_id, cutoff),
+    ).fetchone()[0]
+    inv_net = conn.execute(
+        """SELECT COALESCE(SUM(CASE WHEN im.operation='deposit' THEN im.amount ELSE -im.amount END), 0)
+           FROM investment_movements im JOIN investments i ON i.id = im.investment_id
+           WHERE i.bank=? AND im.date<=?""",
+        (bank, cutoff),
+    ).fetchone()[0]
+    return float(initial_balance) + float(net or 0) + float(inbound or 0) - float(inv_net or 0)
+
+
+def get_liquidity_history(months: int = 12) -> list[dict]:
+    """Return approximate monthly liquidity ("disponível pra gastar") for the last N months.
+
+    liquidity[m] = checking balance at end of month (investment-adjusted, via
+    ``_checking_balance_at``, so the latest point lines up with the hero "Disponível"
+    number) − card spend during that month. The card-spend term is a per-month proxy
+    for the open fatura (exact per-cycle fatura history is not stored), so historical
+    points are approximate; the trend is what the sparkline conveys.
+    """
+    today_dt = date.today()
+    result: list[dict] = []
+    with _connect() as conn:
+        checking_accounts = conn.execute(
+            "SELECT id, bank, initial_balance FROM accounts WHERE type='checking'"
+        ).fetchall()
+
+        for i in range(months - 1, -1, -1):
+            if today_dt.month - i <= 0:
+                y = today_dt.year - 1
+                m = today_dt.month - i + 12
+            else:
+                y = today_dt.year
+                m = today_dt.month - i
+            if m > 12:
+                y += 1
+                m -= 12
+
+            last_day = calendar.monthrange(y, m)[1]
+            cutoff = f"{y:04d}-{m:02d}-{last_day:02d}"
+            start  = f"{y:04d}-{m:02d}-01"
+
+            checking_bal = sum(
+                _checking_balance_at(conn, acc["id"], acc["bank"], acc["initial_balance"], cutoff)
+                for acc in checking_accounts
+            )
+
+            card_spend = conn.execute(
+                """SELECT COALESCE(SUM(amount), 0) AS spent
+                   FROM transactions
+                   WHERE account_id IN ('nu-cc','inter-cc')
+                     AND flow='expense' AND dest_account_id IS NULL
+                     AND method != 'transfer' AND COALESCE(is_third_party,0)=0
+                     AND date BETWEEN ? AND ?""",
+                (start, cutoff),
+            ).fetchone()["spent"] or 0.0
+
+            label = f"{_PT_SHORT[m]}/{str(y)[-2:]}"
+            result.append({"label": label, "value": round(checking_bal - card_spend, 2)})
+
+    return result
+
+
 def get_daily_spend(year: Optional[int] = None, month: Optional[int] = None) -> list[dict]:
     """Return daily expense totals for a calendar month, zero-filled for every day."""
     today = date.today()
@@ -804,6 +883,28 @@ def get_cashflow_statement(month: int, year: int) -> dict:
         "investment_net":    investment_net,
         "free_balance":      income_total - expense_total - investment_net,
         "cc_by_category":    cc_by_category,
+    }
+
+
+def get_available_to_spend() -> dict:
+    """Return the real liquidity ("disponível pra gastar"): checking cash minus open card bills.
+
+    available = Σ checking balances (nu-db, inter-db) − Σ open fatura totals (nu-cc, inter-cc).
+    This is the balance-sheet truth — "if I paid every open bill right now, this is what's left."
+    Reuses get_all_accounts_with_balance() and get_credit_card_billing_info() so there is a
+    single source of truth shared with /api/accounts and /api/faturas.
+    """
+    checking_total = 0.0
+    faturas_total  = 0.0
+    for acc in get_all_accounts_with_balance():
+        if acc["type"] == "checking":
+            checking_total += float(acc["balance"] or 0)
+        elif acc["type"] == "credit":
+            faturas_total += float(get_credit_card_billing_info(acc["id"])["total"] or 0)
+    return {
+        "checking_total": checking_total,
+        "faturas_total":  faturas_total,
+        "available":      checking_total - faturas_total,
     }
 
 

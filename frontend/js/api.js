@@ -43,10 +43,16 @@ async function fetchDailySpend({ month, year } = {})  { return _get(`/api/daily-
 async function fetchRecentActivity()       { return _get("/api/recent-activity"); }
 async function fetchMonthTransactions({ month, year } = {}) { return _get(`/api/month-transactions${_params({ month, year })}`); }
 async function fetchPatrimonioHistory()    { return _get("/api/patrimonio-history"); }
+async function fetchLiquidityHistory()     { return _get("/api/liquidity-history"); }
 async function fetchBudgets()              { return _get("/api/budgets"); }
 async function searchTransactions(q)       { return _get(`/api/search?q=${encodeURIComponent(q)}`); }
 async function fetchMonthlyFull(bank)      { return _get(`/api/monthly${_params({ bank, months: 36 })}`); }
 async function fetchCashflowStatement({ month, year } = {}) { return _get(`/api/cashflow-statement${_params({ month, year })}`); }
+async function fetchAvailable() {
+  const r = await fetch("/api/available");
+  if (!r.ok) throw new Error("falha ao calcular disponível");
+  return r.json();
+}
 
 /* ── Write endpoints ────────────────────────────────────────────────────── */
 async function patchTransactionCategory(txId, categoryId) {

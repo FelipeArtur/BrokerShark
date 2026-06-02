@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 import time
 from datetime import datetime, timedelta
@@ -25,6 +26,8 @@ from bot.constants import (
     ACCOUNT_BANK as _ACCOUNT_BANK,
     METHOD_LABELS as _METHOD_LABELS,
     INCOME_LABELS as _INCOME_LABELS,
+    OPERATION_LABELS as _OPERATION_LABELS,
+    INVESTMENT_META as _INVESTMENT_META,
 )
 from bot.utils import _authorized, _fmt_brl
 from core import database
@@ -296,6 +299,32 @@ def _do_confirm_transfer(data: dict) -> str:
     return f"✅ Transferência registrada! (#{tx_id})"
 
 
+# ── Validação de argumentos das tools (defesa contra prompt-injection) ────────
+# O modelo é não-confiável: trate os args de register_* como entrada de usuário.
+# Allow-lists derivadas das constantes (fonte única) + amount > 0. Falha fechada:
+# qualquer valor fora da lista levanta ValueError e nada é encenado/gravado.
+_VALID_ACCOUNTS: set[str]       = set(_ACCOUNT_LABELS)      # nu-cc, nu-db, inter-cc, inter-db
+_VALID_EXPENSE_METHODS: set[str] = set(_METHOD_LABELS)      # pix, credit, ted
+_VALID_INCOME_TYPES: set[str]   = set(_INCOME_LABELS)       # salary, freelance, pix_received, other
+_VALID_OPERATIONS: set[str]     = set(_OPERATION_LABELS)    # deposit, withdrawal
+_VALID_INVESTMENTS: set[str]    = set(_INVESTMENT_META)     # nomes cadastrados
+
+
+def _pos_amount(raw: Any) -> float:
+    """Coage para float positivo finito (rejeita 0, negativos, NaN, inf, lixo)."""
+    amt = float(raw)
+    if not math.isfinite(amt) or amt <= 0:
+        raise ValueError(f"valor inválido: {raw!r}")
+    return round(amt, 2)
+
+
+def _require(value: Any, allowed: set[str], label: str) -> str:
+    """Retorna value se estiver na allow-list; senão levanta ValueError."""
+    if value not in allowed:
+        raise ValueError(f"{label} inválido: {value!r}")
+    return value
+
+
 # ── Executor de ferramentas ───────────────────────────────────────────────────
 
 async def _execute_tool(
@@ -330,41 +359,49 @@ async def _execute_tool(
             return json.dumps({"month1": m1, "month2": m2}, ensure_ascii=False), None
 
         if name == "register_expense":
+            installments = int(args.get("installments", 1))
+            if not 1 <= installments <= 99:
+                raise ValueError(f"parcelas inválidas: {installments!r}")
             data = {
-                "date": args["date"], "amount": float(args["amount"]),
+                "date": args["date"], "amount": _pos_amount(args["amount"]),
                 "description": args["description"],
                 "category": args.get("category", "Outro"),
-                "account_id": args["account_id"], "method": args["method"],
-                "installments": int(args.get("installments", 1)),
+                "account_id": _require(args["account_id"], _VALID_ACCOUNTS, "conta"),
+                "method": _require(args["method"], _VALID_EXPENSE_METHODS, "método"),
+                "installments": installments,
             }
             pending[chat_id] = {"type": "expense", "data": data}
             return "ok", _confirmation_expense(data)
 
         if name == "register_income":
             data = {
-                "date": args["date"], "amount": float(args["amount"]),
+                "date": args["date"], "amount": _pos_amount(args["amount"]),
                 "description": args["description"],
-                "income_type": args.get("income_type", "other"),
-                "account_id": args["account_id"],
+                "income_type": _require(args.get("income_type", "other"), _VALID_INCOME_TYPES, "tipo de receita"),
+                "account_id": _require(args["account_id"], _VALID_ACCOUNTS, "conta"),
             }
             pending[chat_id] = {"type": "income", "data": data}
             return "ok", _confirmation_income(data)
 
         if name == "register_investment":
             data = {
-                "date": args["date"], "amount": float(args["amount"]),
-                "investment_name": args["investment_name"],
-                "operation": args["operation"],
+                "date": args["date"], "amount": _pos_amount(args["amount"]),
+                "investment_name": _require(args["investment_name"], _VALID_INVESTMENTS, "investimento"),
+                "operation": _require(args["operation"], _VALID_OPERATIONS, "operação"),
                 "description": args.get("description"),
             }
             pending[chat_id] = {"type": "investment", "data": data}
             return "ok", _confirmation_investment(data)
 
         if name == "register_transfer":
+            from_account = _require(args["from_account"], _VALID_ACCOUNTS, "conta de origem")
+            to_account = _require(args["to_account"], _VALID_ACCOUNTS, "conta de destino")
+            if from_account == to_account:
+                raise ValueError("origem e destino não podem ser a mesma conta")
             data = {
-                "date": args["date"], "amount": float(args["amount"]),
-                "from_account": args["from_account"],
-                "to_account": args["to_account"],
+                "date": args["date"], "amount": _pos_amount(args["amount"]),
+                "from_account": from_account,
+                "to_account": to_account,
             }
             pending[chat_id] = {"type": "transfer", "data": data}
             return "ok", _confirmation_transfer(data)

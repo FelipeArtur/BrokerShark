@@ -70,6 +70,10 @@ def _add_security_headers(response: Response) -> Response:
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "no-referrer"
+    # Financial data must not linger in the browser disk cache. Static assets
+    # (JS/CSS/fonts) stay cacheable.
+    if request.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
         "script-src 'self' https://unpkg.com https://cdn.jsdelivr.net 'unsafe-inline' 'unsafe-eval'; "
@@ -538,6 +542,17 @@ def api_cashflow_statement() -> Response:
     return jsonify(database.get_cashflow_statement(month, year))
 
 
+@app.route("/api/available")
+def api_available() -> Response:
+    """Return real liquidity: checking cash minus open card bills ("disponível pra gastar").
+
+    Returns:
+        JSON with ``checking_total``, ``faturas_total``, ``available``.
+        available = checking_total − faturas_total.
+    """
+    return jsonify(database.get_available_to_spend())
+
+
 @app.route("/api/patrimonio-history")
 def api_patrimonio_history() -> Response:
     """Return approximate monthly net worth for the last 12 months.
@@ -546,6 +561,17 @@ def api_patrimonio_history() -> Response:
         JSON array of ``{label, value}`` objects ordered oldest first.
     """
     return jsonify(database.get_patrimonio_history(12))
+
+
+@app.route("/api/liquidity-history")
+def api_liquidity_history() -> Response:
+    """Return approximate monthly liquidity (checking − card spend) for the last 12 months.
+
+    Returns:
+        JSON array of ``{label, value}`` objects ordered oldest first. Powers the
+        hero "Disponível pra gastar" trend sparkline.
+    """
+    return jsonify(database.get_liquidity_history(12))
 
 
 @app.route("/api/budgets")

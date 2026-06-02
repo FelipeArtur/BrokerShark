@@ -1,77 +1,62 @@
-/* view-overview.js — OverviewView + CategoriesPanel */
-/* global React, fetchSummary, fetchMonthly, fetchCategories, fetchFaturas,
-          fetchPatrimonioHistory, fetchDailySpend, fetchRecentActivity, fetchBudgets,
+/* view-overview.js — OverviewView (tela "Dinheiro") + CategoriesPanel */
+/* global React, fetchSummary, fetchFaturas, fetchAvailable, fetchAccounts,
+          fetchPatrimonioHistory, fetchLiquidityHistory, fetchRecentActivity,
           fetchCashflowStatement,
-          fetchExpenseCategoriesFull, patchBudget, postCategory, deleteCategory */
+          fetchExpenseCategoriesFull, postCategory, deleteCategory */
 
 const { useState: _ovSt, useEffect: _ovEf, useMemo: _ovMemo } = React;
 const { fmtBRL, fmtBRLCompact, fmtDateBR, BankChip, Sparkline, BarChart, DualLine, Progress, Modal, PT_MONTHS, PT_SHORT, fmtCycleDate } = window.BS;
 
-function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey, filterMonth }) {
+function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey, filterMonth, onImport, reserva = 0 }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
 
-  const isAllPeriod = filterMonth === "all";
-
   const [summary, setSummary]       = _ovSt(null);
-  const [monthly, setMonthly]       = _ovSt([]);
-  const [categories, setCategories] = _ovSt([]);
+  const [available, setAvailable]   = _ovSt(null);
+  const [availErr, setAvailErr]     = _ovSt(false);
   const [faturas, setFaturas]       = _ovSt([]);
   const [patrimonio, setPatrimonio] = _ovSt([]);
-  const [dailySpend, setDailySpend] = _ovSt([]);
+  const [liquidity, setLiquidity]   = _ovSt([]);
+  const [accounts, setAccounts]     = _ovSt([]);
   const [activity, setActivity]     = _ovSt([]);
-  const [budgets, setBudgets]       = _ovSt([]);
   const [cashflow, setCashflow]     = _ovSt(null);
-  const [editBudget, setEditBudget] = _ovSt(null);
-  const [budgetInput, setBudgetInput] = _ovSt("");
-  const [budgetErr, setBudgetErr]   = _ovSt(null);
   const [deletingTxId, setDeletingTxId] = _ovSt(null);
 
   _ovEf(() => {
-    const parts = (!isAllPeriod && filterMonth) ? filterMonth.split("-").map(Number) : [];
+    const parts = filterMonth ? filterMonth.split("-").map(Number) : [];
     const [year, month] = parts.length === 2 ? parts : [null, null];
-    const monthlyFetch = isAllPeriod ? fetchMonthlyFull() : fetchMonthly();
+    setAvailErr(false);
+    fetchAvailable().then(setAvailable).catch(() => setAvailErr(true));
     Promise.all([
-      isAllPeriod ? fetchSummary({ period: "all" }) : fetchSummary({ month, year }),
-      monthlyFetch,
-      isAllPeriod ? fetchCategories({ period: "all" }) : fetchCategories({ month, year }),
+      fetchSummary({ month, year }),
       fetchFaturas(),
       fetchPatrimonioHistory(),
-      isAllPeriod ? Promise.resolve([]) : fetchDailySpend({ month, year }),
+      fetchLiquidityHistory(),
+      fetchAccounts(),
       fetchRecentActivity(),
-      fetchBudgets(),
-      fetchCashflowStatement((!isAllPeriod && month && year) ? { month, year } : {}),
-    ]).then(([s, m, c, f, p, d, a, b, cf]) => {
-      setSummary(s); setMonthly(m); setCategories(c); setFaturas(f);
-      setPatrimonio(p); setDailySpend(d); setActivity(a); setBudgets(b);
-      setCashflow(cf);
+      fetchCashflowStatement((month && year) ? { month, year } : {}),
+    ]).then(([s, f, p, lq, ac, a, cf]) => {
+      setSummary(s); setFaturas(f); setPatrimonio(p); setLiquidity(lq);
+      setAccounts(ac); setActivity(a); setCashflow(cf);
     });
   }, [refreshKey, filterMonth]);
 
   if (!summary) return h("div", { style: { padding: 24, color: "var(--fg-2)" } }, "Carregando…");
 
-  const totalFaturas = faturas.reduce((s, f) => s + (f.total || 0), 0);
-  // Find patrimônio entry for the selected month
-  const _parts = (!isAllPeriod && filterMonth) ? filterMonth.split("-").map(Number) : [];
-  const [_fYear, _fMonth] = _parts.length === 2 ? _parts : [null, null];
-  const _patrLabel = _fMonth ? `${PT_SHORT[_fMonth]}/${String(_fYear).slice(-2)}` : null;
-  const _patrIdx = _patrLabel
-    ? patrimonio.findIndex(p => p.label === _patrLabel)
-    : patrimonio.length - 1;
-  const _effIdx  = _patrIdx >= 0 ? _patrIdx : patrimonio.length - 1;
-  const patrNow   = _effIdx >= 0 ? patrimonio[_effIdx].value : 0;
-
-  // Daily average: use elapsed days for current month, full month for past months
-  const _now = new Date();
-  const _isCurrentMonth = _fYear === _now.getFullYear() && _fMonth === _now.getMonth() + 1;
-  const _daysElapsed = _isCurrentMonth
-    ? (_now.getDate() || 1)
-    : (_fYear && _fMonth ? new Date(_fYear, _fMonth, 0).getDate() : _now.getDate() || 1);
-  const _expenses = isAllPeriod ? (summary.avg_expenses || 0) : (summary.expenses || 0);
-  const _income   = isAllPeriod ? (summary.avg_income   || 0) : (summary.income   || 0);
-  const dailyAvg  = isAllPeriod ? (_expenses / 30) : (_expenses / _daysElapsed);
-  const projected = dailyAvg * (_fYear && _fMonth ? new Date(_fYear, _fMonth, 0).getDate() : 31);
-  const catMax        = categories.length ? categories[0].total : 1;
+  const totalFaturas  = faturas.reduce((s, f) => s + (f.total || 0), 0);
+  const patrNow       = patrimonio.length ? patrimonio[patrimonio.length - 1].value : 0;
   const totalReservas = summary.reservas || 0;
+  const patrTotal     = patrNow + totalReservas;
+
+  // Checking accounts only, for the "Contas correntes" card.
+  const checkingAccounts = accounts.filter(a => a.type === "checking");
+
+  // First-run: nothing imported yet → single invite, no ghost zero-cards.
+  const isFirstRun = !availErr && available
+    && available.checking_total === 0 && available.faturas_total === 0
+    && activity.length === 0;
+
+  const availValue = available ? available.available : 0;
+  const availNeg   = available ? available.available < 0 : false;
 
   function BreakdownRow({ label, value, pct, color, negative }) {
     return h("div", null,
@@ -80,53 +65,64 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
         h("span", { className: "num", style: { fontWeight: 600, fontSize: 14, color: negative ? "var(--neg)" : "var(--fg-0)" } },
           negative && "−", fmtBRL(Math.abs(value)))
       ),
-      h(Progress, { value: Math.min(Math.abs(value), Math.abs(patrTotal)), max: Math.abs(patrTotal), color }),
-      h("div", { style: { fontSize: 9, color: "var(--fg-3)", marginTop: 2, fontFamily: "var(--ff-mono)" } }, `${Math.abs(pct).toFixed(1)}% do total`)
+      h(Progress, { value: Math.min(Math.abs(value), Math.abs(patrTotal) || 1), max: Math.abs(patrTotal) || 1, color }),
+      h("div", { style: { fontSize: 9, color: "var(--fg-3)", marginTop: 2, fontFamily: "var(--ff-mono)" } }, `${Math.abs(pct).toFixed(1)}% do patrimônio`)
     );
   }
 
-  async function saveBudget() {
-    if (!editBudget) return;
-    const val = parseFloat(budgetInput.replace(",", "."));
-    if (isNaN(val) || val < 0) { setBudgetErr("Valor inválido."); return; }
-    setBudgetErr(null);
-    try {
-      await patchBudget(editBudget.id, editBudget.category_id, val);
-      setBudgets(prev => prev.map(b => b.id === editBudget.id ? { ...b, amount_limit: val } : b));
-      setEditBudget(null);
-    } catch (e) {
-      setBudgetErr(e.message || "Erro ao salvar orçamento.");
-    }
+  if (isFirstRun) {
+    return h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 14 } },
+      h("div", { className: "card", style: { padding: 48, display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 12 } },
+        h("div", { className: "eyebrow" }, "Disponível pra gastar"),
+        h("div", { style: { fontSize: 20, fontWeight: 700, color: "var(--fg-0)" } }, "Importe seu extrato pra ver seu dinheiro"),
+        h("div", { style: { fontSize: 13, color: "var(--fg-2)", maxWidth: 460 } },
+          "Suba o extrato ou a fatura exportada do banco. Em segundos você vê quanto pode gastar de verdade — saldo das contas menos as faturas em aberto."),
+        onImport && h("button", { className: "btn btn-primary", style: { marginTop: 6 }, onClick: onImport }, "Importar extrato")
+      )
+    );
   }
-
-  // Compute spent per category from current categories data, joined with budgets
-  const budgetRows = budgets.map(b => {
-    const cat = categories.find(c => c.name === b.category_name);
-    return { ...b, spent: cat ? cat.total : 0 };
-  }).filter(b => b.amount_limit > 0);
-
-  // Patrimônio breakdown: total = checking + investments (current_balance); contas = checking + faturas
-  const patrTotal = patrNow + totalReservas;
-  const totalContas = patrNow + totalFaturas;
 
   return h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 14 } },
 
-    // Hero: patrimônio — 2-column card (sparkline left, breakdown right)
+    // Hero: Disponível pra gastar (liquidez) — número herói + contexto à direita
     h("div", { className: "card", style: { padding: 16, display: "grid", gridTemplateColumns: "var(--col-hero)", gap: 24 } },
-      // Left: value + sparkline (no % delta)
+      // Left: número herói + equação + sparkline de liquidez
       h("div", null,
-        h("div", { className: "eyebrow", style: { marginBottom: 4 } }, "Patrimônio total"),
-        h("div", { className: "num", style: { fontSize: 38, fontWeight: 700, lineHeight: 1.05, letterSpacing: "-0.02em" } }, fmtBRL(patrTotal)),
-        h("div", { style: { marginTop: 14, height: 64 } },
-          h(Sparkline, { data: patrimonio.map(p => p.value), width: "100%", height: 64, color: "var(--info)", strokeWidth: 1.8 })
+        h("div", { className: "eyebrow", style: { marginBottom: 4 } }, "Disponível pra gastar"),
+        availErr
+          ? h("div", { style: { display: "flex", flexDirection: "column", gap: 6 } },
+              h("div", { style: { fontSize: 20, fontWeight: 600, color: "var(--neg)" } }, "Não consegui calcular agora"),
+              h("div", { style: { fontSize: 12, color: "var(--fg-2)" } }, "Atualize a página pra tentar de novo.")
+            )
+          : !available
+            ? h("div", { className: "num", style: { fontSize: 38, fontWeight: 700, color: "var(--fg-3)" } }, "—")
+            : h("div", null,
+                h("div", { className: "num", style: { fontSize: 44, fontWeight: 700, lineHeight: 1.05, letterSpacing: "-0.02em", color: availNeg ? "var(--neg)" : "var(--pos)" } },
+                  (availNeg ? "−" : "") + fmtBRL(Math.abs(availValue))),
+                h("div", { style: { fontSize: 12, color: "var(--fg-2)", fontFamily: "var(--ff-mono)", marginTop: 6 } },
+                  "Contas ", h("span", { style: { color: "var(--fg-1)", fontWeight: 600 } }, fmtBRL(available.checking_total)),
+                  "  −  Faturas ", h("span", { style: { color: "var(--fg-1)", fontWeight: 600 } }, fmtBRL(available.faturas_total))
+                ),
+                availNeg && h("div", { style: { fontSize: 11, color: "var(--neg)", marginTop: 4 } },
+                  `Suas faturas superam o caixa em ${fmtBRL(Math.abs(availValue))}.`),
+                reserva > 0 && h("div", { style: { fontSize: 11, color: "var(--fg-2)", marginTop: 4 } },
+                  "Seguro pra gastar ",
+                  h("span", { className: "num", style: { color: (availValue - reserva) >= 0 ? "var(--pos)" : "var(--neg)", fontWeight: 600 } },
+                    fmtBRL(availValue - reserva)),
+                  h("span", { style: { color: "var(--fg-3)" } }, ` (reserva ${fmtBRL(reserva, { decimals: 0 })})`)
+                )
+              ),
+        h("div", { style: { marginTop: 14, height: 56 } },
+          h(Sparkline, { data: liquidity.map(p => p.value), width: "100%", height: 56, color: "var(--info)", strokeWidth: 1.8 })
         ),
-        h("div", { style: { display: "flex", justifyContent: "space-between", fontFamily: "var(--ff-mono)", fontSize: 9, color: "var(--fg-3)", marginTop: 4 } },
-          patrimonio.filter((_, i) => i % 3 === 0).map((p, i) => h("span", { key: i }, p.label))
+        h("div", { style: { display: "flex", justifyContent: "space-between", fontFamily: "var(--ff-mono)", fontSize: 9, color: "var(--fg-2)", marginTop: 4 } },
+          liquidity.filter((_, i) => i % 3 === 0).map((p, i) => h("span", { key: i }, p.label)),
+          h("span", { style: { color: "var(--fg-3)" } }, "liquidez 12M")
         )
       ),
-      // Right: breakdown rows
+      // Right: contexto (patrimônio / investimentos / faturas)
       h("div", { className: "hero-right-col" },
-        h(BreakdownRow, { label: "Contas correntes", value: totalContas, pct: patrTotal ? (totalContas / patrTotal) * 100 : 0, color: "var(--pos)" }),
+        h(BreakdownRow, { label: "Patrimônio total", value: patrTotal,     pct: patrTotal ? 100 : 0, color: "var(--pos)" }),
         h(BreakdownRow, { label: "Investimentos",    value: totalReservas, pct: patrTotal ? (totalReservas / patrTotal) * 100 : 0, color: "var(--reserve)" }),
         h(BreakdownRow, { label: "Faturas em aberto", value: totalFaturas, pct: patrTotal ? (totalFaturas / patrTotal) * 100 : 0, color: "var(--neg)", negative: totalFaturas > 0 })
       )
@@ -135,7 +131,7 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
     // Este mês — cash flow statement
     cashflow && h("div", { className: "card", style: { padding: 16 } },
       h("div", { style: { marginBottom: 12 } },
-        h("div", { className: "card-title" }, isAllPeriod || _isCurrentMonth ? "Este mês" : cashflow.label)
+        h("div", { className: "card-title" }, "Este mês")
       ),
       h("div", { style: { display: "flex", flexDirection: "column", gap: 7 } },
         h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline" } },
@@ -157,191 +153,98 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
         ),
         h("div", { style: { borderTop: "1px solid var(--line-1)", paddingTop: 8, marginTop: 2, display: "flex", justifyContent: "space-between", alignItems: "baseline" } },
           h("span", { style: { fontSize: 12, color: "var(--fg-1)", fontWeight: 600 } }, "Saldo livre"),
-          h("span", { className: "num", style: { fontSize: 17, fontWeight: 700, color: cashflow.free_balance >= 0 ? "var(--pos)" : (_isCurrentMonth && cashflow.income_total === 0 ? "var(--warn)" : "var(--neg)") } }, fmtBRL(cashflow.free_balance))
-        )
-      )
-    ),
-
-    // Two-column: income vs expenses chart + categories
-    h("div", { style: { display: "grid", gridTemplateColumns: "var(--col-asym)", gap: 14 } },
-      h("div", { className: "card" },
-        h("div", { className: "card-h" },
-          h("div", null,
-            h("div", { className: "card-title" }, "Fluxo de caixa"),
-            h("div", { style: { fontSize: 10, color: "var(--fg-3)", marginTop: 2 } },
-              isAllPeriod ? `${monthly.length} meses registrados` : "Últimos 6 meses"
-            )
-          ),
-          h("div", { style: { display: "flex", gap: 12, fontSize: 10 } },
-            h("span", { style: { display: "flex", alignItems: "center", gap: 4 } },
-              h("span", { style: { width: 8, height: 8, borderRadius: 2, background: "var(--pos)", display: "inline-block" } }), "Receita"),
-            h("span", { style: { display: "flex", alignItems: "center", gap: 4 } },
-              h("span", { style: { width: 8, height: 8, borderRadius: 2, background: "var(--neg)", display: "inline-block" } }), "Despesa")
-          )
+          h("span", { className: "num", style: { fontSize: 17, fontWeight: 700, color: cashflow.free_balance >= 0 ? "var(--pos)" : (cashflow.income_total === 0 ? "var(--warn)" : "var(--neg)") } }, fmtBRL(cashflow.free_balance))
         ),
+        // Projeção de fechamento (run-rate) — só no mês atual
         (() => {
-          const withData = monthly.filter(m => m.income > 0 || m.expenses > 0);
-          const avgIncome   = isAllPeriod ? (summary.avg_income   || 0) : (withData.length ? withData.reduce((s, m) => s + m.income,   0) / withData.length : 0);
-          const avgExpenses = isAllPeriod ? (summary.avg_expenses || 0) : (withData.length ? withData.reduce((s, m) => s + m.expenses, 0) / withData.length : 0);
-          const salaryInc   = summary.salary_income || 0;
-          const otherInc    = summary.other_income  || 0;
-          return h("div", null,
-            h("div", { style: { padding: "6px 12px 0", display: "flex", flexWrap: "wrap", gap: 14, alignItems: "center" } },
-              h("span", { style: { fontSize: 10, fontFamily: "var(--ff-mono)", color: "var(--fg-2)" } },
-                "média receita ", h("span", { style: { color: "var(--pos)", fontWeight: 600 } }, fmtBRLCompact(avgIncome))
-              ),
-              h("span", { style: { fontSize: 10, fontFamily: "var(--ff-mono)", color: "var(--fg-2)" } },
-                "média despesa ", h("span", { style: { color: "var(--neg)", fontWeight: 600 } }, fmtBRLCompact(avgExpenses))
-              ),
-              !isAllPeriod && (salaryInc > 0 || otherInc > 0) && h("span", { style: { display: "flex", gap: 10, borderLeft: "1px solid var(--line-1)", paddingLeft: 14 } },
-                salaryInc > 0 && h("span", { style: { fontSize: 10, fontFamily: "var(--ff-mono)" } },
-                  h("span", { style: { color: "var(--fg-3)" } }, "salário "),
-                  h("span", { style: { color: "var(--pos)", fontWeight: 600 } }, fmtBRLCompact(salaryInc))
-                ),
-                otherInc > 0 && h("span", { style: { fontSize: 10, fontFamily: "var(--ff-mono)" } },
-                  h("span", { style: { color: "var(--fg-3)" } }, "outros "),
-                  h("span", { style: { color: "var(--pos)", fontWeight: 600 } }, fmtBRLCompact(otherInc))
-                )
-              )
-            ),
-            h("div", { style: { padding: 12 } }, h(DualLine, { data: monthly, height: 220 }))
+          const now = new Date();
+          const isCur = cashflow.month === now.getMonth() + 1 && cashflow.year === now.getFullYear();
+          if (!isCur || cashflow.expense_total <= 0) return null;
+          const daysElapsed = now.getDate();
+          const daysInMonth = new Date(cashflow.year, cashflow.month, 0).getDate();
+          const projExpense = cashflow.expense_total / daysElapsed * daysInMonth;
+          const projFree = cashflow.income_total - projExpense - cashflow.investment_net;
+          return h("div", { style: { fontSize: 11, color: "var(--fg-2)", marginTop: 4, display: "flex", justifyContent: "space-between" } },
+            h("span", null, "No ritmo atual, fecha em"),
+            h("span", { className: "num", style: { color: projFree >= 0 ? "var(--fg-1)" : "var(--neg)", fontWeight: 600 } },
+              (projFree >= 0 ? "" : "−") + fmtBRL(Math.abs(projFree), { decimals: 0 }), " · estimativa")
           );
         })()
-      ),
-      h("div", { className: "card" },
-        h("div", { className: "card-h" },
-          h("div", { className: "card-title" }, "Top categorias"),
-          h("span", { style: { fontSize: 10, color: "var(--fg-3)" } }, isAllPeriod ? "Todo período" : PT_MONTHS[summary.month])
-        ),
-        h("div", { style: { padding: "8px 12px 12px" } },
-          (categories.length ? categories : []).slice(0, 7).map((c, i) =>
-            h("div", { key: i, style: { display: "flex", alignItems: "center", gap: 8, padding: "5px 0", fontSize: "var(--fz-7)" } },
-              h("div", { style: { width: 16, textAlign: "right", fontFamily: "var(--ff-mono)", fontSize: 10, color: "var(--fg-3)", flexShrink: 0 } }, i + 1),
-              h("div", { style: { flex: 1, color: "var(--fg-1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, c.name),
-              h("div", { style: { width: 80, height: 4, background: "var(--bg-2)", borderRadius: 999 } },
-                h("div", { style: { width: `${(c.total / catMax) * 100}%`, height: "100%", background: "var(--info)", borderRadius: 999 } })
-              ),
-              h("div", { className: "num", style: { width: 70, textAlign: "right", color: "var(--fg-0)" } }, fmtBRLCompact(c.total))
-            )
-          )
-        )
       )
     ),
 
-    // Three-column (or two-column in all-time mode): daily spend + faturas + budgets
-    h("div", { style: { display: "grid", gridTemplateColumns: isAllPeriod ? "var(--col-2)" : "var(--col-3)", gap: 14 } },
-
-      // Daily spend — hidden in all-time mode
-      !isAllPeriod && h("div", { className: "card" },
-        h("div", { className: "card-h" },
-          h("div", null,
-            h("div", { className: "card-title" }, "Gasto diário"),
-            h("div", { style: { fontSize: 10, color: "var(--fg-3)", marginTop: 2 } },
-              _fMonth
-                ? `${PT_MONTHS[_fMonth]} ${_fYear} · média ${fmtBRL(dailyAvg, { decimals: 0 })}/dia`
-                : `${PT_MONTHS[_now.getMonth() + 1]} · média ${fmtBRL(dailyAvg, { decimals: 0 })}/dia`
-            )
-          ),
-          h("div", { style: { fontFamily: "var(--ff-mono)", fontSize: 11, color: "var(--fg-2)" } },
-            _isCurrentMonth ? `proj. ${fmtBRLCompact(projected)}` : fmtBRL(_expenses, { decimals: 0 })
-          )
-        ),
-        dailySpend.length > 0
-          ? h("div", { style: { padding: 10 } }, h(BarChart, {
-              data: dailySpend,
-              height: 130,
-              valueKey: "value",
-              labelKey: "day",
-              color: "var(--info)",
-              highlightMax: true,
-              referenceValue: dailyAvg,
-            }))
-          : h("div", { style: { padding: "24px 12px", textAlign: "center", color: "var(--fg-3)", fontSize: 12 } }, "Sem gastos neste mês")
+    // Faturas em aberto — o que vence (cards lado a lado)
+    h("div", null,
+      h("div", { className: "card-h", style: { padding: "0 0 8px" } },
+        h("div", { className: "card-title" }, "Faturas em aberto"),
+        h("span", { className: "num", style: { fontSize: 12, fontWeight: 600 } }, fmtBRL(totalFaturas))
       ),
-
-      // Faturas
-      h("div", { className: "card" },
-        h("div", { className: "card-h" },
-          h("div", { className: "card-title" }, "Faturas em aberto"),
-          h("span", { className: "num", style: { fontSize: 12, fontWeight: 600 } }, fmtBRL(totalFaturas))
-        ),
-        h("div", { style: { padding: 8, display: "flex", flexDirection: "column", gap: 6 } },
-          faturas.map((f, i) => {
-            const tone = f.days_until_due <= 3 ? "neg" : f.days_until_due <= 7 ? "warn" : "ok";
-            const color = tone === "neg" ? "var(--neg)" : tone === "warn" ? "var(--warn)" : "var(--pos)";
-            const due = f.days_until_due > 0 ? `em ${f.days_until_due}d` : f.days_until_due === 0 ? "hoje" : `há ${Math.abs(f.days_until_due)}d`;
-            const trend = (f.last_total > 0) ? ((f.total - f.last_total) / f.last_total) * 100 : null;
-            const _bg0 = `color-mix(in oklch, ${color} 8%, var(--bg-0))`;
-            const _bg1 = `color-mix(in oklch, ${color} 14%, var(--bg-1))`;
-            return h("button", {
-              key: i, onClick: () => onJumpToAccount && onJumpToAccount(f.accountId),
-              className: "fatura-btn",
-              style: { "--fatura-bg": _bg0, "--fatura-bg-hover": _bg1, display: "block", textAlign: "left", padding: 10, borderRadius: "var(--r-2)", border: `1px solid color-mix(in oklch, ${color} 28%, var(--line-1))`, cursor: "pointer" },
-            },
-              h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 } },
-                h(BankChip, { bank: f.label.toLowerCase().startsWith("nu") ? "nubank" : "inter" }),
-                h("span", { style: { fontSize: 10, color, fontWeight: 600 } }, `vence ${due}`)
-              ),
-              h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline" } },
-                h("span", { className: "num", style: { fontSize: 17, fontWeight: 600 } }, fmtBRL(f.total)),
-                h("span", { style: { fontSize: 10, fontFamily: "var(--ff-mono)", color: trend !== null ? (trend >= 0 ? "var(--neg)" : "var(--pos)") : "var(--fg-3)" } },
-                  trend !== null
-                    ? `${trend >= 0 ? "▲" : "▼"} ${Math.abs(trend).toFixed(1)}%`
-                    : `${fmtCycleDate(f.cycle_start)} → ${fmtCycleDate(f.cycle_end)}`
-                )
-              ),
-              h("div", { style: { fontSize: 9, color: "var(--fg-3)", fontFamily: "var(--ff-mono)", marginTop: 2 } },
-                `${fmtCycleDate(f.cycle_start)} → ${fmtCycleDate(f.cycle_end)}`
-              )
-            );
-          })
-        )
-      ),
-
-      // Budgets
-      h("div", { className: "card" },
-        h("div", { className: "card-h" },
-          h("div", { className: "card-title" }, "Orçamentos"),
-          h("span", { style: { fontSize: 10, color: "var(--fg-3)" } }, isAllPeriod ? "Todo período" : PT_MONTHS[summary.month])
-        ),
-        h("div", { style: { padding: "8px 12px 12px", display: "flex", flexDirection: "column", gap: 6 } },
-          budgetRows.length === 0
-            ? h("div", { style: { padding: "16px 0", textAlign: "center", color: "var(--fg-3)", fontSize: 11 } },
-                "Sem limites definidos.",
-                h("br", null),
-                h("span", { style: { fontSize: 10 } }, "Clique nas categorias do histórico para definir tetos.")
-              )
-            : budgetRows.slice(0, 6).map((b, i) => {
-              const over = b.spent > b.amount_limit;
-              if (editBudget?.id === b.id) {
-                return h("div", { key: i },
-                  h("div", { style: { display: "flex", gap: 4, alignItems: "center", marginBottom: 2 } },
-                    h("span", { style: { flex: 1, fontSize: 11, color: "var(--fg-1)" } }, b.category_name),
-                    h("input", {
-                      autoFocus: true, className: "input", value: budgetInput,
-                      onChange: e => { setBudgetInput(e.target.value); setBudgetErr(null); },
-                      onKeyDown: e => { if (e.key === "Enter") saveBudget(); if (e.key === "Escape") { setEditBudget(null); setBudgetErr(null); } },
-                      style: { height: 24, padding: "0 6px", fontSize: 11, width: 80, borderColor: budgetErr ? "var(--neg)" : undefined }
-                    }),
-                    h("button", { className: "btn btn-primary btn-sm", onClick: saveBudget, style: { height: 24, padding: "0 8px" } }, "✓"),
-                    h("button", { className: "btn btn-ghost btn-sm", "aria-label": "Fechar", onClick: () => { setEditBudget(null); setBudgetErr(null); }, style: { height: 24 } }, "✕")
-                  ),
-                  budgetErr && h("div", { style: { fontSize: 10, color: "var(--neg)", marginBottom: 2 } }, budgetErr),
-                  h(Progress, { value: b.spent, max: b.amount_limit, color: "var(--info)" })
-                );
+      faturas.length === 0
+        ? h("div", { className: "card", style: { padding: "20px 12px", textAlign: "center", color: "var(--fg-2)", fontSize: 12 } }, "Nenhuma fatura em aberto.")
+        : h("div", { style: { display: "grid", gridTemplateColumns: faturas.length > 1 ? "1fr 1fr" : "1fr", gap: 14 } },
+            faturas.map((f, i) => {
+              const tone = f.days_until_due <= 3 ? "neg" : f.days_until_due <= 7 ? "warn" : "ok";
+              const color = tone === "neg" ? "var(--neg)" : tone === "warn" ? "var(--warn)" : "var(--pos)";
+              const due = f.days_until_due > 0 ? `em ${f.days_until_due}d` : f.days_until_due === 0 ? "hoje" : `há ${Math.abs(f.days_until_due)}d`;
+              const trend = (f.last_total > 0) ? ((f.total - f.last_total) / f.last_total) * 100 : null;
+              // Projeção de fechamento do ciclo (run-rate). Atenua nos primeiros dias (baixa confiança).
+              const _parseBR = s => { const p = (s || "").split("/").map(Number); return (p.length === 3 && p[0] && p[1] && p[2]) ? new Date(p[2], p[1] - 1, p[0]) : null; };
+              let cycleProj = null;
+              const _cs = _parseBR(f.cycle_start), _ce = _parseBR(f.cycle_end);
+              if (_cs && _ce && f.total > 0) {
+                const _today = new Date(); _today.setHours(0, 0, 0, 0);
+                const _len  = Math.round((_ce - _cs) / 86400000);
+                const _into = Math.round((_today - _cs) / 86400000);
+                if (_into >= 5 && _into < _len) cycleProj = f.total / _into * _len;
               }
-              return h("div", { key: i },
-                h("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 10, marginBottom: 3, cursor: "pointer" },
-                  onClick: () => { setEditBudget(b); setBudgetInput(b.amount_limit.toFixed(0)); setBudgetErr(null); }
-                },
-                  h("span", { style: { color: "var(--fg-1)" } }, b.category_name),
-                  h("span", { className: "num", style: { color: over ? "var(--neg)" : "var(--fg-2)" } },
-                    fmtBRL(b.spent, { decimals: 0 }), " / ", fmtBRL(b.amount_limit, { decimals: 0 }))
+              const _bg0 = `color-mix(in oklch, ${color} 8%, var(--bg-1))`;
+              const _bg1 = `color-mix(in oklch, ${color} 14%, var(--bg-2))`;
+              return h("button", {
+                key: i, onClick: () => onJumpToAccount && onJumpToAccount(f.accountId),
+                className: "fatura-btn card",
+                style: { "--fatura-bg": _bg0, "--fatura-bg-hover": _bg1, display: "block", textAlign: "left", padding: 14, border: `1px solid color-mix(in oklch, ${color} 28%, var(--line-1))`, cursor: "pointer", minHeight: 44 },
+              },
+                h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 } },
+                  h(BankChip, { bank: f.label.toLowerCase().startsWith("nu") ? "nubank" : "inter" }),
+                  h("span", { style: { fontSize: 11, color, fontWeight: 600 } }, `vence ${due}`)
                 ),
-                h(Progress, { value: b.spent, max: b.amount_limit, color: "var(--info)" })
+                h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline" } },
+                  h("span", { className: "num", style: { fontSize: 22, fontWeight: 700 } }, fmtBRL(f.total)),
+                  trend !== null && h("span", { style: { fontSize: 10, fontFamily: "var(--ff-mono)", color: trend >= 0 ? "var(--neg)" : "var(--pos)" } },
+                    `${trend >= 0 ? "▲" : "▼"} ${Math.abs(trend).toFixed(1)}%`)
+                ),
+                h("div", { style: { fontSize: 9, color: "var(--fg-2)", fontFamily: "var(--ff-mono)", marginTop: 4 } },
+                  `${fmtCycleDate(f.cycle_start)} → ${fmtCycleDate(f.cycle_end)}`
+                ),
+                cycleProj !== null && h("div", { style: { fontSize: 9, color: "var(--fg-3)", fontFamily: "var(--ff-mono)", marginTop: 2 } },
+                  `projeção fechamento ~${fmtBRL(cycleProj, { decimals: 0 })}`
+                )
               );
             })
-        )
+          )
+    ),
+
+    // Contas correntes — onde está o caixa
+    h("div", { className: "card" },
+      h("div", { className: "card-h" },
+        h("div", { className: "card-title" }, "Contas correntes"),
+        h("span", { className: "num", style: { fontSize: 12, fontWeight: 600 } },
+          fmtBRL(available ? available.checking_total : checkingAccounts.reduce((s, a) => s + (a.balance || 0), 0)))
+      ),
+      h("div", { style: { padding: 8, display: "flex", flexDirection: "column", gap: 2 } },
+        checkingAccounts.length === 0
+          ? h("div", { style: { padding: "16px 12px", textAlign: "center", color: "var(--fg-2)", fontSize: 12 } }, "Nenhuma conta corrente.")
+          : checkingAccounts.map(a => h("button", {
+              key: a.id, onClick: () => onJumpToAccount && onJumpToAccount(a.id),
+              className: "fatura-btn",
+              style: { "--fatura-bg": "transparent", "--fatura-bg-hover": "var(--bg-2)", display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", padding: "10px 8px", borderRadius: "var(--r-2)", cursor: "pointer", minHeight: 44, textAlign: "left" },
+            },
+              h("span", { style: { display: "flex", alignItems: "center", gap: 8 } },
+                h(BankChip, { bank: a.bank }),
+                h("span", { style: { fontSize: 13, color: "var(--fg-1)" } }, a.name)
+              ),
+              h("span", { className: "num", style: { fontSize: 14, fontWeight: 600, color: (a.balance || 0) < 0 ? "var(--neg)" : "var(--fg-0)" } }, fmtBRL(a.balance || 0))
+            ))
       )
     ),
 

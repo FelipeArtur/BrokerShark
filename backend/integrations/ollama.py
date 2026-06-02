@@ -18,10 +18,10 @@ from typing import Any, AsyncGenerator
 
 import httpx
 
-from config import OLLAMA_MODEL, OLLAMA_TIMEOUT, OLLAMA_URL
+from config import LOG_DIR, OLLAMA_MODEL, OLLAMA_TIMEOUT, OLLAMA_URL
 
 # ── Logger ────────────────────────────────────────────────────────────────────
-_log_path = Path("logs/ollama_errors.log")
+_log_path = Path(LOG_DIR) / "ollama_errors.log"
 _log_path.parent.mkdir(exist_ok=True)
 _logger = logging.getLogger("ollama")
 if not _logger.handlers:

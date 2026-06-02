@@ -66,8 +66,8 @@ brokershark/
 │   └── js/
 │       ├── api.js             # Fetch wrappers for all endpoints
 │       ├── primitives.js      # Charts, shared UI components
-│       ├── view-overview.js   # OverviewView
-│       ├── view-secondary.js  # CardsView, AccountsView, InvestmentsView, HistoryView
+│       ├── view-overview.js   # OverviewView (tela Dinheiro) + CategoriesPanel
+│       ├── view-history.js     # InvestmentsView + HistoryView (tela Histórico/Análise)
 │       └── app.js             # App shell — nav, SSE, search, tweaks
 ├── .claude/commands/      # /db-reset, /add-category, /check-health,
 │                          # /month-report, /venv
@@ -253,6 +253,8 @@ Excluded from summaries via `AND dest_account_id IS NULL`.
 | GET | `/api/faturas` | Credit card billing — returns `total`, `last_total`, `cycle_start`, `cycle_end`, `days_until_due` |
 | GET | `/api/transactions` | Account transactions (account, limit, month, year) |
 | GET | `/api/recent-activity` | 20 most recent transactions |
+| GET | `/api/available` | Real liquidity ("disponível pra gastar"): `{checking_total, faturas_total, available}` where `available = checking_total − faturas_total` (hero number of the Dinheiro screen) |
+| GET | `/api/liquidity-history` | 12-month liquidity trend `{label, value}[]` (checking net worth EOM − card spend that month; proxy series powering the hero sparkline) |
 | GET | `/api/patrimonio-history` | 12-month net worth (CC fatura payments counted as expenses) |
 | GET | `/api/daily-spend` | Full calendar month zero-filled (`month=M&year=Y`; defaults to current month) |
 | GET | `/api/month-transactions` | All non-transfer transactions for a month (`month=M&year=Y` required) |
@@ -324,6 +326,15 @@ OLLAMA_TIMEOUT=60
 
 ## Dashboard Frontend Notes
 
+### Navigation — 2-screen IA (Fase 14 redesign)
+
+The dashboard navigates **2 screens** (`app.js` `SECTIONS`): **Dinheiro** (`OverviewView`) and **Histórico** (`HistoryView`). Keyboard shortcuts `1`=Dinheiro, `2`=Histórico.
+
+- **Dinheiro** = "como estou agora". Hero number is **Disponível pra gastar** (`fetchAvailable` → `/api/available`, liquidez = contas correntes − faturas em aberto), colored green/red, with the equation `Contas − Faturas` below and a real liquidity-trend sparkline (`/api/liquidity-history`). Right column = contexto (Patrimônio total / Investimentos / Faturas). Below: faturas cards, "Este mês" cashflow, contas correntes list, atividade recente. Always scoped to the current month (no period selector here). First-run (zero data) collapses to a single **Importar** invite. Clicking a fatura/conta jumps to Histórico filtered by that account.
+- **Fase 14b — money assistant (advisory):** hero shows "Seguro pra gastar" = disponível − **reserva** (reserva is a localStorage tweak set in Configurações, `TWEAK_DEFAULTS.reserva`, passed to `OverviewView`); "Este mês" card shows a run-rate month-close projection; fatura cards show a cycle run-rate "projeção fechamento ~R$Y" (attenuated in the first 5 days of the cycle). Projections are client-side estimates labelled as such; reserva is v1 localStorage-only (not visible to the bot).
+- **Histórico** = "o que aconteceu". Hosts the **period selector** (36-month timeline), 4 metric cards, 6-month flow chart, embedded `InvestmentsView` (donut + movimentos), por categoria, Top PIX, and the **filterable table** (filtros: flow · método · categoria · **conta** · busca). `initialAccount`/`onAccountConsumed` props drive the drill-down filter.
+- **Categorias** (`CategoriesPanel`) is no longer a nav tab — reached via Configurações (`TweaksPanel`). The old `CardsView`/`AccountsView`/`AccountsCardsView` were **removed** (Fase 14 cleanup); their content lives in Histórico (`view-history.js` = `InvestmentsView` + `HistoryView`).
+
 ### Charts (`primitives.js`)
 
 | Component | Type | Used in |
@@ -370,7 +381,7 @@ O chart "Gastos mensais no cartão" usa `BarChart` com dados de `/api/monthly?ac
 
 - **Date labels:** formato `"Jan/26"` (mês abreviado PT + ano 2 dígitos) em todos os endpoints. Definido em `_PT_SHORT` / `_PT_SHORT_ACC` em `database.py`.
 - **Daily spend:** `fetchDailySpend({ month, year })` → sempre retorna o mês calendário inteiro zerado. Sem parâmetros = mês atual. Não usa mais janela de "últimos 30 dias".
-- **Fatura dates:** formato `"19 Abr → 18 Mai"` via `_fmtCycleDate()` em `view-overview.js` e `view-secondary.js`.
+- **Fatura dates:** formato `"19 Abr → 18 Mai"` via `_fmtCycleDate()` em `view-overview.js` e `view-history.js`.
 - **Configurações panel:** 3 seções (Aparência / Layout / Interface) com "Restaurar padrões".
 - **`backup.py` resilience:** `run_backup()` captura `PermissionError`/`OSError` — retorna `False` silenciosamente quando HDD não montado.
 
@@ -454,7 +465,7 @@ Bot flows (expense/income/investment), dashboard v1→v3, SSE, investments, hist
 - Removido código morto: `transaction_exists`, `suggest_category`, `get_categorization_patterns`, `ollama.suggest_categories`
 
 **Fase 11c — Systemd service (concluída):**
-- `brokershark.service` — autostart, logs em `logs/brokershark.log`
+- `deploy/brokershark.service` — autostart, logs em `logs/brokershark.log` (`config.LOG_DIR` é ancorado na raiz do repo, então logs caem em `logs/` independente do CWD)
 - Instruções de instalação no README
 
 **Fase 11d — Orçamentos e alertas (concluída parcialmente):**
@@ -490,6 +501,12 @@ Bot flows (expense/income/investment), dashboard v1→v3, SSE, investments, hist
 - [ ] Importar relatórios B3 para histórico de investimentos
 
 **Bug conhecido (a confirmar):** `transactions.method` tem CHECK `IN ('pix','credit','ted','transfer','debit')`, mas `/api/incomes` insere `method='salary'|'freelance'|'pix_received'|'other'`. Num DB novo isso violaria o CHECK. O DB de produção provavelmente foi criado antes do CHECK. Verificar/normalizar.
+
+**Notas de segurança (revisão VibeSec + 3 subagentes):**
+- Hardening aplicado: gate de auth central no bot (owner-only), `_authorized` fail-closed, `config.validate()` no startup, gate Host/Origin no dashboard (DNS-rebinding + CSRF), OLLAMA_URL loopback + cap de stream, `Cache-Control: no-store` em `/api/`, systemd sandboxing.
+- [x] **Resolvido (VibeSec, 2026-06-02):** args das tools `register_*` do LLM agora são validados em `ai_chat.py` antes de encenar/gravar — allow-lists derivadas das constantes (`_VALID_ACCOUNTS`/`_VALID_EXPENSE_METHODS`/`_VALID_INCOME_TYPES`/`_VALID_OPERATIONS`/`_VALID_INVESTMENTS`) + `_pos_amount` (>0, finito) + parcelas 1–99 + origem≠destino. Falha fechada (ValueError → nada gravado). Defesa contra prompt-injection. Testes em `tests/test_ai_chat.py`.
+- [ ] **Ao construir B3 (xlsx):** xlsx é XML em zip → risco de XXE/zip-slip. Usar parser que desabilite entidades externas (openpyxl não resolve por padrão; confirmar) e validar caminhos extraídos.
+- [ ] **Se adicionar export (CSV/planilha):** neutralizar CSV formula injection (células começando com `= + - @`) — hoje os dados são só renderizados via React (escapados), sem export, então não explorável.
 
 ## Skill routing
 
