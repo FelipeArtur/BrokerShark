@@ -132,14 +132,16 @@ This logic is symmetric for both Nubank CC and Inter CC.
 
 ### Exclusão segura de lançamentos
 
-`crud.delete_transaction(id)` é **hard delete com undo confiável** (não há timer no cliente que possa perder a exclusão). Garantias de integridade:
+A segurança vem de uma **confirmação explícita antes da ação** (`ConfirmDeleteModal` em `app.js`): clicar "Excluir lançamento" no modal de transação abre um diálogo que mostra o lançamento (descrição/valor/data), avisa quando é **parcela** (todas as N serão excluídas — detectado por `(k/N)` + `installments`) ou **auto-transferência** (os dois legs), e diz que "não pode ser desfeita". Só "Excluir" confirma; "Cancelar" é no-op. **Não há undo via toast** — o toast só notifica o resultado. Caminho único no front (`handleDeleteTx`).
+
+`crud.delete_transaction(id)` faz hard delete com as garantias de integridade:
 
 - **Pagamento de fatura** nunca é excluível → `ValueError` (a UI mostra 409).
 - **Parcelas:** excluir uma parcela apaga o **grupo inteiro** (`"<base> (k/N)"`, mesmo `installments`/conta/método) — nunca órfã as outras. Parcelas importadas que não seguem o formato `(k/N)` são tratadas como avulsas.
 - **Auto-transferências (`counterpart='SELF'`):** os dois legs são apagados juntos (par casado por data+valor+flow oposto).
-- **Legs de investimento do modal** (`"Aplicação: <nome>"`/`"Resgate: <nome>"` de um `investment` existente): reverte também `investments.current_balance` (e o undo re-aplica). Legs importados (outro texto) não disparam ajuste.
+- **Legs de investimento do modal** (`"Aplicação: <nome>"`/`"Resgate: <nome>"` de um `investment` existente): reverte também `investments.current_balance`. Legs importados (outro texto) não disparam ajuste.
 
-`delete_transaction` retorna um payload opaco `{transactions:[linhas completas], investment_deltas:[…]}` que `restore_transactions(payload)` re-insere atômico (mesmos ids) — é o que o botão **"Desfazer"** posta de volta. Caminho único no front (`handleDeleteTx`): tabela e modal usam o mesmo fluxo.
+`delete_transaction` ainda retorna um payload `{transactions, investment_deltas}` e existe `restore_transactions`/`POST /api/transactions/restore` como **primitivo dormente** de recuperação (re-insere atômico, mesmos ids), mas nenhuma UI o aciona — a rede de segurança é a confirmação prévia.
 
 ---
 

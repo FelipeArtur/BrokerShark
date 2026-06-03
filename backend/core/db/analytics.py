@@ -617,6 +617,7 @@ def get_month_transactions(month: int, year: int) -> list[dict]:
                       COALESCE(c.name, '') AS category, t.category_id,
                       COALESCE(t.is_revenue, 0) AS is_revenue,
                       COALESCE(t.counterpart, '') AS counterpart,
+                      COALESCE(t.installments, 1) AS installments,
                       COALESCE(t.is_third_party, 0) AS is_third_party
                FROM transactions t
                JOIN accounts a ON a.id = t.account_id

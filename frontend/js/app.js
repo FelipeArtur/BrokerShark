@@ -1,6 +1,6 @@
 /* app.js — BrokerShark v2 app shell */
 /* global React, ReactDOM, fetchExpenseCategories, patchTransaction,
-          searchTransactions, postCategory, deleteCategory, deleteTransaction, restoreTransactions,
+          searchTransactions, postCategory, deleteCategory, deleteTransaction,
           fetchAccounts, importPreview, importConfirm, importB3 */
 
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
@@ -589,11 +589,52 @@ function ImportModal({ onClose, onDone }) {
   );
 }
 
+/* ── ConfirmDeleteModal — confirmação explícita antes de excluir ─────────── */
+function ConfirmDeleteModal({ tx, onCancel, onConfirm }) {
+  const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
+  const desc = tx.display_name || tx.description || "";
+  const m = /\((\d+)\/(\d+)\)\s*$/.exec(tx.description || "");
+  const isParcela = !!m && Number(tx.installments || 0) > 1;
+  const nParcelas = isParcela ? Number(m[2]) : 0;
+  const isSelf = tx.counterpart === "SELF";
+
+  const warnings = [];
+  if (isParcela) warnings.push(`Faz parte de uma compra parcelada — todas as ${nParcelas} parcelas serão excluídas.`);
+  if (isSelf) warnings.push("É uma transferência entre suas contas — os dois lançamentos do par serão excluídos.");
+
+  return h(Modal, { open: true, onClose: onCancel, title: "Excluir lançamento?", width: 440 },
+    h("div", { style: { padding: 4 } },
+      h("div", { style: { background: "var(--bg-2)", border: "1px solid var(--line-1)", borderRadius: 6, padding: "10px 12px", marginBottom: 12 } },
+        h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 } },
+          h("span", { style: { fontSize: 13, color: "var(--fg-0)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, desc),
+          h("span", { className: "num", style: { fontSize: 14, fontWeight: 700, color: tx.flow === "expense" ? "var(--neg)" : "var(--pos)", flexShrink: 0 } },
+            (tx.flow === "expense" ? "−" : "+") + fmtBRL(tx.amount))
+        ),
+        h("div", { style: { fontSize: 11, color: "var(--fg-3)", marginTop: 2 } }, fmtDateBR(tx.date))
+      ),
+      warnings.map((w, i) => h("div", {
+        key: i,
+        style: { display: "flex", gap: 6, fontSize: 12, color: "var(--fg-1)", background: "var(--info-bg)", border: "1px solid color-mix(in oklch, var(--info) 30%, transparent)", borderRadius: 6, padding: "8px 10px", marginBottom: 8 }
+      }, h("span", null, "ⓘ"), h("span", null, w))),
+      h("div", { style: { fontSize: 12, color: "var(--fg-2)", marginBottom: 14 } }, "Esta ação não pode ser desfeita."),
+      h("div", { style: { display: "flex", justifyContent: "flex-end", gap: 8 } },
+        h("button", { className: "btn btn-ghost btn-sm", onClick: onCancel, autoFocus: true }, "Cancelar"),
+        h("button", {
+          className: "btn btn-sm",
+          onClick: onConfirm,
+          style: { background: "var(--neg)", color: "#fff", border: "1px solid var(--neg)", minWidth: 90 }
+        }, "Excluir")
+      )
+    )
+  );
+}
+
 function App() {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   const [tw, setTw] = useTweaks();
   const [section, setSection] = useState("money");
   const [editTx, setEditTx] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(null);  // tx aguardando confirmação de exclusão
   const [tweaksOpen, setTweaksOpen] = useState(false);
   const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -643,28 +684,16 @@ function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // Single safe delete path: the server deletes immediately (handling installment
-  // groups, auto-transfer pairs and investment-balance reverts) and returns a
-  // restore payload. "Desfazer" replays it on the server — reliable, never a
-  // hidden-but-not-deleted row. Used by both the row actions and the editor modal.
+  // Delete path: gated by an explicit confirmation (setConfirmDelete) — no undo.
+  // The server still cascades installment groups / auto-transfer pairs and reverts
+  // investment balances; here we just notify the result. Used by the editor modal
+  // and the row actions, both routed through the confirmation dialog.
   async function handleDeleteTx(id) {
     try {
       const res = await deleteTransaction(id);
       setRefreshKey(k => k + 1);
       const n = res?.deleted || 1;
-      const msg = n > 1 ? `${n} lançamentos excluídos` : "Lançamento excluído";
-      push(msg, "info", {
-        label: "Desfazer",
-        onClick: async () => {
-          try {
-            await restoreTransactions(res.restore);
-            push("Restaurado", "success");
-            setRefreshKey(k => k + 1);
-          } catch (e) {
-            push(e.message || "Erro ao restaurar.", "error");
-          }
-        },
-      });
+      push(n > 1 ? `${n} lançamentos excluídos` : "Lançamento excluído", "success");
     } catch (e) {
       push(e.message || "Erro ao excluir lançamento.", "error");
     }
@@ -779,7 +808,7 @@ function App() {
       onSave: (result) => {
         if (result?.deleted) {
           setEditTx(null);
-          handleDeleteTx(result._tx.id);  // same safe delete+undo path as the table
+          setConfirmDelete(result._tx);  // pede confirmação antes de excluir
           return;
         }
         {
@@ -792,6 +821,12 @@ function App() {
         }
         setEditTx(null);
       }
+    }),
+
+    confirmDelete && h(ConfirmDeleteModal, {
+      tx: confirmDelete,
+      onCancel: () => setConfirmDelete(null),
+      onConfirm: () => { const id = confirmDelete.id; setConfirmDelete(null); handleDeleteTx(id); },
     }),
 
     h(Toaster, null)
