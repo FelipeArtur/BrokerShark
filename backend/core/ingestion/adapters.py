@@ -18,6 +18,8 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Optional
 
+import config
+
 # account_id → adapter key. nu-cc (Nubank fatura) is intentionally absent: the
 # sample directory was empty, so that adapter is deferred (see plan / backlog).
 ACCOUNT_SOURCE = {
@@ -52,6 +54,7 @@ class Record:
     dest_account_id: Optional[str] = None
     external_id: Optional[str] = None
     is_revenue: int = 0
+    counterpart: Optional[str] = None       # "SELF" = auto-transfer entre contas do dono
     status: Optional[str] = None            # "skipped" set by parser; else dedup decides
     note: Optional[str] = None
 
@@ -111,6 +114,19 @@ def _is_investment(desc: str) -> bool:
 def _is_fatura(desc: str) -> bool:
     low = desc.lower()
     return any(k in low for k in _FATURA_KEYWORDS)
+
+
+def _is_self_transfer(desc: str) -> bool:
+    """True if the counterparty is the account owner themselves (auto-Pix/TED).
+
+    Matched against the owner's name/CPF (config.OWNER_SELF_KEYWORDS). Excludes
+    investment estornos ("Estorno CDB…") which also carry the owner's name but are
+    a different concept handled by the investment path.
+    """
+    low = desc.lower()
+    if "estorno" in low or "cdb" in low:
+        return False
+    return any(k in low for k in config.OWNER_SELF_KEYWORDS)
 
 
 def _decode(data: bytes) -> str:
@@ -184,6 +200,15 @@ def _parse_nubank_extrato(text: str) -> list[Record]:
             rec.is_revenue = 0
             rec.flow = "income" if value >= 0 else "expense"
             rec.note = "movimento de investimento"
+        elif _is_self_transfer(desc):
+            rec.counterpart = "SELF"
+            rec.is_revenue = 0
+            rec.note = "transferência entre contas próprias"
+            if value >= 0:
+                rec.flow = "income"
+                rec.method = "pix" if "pix" in desc.lower() else "ted"
+            else:
+                rec.flow, rec.method = "expense", "transfer"
         elif value >= 0:
             rec.flow = "income"
             rec.is_revenue = 1
@@ -223,6 +248,15 @@ def _parse_inter_extrato(text: str) -> list[Record]:
             # patrimônio but is excluded from category expenses (dest filters).
             rec.flow, rec.method, rec.dest_account_id = "expense", "transfer", "inter-cc"
             rec.note = "pagamento de fatura"
+        elif _is_self_transfer(desc):
+            rec.counterpart = "SELF"
+            rec.is_revenue = 0
+            rec.note = "transferência entre contas próprias"
+            if value >= 0:
+                rec.flow = "income"
+                rec.method = "pix" if "pix" in desc.lower() else "ted"
+            else:
+                rec.flow, rec.method = "expense", "transfer"
         elif value >= 0:
             rec.flow, rec.is_revenue = "income", 1
             rec.method = "pix" if "pix" in desc.lower() else "ted"

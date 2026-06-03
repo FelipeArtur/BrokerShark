@@ -73,6 +73,33 @@ def test_nubank_investment_rows_are_transfers():
     assert pix.flow == "expense" and pix.method == "pix" and pix.amount == 50.0
 
 
+def test_self_transfer_rows_marked_not_income_expense():
+    """Auto-Pix/TED entre contas do dono → counterpart='SELF', fora de receita/despesa."""
+    from core.ingestion import adapters
+    extrato = (
+        "Data,Valor,Identificador,Descrição\n"
+        "26/03/2026,-1400.00,uuid-st-out,Transferência enviada pelo Pix - Joao Da Silva Souza\n"
+        "27/03/2026,1400.00,uuid-st-in,Pix recebido: Cp Joao Da Silva Souza\n"
+        "28/03/2026,100.00,uuid-est,Estorno: CDB Porquinho Joao Da Silva Souza\n"
+        "29/03/2026,500.00,uuid-real,Transferência Recebida - ACME\n"
+    ).encode("utf-8")
+    recs = {r.description: r for r in adapters.parse("nu-db", extrato)}
+
+    out = recs["Transferência enviada pelo Pix - Joao Da Silva Souza"]
+    assert out.flow == "expense" and out.method == "transfer" and out.counterpart == "SELF"
+
+    inc = recs["Pix recebido: Cp Joao Da Silva Souza"]
+    assert inc.flow == "income" and inc.is_revenue == 0 and inc.counterpart == "SELF"
+
+    # Estorno de investimento carrega o nome do dono, mas NÃO é auto-Pix (guard cdb/estorno)
+    est = recs["Estorno: CDB Porquinho Joao Da Silva Souza"]
+    assert est.counterpart is None
+
+    # Receita real de terceiro não é afetada
+    real = recs["Transferência Recebida - ACME"]
+    assert real.flow == "income" and real.is_revenue == 1 and real.counterpart is None
+
+
 def test_inter_extrato_fatura_payment_routes_to_card():
     from core.ingestion import adapters
     recs = adapters.parse("inter-db", INTER_EXTRATO)

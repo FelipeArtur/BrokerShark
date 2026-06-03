@@ -134,6 +134,7 @@ def init_db() -> None:
                 dest_account_id TEXT,
                 external_id     TEXT,
                 is_revenue      INTEGER DEFAULT 0,
+                counterpart     TEXT,
                 note            TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_staging_batch
@@ -191,6 +192,14 @@ def _apply_column_migrations(conn: sqlite3.Connection) -> None:
         conn.execute(
             "INSERT OR IGNORE INTO categories (name, flow) VALUES ('Eventos / Terceiros', 'expense')"
         )
+        conn.commit()
+
+    # import_staging.counterpart carries the auto-transfer marker ('SELF') from the
+    # adapter through to confirm; older staging tables predate it.
+    try:
+        conn.execute("SELECT counterpart FROM import_staging LIMIT 1")
+    except sqlite3.OperationalError:
+        conn.execute("ALTER TABLE import_staging ADD COLUMN counterpart TEXT")
         conn.commit()
 
     # Partial UNIQUE index on external_id: enforces dedup for sources that

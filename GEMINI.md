@@ -115,6 +115,8 @@ Compra parcelada no crédito é expandida em N lançamentos mensais via `crud.in
 
 **`is_revenue`:** Integer flag — `1` for real income, `0` for self-transfers (`counterpart='SELF'`). Critical: must be set explicitly on every `insert_transaction()` for income rows.
 
+**`counterpart='SELF'` (auto-Pix/TED entre contas próprias):** contraparte = o próprio dono → nem despesa, nem receita, nem investimento. Saída `method='transfer'`, entrada `is_revenue=0`, ambas `counterpart='SELF'`. Saldos preservados; fora de Despesas/Receitas e de `investment_net`. Classificado no import por `adapters._is_self_transfer` (`config.OWNER_SELF_KEYWORDS`).
+
 **CC anti-duplication:** Fatura total payment sits in nu-db/inter-db with `dest_account_id='nu-cc'/'inter-cc'` (for patrimônio); individual purchases sit in nu-cc/inter-cc with `dest_account_id IS NULL` (for expense summaries). They never overlap. Logic is symmetric for Nubank and Inter.
 
 **Patrimônio:** `get_patrimonio_history()` returns **checking balance only** (`initial_balances + income - expenses`). Investment movements are excluded. Frontend computes `patrTotal = patrNow + totalReservas` (investments.current_balance) for the big number; sparkline shows checking history only. CC fatura payments are counted as outflows via `dest_account_id IN ('nu-cc','inter-cc')`.

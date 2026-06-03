@@ -21,6 +21,17 @@ LOCAL_BACKUP_DIR: str = "/mnt/HDD_Arquivos/Backups/brokershark"
 DASHBOARD_PORT: int = int(os.getenv("DASHBOARD_PORT", "8080"))
 FRONTEND_DIR: Path = Path(__file__).parent.parent / "frontend"
 
+# ── Ingestão ──────────────────────────────────────────────────────────────────
+# Identificadores do próprio dono nos campos de contraparte dos extratos (nome
+# e/ou fragmento de CPF, como aparecem na descrição). Usado para classificar
+# auto-Pix/TED entre as contas do usuário como transferência (counterpart='SELF'),
+# fora de despesas/receitas. Comma-separated; minúsculas; override por env.
+OWNER_SELF_KEYWORDS: tuple[str, ...] = tuple(
+    k.strip().lower()
+    for k in os.getenv("OWNER_SELF_KEYWORDS", "joao da silva souza,000.000").split(",")
+    if k.strip()
+)
+
 # ── Ollama ────────────────────────────────────────────────────────────────────
 OLLAMA_URL: str = os.getenv("OLLAMA_URL", "http://localhost:11434")
 OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")

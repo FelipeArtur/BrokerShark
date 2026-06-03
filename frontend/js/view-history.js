@@ -80,12 +80,15 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
   // Same consumption/income rule as every analytics function (Visão do Mês, gráfico de
   // fluxo, resumo): pernas de transferência (aplicações) e entradas is_revenue=0
   // (resgates) NÃO são despesa/receita — são fluxo de investimento, contado à parte.
+  // counterpart='SELF' = auto-Pix entre as contas do usuário: nem despesa, nem receita,
+  // nem investimento — só trânsito, fica fora de todos os totais.
+  const isSelf      = t => t.counterpart === "SELF";
   const expenses    = monthTx.filter(t => t.flow === "expense" && t.method !== "transfer" && !t.is_third_party);
   const income      = monthTx.filter(t => t.flow === "income"  && t.is_revenue === 1 && !t.is_third_party);
   const totalExp    = expenses.reduce((s, t) => s + t.amount, 0);
   const totalInc    = income.reduce((s, t)  => s + t.amount, 0);
-  const investOut   = monthTx.filter(t => t.flow === "expense" && t.method === "transfer" && !t.is_third_party).reduce((s, t) => s + t.amount, 0);
-  const investIn    = monthTx.filter(t => t.flow === "income"  && t.is_revenue !== 1 && !t.is_third_party).reduce((s, t) => s + t.amount, 0);
+  const investOut   = monthTx.filter(t => t.flow === "expense" && t.method === "transfer" && !isSelf(t) && !t.is_third_party).reduce((s, t) => s + t.amount, 0);
+  const investIn    = monthTx.filter(t => t.flow === "income"  && t.is_revenue !== 1 && !isSelf(t) && !t.is_third_party).reduce((s, t) => s + t.amount, 0);
   const investNet   = investOut - investIn;          // + = aplicou líquido, − = resgatou líquido
   const net         = totalInc - totalExp - investNet; // saldo livre (igual à Visão do Mês)
 

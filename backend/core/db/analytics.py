@@ -616,6 +616,7 @@ def get_month_transactions(month: int, year: int) -> list[dict]:
                       t.method, t.account_id, a.bank,
                       COALESCE(c.name, '') AS category, t.category_id,
                       COALESCE(t.is_revenue, 0) AS is_revenue,
+                      COALESCE(t.counterpart, '') AS counterpart,
                       COALESCE(t.is_third_party, 0) AS is_third_party
                FROM transactions t
                JOIN accounts a ON a.id = t.account_id
@@ -897,11 +898,15 @@ def get_cashflow_statement(month: int, year: int) -> dict:
         # is_revenue=0. (investment_movements is a separate, currently-unused ledger.)
         # Deriving from transactions keeps "Saldo livre" honest — money moved into
         # investments leaves the checking accounts and must reduce free cash.
+        # counterpart='SELF' marca transferências entre as contas do próprio usuário
+        # (auto-Pix/TED) — não são investimento nem consumo, ficam fora deste cálculo.
         inv_row = conn.execute(
             """SELECT
                  COALESCE(SUM(CASE WHEN flow='expense' AND method='transfer' AND dest_account_id IS NULL
+                                   AND COALESCE(counterpart,'') != 'SELF'
                                    AND COALESCE(is_third_party,0)=0 THEN amount ELSE 0 END), 0) AS invested,
                  COALESCE(SUM(CASE WHEN flow='income' AND is_revenue=0 AND dest_account_id IS NULL
+                                   AND COALESCE(counterpart,'') != 'SELF'
                                    AND COALESCE(is_third_party,0)=0 THEN amount ELSE 0 END), 0) AS redeemed
                FROM transactions
                WHERE date BETWEEN ? AND ?""",

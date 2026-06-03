@@ -335,7 +335,7 @@ def log_unrecognized(message: str) -> None:
 # this so the parsed-record dict and the INSERT can never drift apart.
 STAGING_COLS = (
     "date", "flow", "method", "account_id", "amount", "description",
-    "dest_account_id", "external_id", "is_revenue", "status", "note",
+    "dest_account_id", "external_id", "is_revenue", "counterpart", "status", "note",
 )
 
 
@@ -380,6 +380,11 @@ def delete_staging_batch(batch_id: str) -> int:
         return cur.rowcount
 
 
+def _staging_counterpart(row: sqlite3.Row) -> Optional[str]:
+    """Read ``counterpart`` from a staging row, tolerating pre-migration rows."""
+    return row["counterpart"] if "counterpart" in row.keys() else None
+
+
 def confirm_staging_batch(batch_id: str, exclude_ids: Optional[set[int]] = None) -> dict:
     """Atomically promote a batch's 'new' rows to transactions and drop the batch.
 
@@ -413,10 +418,10 @@ def confirm_staging_batch(batch_id: str, exclude_ids: Optional[set[int]] = None)
                    (date, flow, method, account_id, amount, installments,
                     description, category_id, dest_account_id, counterpart,
                     is_revenue, external_id)
-                   VALUES (?,?,?,?,?,1,?,NULL,?,NULL,?,?)""",
+                   VALUES (?,?,?,?,?,1,?,NULL,?,?,?,?)""",
                 (r["date"], r["flow"], r["method"], r["account_id"], r["amount"],
-                 r["description"], r["dest_account_id"], r["is_revenue"] or 0,
-                 r["external_id"]),
+                 r["description"], r["dest_account_id"], _staging_counterpart(r),
+                 r["is_revenue"] or 0, r["external_id"]),
             )
             if cur.rowcount:
                 inserted += 1
