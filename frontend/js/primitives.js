@@ -270,6 +270,10 @@ function BrokerSharkLogo({ size = 28 }) {
 const TxRow = React.memo(({ t, cols, onEditCategory }) => {
   const h = React.createElement;
   const isThirdParty = !!t.is_third_party;
+  // Investment cash leg (aplicação = expense/transfer; resgate = income/is_revenue=0):
+  // shown but NOT counted as despesa/receita — rendered neutral with a clear tag.
+  const isInvest = t.method === "transfer" || (t.flow === "income" && !t.is_revenue);
+  const amtColor = isInvest ? "var(--fg-2)" : (t.flow === "expense" ? "var(--fg-0)" : "var(--pos)");
   const rows = [
     h("tr", { 
       key: t.id, 
@@ -284,15 +288,17 @@ const TxRow = React.memo(({ t, cols, onEditCategory }) => {
         )
       ),
       cols.includes("cat") && h("td", null,
-        t.flow === "expense"
-          ? h("span", { className: "data-tag" }, t.category || "—")
-          : h("span", { className: "data-tag", style: { borderColor: "color-mix(in oklch, var(--pos) 30%, transparent)", color: "var(--pos)" } }, t.category || "Receita")
+        isInvest
+          ? h("span", { className: "data-tag", style: { borderColor: "color-mix(in oklch, var(--reserve) 30%, transparent)", color: "var(--reserve)" }, title: "movimento de investimento — não conta como despesa nem receita" }, "investimento")
+          : t.flow === "expense"
+            ? h("span", { className: "data-tag" }, t.category || "—")
+            : h("span", { className: "data-tag", style: { borderColor: "color-mix(in oklch, var(--pos) 30%, transparent)", color: "var(--pos)" } }, t.category || "Receita")
       ),
       cols.includes("account") && h("td", null, h(BankChip, { accountId: t.account_id, bank: t.bank })),
       cols.includes("amount") && h("td", { className: "num" },
         h("div", { style: { display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 6, width: "100%" } },
           h("span", { style: { color: "var(--fg-3)", fontSize: 10 } }, t.flow === "expense" ? "−" : "+"),
-          h("span", { style: { color: t.flow === "expense" ? "var(--fg-0)" : "var(--pos)", fontWeight: 600, textDecoration: isThirdParty ? "line-through" : "none" } },
+          h("span", { style: { color: amtColor, fontWeight: 600, textDecoration: isThirdParty ? "line-through" : "none" } },
             fmtBRL(t.amount)
           )
         )

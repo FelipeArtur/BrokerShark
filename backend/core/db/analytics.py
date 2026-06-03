@@ -601,12 +601,21 @@ def get_recent_activity(limit: int = 20) -> list[dict]:
 
 
 def get_month_transactions(month: int, year: int) -> list[dict]:
-    """Return all non-transfer transactions for a calendar month across all accounts."""
+    """Return all non-(internal-transfer) transactions for a calendar month across all accounts.
+
+    ``is_revenue`` is exposed so the client can apply the SAME consumption/income rule
+    as every analytics function: a despesa is ``flow=expense AND method!='transfer'`` and
+    a receita is ``flow=income AND is_revenue=1``. Investment cash legs (Aplicação/Resgate,
+    stored as ``method='transfer'`` / ``is_revenue=0`` with no dest account) stay in the
+    list so they remain visible, but the client must exclude them from despesa/receita
+    totals — otherwise the Histórico headline numbers diverge from the rest of the app.
+    """
     with _connect() as conn:
         rows = conn.execute(
             """SELECT t.id, t.date, t.description, t.display_name, t.amount, t.flow,
                       t.method, t.account_id, a.bank,
                       COALESCE(c.name, '') AS category, t.category_id,
+                      COALESCE(t.is_revenue, 0) AS is_revenue,
                       COALESCE(t.is_third_party, 0) AS is_third_party
                FROM transactions t
                JOIN accounts a ON a.id = t.account_id
@@ -882,16 +891,24 @@ def get_cashflow_statement(month: int, year: int) -> dict:
         cc_expenses     = float(row["cc_expenses"] or 0)
         direct_expenses = float(row["direct_expenses"] or 0)
 
+        # Investment cash flow lives in the transactions ledger, not investment_movements:
+        # "Aplicação RDB"/Caixinha/Porquinho apply legs are imported as flow='expense',
+        # method='transfer', dest_account_id NULL; redemptions as flow='income',
+        # is_revenue=0. (investment_movements is a separate, currently-unused ledger.)
+        # Deriving from transactions keeps "Saldo livre" honest — money moved into
+        # investments leaves the checking accounts and must reduce free cash.
         inv_row = conn.execute(
             """SELECT
-                 COALESCE(SUM(CASE WHEN operation='deposit'    THEN amount ELSE 0 END), 0) AS deposits,
-                 COALESCE(SUM(CASE WHEN operation='withdrawal' THEN amount ELSE 0 END), 0) AS withdrawals
-               FROM investment_movements
+                 COALESCE(SUM(CASE WHEN flow='expense' AND method='transfer' AND dest_account_id IS NULL
+                                   AND COALESCE(is_third_party,0)=0 THEN amount ELSE 0 END), 0) AS invested,
+                 COALESCE(SUM(CASE WHEN flow='income' AND is_revenue=0 AND dest_account_id IS NULL
+                                   AND COALESCE(is_third_party,0)=0 THEN amount ELSE 0 END), 0) AS redeemed
+               FROM transactions
                WHERE date BETWEEN ? AND ?""",
             (first_day, last_day),
         ).fetchone()
-        investment_deposits    = float(inv_row["deposits"]    or 0)
-        investment_withdrawals = float(inv_row["withdrawals"] or 0)
+        investment_deposits    = float(inv_row["invested"] or 0)
+        investment_withdrawals = float(inv_row["redeemed"] or 0)
         investment_net         = investment_deposits - investment_withdrawals
 
         cat_rows = conn.execute(

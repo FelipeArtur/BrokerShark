@@ -51,7 +51,8 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
   const totalReservas   = summary.reservas || 0;
   // Use the same checking number as the hero (investment-adjusted) for consistency.
   const checkingTotal   = available ? available.checking_total : checkingAccounts.reduce((s, a) => s + (a.balance || 0), 0);
-  const patrimonioTotal = checkingTotal + totalReservas;
+  // Patrimônio líquido = o que sobra se você quitar todas as faturas em aberto agora.
+  const patrimonioLiquido = checkingTotal + totalReservas - totalFaturas;
 
   // First-run: nothing imported yet → single invite, no ghost zero-cards.
   const isFirstRun = !availErr && available
@@ -128,18 +129,16 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
                 )
         )
       ),
-      // Right: contexto — ledger de patrimônio (sem barras decorativas)
+      // Right: patrimônio líquido — contas + investimentos − faturas em aberto
       h("div", { className: "pane" },
         h("div", { className: "pane-h" },
-          h("div", { className: "pane-title" }, "Patrimônio total")
+          h("div", { className: "pane-title" }, "Patrimônio líquido")
         ),
         h("div", { className: "pane-content" },
-          h(LedgerRow, { label: "Patrimônio total", value: patrimonioTotal, strong: true }),
+          h(LedgerRow, { label: "Patrimônio líquido", value: Math.abs(patrimonioLiquido), color: patrimonioLiquido < 0 ? "var(--neg)" : "var(--fg-0)", negative: patrimonioLiquido < 0, strong: true }),
           h(LedgerRow, { label: "Contas", value: checkingTotal, sub: true }),
           h(LedgerRow, { label: "Investimentos", value: totalReservas, sub: true, color: "var(--reserve)" }),
-          h("div", { style: { borderTop: "1px solid var(--line-1)", marginTop: 8, paddingTop: 8 } },
-            h(LedgerRow, { label: "Faturas em aberto", value: totalFaturas, color: totalFaturas > 0 ? "var(--neg)" : "var(--fg-0)", negative: totalFaturas > 0 })
-          )
+          h(LedgerRow, { label: "− Faturas em aberto", value: totalFaturas, sub: true, color: totalFaturas > 0 ? "var(--neg)" : "var(--fg-3)", negative: totalFaturas > 0 })
         )
       )
     ),
@@ -188,8 +187,9 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
                 h("div", { style: { fontSize: 9, color: "var(--fg-2)", fontFamily: "var(--ff-mono)", marginTop: 4 } },
                   `${fmtCycleDate(f.cycle_start)} → ${fmtCycleDate(f.cycle_end)}`
                 ),
-                cycleProj !== null && h("div", { style: { fontSize: 9, color: "var(--fg-3)", fontFamily: "var(--ff-mono)", marginTop: 2 } },
-                  `projeção fechamento ~${fmtBRL(cycleProj, { decimals: 0 })}`
+                cycleProj !== null && h("div", { style: { marginTop: 6, paddingTop: 5, borderTop: "1px dashed color-mix(in oklch, var(--line-2) 70%, transparent)", display: "flex", justifyContent: "space-between", fontSize: 9, fontFamily: "var(--ff-mono)" } },
+                  h("span", { style: { color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.04em" } }, "estimativa fechamento"),
+                  h("span", { style: { color: "var(--fg-2)" } }, `~ ${fmtBRL(cycleProj, { decimals: 0 })}`)
                 )
               );
             })
@@ -225,7 +225,9 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
           h("span", { style: { fontSize: 13, color: "var(--fg-1)", fontWeight: 600 } }, "Saldo livre"),
           h("span", { className: "num", style: { fontSize: 20, fontWeight: 700, color: cashflow.free_balance >= 0 ? "var(--pos)" : (cashflow.income_total === 0 ? "var(--warn)" : "var(--neg)") } }, fmtBRL(cashflow.free_balance))
         ),
-        // Projeção de fechamento (run-rate) — só no mês atual
+        // Projeção de fechamento (run-rate) — só no mês atual. Bloco de ESTIMATIVA,
+        // visualmente separado dos números reais acima (régua tracejada + cor atenuada),
+        // para nunca ser confundido com fato.
         (() => {
           const now = new Date();
           const isCur = cashflow.month === now.getMonth() + 1 && cashflow.year === now.getFullYear();
@@ -234,10 +236,11 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
           const daysInMonth = new Date(cashflow.year, cashflow.month, 0).getDate();
           const projExpense = cashflow.expense_total / daysElapsed * daysInMonth;
           const projFree = cashflow.income_total - projExpense - cashflow.investment_net;
-          return h("div", { style: { fontSize: 11, color: "var(--fg-2)", marginTop: 4, display: "flex", justifyContent: "space-between" } },
-            h("span", null, "No ritmo atual, fecha em"),
-            h("span", { className: "num", style: { color: projFree >= 0 ? "var(--fg-1)" : "var(--neg)", fontWeight: 600 } },
-              (projFree >= 0 ? "" : "−") + fmtBRL(Math.abs(projFree), { decimals: 0 }), " · estimativa")
+          return h("div", { style: { marginTop: 10, paddingTop: 8, borderTop: "1px dashed var(--line-2)", display: "flex", justifyContent: "space-between", alignItems: "baseline" } },
+            h("span", { style: { fontSize: 9, textTransform: "uppercase", letterSpacing: "0.07em", color: "var(--fg-3)", fontWeight: 600 } },
+              "Estimativa · no ritmo atual"),
+            h("span", { className: "num", style: { color: "var(--fg-2)", fontWeight: 600, fontSize: 13 } },
+              "~ ", (projFree >= 0 ? "" : "−") + fmtBRL(Math.abs(projFree), { decimals: 0 }))
           );
         })()
       )

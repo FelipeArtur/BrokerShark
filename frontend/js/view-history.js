@@ -77,12 +77,18 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
   const monthLabel = picked ? `${PT_MONTHS[picked.month]} ${picked.year}` : "";
   const isCurrent = picked ? (picked.year === now.getFullYear() && picked.month === (now.getMonth() + 1)) : false;
 
-  const expenses    = monthTx.filter(t => t.flow === "expense" && !t.is_third_party);
-  const income      = monthTx.filter(t => t.flow === "income"  && !t.is_third_party);
+  // Same consumption/income rule as every analytics function (Visão do Mês, gráfico de
+  // fluxo, resumo): pernas de transferência (aplicações) e entradas is_revenue=0
+  // (resgates) NÃO são despesa/receita — são fluxo de investimento, contado à parte.
+  const expenses    = monthTx.filter(t => t.flow === "expense" && t.method !== "transfer" && !t.is_third_party);
+  const income      = monthTx.filter(t => t.flow === "income"  && t.is_revenue === 1 && !t.is_third_party);
   const totalExp    = expenses.reduce((s, t) => s + t.amount, 0);
   const totalInc    = income.reduce((s, t)  => s + t.amount, 0);
-  const net         = totalInc - totalExp;
-  
+  const investOut   = monthTx.filter(t => t.flow === "expense" && t.method === "transfer" && !t.is_third_party).reduce((s, t) => s + t.amount, 0);
+  const investIn    = monthTx.filter(t => t.flow === "income"  && t.is_revenue !== 1 && !t.is_third_party).reduce((s, t) => s + t.amount, 0);
+  const investNet   = investOut - investIn;          // + = aplicou líquido, − = resgatou líquido
+  const net         = totalInc - totalExp - investNet; // saldo livre (igual à Visão do Mês)
+
   const daysInMonth = picked ? new Date(picked.year, picked.month, 0).getDate() : 30;
   const daysPassed  = isCurrent ? Math.max(1, now.getDate()) : daysInMonth;
   const dailyAvg    = totalExp / daysPassed;
@@ -124,8 +130,8 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
 
   if (!picked) return h("div", { style: { padding: 24, color: "var(--fg-2)" } }, "Carregando…");
 
-  const filtExp  = filteredTx.filter(t => t.flow === "expense" && !t.is_third_party).reduce((s, t) => s + t.amount, 0);
-  const filtInc  = filteredTx.filter(t => t.flow === "income" && !t.is_third_party).reduce((s, t)  => s + t.amount, 0);
+  const filtExp  = filteredTx.filter(t => t.flow === "expense" && t.method !== "transfer" && !t.is_third_party).reduce((s, t) => s + t.amount, 0);
+  const filtInc  = filteredTx.filter(t => t.flow === "income" && t.is_revenue === 1 && !t.is_third_party).reduce((s, t)  => s + t.amount, 0);
   const hasFilter = filterFlow !== "all" || filterMethod !== "all" || filterCat !== "all" || filterAccount !== "all" || search;
 
   return h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 14 } },
@@ -203,9 +209,11 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
       )
     ),
 
-    // B — faixa de métricas (uma faixa única, não 4 cards soltos)
-    h("div", { style: { display: "grid", gridTemplateColumns: "var(--col-4)", borderTop: "1px solid var(--line-1)", borderBottom: "1px solid var(--line-1)", paddingTop: 4, paddingBottom: 4 } },
-      [
+    // B — faixa de métricas. Mesmas definições da Visão do Mês "Este mês":
+    // Receitas e Despesas são consumo/renda reais; Investido líq. é o fluxo de
+    // investimento (à parte); Saldo livre = receitas − despesas − investido líq.
+    (() => {
+      const cards = [
         {
           l: "Receitas", v: fmtBRL(totalInc), c: "var(--pos)",
           sub: prevMonths.length ? (incVsAvg !== 0 ? `${incVsAvg >= 0 ? "▲" : "▼"} ${Math.abs(incVsAvg).toFixed(1)}% vs. ${prevMonths.length}M ant.` : "= média anterior") : "sem histórico",
@@ -216,26 +224,37 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
           sub: prevMonths.length ? (expVsAvg !== 0 ? `${expVsAvg >= 0 ? "▲" : "▼"} ${Math.abs(expVsAvg).toFixed(1)}% vs. ${prevMonths.length}M ant.` : "= média anterior") : "sem histórico",
           subColor: expVsAvg >= 0 ? "var(--neg)" : "var(--pos)",
         },
-        {
-          l: "Saldo do mês", v: `${net >= 0 ? "+" : "−"}${fmtBRL(Math.abs(net))}`, c: net >= 0 ? "var(--pos)" : "var(--neg)",
-          sub: `${monthTx.length} lançamentos`,
+      ];
+      if (investNet !== 0) {
+        cards.push({
+          l: investNet > 0 ? "Investido líq." : "Resgatado líq.",
+          v: fmtBRL(Math.abs(investNet)), c: "var(--reserve)",
+          sub: "não conta como despesa",
           subColor: "var(--fg-3)",
-        },
-        {
-          l: "Gasto diário", v: fmtBRL(dailyAvg), c: "var(--fg-1)",
-          sub: isCurrent ? `média em ${daysPassed} dias corridos` : `média de ${daysInMonth} dias`,
-          subColor: "var(--fg-3)",
-        },
-      ].map((s, i) =>
-        h("div", { key: i, style: { padding: "14px 16px", paddingLeft: i === 0 ? 0 : 16, borderLeft: i === 0 ? "none" : "1px solid var(--line-1)" } },
-          h("div", { className: "eyebrow" }, s.l),
-          h("div", { className: "num", style: { fontSize: 24, fontWeight: 700, color: s.c, marginTop: 4, letterSpacing: "-0.02em" } }, s.v),
-          h("div", { style: { marginTop: 6 } },
-            h("span", { style: { fontSize: 10, color: s.subColor, fontWeight: 500 } }, s.sub)
+        });
+      }
+      cards.push({
+        l: "Saldo livre", v: `${net >= 0 ? "+" : "−"}${fmtBRL(Math.abs(net))}`, c: net >= 0 ? "var(--pos)" : "var(--neg)",
+        sub: `${monthTx.length} lançamentos`,
+        subColor: "var(--fg-3)",
+      });
+      cards.push({
+        l: "Gasto diário", v: fmtBRL(dailyAvg), c: "var(--fg-1)",
+        sub: isCurrent ? `média em ${daysPassed} dias corridos` : `média de ${daysInMonth} dias`,
+        subColor: "var(--fg-3)",
+      });
+      return h("div", { style: { display: "grid", gridTemplateColumns: `repeat(${cards.length}, 1fr)`, borderTop: "1px solid var(--line-1)", borderBottom: "1px solid var(--line-1)", paddingTop: 4, paddingBottom: 4 } },
+        cards.map((s, i) =>
+          h("div", { key: i, style: { padding: "14px 16px", paddingLeft: i === 0 ? 0 : 16, borderLeft: i === 0 ? "none" : "1px solid var(--line-1)" } },
+            h("div", { className: "eyebrow" }, s.l),
+            h("div", { className: "num", style: { fontSize: 24, fontWeight: 700, color: s.c, marginTop: 4, letterSpacing: "-0.02em" } }, s.v),
+            h("div", { style: { marginTop: 6 } },
+              h("span", { style: { fontSize: 10, color: s.subColor, fontWeight: 500 } }, s.sub)
+            )
           )
         )
-      )
-    ),
+      );
+    })(),
 
     // B2 — Fluxo de caixa (6 meses até o mês selecionado)
     h("div", { className: "pane" },
