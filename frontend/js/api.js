@@ -69,9 +69,6 @@ async function fetchInvestmentMovements({ month, year } = {}) { return _get(`/ap
 async function patchInvestmentBalance(id, balance) {
   return _patch(`/api/investments/${id}/balance`, { balance });
 }
-async function postTransaction(body)          { return _post("/api/transactions", body); }
-async function postIncome(body)               { return _post("/api/incomes", body); }
-async function postInvestmentMovement(body)   { return _post("/api/investment-movements", body); }
 async function postCategory(name, flow)       { return _post("/api/categories", { name, flow }); }
 async function deleteCategory(id, reassignToId) {
   const r = await fetch(`/api/categories/${id}`, {

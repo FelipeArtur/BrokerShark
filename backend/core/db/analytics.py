@@ -1024,6 +1024,16 @@ def get_investment_evolution(months: int = 12) -> list[dict]:
     end   = f"{end_y:04d}-{end_m:02d}-31"
 
     with _connect() as conn:
+        # 1. Obter a linha de base (todos os aportes menos resgates ANTES do período de start)
+        baseline_cur = conn.execute(
+            """SELECT COALESCE(SUM(CASE WHEN operation='deposit' THEN amount ELSE -amount END), 0)
+               FROM investment_movements
+               WHERE date < ?""",
+            (start,)
+        ).fetchone()
+        baseline = float(baseline_cur[0])
+
+        # 2. Obter os movimentos dentro da janela de 12 meses
         rows = conn.execute(
             """SELECT
                    strftime('%Y-%m', date) AS ym,
@@ -1038,15 +1048,22 @@ def get_investment_evolution(months: int = 12) -> list[dict]:
         lookup = {r["ym"]: {"deposit": float(r["deposit"]), "withdrawal": float(r["withdrawal"])} for r in rows}
 
         out = []
+        running_total = baseline
+
         for y, m in periods:
             ym = f"{y:04d}-{m:02d}"
             label = f"{_CF_PT_SHORT[m]}/{str(y)[-2:]}"
             d = lookup.get(ym, {"deposit": 0.0, "withdrawal": 0.0})
+            deposit = d["deposit"]
+            withdrawal = d["withdrawal"]
+            running_total += (deposit - withdrawal)
+
             out.append({
                 "label": label,
                 "month": m,
                 "year": y,
-                "deposit": d["deposit"],
-                "withdrawal": d["withdrawal"],
+                "deposit": deposit,
+                "withdrawal": withdrawal,
+                "cumulative": running_total
             })
         return out

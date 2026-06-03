@@ -33,15 +33,6 @@ function fmtCycleDate(ddmmyyyy) {
   const [d, m] = ddmmyyyy.split("/");
   return `${parseInt(d, 10)} ${PT_SHORT[parseInt(m, 10)]}`;
 }
-function todayISO() {
-  const t = new Date();
-  return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
-}
-function yesterdayISO() {
-  const t = new Date(); t.setDate(t.getDate() - 1);
-  return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
-}
-
 /* ── DualLine ───────────────────────────────────────────────────────────── */
 function DualLine({ data, height = 180 }) {
   const canvasRef = _useRef(null);
@@ -259,54 +250,6 @@ function SegmentControl({ options, value, onChange, columns = 3 }) {
   );
 }
 
-/* ── CurrencyInput ──────────────────────────────────────────────────────── */
-function CurrencyInput({ value, onChange, autoFocus, large = false, id }) {
-  const [raw, setRaw] = _useState(value ? value.toFixed(2).replace(".", ",") : "");
-  const ref = _useRef(null);
-  _useEffect(() => { if (autoFocus && ref.current) ref.current.focus(); }, [autoFocus]);
-  const parse = s => { if (!s) return 0; const n = parseFloat(s.replace(/[^\d,]/g, "").replace(",", ".")); return isNaN(n) ? 0 : n; };
-  const fmt   = n => n ? n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "";
-  return React.createElement("div", { style: { position: "relative" } },
-    React.createElement("span", { style: { position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--fg-2)", fontFamily: "var(--ff-mono)", fontSize: large ? 18 : 13 } }, "R$"),
-    React.createElement("input", {
-      ref, id: id || undefined, type: "text", inputMode: "decimal", value: raw,
-      onChange: e => { setRaw(e.target.value); onChange(parse(e.target.value)); },
-      onBlur: () => { const n = parse(raw); setRaw(n ? fmt(n) : ""); },
-      placeholder: "0,00", className: "input mono",
-      style: { paddingLeft: 36, fontSize: large ? 22 : "var(--fz-5)", fontWeight: 600, height: large ? 48 : 36, letterSpacing: "-0.01em" }
-    })
-  );
-}
-
-/* ── DateChooser ────────────────────────────────────────────────────────── */
-function DateChooser({ value, onChange }) {
-  const today = todayISO(), yest = yesterdayISO();
-  const which = value === today ? "today" : value === yest ? "yest" : "custom";
-  return React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "center" } },
-    React.createElement(SegmentControl, {
-      columns: 2, value: which,
-      onChange: v => { if (v === "today") onChange(today); else if (v === "yest") onChange(yest); },
-      options: [{ value: "today", label: "Hoje" }, { value: "yest", label: "Ontem" }],
-    }),
-    React.createElement("input", {
-      type: "date", className: "input", value, onChange: e => onChange(e.target.value),
-      style: { height: 32, padding: "4px 8px", fontSize: "var(--fz-7)", flex: 1,
-        colorScheme: document.documentElement.dataset.theme === "light" ? "light" : "Dark" }
-    })
-  );
-}
-
-/* ── FieldRow ───────────────────────────────────────────────────────────── */
-function FieldRow({ label, hint, id, children }) {
-  return React.createElement("div", { className: "field-row" },
-    React.createElement("div", { className: "field-label" },
-      React.createElement("label", { className: "eyebrow", style: { color: "var(--fg-1)" }, htmlFor: id || undefined }, label),
-      hint && React.createElement("span", { style: { fontSize: 10, color: "var(--fg-3)" } }, hint)
-    ),
-    children
-  );
-}
-
 /* ── BrokerSharkLogo ────────────────────────────────────────────────────── */
 function BrokerSharkLogo({ size = 28 }) {
   return React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: 8 } },
@@ -366,9 +309,63 @@ const TxRow = React.memo(({ t, cols, onEditCategory }) => {
 
 window.BS = window.BS || {};
 Object.assign(window.BS, {
-  fmtBRL, fmtBRLCompact, fmtDateBR, todayISO, yesterdayISO,
+  fmtBRL, fmtBRLCompact, fmtDateBR,
   PT_MONTHS, PT_SHORT, fmtCycleDate,
   DualLine, Donut,
-  Modal, useToasts, BankChip, SegmentControl, CurrencyInput, DateChooser, FieldRow,
+  Modal, useToasts, BankChip, SegmentControl,
   BrokerSharkLogo, TxRow,
 });
+
+/* ── SingleAreaChart ───────────────────────────────────────────────────────────── */
+function SingleAreaChart({ data, height = 180, color = "var(--pos)", label = "Evolução" }) {
+  const canvasRef = _useRef(null);
+  const chartRef = _useRef(null);
+
+  _useEffect(() => () => { if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; } }, []);
+
+  _useEffect(() => {
+    if (!canvasRef.current || !data || !data.length) return;
+
+    if (chartRef.current) {
+      chartRef.current.data.labels = data.map(d => d.label);
+      chartRef.current.data.datasets[0].data = data.map(d => d.value || 0);
+      chartRef.current.update('none');
+      return;
+    }
+
+    const rootStyles = getComputedStyle(document.documentElement);
+    const mainColor = rootStyles.getPropertyValue(color.replace("var(", "").replace(")", "")).trim() || color;
+    const fg2Color   = rootStyles.getPropertyValue("--fg-2").trim();
+    const line1Color = rootStyles.getPropertyValue("--line-1").trim();
+
+    const ctx = canvasRef.current.getContext("2d");
+    chartRef.current = new Chart(ctx, {
+      type: "line",
+      data: {
+        labels: data.map(d => d.label),
+        datasets: [{
+          label: label,
+          data: data.map(d => d.value || 0),
+          borderColor: mainColor,
+          backgroundColor: mainColor.replace('oklch(', 'color-mix(in oklch, ').replace(')', ' 12%, transparent)'),
+          borderWidth: 2, tension: 0.3, fill: true,
+          pointRadius: 0, pointHoverRadius: 4, pointBackgroundColor: mainColor
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode: "index", intersect: false },
+        plugins: { legend: { display: false }, tooltip: { backgroundColor: "rgba(0,0,0,0.8)", titleFont: { size: 11 }, bodyFont: { size: 13, weight: "bold" }, displayColors: false } },
+        scales: {
+          x: { grid: { display: false, drawBorder: false }, ticks: { color: fg2Color, font: { size: 10 } } },
+          y: { position: "right", beginAtZero: true, grid: { color: line1Color, drawBorder: false }, ticks: { color: fg2Color, font: { size: 10, family: "monospace" }, maxTicksLimit: 6, callback: v => "R$ " + (v/1000 >= 1 ? (v/1000).toFixed(1) + "k" : v) } }
+        }
+      }
+    });
+  }, [data, color, label]);
+
+  return React.createElement("div", { style: { position: "relative", height, width: "100%" } },
+    React.createElement("canvas", { ref: canvasRef })
+  );
+}
+window.BS.SingleAreaChart = SingleAreaChart;

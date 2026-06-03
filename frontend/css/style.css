@@ -152,6 +152,14 @@ select.select {
   width: 100%; text-align: left;
 }
 .fatura-btn:hover { background: var(--fatura-bg-hover); }
+
+/* Ledger row — investment position: name on the left, editable value on the right */
+.ledger-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  margin: 0 -8px; padding: 8px; border-radius: var(--r-2);
+  transition: background 0.12s;
+}
+.ledger-row:hover { background: var(--bg-2); }
 .hero-right-col {
   display: flex; flex-direction: column; justify-content: center; gap: 6px;
   border-left: 1px solid var(--line-1); padding-left: 24px;
@@ -295,11 +303,6 @@ button.data-tag:hover { border-color: var(--fg-2); color: var(--fg-0); backgroun
   border-radius: 5px; transition: all 0.12s;
 }
 .seg-btn.active { font-weight: 600; color: var(--fg-0); background: var(--bg-2); border-color: var(--line-2); }
-
-/* Field row in forms */
-.field-row { display: flex; flex-direction: column; gap: 4px; }
-.field-label { display: flex; align-items: center; justify-content: space-between; }
-.field-label .eyebrow { color: var(--fg-1); }
 
 /* Tweaks panel — positioned dropdown from topbar */
 .tweaks-overlay {

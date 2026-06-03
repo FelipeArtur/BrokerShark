@@ -10,6 +10,7 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   const [monthly, setMonthly] = _s2St([]);
   const [pickedIdx, setPickedIdx] = _s2St(-1);
+  const [browsingYear, setBrowsingYear] = _s2St(null);
   const [monthTx, setMonthTx] = _s2St([]);
   const [filterFlow, setFilterFlow] = _s2St("all");
   const [filterMethod, setFilterMethod] = _s2St("all");
@@ -62,8 +63,17 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
     }
   }, [initialAccount]);
 
-  const picked = monthly[pickedIdx] || null;
   const now = new Date();
+  const pickedMonthObj = monthly[pickedIdx] || null;
+  const activeYear = browsingYear || (pickedMonthObj ? pickedMonthObj.year : now.getFullYear());
+  const availableYears = [...new Set(monthly.map(m => m.year))].sort((a,b) => a - b);
+  const maxH = Math.max(...monthly.map(x => x.expenses), 1);
+  const yearSlots = [];
+  for (let m = 1; m <= 12; m++) {
+    yearSlots.push({ month: m, data: monthly.find(x => x.year === activeYear && x.month === m) });
+  }
+
+  const picked = monthly[pickedIdx] || null;
   const monthLabel = picked ? `${PT_MONTHS[picked.month]} ${picked.year}` : "";
   const isCurrent = picked ? (picked.year === now.getFullYear() && picked.month === (now.getMonth() + 1)) : false;
 
@@ -72,7 +82,10 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
   const totalExp    = expenses.reduce((s, t) => s + t.amount, 0);
   const totalInc    = income.reduce((s, t)  => s + t.amount, 0);
   const net         = totalInc - totalExp;
-  const savingsRate = totalInc > 0 ? (net / totalInc) * 100 : 0;
+  
+  const daysInMonth = picked ? new Date(picked.year, picked.month, 0).getDate() : 30;
+  const daysPassed  = isCurrent ? Math.max(1, now.getDate()) : daysInMonth;
+  const dailyAvg    = totalExp / daysPassed;
 
   // 6 meses imediatamente anteriores ao selecionado (não inclui o próprio mês)
   const prevMonths = monthly.slice(Math.max(0, pickedIdx - 6), pickedIdx);
@@ -128,24 +141,53 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
           )
         ),
         h("div", { style: { display: "flex", gap: 4 } },
-          h("button", { onClick: () => setPickedIdx(Math.max(0, pickedIdx - 1)), className: "btn", disabled: pickedIdx === 0, style: { width: 32, padding: 0, fontSize: 14 } }, "‹"),
-          h("button", { onClick: () => setPickedIdx(monthly.length - 1), className: "btn", style: { fontSize: 11 } }, "Mês atual"),
-          h("button", { onClick: () => setPickedIdx(Math.min(monthly.length - 1, pickedIdx + 1)), className: "btn", disabled: pickedIdx === monthly.length - 1, style: { width: 32, padding: 0, fontSize: 14 } }, "›")
+          h("button", { onClick: () => { setPickedIdx(Math.max(0, pickedIdx - 1)); setBrowsingYear(null); }, className: "btn", disabled: pickedIdx === 0, style: { width: 32, padding: 0, fontSize: 14 } }, "‹"),
+          h("button", { onClick: () => { setPickedIdx(monthly.length - 1); setBrowsingYear(null); }, className: "btn", style: { fontSize: 11 } }, "Mês atual"),
+          h("button", { onClick: () => { setPickedIdx(Math.min(monthly.length - 1, pickedIdx + 1)); setBrowsingYear(null); }, className: "btn", disabled: pickedIdx === monthly.length - 1, style: { width: 32, padding: 0, fontSize: 14 } }, "›")
         )
       ),
-      h("div", { style: { display: "flex", alignItems: "flex-end", gap: 2, padding: "10px 0", height: 70, background: "var(--bg-0)" } },
-        monthly.map((m, i) => {
-          const maxH = Math.max(...monthly.map(x => x.expenses), 1);
-          const barH = (m.expenses / maxH) * 100;
-          const isPicked = i === pickedIdx;
-          const isCur2 = m.year === now.getFullYear() && m.month === (now.getMonth() + 1);
-          return h("button", {
-            key: i, onClick: () => setPickedIdx(i),
-            title: `${PT_MONTHS[m.month]} ${m.year}: ${fmtBRL(m.expenses, { decimals: 0 })}`,
+      
+      // Year Tabs
+      h("div", { style: { display: "flex", gap: 16, padding: "8px 4px 0", background: "var(--bg-0)" } },
+        availableYears.map(y => 
+          h("button", {
+            key: y,
+            onClick: () => setBrowsingYear(y),
             style: {
-              flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
-              background: "transparent", borderRadius: 4, padding: "2px 1px",
+              background: "none", border: "none", cursor: "pointer", padding: "0 0 4px 0",
+              fontSize: 12, fontWeight: activeYear === y ? 700 : 500,
+              color: activeYear === y ? "var(--fg-1)" : "var(--fg-3)",
+              borderBottom: activeYear === y ? "2px solid var(--info)" : "2px solid transparent"
+            }
+          }, y)
+        )
+      ),
+
+      // Month Strip (12 slots)
+      h("div", { style: { display: "flex", alignItems: "flex-end", gap: 4, padding: "10px 0", height: 70, background: "var(--bg-0)" } },
+        yearSlots.map((slot) => {
+          const d = slot.data;
+          const barH = d ? (d.expenses / maxH) * 100 : 0;
+          const isPicked = d && pickedMonthObj && d.year === pickedMonthObj.year && d.month === pickedMonthObj.month;
+          const isCur2 = activeYear === now.getFullYear() && slot.month === (now.getMonth() + 1);
+          
+          return h("button", {
+            key: slot.month, 
+            onClick: () => {
+              if (d) {
+                const idx = monthly.indexOf(d);
+                setPickedIdx(idx);
+                setBrowsingYear(null);
+              }
+            },
+            disabled: !d,
+            title: d ? `${PT_MONTHS[slot.month]} ${activeYear}: ${fmtBRL(d.expenses, { decimals: 0 })}` : `${PT_MONTHS[slot.month]} (sem dados)`,
+            style: {
+              flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
+              background: "transparent", borderRadius: 4, padding: "4px 2px",
               border: isPicked ? "1px solid var(--info)" : "1px solid transparent",
+              cursor: d ? "pointer" : "default",
+              opacity: d ? 1 : 0.3
             },
           },
             h("div", { style: {
@@ -153,8 +195,8 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
               background: isPicked ? "var(--info)" : isCur2 ? "var(--fg-2)" : "var(--line-2)",
               borderRadius: 2,
             } }),
-            h("span", { style: { fontSize: 8, color: isPicked ? "var(--info)" : "var(--fg-3)", fontFamily: "var(--ff-mono)", fontWeight: isPicked ? 600 : 400 } },
-              `${String(m.month).padStart(2, "0")}/${String(m.year).slice(2)}`
+            h("span", { style: { fontSize: 9, color: isPicked ? "var(--info)" : "var(--fg-3)", fontFamily: "var(--ff-mono)", fontWeight: isPicked ? 600 : 400 } },
+              PT_MONTHS[slot.month].substring(0,3)
             )
           );
         })
@@ -180,9 +222,9 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
           subColor: "var(--fg-3)",
         },
         {
-          l: "Taxa de poupança", v: `${savingsRate.toFixed(1)}%`, c: savingsRate >= 20 ? "var(--pos)" : savingsRate >= 0 ? "var(--warn)" : "var(--neg)",
-          sub: savingsRate >= 20 ? "saudável" : savingsRate >= 0 ? "abaixo da meta" : "negativa",
-          subColor: savingsRate >= 20 ? "var(--pos)" : savingsRate >= 0 ? "var(--warn)" : "var(--neg)",
+          l: "Gasto diário", v: fmtBRL(dailyAvg), c: "var(--fg-1)",
+          sub: isCurrent ? `média em ${daysPassed} dias corridos` : `média de ${daysInMonth} dias`,
+          subColor: "var(--fg-3)",
         },
       ].map((s, i) =>
         h("div", { key: i, style: { padding: "14px 16px", paddingLeft: i === 0 ? 0 : 16, borderLeft: i === 0 ? "none" : "1px solid var(--line-1)" } },

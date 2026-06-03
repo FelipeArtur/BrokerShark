@@ -1,6 +1,6 @@
 /* view-overview.js — OverviewView (tela "Dinheiro") + CategoriesPanel */
 /* global React, fetchSummary, fetchFaturas, fetchAvailable, fetchAccounts,
-          fetchLiquidityHistory, fetchMonthTransactions, fetchCashflowStatement,
+          fetchMonthTransactions, fetchCashflowStatement,
           fetchExpenseCategoriesFull, postCategory, deleteCategory */
 
 const { useState: _ovSt, useEffect: _ovEf, useMemo: _ovMemo } = React;
@@ -12,8 +12,9 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
   const [summary, setSummary]       = _ovSt(null);
   const [available, setAvailable]   = _ovSt(null);
   const [availErr, setAvailErr]     = _ovSt(false);
+  const [loadErr, setLoadErr]       = _ovSt(false);
+  const [retryTick, setRetryTick]   = _ovSt(0);
   const [faturas, setFaturas]       = _ovSt([]);
-  const [liquidity, setLiquidity]   = _ovSt([]);
   const [accounts, setAccounts]     = _ovSt([]);
   const [activity, setActivity]     = _ovSt([]);
   const [cashflow, setCashflow]     = _ovSt(null);
@@ -21,20 +22,25 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
   _ovEf(() => {
     const parts = filterMonth ? filterMonth.split("-").map(Number) : [];
     const [year, month] = parts.length === 2 ? parts : [null, null];
-    setAvailErr(false);
+    setAvailErr(false); setLoadErr(false);
     fetchAvailable().then(setAvailable).catch(() => setAvailErr(true));
     Promise.all([
       fetchSummary({ month, year }),
       fetchFaturas(),
-      fetchLiquidityHistory(),
       fetchAccounts(),
       fetchMonthTransactions((month && year) ? { month, year } : {}),
       fetchCashflowStatement((month && year) ? { month, year } : {}),
-    ]).then(([s, f, lq, ac, a, cf]) => {
-      setSummary(s); setFaturas(f); setLiquidity(lq);
+    ]).then(([s, f, ac, a, cf]) => {
+      setSummary(s); setFaturas(f);
       setAccounts(ac); setActivity(a); setCashflow(cf);
-    });
-  }, [refreshKey, filterMonth]);
+    }).catch(() => setLoadErr(true));
+  }, [refreshKey, filterMonth, retryTick]);
+
+  if (loadErr) return h("div", { className: "pane", style: { padding: 24, display: "flex", flexDirection: "column", gap: 10, alignItems: "flex-start" } },
+    h("div", { style: { color: "var(--neg)", fontSize: 13, fontWeight: 600 } }, "Falha ao carregar os dados do mês."),
+    h("div", { style: { color: "var(--fg-3)", fontSize: 12 } }, "O servidor local não respondeu. Verifique se o BrokerShark está rodando."),
+    h("button", { className: "btn btn-sm", onClick: () => setRetryTick(t => t + 1) }, "Tentar de novo")
+  );
 
   if (!summary) return h("div", { style: { padding: 24, color: "var(--fg-2)" } }, "Carregando…");
 
@@ -64,13 +70,33 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
   }
 
   if (isFirstRun) {
-    return h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 14 } },
-      h("div", { className: "pane", style: { padding: 48, display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 12 } },
-        h("div", { className: "eyebrow" }, "Disponível pra gastar"),
-        h("div", { style: { fontSize: 20, fontWeight: 700, color: "var(--fg-0)" } }, "Importe seu extrato pra ver seu dinheiro"),
-        h("div", { style: { fontSize: 13, color: "var(--fg-2)", maxWidth: 460 } },
-          "Suba o extrato ou a fatura exportada do banco. Em segundos você vê quanto pode gastar de verdade: saldo das contas menos as faturas em aberto."),
-        onImport && h("button", { className: "btn btn-primary", style: { marginTop: 6 }, onClick: onImport }, "Importar extrato")
+    const Source = (color, name, ...lines) => h("div", { style: { borderLeft: `2px solid ${color}`, paddingLeft: 16 } },
+      h("div", { style: { color: "var(--fg-1)", fontWeight: 700, fontSize: 13, marginBottom: 8 } }, name),
+      ...lines.map((t, i) => h("div", { key: i, style: { fontSize: 11, color: "var(--fg-3)", marginBottom: 4 } }, "· ", t))
+    );
+    return h("div", { className: "fade-in" },
+      h("div", { className: "pane" },
+        h("div", { className: "pane-h" },
+          h("div", { className: "pane-title" }, "Começar"),
+          h("span", { style: { fontSize: 10, color: "var(--fg-3)", fontFamily: "var(--ff-mono)" } }, "100% local · SQLite")
+        ),
+        h("div", { className: "pane-content", style: { padding: "32px 28px" } },
+          h("div", { style: { fontSize: 20, fontWeight: 700, color: "var(--fg-0)", letterSpacing: "-0.01em" } }, "Nenhum dado ainda"),
+          h("div", { style: { fontSize: 13, lineHeight: 1.6, maxWidth: 560, color: "var(--fg-2)", marginTop: 8 } },
+            "O BrokerShark analisa seus dados localmente. Para começar, importe os extratos e faturas dos bancos ou o relatório de posições da corretora."
+          ),
+
+          // Fontes de dados (informação real, não decoração)
+          h("div", { style: { marginTop: 28, display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 24, borderTop: "1px solid var(--line-1)", paddingTop: 28 } },
+            Source("#8A05BE", "Nubank", "Extrato da conta (CSV)", "Fatura do cartão (CSV)"),
+            Source("#FF7A00", "Inter", "Extrato da conta (CSV)", "Fatura do cartão (CSV)"),
+            Source("#0047BB", "B3", "Posições (XLSX)", "Exportado da Área do Investidor")
+          ),
+
+          onImport && h("button", {
+            className: "btn btn-primary btn-lg", style: { marginTop: 32 }, onClick: onImport
+          }, "Importar dados")
+        )
       )
     );
   }
@@ -241,33 +267,6 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
     ),
     ),
 
-    // Recent activity (now all month transactions)
-    h("div", { className: "pane" },
-      h("div", { className: "pane-h" },
-        h("div", { className: "pane-title" }, "Transações do mês"),
-        h("span", { style: { fontSize: 10, color: "var(--fg-3)" } }, `${activity.length} lançamentos`)
-      ),
-      h("div", { style: { overflow: "auto", borderBottomLeftRadius: 4, borderBottomRightRadius: 4 } },
-        h("table", { className: "grid-table" },
-          h("thead", null,
-            h("tr", null,
-              h("th", { style: { width: 70 } }, "Data"),
-              h("th", null, "Descrição"),
-              h("th", null, "Categoria"),
-              h("th", null, "Conta"),
-              h("th", { style: { textAlign: "right", width: 110 } }, "Valor")
-            )
-          ),
-          h("tbody", null,
-            activity.length === 0 && h("tr", null, h("td", { colSpan: 5, style: { textAlign: "center", padding: 20, color: "var(--fg-3)" } }, "Nenhuma atividade.")),
-            ...activity.map(t => h(window.BS.TxRow, {
-              key: t.id, t, cols: ["date", "desc", "cat", "account", "amount"],
-              onEditCategory
-            }))
-          )
-        )
-      )
-    )
   );
 }
 

@@ -1,12 +1,11 @@
 /* app.js — BrokerShark v2 app shell */
-/* global React, ReactDOM, fetchExpenseCategories, patchTransactionCategory, patchTransaction,
-          postTransaction, postIncome, postInvestmentMovement, searchTransactions,
-          fetchExpenseCategoriesFull, postCategory, deleteCategory, deleteTransaction,
+/* global React, ReactDOM, fetchExpenseCategories, patchTransaction,
+          searchTransactions, postCategory, deleteCategory, deleteTransaction,
           fetchAccounts, importPreview, importConfirm, importB3 */
 
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
 const {
-  fmtBRL, fmtDateBR, Modal, useToasts, BankChip, BrokerSharkLogo,
+  fmtBRL, fmtDateBR, Modal, useToasts, SegmentControl, BankChip, BrokerSharkLogo,
   PT_SHORT,
   OverviewView, HistoryView, InvestmentsView,
   CategoriesPanel,
@@ -390,7 +389,7 @@ function ImportModal({ onClose, onDone }) {
     { id: "b3",       label: "Relatório B3",                        hint: "Posições (XLSX)" },
   ];
 
-  const [account, setAccount]   = useState("nu-db");
+  const [account, setAccount]   = useState(null);
   const [file, setFile]         = useState(null);
   const [preview, setPreview]   = useState(null);
   const [b3Preview, setB3Preview] = useState(null);
@@ -398,15 +397,16 @@ function ImportModal({ onClose, onDone }) {
   const [busy, setBusy]         = useState(false);
   const [err, setErr]           = useState(null);
 
-  async function analyze() {
-    if (!file) { setErr("Escolha um arquivo."); return; }
+  async function analyze(targetFile) {
+    const f = targetFile || file;
+    if (!f) { setErr("Escolha um arquivo."); return; }
     setBusy(true); setErr(null);
     try {
       if (account === "b3") {
-        const res = await importB3(file);          // preview only — nothing written
+        const res = await importB3(f);          // preview only — nothing written
         setB3Preview(res);
       } else {
-        const res = await importPreview(file, account);
+        const res = await importPreview(f, account);
         setPreview(res);
         setExcluded(new Set());
       }
@@ -450,42 +450,75 @@ function ImportModal({ onClose, onDone }) {
     } }, `${n} ${meta.label}${n === 1 ? "" : "s"}`);
   }
 
+  const ACCOUNT_COLORS = { "nu-db": "#8A05BE", "inter-db": "#FF7A00", "inter-cc": "#FF7A00", "b3": "#0047BB" };
+  const currentAcctColor = ACCOUNT_COLORS[account];
+
   // ── Step 1: choose account + file
-  const step1 = h("div", { style: { display: "flex", flexDirection: "column", gap: 14 } },
-    h("p", { style: { fontSize: 13, color: "var(--fg-2)", margin: 0 } },
-      "Suba o extrato ou fatura exportado do banco. Nada é gravado até você revisar e confirmar."),
+  const step1 = h("div", { style: { display: "flex", flexDirection: "column", gap: 32, marginTop: 12, pointerEvents: busy ? "none" : "auto", opacity: busy ? 0.6 : 1, transition: "all 0.2s" } },
     h("div", null,
-      h("label", { style: { fontSize: 11, fontWeight: 600, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.05em" } }, "Conta de destino"),
-      h("div", { style: { display: "flex", flexDirection: "column", gap: 6, marginTop: 6 } },
-        ACCOUNTS.map(a => h("button", {
-          key: a.id, onClick: () => setAccount(a.id),
-          "aria-pressed": account === a.id,
-          style: {
-            display: "flex", justifyContent: "space-between", alignItems: "center",
-            padding: "9px 12px", borderRadius: 8, cursor: "pointer", textAlign: "left",
-            background: account === a.id ? "color-mix(in oklch, var(--info) 14%, transparent)" : "transparent",
-            border: `1px solid ${account === a.id ? "var(--info)" : "var(--line-1)"}`,
-            color: "var(--fg-1)",
-          },
-        },
-          h("span", { style: { fontWeight: 600, fontSize: 13 } }, a.label),
-          h("span", { style: { fontSize: 11, color: "var(--fg-3)" } }, a.hint)
-        ))
-      )
-    ),
-    h("div", null,
-      h("label", { style: { fontSize: 11, fontWeight: 600, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.05em" } }, "Arquivo"),
-      h("input", {
-        type: "file", accept: account === "b3" ? ".xlsx" : ".csv,text/csv", style: { display: "block", marginTop: 6, fontSize: 13 },
-        onChange: e => { setFile(e.target.files[0] || null); setErr(null); },
+      h("label", { style: { fontSize: 10, fontWeight: 700, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 12 } }, "1. Conta"),
+      h(SegmentControl, {
+        options: ACCOUNTS.map(a => ({ value: a.id, label: a.label })),
+        value: account,
+        onChange: (val) => { setAccount(val); setFile(null); setErr(null); },
+        columns: 2
       })
     ),
-    err && h("div", { style: { color: "var(--neg)", fontSize: 12 } }, err),
-    h("div", { style: { display: "flex", justifyContent: "flex-end", gap: 8 } },
-      h("button", { className: "btn btn-ghost", onClick: onClose }, "Cancelar"),
-      h("button", { className: "btn btn-primary", disabled: busy || !file, onClick: analyze },
-        busy ? "Analisando…" : "Analisar")
-    )
+    account && h("div", { className: "fade-in" },
+      h("label", { style: { fontSize: 10, fontWeight: 700, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 12, display: "block" } }, "2. Arquivo"),
+      h("label", {
+        style: {
+          display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+          border: file ? `1px solid ${currentAcctColor}` : "1px dashed var(--line-2)",
+          background: file ? `color-mix(in oklch, ${currentAcctColor} 8%, transparent)` : "var(--bg-0)",
+          padding: "32px", borderRadius: 8, cursor: "pointer", transition: "all 0.1s", minHeight: 120
+        }
+      },
+        busy
+          ? h("div", { style: { color: currentAcctColor, fontSize: 13, fontFamily: "var(--ff-mono)", fontWeight: 600 } }, "Analisando…")
+          : file
+            ? h("div", { style: { display: "flex", flexDirection: "column", alignItems: "flex-start", width: "100%", fontFamily: "var(--ff-mono)", fontSize: 12, color: currentAcctColor, gap: 4 } },
+                h("div", { style: { fontWeight: 600 } }, file.name),
+                h("div", { style: { color: "var(--fg-3)" } }, `${(file.size / 1024).toFixed(1)} KB · ${new Date(file.lastModified).toLocaleDateString("pt-BR")}`),
+                h("div", { style: { marginTop: 8, color: "var(--fg-2)" } }, "Analisando…")
+              )
+            : h("div", { style: { display: "flex", flexDirection: "column", alignItems: "center" } },
+                h("div", { style: { fontSize: 24, color: "var(--fg-3)", marginBottom: 12 } }, "◈"),
+                h("div", { style: { fontSize: 13, fontWeight: 600, color: "var(--fg-1)" } },
+                  "Arraste o arquivo ou clique"
+                ),
+                h("div", { style: { fontSize: 11, color: "var(--fg-3)", marginTop: 6, fontFamily: "var(--ff-mono)" } },
+                  account === "b3" ? "arquivo .xlsx" : "arquivo .csv"
+                )
+              ),
+        h("input", {
+          type: "file", accept: account === "b3" ? ".xlsx" : ".csv,text/csv",
+          style: { display: "none" },
+          onChange: e => { 
+            const f = e.target.files[0] || null;
+            if (!f) return;
+            
+            const ext = f.name.split('.').pop().toLowerCase();
+            const isB3 = account === "b3";
+            if (isB3 && ext !== "xlsx") {
+              setErr("Para a B3, envie um arquivo .xlsx");
+              e.target.value = null;
+              return;
+            }
+            if (!isB3 && ext !== "csv") {
+              setErr("Para bancos, envie um arquivo .csv");
+              e.target.value = null;
+              return;
+            }
+
+            setFile(f); setErr(null); 
+            analyze(f); 
+            e.target.value = null;
+          },
+        })
+      )
+    ),
+    err && h("div", { style: { color: "var(--neg)", fontSize: 12, background: "color-mix(in oklch, var(--neg) 10%, transparent)", padding: "10px 14px", borderRadius: 6 } }, err)
   );
 
   // ── Step 2: preview + confirm
@@ -619,7 +652,6 @@ function App() {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   const [tw, setTw] = useTweaks();
   const [section, setSection] = useState("money");
-  const [entryKind, setEntryKind] = useState("expense");
   const [editTx, setEditTx] = useState(null);
   const [tweaksOpen, setTweaksOpen] = useState(false);
   const [searchModalOpen, setSearchModalOpen] = useState(false);
