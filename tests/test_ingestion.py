@@ -100,6 +100,33 @@ def test_self_transfer_rows_marked_not_income_expense():
     assert real.flow == "income" and real.is_revenue == 1 and real.counterpart is None
 
 
+def test_inter_porquinho_and_estorno_are_investment():
+    """Porquinho Inter (aplicação/resgate/estorno) → transfer/is_revenue=0, fora de receita/despesa."""
+    from core.ingestion import adapters
+    extrato = (
+        "Extrato Conta Corrente \n"
+        "Conta ;12345678\n"
+        "Período ;01/04/2026 a 30/04/2026\n"
+        "Saldo: ;0,00\n"
+        "\n"
+        "Data Lançamento;Descrição;Valor;Saldo\n"
+        "13/04/2026;Estorno: CDB PORQUINHO Joao Da Silva Souza;228,87;228,87\n"
+        "27/04/2026;Estorno: CDB Porq Obj Joao Da Silva Souza;105,84;334,71\n"
+        "15/04/2026;Aplicação CDB Porquinho;-200,00;134,71\n"
+    ).encode("utf-8")
+    recs = {r.description: r for r in adapters.parse("inter-db", extrato)}
+
+    est = recs["Estorno: CDB PORQUINHO Joao Da Silva Souza"]
+    assert est.flow == "income" and est.method == "transfer" and est.is_revenue == 0
+    assert est.counterpart is None  # investimento, não auto-transfer
+
+    est2 = recs["Estorno: CDB Porq Obj Joao Da Silva Souza"]
+    assert est2.method == "transfer" and est2.is_revenue == 0
+
+    ap = recs["Aplicação CDB Porquinho"]
+    assert ap.flow == "expense" and ap.method == "transfer" and ap.is_revenue == 0
+
+
 def test_inter_extrato_fatura_payment_routes_to_card():
     from core.ingestion import adapters
     recs = adapters.parse("inter-db", INTER_EXTRATO)

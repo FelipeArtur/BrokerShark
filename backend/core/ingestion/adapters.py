@@ -35,6 +35,9 @@ ACCOUNT_SOURCE = {
 _INVESTMENT_KEYWORDS = (
     "rdb", "nuinvest", "tesouro", "irrf", "cobrança de investimentos",
     "cobranca de investimentos", "aplicação", "aplicacao", "resgate",
+    # Reservas: Caixinha (Nubank) e Porquinho (Inter). "cdb porq" cobre tanto
+    # "CDB PORQUINHO" quanto "CDB Porq Obj", inclusive os estornos dessas reservas.
+    "caixinha", "porquinho", "cdb porq",
 )
 
 # Bank labels for credit-card bill payments — these are tracked on the checking
@@ -248,6 +251,13 @@ def _parse_inter_extrato(text: str) -> list[Record]:
             # patrimônio but is excluded from category expenses (dest filters).
             rec.flow, rec.method, rec.dest_account_id = "expense", "transfer", "inter-cc"
             rec.note = "pagamento de fatura"
+        elif _is_investment(desc):
+            # Porquinho Inter (aplicação/resgate/estorno): fluxo de investimento,
+            # não consumo nem receita. Mantém o saldo, fica fora dos totais.
+            rec.method = "transfer"
+            rec.is_revenue = 0
+            rec.flow = "income" if value >= 0 else "expense"
+            rec.note = "movimento de investimento"
         elif _is_self_transfer(desc):
             rec.counterpart = "SELF"
             rec.is_revenue = 0
