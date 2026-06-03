@@ -1,4 +1,7 @@
-"""Command handlers: /start, /saldo, /resumo, /fatura, /reservas, /ajuda, /cancelar."""
+"""Command handlers: /start, /saldo, /resumo, /fatura, /reservas, /ajuda.
+
+Somente consulta — registros e edições são feitos exclusivamente pela interface web.
+"""
 from datetime import datetime
 
 from telegram import Update
@@ -31,22 +34,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         f"Receitas:      {_fmt_brl(summary['income'])}\n"
         f"Top categoria: {top_str}\n"
         f"Reservas:      {_fmt_brl(reservas_total)}\n\n"
-        "Como posso ajudar? Pode falar livremente — registre gastos, receitas, "
-        "investimentos ou me faça perguntas sobre suas finanças."
+        "Pergunte à vontade sobre suas finanças — gastos, receitas, saldo, "
+        "faturas ou investimentos.\n"
+        "_Registros e edições são feitos pela interface web._"
     )
     await update.message.reply_text(text, parse_mode="Markdown")
-
-
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Cancel any pending AI registration."""
-    if not _authorized(update):
-        return
-    chat_id = update.effective_chat.id
-    pending = context.bot_data.get("pending", {})
-    if pending.pop(chat_id, None):
-        await update.message.reply_text("Registro cancelado.")
-    else:
-        await update.message.reply_text("Nada para cancelar.")
 
 
 async def cmd_saldo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -123,18 +115,17 @@ async def cmd_ajuda(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     text = (
         "*BrokerShark — como usar*\n\n"
-        "Fale livremente para registrar ou consultar:\n"
-        "_\"gastei 45 reais no iFood hoje no crédito nubank\"_\n"
-        "_\"recebi 3500 de salário na nubank\"_\n"
-        "_\"investi 500 na caixinha nubank\"_\n"
-        "_\"quanto gastei esse mês?\"_\n\n"
+        "O Telegram é só para *consultas e notificações*. "
+        "Pergunte livremente sobre suas finanças:\n"
+        "_\"quanto gastei esse mês?\"_\n"
+        "_\"qual meu saldo na nubank?\"_\n"
+        "_\"compara abril e maio\"_\n\n"
         "*Comandos rápidos*\n"
         "/start — resumo do mês\n"
         "/saldo — saldo por conta\n"
         "/resumo — gastos por categoria\n"
         "/fatura — faturas dos cartões\n"
-        "/reservas — saldo dos investimentos\n"
-        "/cancelar — cancela registro pendente\n\n"
-        "Envie um arquivo _.csv_ para importar extratos bancários."
+        "/reservas — saldo dos investimentos\n\n"
+        "_Registros, edições e importação de extratos são feitos pela interface web._"
     )
     await update.message.reply_text(text, parse_mode="Markdown")

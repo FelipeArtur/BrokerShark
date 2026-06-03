@@ -1,35 +1,28 @@
 """Handler de IA — interface conversacional do BrokerShark via Ollama.
 
+Somente consulta: o Telegram lê dados e responde perguntas. NENHUM registro
+ou edição acontece por aqui — isso é exclusivo da interface web.
+
 Fluxo:
   1. Mensagem do usuário é verificada: deve ser sobre finanças pessoais
   2. Ollama processa via prompt-based tool calling (JSON no texto)
-  3. Se tool call detectado: executa e continua o loop (máx 3 rodadas)
+  3. Se tool call (somente leitura) detectado: executa e continua o loop (máx 3 rodadas)
   4. Se linguagem natural: faz streaming progressivo na mensagem do Telegram
-  5. confirm/cancel → persiste ou descarta o registro pendente
 """
 from __future__ import annotations
 
 import json
 import logging
-import math
 import re
 import time
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Any
 
 from telegram import Update
 from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
 
-from bot.constants import (
-    ACCOUNT_LABELS as _ACCOUNT_LABELS,
-    ACCOUNT_BANK as _ACCOUNT_BANK,
-    METHOD_LABELS as _METHOD_LABELS,
-    INCOME_LABELS as _INCOME_LABELS,
-    OPERATION_LABELS as _OPERATION_LABELS,
-    INVESTMENT_META as _INVESTMENT_META,
-)
-from bot.utils import _authorized, _fmt_brl
+from bot.utils import _authorized
 from core import database
 from integrations import ollama
 
@@ -43,8 +36,6 @@ _VALID_TOOLS = {
     "get_monthly_summary", "get_expenses_by_category", "get_account_balances",
     "get_investments", "get_recent_transactions", "get_budgets",
     "get_monthly_comparison",
-    "register_expense", "register_income", "register_investment",
-    "register_transfer", "confirm", "cancel",
 }
 
 # ── Filtro de tópico ──────────────────────────────────────────────────────────
@@ -56,7 +47,7 @@ _FINANCIAL_RE = re.compile(
     r"|orçamento|budget|categoria|mensal|semana|histórico|entrada|saída)\w*",
     re.IGNORECASE,
 )
-_PASS_WORDS = {"sim", "não", "nao", "ok", "pode", "confirma", "cancela", "cancelar", "errado"}
+_PASS_WORDS = {"sim", "não", "nao", "ok", "pode", "obrigado", "obrigada", "valeu"}
 
 
 def _is_on_topic(text: str) -> bool:
@@ -89,7 +80,7 @@ INVESTIMENTOS: "Caixinha Nubank", "Porquinho Inter", "Tesouro Direto"
 TIPOS DE RECEITA: salary, freelance, pix_received, other
 
 ════════════════════════════════════════
-FERRAMENTAS — quando precisar de dados ou registrar algo, responda SOMENTE com JSON puro, sem nenhum texto antes ou depois:
+FERRAMENTAS — quando precisar de dados, responda SOMENTE com JSON puro, sem nenhum texto antes ou depois:
 {"tool": "NOME", "args": {ARGUMENTOS}}
 
 Ferramentas disponíveis:
@@ -100,37 +91,22 @@ Ferramentas disponíveis:
   get_investments           args: (nenhum)
   get_recent_transactions   args: (nenhum)
   get_budgets               args: (nenhum)
-  register_expense          args: date(YYYY-MM-DD), amount, description, category, account_id, method, installments(padrão=1)
-  register_income           args: date, amount, description, income_type, account_id
-  register_investment       args: date, amount, investment_name, operation(deposit|withdrawal), description(opcional)
-  register_transfer         args: date, amount, from_account, to_account
-  confirm                   args: (nenhum) — após usuário dizer sim
-  cancel                    args: (nenhum) — após usuário dizer não
 
 EXEMPLOS:
 Usuário: "quanto gastei em maio?"
 → {"tool": "get_monthly_summary", "args": {"year": 2026, "month": 5}}
 
-Usuário: "gastei 80 no iFood hoje no nubank crédito"
-→ {"tool": "register_expense", "args": {"date": "DATA_ATUAL", "amount": 80.0, "description": "iFood", "category": "Alimentação", "account_id": "nu-cc", "method": "credit", "installments": 1}}
-
-Usuário: "sim"  (após ver confirmação pendente)
-→ {"tool": "confirm", "args": {}}
-
 ════════════════════════════════════════
 REGRAS COMUNICACIONAIS (MUITO IMPORTANTE):
 1. NUNCA inicie as respostas com 'Claro!', 'Com certeza!', 'Entendi', ou saudações desnecessárias. Vá direto ao ponto.
 2. Formatação Baseada em Dados: Sempre que apresentar saldos, faturas ou relatórios, use bullet points e coloque os números em *negrito*.
-3. Seja implacável na concisão: Máximo de 4 linhas fora das confirmações. Evite texto corrido (parágrafos longos).
+3. Seja implacável na concisão: Máximo de 4 linhas. Evite texto corrido (parágrafos longos).
 
 REGRAS TÉCNICAS:
 1. Saudações diretas → responda em texto curto e direto. NÃO chame ferramentas.
 2. Perguntas sobre dados financeiros → chame a ferramenta adequada, depois responda em português aplicando as Regras Comunicacionais.
-3. Para registrar → chame register_*, o sistema exibe a confirmação automaticamente.
-4. confirm() → SOMENTE quando o usuário responder explicitamente "sim", "ok", "pode", "confirma".
-5. cancel() → SOMENTE quando o usuário responder "não", "cancela", "errado" a uma confirmação pendente.
-6. NUNCA chame confirm() ou cancel() em saudações ou perguntas que não sejam resposta a uma confirmação.
-7. Resolva datas: "hoje" e "ontem" usando a data atual fornecida no contexto.\
+3. NENHUM REGISTRO DEVE SER FEITO POR AQUI. Se o usuário pedir para registrar um gasto, aporte, receita ou transferência, RESPONDA: "Os registros e edições devem ser feitos exclusivamente pela interface web. O Telegram é apenas para consultas e notificações."
+4. Resolva datas: "hoje" e "ontem" usando a data atual fornecida no contexto.\
 """
 
 
@@ -161,278 +137,33 @@ def _parse_tool_call(content: str) -> dict[str, Any] | None:
     return None
 
 
-# ── Formatação de confirmações ────────────────────────────────────────────────
+# ── Executor de ferramentas (somente leitura) ─────────────────────────────────
 
-def _fmt_date_br(iso: str) -> str:
-    try:
-        return datetime.strptime(iso, "%Y-%m-%d").strftime("%d/%m/%Y")
-    except ValueError:
-        return iso
-
-
-def _installment_str(amount: float, installments: int) -> str:
-    if installments <= 1:
-        return _fmt_brl(amount)
-    return f"{_fmt_brl(amount)} ({installments}x de {_fmt_brl(amount / installments)})"
-
-
-def _confirmation_expense(d: dict) -> str:
-    acc = _ACCOUNT_LABELS.get(d["account_id"], d["account_id"])
-    method = _METHOD_LABELS.get(d["method"], d["method"])
-    return (
-        f"Confirmar registro?\n\n"
-        f"*{_installment_str(d['amount'], d.get('installments', 1))} — {d['description']}*\n"
-        f"{d['category']} · {acc} ({method})\n"
-        f"{_fmt_date_br(d['date'])}\n\n"
-        f"_Diga_ *sim* _para confirmar ou_ *não* _para cancelar._"
-    )
-
-
-def _confirmation_income(d: dict) -> str:
-    return (
-        f"Confirmar registro?\n\n"
-        f"*{_fmt_brl(d['amount'])} — {d['description']}*\n"
-        f"{_INCOME_LABELS.get(d['income_type'], d['income_type'])} · "
-        f"{_ACCOUNT_LABELS.get(d['account_id'], d['account_id'])}\n"
-        f"{_fmt_date_br(d['date'])}\n\n"
-        f"_Diga_ *sim* _para confirmar ou_ *não* _para cancelar._"
-    )
-
-
-def _confirmation_investment(d: dict) -> str:
-    op = "Aporte" if d["operation"] == "deposit" else "Resgate"
-    obs = f"\n_{d['description']}_" if d.get("description") else ""
-    return (
-        f"Confirmar registro?\n\n"
-        f"*{op} — {_fmt_brl(d['amount'])}*\n"
-        f"{d['investment_name']}\n"
-        f"{_fmt_date_br(d['date'])}{obs}\n\n"
-        f"_Diga_ *sim* _para confirmar ou_ *não* _para cancelar._"
-    )
-
-
-def _confirmation_transfer(d: dict) -> str:
-    return (
-        f"Confirmar transferência?\n\n"
-        f"*{_fmt_brl(d['amount'])}*\n"
-        f"{_ACCOUNT_LABELS.get(d['from_account'], d['from_account'])} → "
-        f"{_ACCOUNT_LABELS.get(d['to_account'], d['to_account'])}\n"
-        f"{_fmt_date_br(d['date'])}\n\n"
-        f"_Diga_ *sim* _para confirmar ou_ *não* _para cancelar._"
-    )
-
-
-# ── Execução dos registros ────────────────────────────────────────────────────
-
-def _check_budget_alerts() -> str | None:
-    """Return formatted budget alert if any category is ≥80% spent this month, else None."""
-    today = datetime.now()
-    budgets = database.get_budgets()
-    if not budgets:
-        return None
-    expenses = database.get_expenses_by_category(today.year, today.month)
-    spent_by_cat = {e["name"]: e["total"] for e in expenses}
-    alerts: list[str] = []
-    for b in budgets:
-        limit = b["amount_limit"]
-        if limit <= 0:
-            continue
-        spent = spent_by_cat.get(b["category_name"], 0.0)
-        pct = spent / limit * 100
-        if pct >= 80:
-            icon = "🔴" if pct >= 100 else "🟡"
-            alerts.append(f"{icon} *{b['category_name']}*: {_fmt_brl(spent)} / {_fmt_brl(limit)} ({pct:.0f}%)")
-    if not alerts:
-        return None
-    return "⚠️ *Alerta de orçamento*\n" + "\n".join(alerts)
-
-
-def _do_confirm_expense(data: dict) -> str:
-    cats = database.get_categories("expense")
-    cat_id = next((c["id"] for c in cats if c["name"] == data["category"]), None)
-    tx_id = database.insert_expense(
-        date=data["date"], method=data["method"],
-        account_id=data["account_id"], amount=data["amount"],
-        description=data["description"], installments=data.get("installments", 1),
-        category_id=cat_id,
-    )
-    row = {
-        "id": tx_id, "date": data["date"], "method": data["method"],
-        "bank": _ACCOUNT_BANK.get(data["account_id"], "nubank"),
-        "account_id": data["account_id"], "amount": data["amount"],
-        "installments": data.get("installments", 1), "description": data["description"],
-        "category": data["category"],
-        "registered_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-    }
-    return f"✅ Gasto registrado! (#{tx_id})"
-
-
-def _do_confirm_income(data: dict) -> str:
-    tx_id = database.insert_transaction(
-        date=data["date"], flow="income", method=data["income_type"],
-        account_id=data["account_id"], amount=data["amount"],
-        description=data["description"], is_revenue=1,
-    )
-    return f"✅ Recebimento registrado! (#{tx_id})"
-
-
-def _do_confirm_investment(data: dict) -> str:
-    inv = database.get_investment_by_name(data["investment_name"])
-    if inv is None:
-        return f"❌ Investimento '{data['investment_name']}' não encontrado."
-    mv_id = database.insert_investment_movement(
-        date=data["date"], investment_id=inv["id"],
-        operation=data["operation"], amount=data["amount"],
-        description=data.get("description"),
-    )
-    op = "Aporte" if data["operation"] == "deposit" else "Resgate"
-    return f"✅ {op} registrado! (#{mv_id})"
-
-
-def _do_confirm_transfer(data: dict) -> str:
-    tx_id = database.insert_transaction(
-        date=data["date"], flow="expense", method="transfer",
-        account_id=data["from_account"], amount=data["amount"],
-        description="Transferência entre contas",
-        dest_account_id=data["to_account"],
-    )
-    return f"✅ Transferência registrada! (#{tx_id})"
-
-
-# ── Validação de argumentos das tools (defesa contra prompt-injection) ────────
-# O modelo é não-confiável: trate os args de register_* como entrada de usuário.
-# Allow-lists derivadas das constantes (fonte única) + amount > 0. Falha fechada:
-# qualquer valor fora da lista levanta ValueError e nada é encenado/gravado.
-_VALID_ACCOUNTS: set[str]       = set(_ACCOUNT_LABELS)      # nu-cc, nu-db, inter-cc, inter-db
-_VALID_EXPENSE_METHODS: set[str] = set(_METHOD_LABELS)      # pix, credit, ted
-_VALID_INCOME_TYPES: set[str]   = set(_INCOME_LABELS)       # salary, freelance, pix_received, other
-_VALID_OPERATIONS: set[str]     = set(_OPERATION_LABELS)    # deposit, withdrawal
-_VALID_INVESTMENTS: set[str]    = set(_INVESTMENT_META)     # nomes cadastrados
-
-
-def _pos_amount(raw: Any) -> float:
-    """Coage para float positivo finito (rejeita 0, negativos, NaN, inf, lixo)."""
-    amt = float(raw)
-    if not math.isfinite(amt) or amt <= 0:
-        raise ValueError(f"valor inválido: {raw!r}")
-    return round(amt, 2)
-
-
-def _require(value: Any, allowed: set[str], label: str) -> str:
-    """Retorna value se estiver na allow-list; senão levanta ValueError."""
-    if value not in allowed:
-        raise ValueError(f"{label} inválido: {value!r}")
-    return value
-
-
-# ── Executor de ferramentas ───────────────────────────────────────────────────
-
-async def _execute_tool(
-    name: str,
-    args: dict[str, Any],
-    chat_id: int,
-    context: ContextTypes.DEFAULT_TYPE,
-) -> tuple[str, str | None]:
-    """Executa uma ferramenta e retorna (resultado_json, mensagem_direta_ou_None).
-
-    Quando mensagem_direta não é None, ela deve ser enviada ao usuário imediatamente
-    sem passar pelo modelo novamente.
-    """
-    pending: dict = context.bot_data.setdefault("pending", {})
-
+async def _execute_tool(name: str, args: dict[str, Any]) -> str:
+    """Executa uma ferramenta de leitura e retorna o resultado serializado em JSON."""
     try:
         if name == "get_monthly_summary":
-            return json.dumps(database.get_monthly_summary(args["year"], args["month"]), ensure_ascii=False), None
+            return json.dumps(database.get_monthly_summary(args["year"], args["month"]), ensure_ascii=False)
         if name == "get_expenses_by_category":
-            return json.dumps(database.get_expenses_by_category(args["year"], args["month"]), ensure_ascii=False), None
+            return json.dumps(database.get_expenses_by_category(args["year"], args["month"]), ensure_ascii=False)
         if name == "get_account_balances":
-            return json.dumps(database.get_all_accounts_with_balance(), ensure_ascii=False), None
+            return json.dumps(database.get_all_accounts_with_balance(), ensure_ascii=False)
         if name == "get_investments":
-            return json.dumps(database.get_all_investments(), ensure_ascii=False), None
+            return json.dumps(database.get_all_investments(), ensure_ascii=False)
         if name == "get_recent_transactions":
-            return json.dumps(database.get_recent_activity(10), ensure_ascii=False), None
+            return json.dumps(database.get_recent_activity(10), ensure_ascii=False)
         if name == "get_budgets":
-            return json.dumps(database.get_budgets(), ensure_ascii=False), None
+            return json.dumps(database.get_budgets(), ensure_ascii=False)
         if name == "get_monthly_comparison":
             m1 = database.get_monthly_summary(args["month1_year"], args["month1"])
             m2 = database.get_monthly_summary(args["month2_year"], args["month2"])
-            return json.dumps({"month1": m1, "month2": m2}, ensure_ascii=False), None
+            return json.dumps({"month1": m1, "month2": m2}, ensure_ascii=False)
 
-        if name == "register_expense":
-            installments = int(args.get("installments", 1))
-            if not 1 <= installments <= 99:
-                raise ValueError(f"parcelas inválidas: {installments!r}")
-            data = {
-                "date": args["date"], "amount": _pos_amount(args["amount"]),
-                "description": args["description"],
-                "category": args.get("category", "Outro"),
-                "account_id": _require(args["account_id"], _VALID_ACCOUNTS, "conta"),
-                "method": _require(args["method"], _VALID_EXPENSE_METHODS, "método"),
-                "installments": installments,
-            }
-            pending[chat_id] = {"type": "expense", "data": data}
-            return "ok", _confirmation_expense(data)
-
-        if name == "register_income":
-            data = {
-                "date": args["date"], "amount": _pos_amount(args["amount"]),
-                "description": args["description"],
-                "income_type": _require(args.get("income_type", "other"), _VALID_INCOME_TYPES, "tipo de receita"),
-                "account_id": _require(args["account_id"], _VALID_ACCOUNTS, "conta"),
-            }
-            pending[chat_id] = {"type": "income", "data": data}
-            return "ok", _confirmation_income(data)
-
-        if name == "register_investment":
-            data = {
-                "date": args["date"], "amount": _pos_amount(args["amount"]),
-                "investment_name": _require(args["investment_name"], _VALID_INVESTMENTS, "investimento"),
-                "operation": _require(args["operation"], _VALID_OPERATIONS, "operação"),
-                "description": args.get("description"),
-            }
-            pending[chat_id] = {"type": "investment", "data": data}
-            return "ok", _confirmation_investment(data)
-
-        if name == "register_transfer":
-            from_account = _require(args["from_account"], _VALID_ACCOUNTS, "conta de origem")
-            to_account = _require(args["to_account"], _VALID_ACCOUNTS, "conta de destino")
-            if from_account == to_account:
-                raise ValueError("origem e destino não podem ser a mesma conta")
-            data = {
-                "date": args["date"], "amount": _pos_amount(args["amount"]),
-                "from_account": from_account,
-                "to_account": to_account,
-            }
-            pending[chat_id] = {"type": "transfer", "data": data}
-            return "ok", _confirmation_transfer(data)
-
-        if name == "confirm":
-            entry = pending.pop(chat_id, None)
-            if not entry:
-                return json.dumps({"error": "Nenhum registro pendente. Nada foi salvo."}), None
-            ptype = entry["type"]
-            if ptype == "expense":
-                msg = _do_confirm_expense(entry["data"])
-                alert = _check_budget_alerts()
-                if alert:
-                    msg = f"{msg}\n\n{alert}"
-            elif ptype == "income":
-                msg = _do_confirm_income(entry["data"])
-            elif ptype == "investment":
-                msg = _do_confirm_investment(entry["data"])
-            else:
-                msg = _do_confirm_transfer(entry["data"])
-            return "ok", msg
-
-        if name == "cancel":
-            pending.pop(chat_id, None)
-            return "ok", "❌ Registro cancelado."
-
-        return json.dumps({"error": f"ferramenta desconhecida: {name}"}), None
+        return json.dumps({"error": f"ferramenta desconhecida: {name}"})
 
     except Exception as exc:
         _logger.error("Tool %s failed: %s", name, exc)
-        return json.dumps({"error": str(exc)}), None
+        return json.dumps({"error": str(exc)})
 
 
 # ── Histórico ─────────────────────────────────────────────────────────────────
@@ -474,7 +205,6 @@ async def ai_chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     if context.bot_data.pop(f"clear_history_{chat_id}", False):
         context.bot_data.get("ai_history", {}).pop(chat_id, None)
-        context.bot_data.get("pending", {}).pop(chat_id, None)
 
     now = datetime.now()
     yesterday = (now - timedelta(days=1)).strftime("%Y-%m-%d")
@@ -550,15 +280,7 @@ async def ai_chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if not isinstance(tool_args, dict):
             tool_args = {}
 
-        result_str, direct_msg = await _execute_tool(tool_name, tool_args, chat_id, context)
-
-        if direct_msg is not None:
-            # Confirmação ou resultado de confirm/cancel: envia direto ao usuário
-            history.append({"role": "user", "content": user_text})
-            history.append({"role": "assistant", "content": direct_msg})
-            _trim_history(context, chat_id)
-            await update.message.reply_text(direct_msg, parse_mode="Markdown")
-            return
+        result_str = await _execute_tool(tool_name, tool_args)
 
         # Resultado de leitura: devolve ao modelo para formulação da resposta
         _logger.info("[AI round %d] tool=%s result=%s", round_n, tool_name, result_str[:200])

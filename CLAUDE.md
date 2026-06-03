@@ -30,7 +30,9 @@ BrokerShark is a **personal money-analysis tool** running **100% locally** on Li
 - **Dinheiro** (home) — the hero number **Disponível pra gastar** (liquidez = saldo das contas correntes − faturas em aberto), plus faturas, "Este mês", contas, atividade e projeções (fechamento do mês / próxima fatura).
 - **Histórico / Análise** — linha do tempo dos meses com lançamentos (segue o intervalo real do banco), métricas mensais, fluxo 6m, investimentos, por categoria, Top PIX e a tabela filtrável.
 
-**Supporting roles (não são o centro):** Telegram bot (entradas rápidas em linguagem natural + relatórios/alertas agendados), importação mensal de CSV (extratos/faturas), e chat de IA local (Ollama) que sempre busca dados reais antes de responder.
+**Supporting roles (não são o centro):** Telegram bot (**somente consulta e notificações** — perguntas em linguagem natural + relatórios/alertas agendados; **nenhum registro ou edição**), importação mensal de CSV (extratos/faturas) pela web, e chat de IA local (Ollama) que sempre busca dados reais antes de responder.
+
+> **Regra de ouro:** todo registro e edição de dados acontece **exclusivamente na interface web**. O Telegram lê dados e notifica — nunca escreve.
 
 Every transaction is persisted in a local SQLite database (single source of truth). Monthly backups go to a local HDD directory.
 
@@ -88,22 +90,23 @@ brokershark/
 ### Core data flow
 
 ```
-User (web form or Telegram)
+User (web form / CSV import — the ONLY write path)
       ↓
 core/database.py — INSERT (SQLite)
       ↓
 core/events.notify() — SSE push to browser (< 1s)
-      ↓ (Telegram only)
-bot/handlers/ai_chat.py — confirmation message + spending alert if expenses ≥ income
+
+Telegram (read-only): ai_chat / comandos → core/database.py (SELECT) → resposta
 ```
 
 ### Key principles
 
 - **SQLite is the single source of truth.** No external write-back.
 - **A análise (web: Visão do Mês + Histórico + Investimentos) é o produto.** Telegram, importação CSV e chat de IA são apoio.
-- **AI is Pierre-inspired:** tool calling, context injection, conversation-as-interface (Telegram only). Never fabricates data — always fetches via tools before answering.
+- **Toda escrita é pela web.** Registros, edições e importação de extratos só acontecem na interface web. O Telegram é **read-only** (consulta + notificações).
+- **AI is Pierre-inspired:** tool calling, context injection, conversation-as-interface (Telegram only). Never fabricates data — always fetches via tools before answering. **As ferramentas do LLM são todas de leitura** — não existe `register_*`/`confirm`/`cancel`.
 - **Backup runs on the 1st of each month** (cron 07:00): `should_backup()` guards against double-runs by checking if `brokershark_YYYY-MM.db` already exists this month. Path hardcoded to `/mnt/HDD_Arquivos/Backups/brokershark`.
-- **All Telegram registrations go through AI.** The bot has a single `MessageHandler` catch-all → `ai_chat_handler`. No `ConversationHandler` flows exist.
+- **O bot tem um único `MessageHandler` catch-all → `ai_chat_handler`** (somente consulta). No `ConversationHandler` flows exist.
 
 ### Patrimônio calculation
 
@@ -181,34 +184,24 @@ The AI handler implements the same architectural pattern as Pierre (InfinitePay)
 4. **Persona:** "BrokerShark" — direct, analytical, slightly cartoonish
 
 **`backend/bot/handlers/ai_chat.py`** — all AI logic lives here:
-- Agentic loop (MAX_ROUNDS=3), system prompt, tool definitions (13 tools), streaming
+- Agentic loop (MAX_ROUNDS=3), system prompt, tool definitions (**7 tools, todas de leitura**), streaming
 - `_is_on_topic()` — finance-domain filter before forwarding to Ollama
 - `_parse_tool_call()` — JSON-in-text extraction (qwen2.5 format, not native tool API)
-- `_execute_tool()` — dispatches tool calls to `core/database.py`
+- `_execute_tool()` — dispatches read-only tool calls to `core/database.py`
 
 **Model:** `qwen2.5:7b` (Q4_K_M, ~4.7GB VRAM) — better JSON structured output than phi3.5
 
-**Tools (13):** `get_monthly_summary`, `get_monthly_comparison`, `get_expenses_by_category`, `get_account_balances`, `get_investments`, `get_recent_transactions`, `get_budgets`, `register_expense`, `register_income`, `register_investment`, `register_transfer`, `confirm`, `cancel`
+**Tools (7, somente leitura):** `get_monthly_summary`, `get_monthly_comparison`, `get_expenses_by_category`, `get_account_balances`, `get_investments`, `get_recent_transactions`, `get_budgets`.
+
+> As ferramentas de escrita (`register_expense/income/investment/transfer`, `confirm`, `cancel`) foram **removidas**: o Telegram não registra nem edita. Se o usuário pedir para registrar algo, o system prompt instrui a IA a redirecioná-lo para a interface web.
 
 ---
 
 ## Bot Interaction Design
 
-### Main menu
+O bot é **somente consulta e notificações**. Não há menu de registro nem botões de Gasto/Recebimento/Investimento. O usuário pergunta em linguagem natural (catch-all → `ai_chat_handler`) ou usa os comandos rápidos (`/saldo`, `/resumo`, `/fatura`, `/reservas`, `/start`, `/ajuda`).
 
-```
-BrokerShark — 21/04/2026
-Abril 2026
-Gastos: R$ X | Receitas: R$ X | Reservas: R$ X
-
-[ 💸 Gasto ]  [ 💰 Recebimento ]  [ 📈 Investimento ]
-```
-
-### Registration flow (AI-driven)
-
-All registrations go through the AI chat handler. The user describes the transaction in natural language; the AI extracts fields, calls the appropriate `register_*` tool (pending state), then asks for confirmation before persisting.
-
-Internal transfers: stored as `flow='expense', method='transfer', dest_account_id=<dest>`.
+Registros e edições — incluindo transferências internas (`flow='expense', method='transfer', dest_account_id=<dest>`) — são feitos **exclusivamente pela interface web**.
 
 ---
 
@@ -367,9 +360,7 @@ All chart components receive **real API data only** — no placeholder data.
 
 **Monthly closing (1st, 08:00):** full previous-month breakdown — income, expenses, categories, investments, net balance.
 
-**Proactive spending alert:** after every expense, if monthly expenses ≥ income → sends alert.
-
-**Budget alert:** after every confirmed expense, `_check_budget_alerts()` checks if any category is ≥80% of its monthly limit → sends alert with 🟡 (80–99%) or 🔴 (≥100%) per category. Runs only when `budgets` table has non-zero limits.
+> **Removido:** os alertas pós-registro (gasto ≥ receita e orçamento ≥80% via `_check_budget_alerts`) eram disparados após confirmar um registro no Telegram. Como o registro saiu do Telegram, esses gatilhos foram removidos. As notificações restantes são as **agendadas** (relatório semanal, fechamento mensal, backup).
 
 ---
 
@@ -400,7 +391,7 @@ Produto = **análise do meu dinheiro**. A web (3 telas: **Visão do Mês** + **H
 - **Histórico**: timeline dos meses com dados, 4 métricas, fluxo 6m, investimentos (donut + movimentos), por categoria, Top PIX, tabela filtrável (conta/método/categoria/busca).
 - Importação mensal de CSV (`nu-db`, `inter-db`, `inter-cc`) com preview + dedup; staging em `import_staging`.
 - Importação de posições B3 (xlsx) → `investments` (`core/ingestion/b3.py`): parseia "Posição - Renda Fixa" (CDB, valor CURVA) e "Posição - Tesouro Direto" (Valor líquido), uma posição por investimento, upsert idempotente por nome. Lido em memória (sem extrair → sem zip-slip); openpyxl 3.x não resolve entidades externas (XXE); cap de tamanho; não-xlsx → `B3ParseError`.
-- Bot Telegram (entradas em linguagem natural + relatórios/alertas agendados; args das tools do LLM validados).
+- Bot Telegram **somente consulta** (perguntas em linguagem natural via tools de leitura + comandos rápidos) + relatórios/alertas agendados. Registro/edição removidos do Telegram (2026-06-02) — escrita é exclusiva da web.
 - Backup mensal: HDD local; SSE ao vivo.
 
 **Backlog (diferido):**
@@ -420,7 +411,7 @@ Produto = **análise do meu dinheiro**. A web (3 telas: **Visão do Mês** + **H
 
 **Notas de segurança (revisão VibeSec + 3 subagentes):**
 - Hardening aplicado: gate de auth central no bot (owner-only), `_authorized` fail-closed, `config.validate()` no startup, gate Host/Origin no dashboard (DNS-rebinding + CSRF), OLLAMA_URL loopback + cap de stream, `Cache-Control: no-store` em `/api/`, systemd sandboxing.
-- [x] **Resolvido (VibeSec, 2026-06-02):** args das tools `register_*` do LLM agora são validados em `ai_chat.py` antes de encenar/gravar — allow-lists derivadas das constantes (`_VALID_ACCOUNTS`/`_VALID_EXPENSE_METHODS`/`_VALID_INCOME_TYPES`/`_VALID_OPERATIONS`/`_VALID_INVESTMENTS`) + `_pos_amount` (>0, finito) + parcelas 1–99 + origem≠destino. Falha fechada (ValueError → nada gravado). Defesa contra prompt-injection. Testes em `tests/test_ai_chat.py`.
+- [x] **Superado (2026-06-02):** o Telegram não escreve mais no DB. As tools `register_*`/`confirm`/`cancel` e seus validadores (`_pos_amount`, `_require`, allow-lists) foram **removidos** de `ai_chat.py` — a superfície de prompt-injection que levava a gravação deixou de existir (não há mais caminho de escrita a partir do LLM). Toda escrita passa pelas rotas web, que validam `type`/`method`/`installments`/`amount` no servidor. Testes em `tests/test_ai_chat.py` (somente leitura) e `tests/test_server_writes.py`.
 - [x] **Resolvido — B3 (xlsx):** `core/ingestion/b3.py` lê o arquivo em memória (`io.BytesIO`, sem extrair → zip-slip não aplicável); openpyxl 3.x não resolve entidades externas nem busca rede (XXE não exposto); cap de tamanho (16 MB) antes do parse; não-xlsx/corrupto → `B3ParseError` (sem 500). Testes em `tests/test_b3.py`.
 - [ ] **Se adicionar export (CSV/planilha):** neutralizar CSV formula injection (células começando com `= + - @`) — hoje os dados são só renderizados via React (escapados), sem export, então não explorável.
 

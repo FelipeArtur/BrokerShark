@@ -27,7 +27,7 @@ BrokerShark is a **personal money-analysis tool** running **100% locally** on Li
 - **Dinheiro** — herói **Disponível pra gastar** (liquidez = contas − faturas) + faturas, "Este mês", contas, atividade e projeções.
 - **Histórico / Análise** — meses com dados (intervalo real do banco), métricas, fluxo 6m, investimentos, categorias, Top PIX, tabela filtrável.
 
-**Apoio:** Telegram (entradas rápidas + relatórios/alertas), importação CSV mensal, chat de IA local. SQLite é a fonte única; backup mensal local (HDD).
+**Apoio:** Telegram (**somente consulta + relatórios/alertas**; não registra nem edita), importação CSV mensal pela web, chat de IA local. SQLite é a fonte única; backup mensal local (HDD).
 
 **User:** Single user, Nubank + Inter (CC + conta corrente). No debit card. Investments: Caixinha Nubank, Porquinho Inter, Tesouro Direto.
 
@@ -38,21 +38,22 @@ BrokerShark is a **personal money-analysis tool** running **100% locally** on Li
 ### Data flow
 
 ```
-User (web form or Telegram)
+User (web form / CSV import — único caminho de escrita)
       ↓
 core/database.py — INSERT (SQLite)
       ↓
 core/events.notify() — SSE push to browser (< 1s)
-      ↓
-bot/handlers/ — Telegram confirmation (if Telegram)
+
+Telegram = somente leitura (consulta + notificações) — nunca escreve no DB
 ```
 
 ### Key principles
 
 - **SQLite = single source of truth.** No external write-back.
 - **A análise é o produto.** Web (Visão do Mês + Histórico + Investimentos) no centro; Telegram/import/IA são apoio.
+- **Toda escrita é pela web.** Registro/edição/importação só na interface web. **Telegram é read-only** (consulta + notificações).
 - **CSV import via web UI** ("+ Importar" modal → preview/staging → confirm; dedup por UUID/hash; sem categorização automática — categoriza depois). Pipeline em `backend/core/ingestion/`. Fontes: `nu-db`, `inter-db`, `inter-cc`.
-- **AI is Pierre-inspired:** tool calling, never fabricates data, always fetches via tools; args das tools validados no servidor.
+- **AI is Pierre-inspired:** tool calling, never fabricates data, always fetches via tools. **Tools são todas de leitura** — não há `register_*`/`confirm`/`cancel`.
 - **Backup is monthly:** `should_backup()` checa por mês-calendário → local HDD (sem cloud).
 
 ---
@@ -122,12 +123,13 @@ Compra parcelada no crédito é expandida em N lançamentos mensais via `crud.in
 
 ## AI Architecture (Pierre-inspired)
 
-`backend/bot/handlers/ai_chat.py` — **Telegram only** (não há chat de IA na web):
+`backend/bot/handlers/ai_chat.py` — **Telegram only, somente consulta** (não há chat de IA na web):
 - Tool calling via prompt engineering (not native tools API — qwen2.5:7b compatible)
-- MAX_ROUNDS=3 agentic loop; args das tools `register_*` validados contra allow-lists antes de gravar
+- MAX_ROUNDS=3 agentic loop; **todas as tools são de leitura** (sem escrita)
 - Persona: "BrokerShark" — direct, analytical, finance-scoped only
+- Se o usuário pedir registro/edição, o system prompt redireciona para a interface web
 
-Tools (13): `get_monthly_summary`, `get_monthly_comparison`, `get_expenses_by_category`, `get_account_balances`, `get_investments`, `get_recent_transactions`, `get_budgets`, `register_expense`, `register_income`, `register_investment`, `register_transfer`, `confirm`, `cancel`
+Tools (7, somente leitura): `get_monthly_summary`, `get_monthly_comparison`, `get_expenses_by_category`, `get_account_balances`, `get_investments`, `get_recent_transactions`, `get_budgets`. As tools de escrita (`register_*`/`confirm`/`cancel`) foram removidas.
 
 ---
 
