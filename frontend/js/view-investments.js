@@ -1,5 +1,5 @@
 /* view-investments.js — InvestmentsView (aba "Investimentos") */
-/* global React, fetchInvestments, fetchInvestmentMovements, patchInvestmentBalance, fetchInvestmentEvolution */
+/* global React, fetchInvestments, fetchInvestmentMovements, patchInvestmentBalance, fetchInvestmentEvolution, postInvestmentMovement */
 
 const { useState: _s3St, useEffect: _s3Ef, useMemo: _s3Memo } = React;
 const { fmtBRL, BankChip, SingleAreaChart, Modal, Donut } = window.BS;
@@ -17,6 +17,72 @@ const _INV_COLORS = [
   "oklch(74% 0.13 60)",  "oklch(70% 0.15 20)",  "oklch(72% 0.10 330)",
 ];
 
+/* ── MovementModal — register an application/withdrawal on a position ─────── */
+function MovementModal({ investments, onClose, onDone }) {
+  const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
+  const [invName, setInvName] = _s3St(investments[0] ? investments[0].name : "");
+  const [operation, setOperation] = _s3St("deposit");
+  const [amount, setAmount] = _s3St("");
+  const [dateStr, setDateStr] = _s3St(new Date().toISOString().slice(0, 10));
+  const [err, setErr] = _s3St("");
+  const [busy, setBusy] = _s3St(false);
+
+  async function save() {
+    const val = parseFloat(String(amount).replace(",", "."));
+    if (isNaN(val) || val <= 0) { setErr("Valor inválido"); return; }
+    if (!invName) { setErr("Selecione a posição"); return; }
+    setErr(""); setBusy(true);
+    try {
+      await postInvestmentMovement({ investment_name: invName, operation, amount: val, date: dateStr });
+      onDone(operation === "deposit" ? "Aplicação registrada" : "Resgate registrado");
+    } catch (e) {
+      setErr(e.message || "Erro ao registrar"); setBusy(false);
+    }
+  }
+
+  const fieldStyle = { display: "flex", flexDirection: "column", gap: 4, marginBottom: 12 };
+  const labelStyle = { fontSize: 11, fontWeight: 600, color: "var(--fg-3)" };
+
+  return h(Modal, { open: true, onClose, title: "Registrar movimento", width: 420 },
+    h("div", { style: { padding: 4 } },
+      h("div", { style: fieldStyle },
+        h("label", { style: labelStyle }, "Posição"),
+        h("select", { className: "select", value: invName, onChange: e => setInvName(e.target.value), style: { height: 34 } },
+          investments.map(inv => h("option", { key: inv.id, value: inv.name }, inv.name)))
+      ),
+      h("div", { style: fieldStyle },
+        h("label", { style: labelStyle }, "Tipo"),
+        h("div", { style: { display: "flex", gap: 6 } },
+          [["deposit", "Aplicação"], ["withdrawal", "Resgate"]].map(([op, lbl]) => h("button", {
+            key: op, type: "button", onClick: () => setOperation(op),
+            className: `btn btn-sm ${operation === op ? "btn-primary" : "btn-ghost"}`,
+            style: { flex: 1, height: 32 }
+          }, lbl)))
+      ),
+      h("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 } },
+        h("div", { style: fieldStyle },
+          h("label", { style: labelStyle }, "Valor (R$)"),
+          h("input", { className: "input", autoFocus: true, value: amount, inputMode: "decimal",
+            onChange: e => { setAmount(e.target.value); setErr(""); },
+            onKeyDown: e => { if (e.key === "Enter") save(); },
+            placeholder: "0,00", style: { height: 34 } })
+        ),
+        h("div", { style: fieldStyle },
+          h("label", { style: labelStyle }, "Data"),
+          h("input", { className: "input", type: "date", value: dateStr,
+            onChange: e => setDateStr(e.target.value), style: { height: 34 } })
+        )
+      ),
+      err && h("div", { style: { fontSize: 11, color: "var(--neg)", marginBottom: 10 } }, err),
+      h("div", { style: { display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 6 } },
+        h("button", { className: "btn btn-ghost btn-sm", onClick: onClose }, "Cancelar"),
+        h("button", { className: "btn btn-primary btn-sm", onClick: save, disabled: busy, style: { minWidth: 80 } },
+          busy ? "Salvando…" : "Salvar")
+      )
+    )
+  );
+}
+
 /* ── InvestmentsView ─────────────────────────────────────────────────────── */
 function InvestmentsView({ refreshKey, filterMonth }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
@@ -26,6 +92,8 @@ function InvestmentsView({ refreshKey, filterMonth }) {
   const [editErr, setEditErr] = _s3St("");
   const [periodMovements, setPeriodMovements] = _s3St([]);
   const [evolution, setEvolution] = _s3St([]);
+  const [movementOpen, setMovementOpen] = _s3St(false);
+  const [toast, setToast] = _s3St("");
 
   _s3Ef(() => { 
     fetchInvestments().then(setInvestments); 
@@ -115,7 +183,11 @@ function InvestmentsView({ refreshKey, filterMonth }) {
       h("div", { className: "pane" },
         h("div", { className: "pane-h" },
           h("div", { className: "pane-title" }, "Ativos em carteira"),
-          h("span", { style: { fontSize: 10, color: "var(--fg-3)" } }, "clique no valor para corrigir")
+          h("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
+            h("span", { style: { fontSize: 10, color: "var(--fg-3)" } }, "clique no valor para corrigir"),
+            h("button", { className: "btn btn-ghost btn-sm", onClick: () => setMovementOpen(true),
+              style: { height: 26, padding: "0 10px", fontSize: 12 } }, "+ Movimento")
+          )
         ),
         h("div", { className: "pane-content", style: { display: "flex", flexDirection: "column", gap: 24 } },
           grouped.map(([groupName, groupInvs], gIdx) => h("div", { key: groupName },
@@ -200,7 +272,25 @@ function InvestmentsView({ refreshKey, filterMonth }) {
         )
       )
       )
-    )
+    ),
+
+    movementOpen && h(MovementModal, {
+      investments,
+      onClose: () => setMovementOpen(false),
+      onDone: (msg) => {
+        setMovementOpen(false);
+        setToast(msg);
+        setTimeout(() => setToast(""), 2500);
+        // SSE will refresh balances; nudge local state immediately too
+        fetchInvestments().then(setInvestments);
+      }
+    }),
+
+    toast && h("div", {
+      style: { position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)",
+        background: "var(--pos)", color: "#fff", padding: "8px 16px", borderRadius: 6,
+        fontSize: 12, fontWeight: 600, zIndex: 100, boxShadow: "0 4px 12px rgba(0,0,0,0.2)" }
+    }, toast)
   );
 }
 

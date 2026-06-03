@@ -1,7 +1,8 @@
 /* app.js — BrokerShark v2 app shell */
 /* global React, ReactDOM, fetchExpenseCategories, patchTransaction,
           searchTransactions, postCategory, deleteCategory, deleteTransaction,
-          fetchAccounts, importPreview, importConfirm, importB3 */
+          fetchAccounts, importPreview, importConfirm, importB3,
+          fetchUncategorized, fetchCategoriesList, bulkSetCategory, runAutoCategorize */
 
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
 const {
@@ -213,7 +214,7 @@ function CategoryEditor({ tx, onClose, onSave }) {
 }
 
 /* ── TweaksPanel ────────────────────────────────────────────────────────── */
-function TweaksPanel({ tw, setTw, onClose, onOpenCategories }) {
+function TweaksPanel({ tw, setTw, onClose, onOpenCategories, onOpenCategorize }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   const Row = ({ label, children }) => h("div", {
     style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 0", borderBottom: "1px solid var(--line-1)" }
@@ -242,7 +243,16 @@ function TweaksPanel({ tw, setTw, onClose, onOpenCategories }) {
       h(Radio, { options: ["Dark", "Light"], value: tw.theme, onChange: v => setTw("theme", v) })
     ),
 
-    h("div", { style: { marginTop: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 } },
+    h("button", {
+      className: "btn btn-ghost btn-sm",
+      onClick: () => { onOpenCategorize(); onClose(); },
+      style: { justifyContent: "center", fontSize: 12, color: "var(--fg-1)", height: 34, width: "100%", marginTop: 14 }
+    },
+      h("span", { style: { fontSize: 14, marginRight: 4 } }, "✓"),
+      "Categorizar pendentes"
+    ),
+
+    h("div", { style: { marginTop: 6, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 } },
       h("button", {
         className: "btn btn-ghost btn-sm",
         onClick: () => { onOpenCategories(); onClose(); },
@@ -260,6 +270,93 @@ function TweaksPanel({ tw, setTw, onClose, onOpenCategories }) {
         "Restaurar"
       )
     )
+  );
+}
+
+/* ── CategorizePanel — clear the uncategorized backlog, grouped by payee ──── */
+function CategorizePanel({ refreshKey, onRefresh, push }) {
+  const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
+  const [flow, setFlow] = useState("expense");
+  const [groups, setGroups] = useState([]);
+  const [cats, setCats] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  function load() {
+    setLoading(true);
+    Promise.all([fetchUncategorized(flow), fetchCategoriesList(flow)])
+      .then(([g, c]) => { setGroups(g); setCats(c); })
+      .catch(() => push && push("Erro ao carregar pendentes.", "error"))
+      .finally(() => setLoading(false));
+  }
+  useEffect(load, [flow, refreshKey]);
+
+  async function assign(group, categoryId) {
+    if (!categoryId) return;
+    try {
+      const res = await bulkSetCategory(group.ids, Number(categoryId));
+      setGroups(gs => gs.filter(g => g.label !== group.label));
+      push && push(`${res.updated} ${res.updated === 1 ? "lançamento categorizado" : "lançamentos categorizados"}`, "success");
+      onRefresh && onRefresh();
+    } catch (e) {
+      push && push(e.message || "Erro ao categorizar.", "error");
+    }
+  }
+
+  async function autoRun() {
+    setBusy(true);
+    try {
+      const res = await runAutoCategorize();
+      push && push(res.matched > 0 ? `${res.matched} auto-categorizados` : "Nenhum padrão novo reconhecido", res.matched > 0 ? "success" : "info");
+      load();
+      onRefresh && onRefresh();
+    } catch (e) {
+      push && push(e.message || "Erro ao auto-categorizar.", "error");
+    } finally { setBusy(false); }
+  }
+
+  const totalPend = groups.reduce((s, g) => s + g.count, 0);
+
+  return h("div", { className: "pane", style: { padding: 18 } },
+    h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14, flexWrap: "wrap", gap: 8 } },
+      h("div", null,
+        h("div", { className: "pane-title" }, "Categorizar pendentes"),
+        h("div", { style: { fontSize: 12, color: "var(--fg-3)", marginTop: 2 } },
+          loading ? "Carregando…" : `${groups.length} ${groups.length === 1 ? "grupo" : "grupos"} · ${totalPend} ${totalPend === 1 ? "lançamento" : "lançamentos"} sem categoria`)
+      ),
+      h("div", { style: { display: "flex", gap: 6, alignItems: "center" } },
+        h(SegmentControl, {
+          options: [{ value: "expense", label: "Despesas" }, { value: "income", label: "Receitas" }],
+          value: flow, onChange: setFlow, columns: 2,
+        }),
+        h("button", { className: "btn btn-ghost btn-sm", disabled: busy, onClick: autoRun, title: "Aplicar regras automáticas por descrição" },
+          busy ? "Aplicando…" : "✨ Auto")
+      )
+    ),
+
+    loading ? null :
+    groups.length === 0
+      ? h("div", { style: { textAlign: "center", padding: 40, color: "var(--fg-3)", fontSize: 13 } }, "Tudo categorizado por aqui. 🎉")
+      : h("div", { style: { display: "flex", flexDirection: "column", gap: 6 } },
+          groups.map(g => h("div", {
+            key: g.label,
+            style: { display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", border: "1px solid var(--line-1)", borderRadius: 6, background: "var(--bg-2)" }
+          },
+            h("div", { style: { flex: 1, minWidth: 0 } },
+              h("div", { style: { fontSize: 13, color: "var(--fg-1)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, g.label),
+              h("div", { style: { fontSize: 11, color: "var(--fg-3)", marginTop: 1 } },
+                `${g.count}× · ${fmtBRL(g.total)}`)
+            ),
+            h("select", {
+              className: "select", defaultValue: "",
+              style: { fontSize: 12, minWidth: 150, height: 30 },
+              onChange: e => { assign(g, e.target.value); e.target.value = ""; }
+            },
+              h("option", { value: "", disabled: true }, "Categoria…"),
+              cats.map(c => h("option", { key: c.id, value: c.id }, c.name))
+            )
+          ))
+        )
   );
 }
 
@@ -782,6 +879,7 @@ function App() {
           }),
           section === "investments" && h(InvestmentsView, { refreshKey, filterMonth: "all" }),
           section === "categories" && h(CategoriesPanel, { refreshKey, onRefresh: () => setRefreshKey(k => k + 1) }),
+          section === "categorize" && h(CategorizePanel, { refreshKey, onRefresh: () => setRefreshKey(k => k + 1), push }),
 
           h("footer", { style: { marginTop: 20, padding: "12px 0", borderTop: "1px solid var(--line-1)", fontSize: 10, color: "var(--fg-3)" } },
             h("span", null, "BrokerShark · localhost:8080 · SQLite")
@@ -812,6 +910,7 @@ function App() {
       tw, setTw,
       onClose: () => setTweaksOpen(false),
       onOpenCategories: () => setSection("categories"),
+      onOpenCategorize: () => setSection("categorize"),
     }),
 
     h(CategoryEditor, {

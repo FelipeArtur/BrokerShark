@@ -407,6 +407,20 @@ def api_expense_categories() -> Response:
     return jsonify(database.get_expense_categories())
 
 
+@app.route("/api/categories-list")
+def api_categories_list() -> Response:
+    """Return ``{id, name}`` for every category of a given flow.
+
+    Query params:
+        flow: ``"expense"`` (default) or ``"income"``.
+    """
+    flow = request.args.get("flow", "expense")
+    if flow not in ("expense", "income"):
+        return jsonify({"error": "flow must be expense or income"}), 400
+    rows = database.get_categories(flow)
+    return jsonify([{"id": r["id"], "name": r["name"]} for r in rows])
+
+
 @app.route("/api/transactions/<int:transaction_id>", methods=["PATCH"])
 def api_patch_transaction(transaction_id: int) -> Response:
     """Update editable fields on a single transaction.
@@ -968,6 +982,55 @@ def api_delete_category(category_id: int) -> Response:
         return jsonify({"error": str(exc)}), 400
     _events.notify()
     return jsonify({"ok": True, "transactions_reassigned": affected})
+
+
+@app.route("/api/uncategorized")
+def api_uncategorized() -> Response:
+    """Return uncategorized consumption rows grouped by payee/merchant.
+
+    Query params:
+        flow: ``"expense"`` (default) or ``"income"``.
+
+    Returns:
+        JSON array of ``{label, count, total, ids}`` ordered by count desc.
+    """
+    flow = request.args.get("flow", "expense")
+    if flow not in ("expense", "income"):
+        return jsonify({"error": "flow must be expense or income"}), 400
+    return jsonify(database.get_uncategorized_grouped(flow))
+
+
+@app.route("/api/transactions/bulk-category", methods=["POST"])
+def api_bulk_category() -> Response:
+    """Assign one category to many transactions at once.
+
+    Body: ``{ids: int[], category_id: int}``.
+    Returns ``{"ok": true, "updated": N}``.
+    """
+    body = request.get_json(silent=True) or {}
+    ids = body.get("ids")
+    category_id = body.get("category_id")
+    if not isinstance(ids, list) or not all(isinstance(i, int) for i in ids):
+        return jsonify({"error": "ids must be a list of integers"}), 400
+    if not isinstance(category_id, int):
+        return jsonify({"error": "category_id must be an integer"}), 400
+    if not ids:
+        return jsonify({"error": "ids must not be empty"}), 400
+    updated = database.bulk_set_category(ids, category_id)
+    _events.notify()
+    return jsonify({"ok": True, "updated": updated})
+
+
+@app.route("/api/auto-categorize", methods=["POST"])
+def api_auto_categorize() -> Response:
+    """Run the keyword rules over all uncategorized consumption rows.
+
+    Returns ``{"ok": true, "matched": N, "scanned": M}``.
+    """
+    result = database.run_auto_categorize()
+    if result.get("matched"):
+        _events.notify()
+    return jsonify({"ok": True, **result})
 
 
 @app.route("/api/transactions/<int:transaction_id>", methods=["DELETE"])

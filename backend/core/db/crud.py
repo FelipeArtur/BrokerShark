@@ -212,6 +212,34 @@ def update_transaction_fields(tx_id: int, **fields: Any) -> None:
         )
 
 
+def bulk_set_category(transaction_ids: list[int], category_id: int) -> int:
+    """Assign one category to many transactions at once. Returns rows updated.
+
+    Used by the "Categorizar pendentes" panel to categorize a whole merchant
+    group in a single click. No-op (returns 0) on an empty id list.
+    """
+    if not transaction_ids:
+        return 0
+    placeholders = ",".join("?" for _ in transaction_ids)
+    with _connect() as conn:
+        cur = conn.execute(
+            f"UPDATE transactions SET category_id = ? WHERE id IN ({placeholders})",
+            (category_id, *transaction_ids),
+        )
+        return cur.rowcount
+
+
+def run_auto_categorize() -> dict[str, int]:
+    """Apply the keyword rules to all uncategorized consumption rows (standalone).
+
+    Opens its own connection; for the import path the rules run inside the
+    confirm transaction instead (see :func:`confirm_staging_batch`).
+    """
+    from core.ingestion.categorize import auto_categorize
+    with _connect() as conn:
+        return auto_categorize(conn)
+
+
 def upsert_investment(name: str, type_: str, bank: str) -> int:
     """Insert an investment if it does not exist, then return its id."""
     with _connect() as conn:
@@ -426,6 +454,11 @@ def confirm_staging_batch(batch_id: str, exclude_ids: Optional[set[int]] = None)
             if cur.rowcount:
                 inserted += 1
         conn.execute("DELETE FROM import_staging WHERE batch_id = ?", (batch_id,))
+        # Pre-fill obvious merchants on the rows just promoted (same txn, so a
+        # failure rolls the whole import back). Manual categories are never
+        # touched — auto_categorize only fills category_id IS NULL.
+        from core.ingestion.categorize import auto_categorize
+        auto_categorize(conn)
     events.notify()
     return {"inserted": inserted, "skipped": len(rows) - inserted}
 

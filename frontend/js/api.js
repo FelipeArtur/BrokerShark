@@ -66,8 +66,15 @@ async function patchBudget(budgetId, categoryId, amountLimit) {
   return _patch(`/api/budgets/${budgetId}`, { category_id: categoryId, amount_limit: amountLimit });
 }
 async function fetchInvestmentMovements({ month, year } = {}) { return _get(`/api/investment-movements${_params({ month, year })}`); }
+async function fetchCategoriesList(flow = "expense") { return _get(`/api/categories-list${_params({ flow })}`); }
+async function fetchUncategorized(flow = "expense") { return _get(`/api/uncategorized${_params({ flow })}`); }
+async function bulkSetCategory(ids, categoryId) { return _post("/api/transactions/bulk-category", { ids, category_id: categoryId }); }
+async function runAutoCategorize() { return _post("/api/auto-categorize", {}); }
 async function patchInvestmentBalance(id, balance) {
   return _patch(`/api/investments/${id}/balance`, { balance });
+}
+async function postInvestmentMovement({ investment_name, operation, amount, date, description }) {
+  return _post("/api/investment-movements", { investment_name, operation, amount, date, description });
 }
 async function postCategory(name, flow)       { return _post("/api/categories", { name, flow }); }
 async function deleteCategory(id, reassignToId) {
