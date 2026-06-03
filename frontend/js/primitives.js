@@ -203,11 +203,24 @@ function Modal({ open, onClose, title, children, width = 480 }) {
 /* ── useToasts ──────────────────────────────────────────────────────────── */
 function useToasts() {
   const [list, setList] = _useState([]);
-  const push = _useCallback((msg, kind = "info") => {
+  const push = _useCallback((msg, kind = "info", action = null) => {
     const id = Math.random().toString(36).slice(2);
-    setList(l => [...l, { id, msg, kind }]);
-    setTimeout(() => setList(l => l.filter(t => t.id !== id)), 3500);
+    setList(l => [...l, { id, msg, kind, action }]);
+    const timer = setTimeout(() => {
+      setList(l => {
+        const item = l.find(x => x.id === id);
+        if (item && item.action && item.action.onTimeout) item.action.onTimeout();
+        return l.filter(t => t.id !== id);
+      });
+    }, action ? 5000 : 3500);
+    return () => { clearTimeout(timer); setList(l => l.filter(t => t.id !== id)); };
   }, []);
+
+  _useEffect(() => {
+    const handler = e => push(e.detail.msg, e.detail.kind, e.detail.action);
+    window.addEventListener('bs-toast', handler);
+    return () => window.removeEventListener('bs-toast', handler);
+  }, [push]);
   const Toaster = () => React.createElement("div", {
     role: "status", "aria-live": "polite", "aria-atomic": "false",
     style: { position: "fixed", bottom: 20, right: 20, display: "flex", flexDirection: "column", gap: 8, zIndex: 200 }
@@ -220,9 +233,16 @@ function useToasts() {
           background: `var(--${_k}-bg)`,
           border: `1px solid color-mix(in oklch, var(--${_k}) 30%, transparent)`,
           padding: "10px 14px", minWidth: 240, fontSize: "var(--fz-6)",
-          boxShadow: "0 4px 16px oklch(0% 0 0 / 0.3)"
+          boxShadow: "0 4px 16px oklch(0% 0 0 / 0.3)",
+          display: "flex", justifyContent: "space-between", alignItems: "center"
         }
-      }, t.msg);
+      },
+        React.createElement("span", null, t.msg),
+        t.action && React.createElement("button", {
+          onClick: () => { t.action.onClick(); setList(l => l.filter(x => x.id !== t.id)); },
+          style: { cursor: "pointer", background: "var(--bg-2)", border: "1px solid var(--line-1)", borderRadius: 4, padding: "4px 8px", fontSize: 11, fontWeight: 600, color: "var(--fg-0)", marginLeft: 12 }
+        }, t.action.label)
+      );
     })
   );
   return { push, Toaster };
@@ -267,8 +287,9 @@ function BrokerSharkLogo({ size = 28 }) {
 }
 
 /* ── TxRow ──────────────────────────────────────────────────────────────── */
-const TxRow = React.memo(({ t, cols, onEditCategory }) => {
+const TxRow = React.memo(({ t, cols, onEditCategory, cats, onInlineCategoryChange }) => {
   const h = React.createElement;
+  const [editing, setEditing] = React.useState(false);
   const isThirdParty = !!t.is_third_party;
   // Non-consumption cash legs, shown but NOT counted as despesa/receita (neutral + tag):
   //  - auto-Pix entre contas próprias  → counterpart='SELF'  → tag "transferência"
@@ -276,7 +297,11 @@ const TxRow = React.memo(({ t, cols, onEditCategory }) => {
   const isSelf   = t.counterpart === "SELF";
   const isInvest = !isSelf && (t.method === "transfer" || (t.flow === "income" && !t.is_revenue));
   const isNeutral = isSelf || isInvest;
-  const amtColor = isNeutral ? "var(--fg-2)" : (t.flow === "expense" ? "var(--fg-0)" : "var(--pos)");
+  // Inline category edit: only on real consumption/income rows, and only when the
+  // host wired a handler + a category list. stopPropagation keeps the row's
+  // onClick (which opens the full editor modal) from firing while editing.
+  const canEdit = !isNeutral && !!onInlineCategoryChange && Array.isArray(cats) && cats.length > 0;
+  const amtColor = isSelf ? "var(--info)" : isInvest ? "var(--reserve)" : (t.flow === "expense" ? "var(--neg)" : "var(--pos)");
   const rows = [
     h("tr", { 
       key: t.id, 
@@ -290,14 +315,41 @@ const TxRow = React.memo(({ t, cols, onEditCategory }) => {
           isThirdParty && h("span", { title: "Despesa de terceiros: não contabilizada", style: { fontSize: 9, padding: "2px 6px", borderRadius: 4, border: "1px dashed var(--fg-3)", color: "var(--fg-2)", fontWeight: 600, flexShrink: 0 } }, "TERCEIROS")
         )
       ),
-      cols.includes("cat") && h("td", null,
+      cols.includes("cat") && h("td", { onClick: canEdit ? (e => e.stopPropagation()) : undefined },
         isSelf
           ? h("span", { className: "data-tag", style: { borderColor: "color-mix(in oklch, var(--info) 30%, transparent)", color: "var(--info)" }, title: "transferência entre suas contas — não conta como despesa nem receita" }, "transferência")
           : isInvest
             ? h("span", { className: "data-tag", style: { borderColor: "color-mix(in oklch, var(--reserve) 30%, transparent)", color: "var(--reserve)" }, title: "movimento de investimento — não conta como despesa nem receita" }, "investimento")
-            : t.flow === "expense"
-              ? h("span", { className: "data-tag" }, t.category || "—")
-              : h("span", { className: "data-tag", style: { borderColor: "color-mix(in oklch, var(--pos) 30%, transparent)", color: "var(--pos)" } }, t.category || "Receita")
+            : editing
+              ? h("select", {
+                  className: "select", autoFocus: true,
+                  value: t.category_id || "",
+                  style: { height: 24, fontSize: 11, padding: "0 4px", maxWidth: 140 },
+                  onClick: e => e.stopPropagation(),
+                  onChange: e => { const v = e.target.value; if (v) onInlineCategoryChange(t.id, v); setEditing(false); },
+                  onBlur: () => setEditing(false),
+                },
+                  h("option", { value: "", disabled: true }, "Escolher…"),
+                  cats.map(c => h("option", { key: c.id, value: c.id }, c.name))
+                )
+              : t.category
+                ? h("span", {
+                    className: "data-tag",
+                    onClick: canEdit ? (e => { e.stopPropagation(); setEditing(true); }) : undefined,
+                    style: {
+                      cursor: canEdit ? "pointer" : "default",
+                      ...(t.flow === "income" ? { borderColor: "color-mix(in oklch, var(--pos) 30%, transparent)", color: "var(--pos)" } : {}),
+                    },
+                    title: canEdit ? "Clique para mudar a categoria" : undefined,
+                  }, t.category)
+                : canEdit
+                  ? h("span", {
+                      className: "data-tag",
+                      onClick: e => { e.stopPropagation(); setEditing(true); },
+                      style: { cursor: "pointer", borderStyle: "dashed", color: "var(--fg-3)" },
+                      title: "Clique para categorizar",
+                    }, "+ categoria")
+                  : h("span", { className: "data-tag" }, t.flow === "expense" ? "—" : "Receita")
       ),
       cols.includes("account") && h("td", null, h(BankChip, { accountId: t.account_id, bank: t.bank })),
       cols.includes("amount") && h("td", { className: "num" },
@@ -311,11 +363,13 @@ const TxRow = React.memo(({ t, cols, onEditCategory }) => {
     )
   ];
   return h(React.Fragment, null, ...rows);
-}, (prev, next) => 
-  prev.t.id === next.t.id && 
+}, (prev, next) =>
+  prev.t.id === next.t.id &&
   prev.t.category === next.t.category &&
+  prev.t.category_id === next.t.category_id &&
   prev.t.is_third_party === next.t.is_third_party &&
-  prev.t.display_name === next.t.display_name
+  prev.t.display_name === next.t.display_name &&
+  prev.cats === next.cats
 );
 
 window.BS = window.BS || {};

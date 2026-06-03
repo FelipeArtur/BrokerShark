@@ -130,6 +130,17 @@ Why they don't conflict:
 
 This logic is symmetric for both Nubank CC and Inter CC.
 
+### Exclusão segura de lançamentos
+
+`crud.delete_transaction(id)` é **hard delete com undo confiável** (não há timer no cliente que possa perder a exclusão). Garantias de integridade:
+
+- **Pagamento de fatura** nunca é excluível → `ValueError` (a UI mostra 409).
+- **Parcelas:** excluir uma parcela apaga o **grupo inteiro** (`"<base> (k/N)"`, mesmo `installments`/conta/método) — nunca órfã as outras. Parcelas importadas que não seguem o formato `(k/N)` são tratadas como avulsas.
+- **Auto-transferências (`counterpart='SELF'`):** os dois legs são apagados juntos (par casado por data+valor+flow oposto).
+- **Legs de investimento do modal** (`"Aplicação: <nome>"`/`"Resgate: <nome>"` de um `investment` existente): reverte também `investments.current_balance` (e o undo re-aplica). Legs importados (outro texto) não disparam ajuste.
+
+`delete_transaction` retorna um payload opaco `{transactions:[linhas completas], investment_deltas:[…]}` que `restore_transactions(payload)` re-insere atômico (mesmos ids) — é o que o botão **"Desfazer"** posta de volta. Caminho único no front (`handleDeleteTx`): tabela e modal usam o mesmo fluxo.
+
 ---
 
 ## Tech Stack
@@ -257,10 +268,9 @@ Excluded from summaries via `AND dest_account_id IS NULL`.
 | POST | `/api/investment-movements` | Create investment movement |
 | PATCH | `/api/budgets/<id>` | Update budget limit |
 | PATCH | `/api/transactions/<id>` | Update category_id, display_name, and/or is_third_party |
-| GET | `/api/uncategorized` | Uncategorized consumption grouped by payee (`flow=expense|income`) — `{label, count, total, ids}[]` |
-| POST | `/api/transactions/bulk-category` | Assign one category to many tx at once (`{ids[], category_id}`) |
-| POST | `/api/auto-categorize` | Run keyword rules over all uncategorized consumption → `{matched, scanned}` |
-| GET | `/api/categories-list` | `{id, name}[]` for a flow (`flow=expense|income`) — feeds the categorize panel |
+| DELETE | `/api/transactions/<id>` | Exclusão segura (ver abaixo) → `{ok, deleted, restore}`; 409 fatura; 404 inexistente |
+| POST | `/api/transactions/restore` | Undo de exclusão: re-insere as linhas do payload `restore` |
+| GET | `/api/categories-full` | `{id, name, transaction_count}[]` for a flow (`flow=expense|income`) — feeds inline category editing no Histórico |
 | GET | `/api/pix-top` | Top PIX destinations (month, year) — `{label, count, total}[]` |
 | POST | `/api/import/preview` | Multipart upload (`file`, `account_id`) → parse + classify + stage. Returns `{batch_id, source, counts, rows[]}` |
 | GET | `/api/import/staging/<batch_id>` | Re-read staged rows for a batch |
@@ -276,8 +286,7 @@ Sources are uploaded via the **"+ Importar"** header button (3-step modal: conta
 - **Investment rows** (Nubank: `Aplicação RDB`, `NuInvest`, `IRRF/resgate`, `Cobrança de investimentos`; Inter: **Caixinha/Porquinho** incl. `Estorno CDB Porquinho/Porq Obj`) → `method='transfer'`, `is_revenue=0`. Detectados por `_is_investment` (keywords) **em ambos os adapters** (Nubank e Inter). Estornos de reserva contam como resgate (entram em `investment_net`, fora de Receitas). **CC bill payments** (extrato `…fatura…`) → `method='transfer'`, `dest_account_id=<bank>-cc`. **Auto-Pix/TED** (contraparte = o próprio dono, via `_is_self_transfer`) → `counterpart='SELF'` (saída `method='transfer'`, entrada `is_revenue=0`). Todos mantêm o saldo correto mas ficam fora dos totais de consumo. O `counterpart` flui pelo `import_staging` (coluna adicionada) até o `confirm`.
 - **Consumption-expense rule:** analytics expense totals now filter `dest_account_id IS NULL AND method != 'transfer'` — a transfer (investment leg or fatura payment) is never "despesa". Patrimônio query is intentionally **not** filtered by method (it must still count CC fatura payments via `dest IN ('nu-cc','inter-cc')`). **Esta é a regra canônica** aplicada por `get_monthly_summary`, `get_cashflow_statement`, `get_monthly_history_present`, `get_expenses_by_category`, `get_account_monthly_summary` e, no front, pelo Histórico (que recebe `is_revenue` em `/api/month-transactions` e replica a regra). Garante que "Despesas/Receitas" batem em todas as telas para o mesmo mês.
 - **Fluxo de investimento (fonte única):** `get_cashflow_statement.investment_net` é derivado das **transações** (aplicação = `expense/method='transfer'/dest NULL`; resgate = `income/is_revenue=0/dest NULL`), **não** de `investment_movements` (tabela atualmente vazia — RDB/Caixinha/Porquinho entram no extrato como transferências). Assim "Saldo livre" desconta o que foi aplicado, e a Visão do Mês e o Histórico mostram o mesmo "Investido líq." (`free_balance = receitas − despesas − investment_net`).
-- **Auto-categorização (regras por descrição):** `core/ingestion/categorize.py` mapeia descrição→categoria por palavra-chave (merchants recorrentes + receitas óbvias tipo "Pix recebido"/"Salário ACME"). `auto_categorize(conn)` roda **dentro do `confirm_staging_batch`** (mesma transação) pré-preenchendo as linhas recém-promovidas, e **só toca em `category_id IS NULL`** de consumo (nunca sobrescreve categoria manual, nunca olha transfer/investimento/SELF). Rodável on-demand via `POST /api/auto-categorize` (botão "✨ Auto" no painel). Regras conservadoras e de alta confiança — o PIX pessoa-a-pessoa ambíguo fica pro painel manual.
-- **Categorização em lote (painel):** `get_uncategorized_grouped(flow)` agrupa o backlog por `COALESCE(display_name, description)` (uma entrada por payee com `count`+`total`+`ids`), e `bulk_set_category(ids, cat)` atribui o grupo inteiro de uma vez (`POST /api/transactions/bulk-category`). Colapsa centenas de linhas em poucas dezenas de payees.
+- **Categorização (100% manual, no Histórico):** lançamentos importados entram com `category_id=NULL` e são categorizados **à mão na tela Histórico** — filtro **"Sem categoria"** + edição **inline** na tabela (clica na célula de categoria → `<select>` → `PATCH /api/transactions/<id>`). Não há auto-categorização por regras (removida) nem painel de lote. Gerenciar (criar/excluir) categorias: Configurações → "Categorias" (`CategoriesPanel`).
 
 ### API response shapes (selected)
 
@@ -331,7 +340,7 @@ The dashboard navigates **3 screens** (`app.js` `SECTIONS`): **Visão do Mês** 
 - **Fase 14b — money assistant (advisory):** "Este mês" card shows a run-rate month-close projection; fatura cards show a cycle run-rate "projeção fechamento ~R$Y" (attenuated in the first 5 days of the cycle). Projections are client-side estimates, labelled as such.
 - **Histórico** = "o que aconteceu". Hosts the **period selector** (timeline dos meses com dados — `fetchMonthlyFull` → `/api/monthly?present=1` → `get_monthly_history_present`, só meses com lançamentos), 4 metric cards (número + Δ vs média, sem sparkline), 6-month flow chart, por categoria, Top PIX, and the **filterable table** (filtros: flow · método · categoria · **conta** · busca). Resumos (Por categoria + Top PIX) lado a lado; tabela em largura total. `initialAccount`/`onAccountConsumed` props drive the drill-down filter.
 - **Investimentos** = aba dedicada (`view-investments.js` → `InvestmentsView`). Donut + "Patrimônio em investimentos" (Σ `investments.current_balance`) + lista editável por posição (clique no valor → `PATCH /api/investments/<id>/balance`). Botão **"+ Movimento"** abre `MovementModal` (posição + Aplicação/Resgate + valor + data → `POST /api/investment-movements`). O movimento é gravado como **transfer leg na conta corrente do banco** (`crud.register_investment_transfer`: aplicação = `expense/method='transfer'`, resgate = `income/is_revenue=0`, na `nu-db`/`inter-db`) **+** ajusta `current_balance` atomicamente — **não** escreve `investment_movements` (essa tabela é subtraída dos saldos em `get_account_balance`/`get_all_accounts_with_balance` e causaria dupla contagem). Assim o movimento é consistente em todas as telas: cai no "Disponível", entra em `cashflow_statement.investment_net` e aparece no Histórico tagueado "investimento". Caminho para registrar Tesouro Direto e demais posições. Posições B3 (CDB/Tesouro) + Caixinha Nubank + Porquinho Inter. Rótulos de tipo: Poupança / Tesouro Direto / CDB / Renda fixa.
-- **Categorizar pendentes** (`CategorizePanel`, em `app.js`) — reached via Configurações (`TweaksPanel` → "✓ Categorizar pendentes") ou seção `categorize`. Lista grupos de consumo sem categoria por payee (`/api/uncategorized`), toggle Despesas/Receitas, botão "✨ Auto" (`/api/auto-categorize`) e dropdown por grupo → atribuição em lote (`/api/transactions/bulk-category`).
+- **Categorização inline no Histórico** — a tabela do Histórico tem filtro **"Sem categoria"** (linhas categorizáveis ainda sem categoria) e edição **inline**: `TxRow` (`primitives.js`) renderiza um `<select>` ao clicar na célula de categoria (só em linhas de consumo/receita reais — transfer/investimento/SELF ficam como tags neutras). `HistoryView` busca categorias dos dois flows (`fetchCategoriesFull('expense'|'income')`) e passa a lista certa por `t.flow`. `PATCH /api/transactions/<id>` grava; SSE atualiza. Não há mais painel separado nem seção `categorize`.
 - **Categorias** (`CategoriesPanel`) is no longer a nav tab — reached via Configurações (`TweaksPanel`). The old `CardsView`/`AccountsView`/`AccountsCardsView` were **removed** (Fase 14 cleanup).
 
 ### Charts (`primitives.js`)
@@ -406,10 +415,10 @@ Produto = **análise do meu dinheiro**. A web (3 telas: **Visão do Mês** + **H
 **Backlog (diferido):**
 - [ ] Adapter fatura Nubank (`nu-cc`) — formato desconhecido (diretório de exemplo vazio).
 - [ ] Desfazer última importação (reverter batch por `batch_id`).
-- [x] ~~Filtro "sem categoria" / categorizar em lote~~ — entregue como painel **Categorizar pendentes** (auto-regras + atribuição em lote por payee).
+- [x] ~~Filtro "sem categoria" / categorizar~~ — entregue como **categorização inline no Histórico** (filtro "Sem categoria" + `<select>` por linha). Auto-categorização por regras e painel de lote foram descartados (manual é mais previsível).
 - [x] ~~Registrar movimentos do Tesouro Direto~~ — entregue via **"+ Movimento"** na aba Investimentos (`MovementModal`).
 
-**Integridade dos dados (2026-06-03):** backfill one-time reclassificou **53 lançamentos Porquinho** (`Aplicacao:`/`Resgate: CDB Porq*`, `inter-db`) que tinham ficado com `method='ted'` (importados antes do `_is_investment` cobrir Porquinho) → `method='transfer', is_revenue=0`. Saíam inflando ~R$6,5k de despesa + R$5,4k de receita; agora entram em `investment_net`. Saldos verificados inalterados. O adapter já classifica corretamente nos imports futuros; o backfill só realinhou o histórico. **Auto-categorização** rodada no histórico: 293 lançamentos classificados pelas regras (restante = PIX pessoa-a-pessoa, via painel).
+**Integridade dos dados (2026-06-03):** backfill one-time reclassificou **53 lançamentos Porquinho** (`Aplicacao:`/`Resgate: CDB Porq*`, `inter-db`) que tinham ficado com `method='ted'` (importados antes do `_is_investment` cobrir Porquinho) → `method='transfer', is_revenue=0`. Saíam inflando ~R$6,5k de despesa + R$5,4k de receita; agora entram em `investment_net`. Saldos verificados inalterados. O adapter já classifica corretamente nos imports futuros; o backfill só realinhou o histórico.
 
 **Revisão da lógica financeira (2026-06-02) — corrigido:**
 - **CHECK de `method`** agora inclui os subtipos de receita: `IN ('pix','credit','ted','transfer','debit','salary','freelance','pix_received','other')`. Antes, num DB novo, `/api/incomes` e o registro de receita do bot violavam o CHECK e o `INSERT OR IGNORE` **descartava a receita silenciosamente** (retornando `id=-1` com `ok:True`).

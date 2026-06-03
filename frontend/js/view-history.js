@@ -1,5 +1,5 @@
 /* view-history.js — HistoryView (tela Histórico/Análise) */
-/* global React, fetchMonthlyFull, fetchMonthTransactions, fetchPixTop, deleteTransaction */
+/* global React, fetchMonthlyFull, fetchMonthTransactions, fetchPixTop, deleteTransaction, fetchCategoriesFull, patchTransactionCategory */
 
 const { useState: _s2St, useEffect: _s2Ef, useMemo: _s2Memo } = React;
 const { fmtBRL, fmtBRLCompact, fmtDateBR, BankChip, DualLine, PT_MONTHS, PT_SHORT, fmtCycleDate } = window.BS;
@@ -18,11 +18,15 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
   const [filterAccount, setFilterAccount] = _s2St("all");
   const [search, setSearch] = _s2St("");
   const [pixTop, setPixTop] = _s2St([]);
+  // Categorias por flow — a edição inline mostra a lista certa pra despesa/receita.
+  const [catsByFlow, setCatsByFlow] = _s2St({ expense: [], income: [] });
 
   const pickedRef = React.useRef(null);
   const lastFetchedMonth = React.useRef(null);
 
   _s2Ef(() => {
+    Promise.all([fetchCategoriesFull("expense"), fetchCategoriesFull("income")])
+      .then(([exp, inc]) => setCatsByFlow({ expense: exp, income: inc }));
     fetchMonthlyFull().then(data => {
       setMonthly(data);
       if (pickedRef.current) {
@@ -41,6 +45,12 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
       pickedRef.current = `${monthly[pickedIdx].year}-${monthly[pickedIdx].month}`;
     }
   }, [pickedIdx, monthly]);
+
+  _s2Ef(() => {
+    const handler = e => setMonthTx(prev => prev.filter(tx => tx.id !== e.detail.id));
+    window.addEventListener('bs-tx-optimistic-delete', handler);
+    return () => window.removeEventListener('bs-tx-optimistic-delete', handler);
+  }, []);
 
   _s2Ef(() => {
     if (!monthly.length || pickedIdx < 0) return;
@@ -124,7 +134,15 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
       const m = METHOD_MAP[t.method] || t.method;
       if (m !== filterMethod) return false;
     }
-    if (filterCat !== "all" && t.category !== filterCat) return false;
+    if (filterCat === "__none__") {
+      // "Sem categoria" = linhas categorizáveis (consumo/receita real) ainda sem categoria.
+      // Transferências/investimentos (method='transfer' ou income não-revenue) não contam.
+      const categorizable = !t.is_third_party && (
+        (t.flow === "expense" && t.method !== "transfer") ||
+        (t.flow === "income" && t.is_revenue === 1)
+      );
+      if (!categorizable || t.category_id) return false;
+    } else if (filterCat !== "all" && t.category !== filterCat) return false;
     if (filterAccount !== "all" && t.account_id !== filterAccount) return false;
     const label = (t.display_name || t.description || "").toLowerCase();
     if (search && !label.includes(search.toLowerCase())) return false;
@@ -351,6 +369,7 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
             className: "select", style: { height: 28, fontSize: 11, padding: "0 24px 0 8px", width: "auto", borderRadius: 4 }
           },
             h("option", { value: "all" }, "Todas categorias"),
+            h("option", { value: "__none__" }, "⚠ Sem categoria"),
             cats.map(c => h("option", { key: c, value: c }, c))
           ),
           h("select", {
@@ -390,10 +409,24 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
             )),
             h("tbody", null,
               filteredTx.length === 0 && h("tr", null, h("td", { colSpan: 5, style: { textAlign: "center", padding: 30, color: "var(--fg-3)" } }, "Nenhuma transação.")),
-              ...filteredTx.map(t => h(window.BS.TxRow, {
-                key: t.id, t, cols: ["date", "desc", "cat", "account", "amount"],
-                onEditCategory
-              }))
+              ...filteredTx.map(t => {
+                const rowCats = catsByFlow[t.flow] || [];
+                return h(window.BS.TxRow, {
+                  key: t.id, t, cols: ["date", "desc", "cat", "account", "amount"],
+                  onEditCategory, cats: rowCats,
+                  onInlineCategoryChange: async (txId, catId) => {
+                    const id = parseInt(catId);
+                    try {
+                      await patchTransactionCategory(txId, id);
+                      window.dispatchEvent(new CustomEvent('bs-toast', { detail: { msg: "Categoria atualizada", kind: "success" } }));
+                      const name = rowCats.find(c => c.id === id)?.name || t.category;
+                      setMonthTx(prev => prev.map(x => x.id === txId ? { ...x, category_id: id, category: name } : x));
+                    } catch (e) {
+                      window.dispatchEvent(new CustomEvent('bs-toast', { detail: { msg: "Erro ao atualizar", kind: "error" } }));
+                    }
+                  }
+                });
+              })
             )
           )
         )

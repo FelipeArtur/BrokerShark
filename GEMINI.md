@@ -52,7 +52,7 @@ Telegram = somente leitura (consulta + notificações) — nunca escreve no DB
 - **SQLite = single source of truth.** No external write-back.
 - **A análise é o produto.** Web (Visão do Mês + Histórico + Investimentos) no centro; Telegram/import/IA são apoio.
 - **Toda escrita é pela web.** Registro/edição/importação só na interface web. **Telegram é read-only** (consulta + notificações).
-- **CSV import via web UI** ("+ Importar" modal → preview/staging → confirm; dedup por UUID/hash). Pipeline em `backend/core/ingestion/`. Fontes: `nu-db`, `inter-db`, `inter-cc`. **Auto-categorização por regras** (`ingestion/categorize.py`) roda no confirm (preenche só `category_id IS NULL` de consumo); o resto via painel **Categorizar pendentes** (Configurações) — agrupa por payee e atribui em lote.
+- **CSV import via web UI** ("+ Importar" modal → preview/staging → confirm; dedup por UUID/hash). Pipeline em `backend/core/ingestion/`. Fontes: `nu-db`, `inter-db`, `inter-cc`. Importados entram com `category_id=NULL`; **categorização é manual no Histórico** (filtro "Sem categoria" + edição inline na tabela → `PATCH /api/transactions/<id>`). Sem auto-categorização por regras.
 - **AI is Pierre-inspired:** tool calling, never fabricates data, always fetches via tools. **Tools são todas de leitura** — não há `register_*`/`confirm`/`cancel`.
 - **Backup is monthly:** `should_backup()` checa por mês-calendário → local HDD (sem cloud).
 
@@ -161,10 +161,7 @@ Tools (7, somente leitura): `get_monthly_summary`, `get_monthly_comparison`, `ge
 | GET | `/api/import/staging/<batch_id>` | Re-read staged rows |
 | POST | `/api/import/confirm` | Promote `new` rows (`batch_id`, `exclude_ids[]`) |
 | POST | `/api/investment-movements` | Aplicação/resgate (atualiza `current_balance` atomicamente) — usado pelo "+ Movimento" |
-| GET | `/api/uncategorized` | Consumo sem categoria agrupado por payee (`flow=expense|income`) — `{label,count,total,ids}[]` |
-| POST | `/api/transactions/bulk-category` | Atribui categoria a vários (`{ids[], category_id}`) |
-| POST | `/api/auto-categorize` | Roda regras por descrição → `{matched, scanned}` |
-| GET | `/api/categories-list` | `{id,name}[]` por flow |
+| GET | `/api/categories-full` | `{id,name,transaction_count}[]` por flow — edição inline de categoria no Histórico |
 | PATCH | `/api/budgets/<id>` | Update budget |
 | PATCH | `/api/transactions/<id>` | Reassign category |
 

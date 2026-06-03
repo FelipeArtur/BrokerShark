@@ -37,6 +37,7 @@ async function fetchRecentTransactions(id, { limit = 100, month = null, year = n
 }
 async function fetchExpenseCategories()         { return _get("/api/expense-categories"); }
 async function fetchExpenseCategoriesFull()     { return _get("/api/expense-categories-full"); }
+async function fetchCategoriesFull(flow = "expense") { return _get(`/api/categories-full${_params({ flow })}`); }
 
 /* ── New v2 read endpoints ──────────────────────────────────────────────── */
 async function fetchDailySpend({ month, year } = {})  { return _get(`/api/daily-spend${_params({ month, year })}`); }
@@ -66,10 +67,6 @@ async function patchBudget(budgetId, categoryId, amountLimit) {
   return _patch(`/api/budgets/${budgetId}`, { category_id: categoryId, amount_limit: amountLimit });
 }
 async function fetchInvestmentMovements({ month, year } = {}) { return _get(`/api/investment-movements${_params({ month, year })}`); }
-async function fetchCategoriesList(flow = "expense") { return _get(`/api/categories-list${_params({ flow })}`); }
-async function fetchUncategorized(flow = "expense") { return _get(`/api/uncategorized${_params({ flow })}`); }
-async function bulkSetCategory(ids, categoryId) { return _post("/api/transactions/bulk-category", { ids, category_id: categoryId }); }
-async function runAutoCategorize() { return _post("/api/auto-categorize", {}); }
 async function patchInvestmentBalance(id, balance) {
   return _patch(`/api/investments/${id}/balance`, { balance });
 }
@@ -89,8 +86,9 @@ async function deleteCategory(id, reassignToId) {
 async function deleteTransaction(id) {
   const r = await fetch(`/api/transactions/${id}`, { method: "DELETE" });
   if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || "request failed"); }
-  return r.json();
+  return r.json();  // { ok, deleted, restore }
 }
+async function restoreTransactions(restore) { return _post("/api/transactions/restore", { restore }); }
 
 /* ── File import (multipart upload + staged confirm) ─────────────────────── */
 async function importPreview(file, accountId) {

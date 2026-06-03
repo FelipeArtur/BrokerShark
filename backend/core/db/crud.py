@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import calendar
+import re
 import sqlite3
 from datetime import datetime, timedelta
 from typing import Any, Optional
@@ -145,28 +146,166 @@ def get_transaction(transaction_id: int) -> Optional[sqlite3.Row]:
         ).fetchone()
 
 
-def delete_transaction(tx_id: int) -> bool:
-    """Delete a transaction by ID.
+# Full transactions column set, in a fixed order, for round-trip delete→restore.
+_TX_COLUMNS = (
+    "id", "date", "flow", "method", "account_id", "amount", "installments",
+    "description", "category_id", "dest_account_id", "counterpart", "is_revenue",
+    "external_id", "display_name", "is_third_party",
+)
 
-    Raises:
-        ValueError: If the transaction is a protected fatura payment.
+_INSTALLMENT_RE = re.compile(r"^(?P<base>.+) \((?P<k>\d+)/(?P<n>\d+)\)$")
+
+
+def _is_fatura_payment(row: sqlite3.Row) -> bool:
+    return row["method"] == "transfer" and row["dest_account_id"] in ("nu-cc", "inter-cc")
+
+
+def _installment_group(conn: sqlite3.Connection, row: sqlite3.Row) -> list[sqlite3.Row]:
+    """Return all sibling rows of a manual installment purchase, or just ``row``.
+
+    Manual parcelas are stored as N rows ``"<base> (k/N)"`` (see ``insert_expense``),
+    sharing account/method/installments. Imported card rows that don't follow the
+    ``(k/N)`` convention are treated as standalone (returned as a single-row list).
+    """
+    if (row["installments"] or 1) <= 1:
+        return [row]
+    m = _INSTALLMENT_RE.match(row["description"] or "")
+    if not m or int(m.group("n")) != row["installments"]:
+        return [row]
+    base, n = m.group("base"), row["installments"]
+    siblings = conn.execute(
+        "SELECT * FROM transactions WHERE installments = ? AND account_id = ? AND method = ?",
+        (n, row["account_id"], row["method"]),
+    ).fetchall()
+    group = [r for r in siblings
+             if (mm := _INSTALLMENT_RE.match(r["description"] or "")) and mm.group("base") == base
+             and int(mm.group("n")) == n]
+    return group or [row]
+
+
+def _self_transfer_partner(conn: sqlite3.Connection, row: sqlite3.Row) -> Optional[sqlite3.Row]:
+    """Return the matching leg of an auto-transfer pair (counterpart='SELF'), if any."""
+    if row["counterpart"] != "SELF":
+        return None
+    return conn.execute(
+        """SELECT * FROM transactions
+            WHERE counterpart = 'SELF' AND id != ? AND date = ?
+              AND ROUND(amount,2) = ROUND(?,2) AND flow != ?
+            LIMIT 1""",
+        (row["id"], row["date"], row["amount"], row["flow"]),
+    ).fetchone()
+
+
+def _investment_balance_delta(conn: sqlite3.Connection, row: sqlite3.Row) -> Optional[dict]:
+    """If ``row`` is a modal-created investment leg, return ``{id, applied_delta}``.
+
+    ``register_investment_transfer`` writes legs described exactly as
+    ``"Aplicação: <name>"`` (deposit, +amount to current_balance) or
+    ``"Resgate: <name>"`` (withdrawal, -amount). We match that exact format against
+    an existing investment name so imported Porquinho rows (different wording) never
+    trigger a balance change. ``applied_delta`` is what was added on creation, so
+    delete subtracts it and restore re-adds it.
+    """
+    desc = row["description"] or ""
+    for prefix, sign in (("Aplicação: ", 1.0), ("Resgate: ", -1.0)):
+        if desc.startswith(prefix):
+            name = desc[len(prefix):]
+            inv = conn.execute(
+                "SELECT id FROM investments WHERE name = ?", (name,)
+            ).fetchone()
+            if inv is not None:
+                return {"id": inv["id"], "applied_delta": sign * row["amount"]}
+    return None
+
+
+def delete_transaction(tx_id: int) -> Optional[dict]:
+    """Delete a transaction (and its integrity-linked siblings) and return a restore payload.
+
+    Safety guarantees:
+      * **Fatura payments** are never deletable (raises ``ValueError``).
+      * **Installment purchases** delete as a whole group — never orphan a parcela.
+      * **Auto-transfer pairs** (``counterpart='SELF'``) delete both legs together.
+      * **Investment legs** created via the web modal also revert
+        ``investments.current_balance`` so the position isn't left overstated.
+
+    Everything happens in one transaction. The returned payload
+    ``{"transactions": [full row dicts], "investment_deltas": [{"id", "applied_delta"}]}``
+    is opaque to the caller and is what :func:`restore_transactions` replays for undo.
 
     Returns:
-        ``True`` if deleted, ``False`` if not found.
+        The restore payload, or ``None`` if the id was not found.
+
+    Raises:
+        ValueError: If the target is a protected fatura payment.
     """
     with _connect() as conn:
-        row = conn.execute(
-            "SELECT method, dest_account_id FROM transactions WHERE id = ?", (tx_id,)
+        target = conn.execute(
+            "SELECT * FROM transactions WHERE id = ?", (tx_id,)
         ).fetchone()
-        if row is None:
-            return False
-        if row["method"] == "transfer" and row["dest_account_id"] in ("nu-cc", "inter-cc"):
+        if target is None:
+            return None
+        if _is_fatura_payment(target):
             raise ValueError(
                 "Pagamentos de fatura não podem ser excluídos. "
                 "Este lançamento representa o total da fatura paga e é usado no cálculo do patrimônio."
             )
-        conn.execute("DELETE FROM transactions WHERE id = ?", (tx_id,))
-        return True
+
+        # Build the set of rows that must go together (dedup by id).
+        to_delete: dict[int, sqlite3.Row] = {}
+        for r in _installment_group(conn, target):
+            to_delete[r["id"]] = r
+        partner = _self_transfer_partner(conn, target)
+        if partner is not None:
+            to_delete[partner["id"]] = partner
+
+        # Reverse current_balance for any investment legs in the set.
+        investment_deltas: list[dict] = []
+        for r in to_delete.values():
+            delta = _investment_balance_delta(conn, r)
+            if delta is not None:
+                investment_deltas.append(delta)
+                conn.execute(
+                    "UPDATE investments SET current_balance = current_balance - ? WHERE id = ?",
+                    (delta["applied_delta"], delta["id"]),
+                )
+
+        ids = list(to_delete.keys())
+        placeholders = ",".join("?" for _ in ids)
+        conn.execute(f"DELETE FROM transactions WHERE id IN ({placeholders})", ids)
+
+    events.notify()
+    return {
+        "transactions": [{c: r[c] for c in _TX_COLUMNS} for r in to_delete.values()],
+        "investment_deltas": investment_deltas,
+    }
+
+
+def restore_transactions(payload: dict) -> int:
+    """Re-insert rows removed by :func:`delete_transaction` and re-apply balance deltas.
+
+    Replays the opaque payload atomically: each transaction is re-inserted with its
+    original id (so links stay intact), and every investment delta is re-added to
+    ``current_balance``. Returns the number of transactions restored. A malformed
+    or empty payload restores nothing (returns 0).
+    """
+    txs = (payload or {}).get("transactions") or []
+    if not txs:
+        return 0
+    cols = ",".join(_TX_COLUMNS)
+    qmarks = ",".join("?" for _ in _TX_COLUMNS)
+    with _connect() as conn:
+        for row in txs:
+            conn.execute(
+                f"INSERT INTO transactions ({cols}) VALUES ({qmarks})",
+                tuple(row.get(c) for c in _TX_COLUMNS),
+            )
+        for d in (payload.get("investment_deltas") or []):
+            conn.execute(
+                "UPDATE investments SET current_balance = current_balance + ? WHERE id = ?",
+                (d["applied_delta"], d["id"]),
+            )
+    events.notify()
+    return len(txs)
 
 
 def get_transactions_by_period(
@@ -210,40 +349,6 @@ def update_transaction_fields(tx_id: int, **fields: Any) -> None:
             f"UPDATE transactions SET {set_clause} WHERE id = ?",
             (*cols.values(), tx_id),
         )
-
-
-def bulk_set_category(transaction_ids: list[int], category_id: int,
-                      flow: Optional[str] = None) -> int:
-    """Assign one category to many transactions at once. Returns rows updated.
-
-    Used by the "Categorizar pendentes" panel to categorize a whole merchant
-    group in a single click. No-op (returns 0) on an empty id list. When ``flow``
-    is given, only rows of that flow are updated — this guards against assigning
-    an income category to expense rows (or vice-versa), so a stale client tab can
-    never cross-assign. ``rowcount`` then reflects only the rows actually changed.
-    """
-    if not transaction_ids:
-        return 0
-    placeholders = ",".join("?" for _ in transaction_ids)
-    sql = f"UPDATE transactions SET category_id = ? WHERE id IN ({placeholders})"
-    params: list = [category_id, *transaction_ids]
-    if flow is not None:
-        sql += " AND flow = ?"
-        params.append(flow)
-    with _connect() as conn:
-        cur = conn.execute(sql, params)
-        return cur.rowcount
-
-
-def run_auto_categorize() -> dict[str, int]:
-    """Apply the keyword rules to all uncategorized consumption rows (standalone).
-
-    Opens its own connection; for the import path the rules run inside the
-    confirm transaction instead (see :func:`confirm_staging_batch`).
-    """
-    from core.ingestion.categorize import auto_categorize
-    with _connect() as conn:
-        return auto_categorize(conn)
 
 
 def upsert_investment(name: str, type_: str, bank: str) -> int:
@@ -515,18 +620,8 @@ def confirm_staging_batch(batch_id: str, exclude_ids: Optional[set[int]] = None)
             if cur.rowcount:
                 inserted += 1
         conn.execute("DELETE FROM import_staging WHERE batch_id = ?", (batch_id,))
-    # Best-effort auto-categorize AFTER the import commits — in its own
-    # connection, wrapped so a categorization error can never roll back or fail a
-    # legitimate import. Note this is a GLOBAL pass: it fills category_id on every
-    # uncategorized consumption row (not just this batch), which is what we want
-    # (a newly-added rule should backfill history too). Only ever fills NULLs, so
-    # manual categories are never touched.
-    try:
-        from core.ingestion.categorize import auto_categorize
-        with _connect() as conn:
-            auto_categorize(conn)
-    except Exception:  # pragma: no cover - categorization is a convenience, never blocks import
-        pass
+    # Imported rows enter with category_id=NULL — categorized later by hand in the
+    # Histórico (filter "Sem categoria" + inline edit).
     events.notify()
     return {"inserted": inserted, "skipped": len(rows) - inserted}
 

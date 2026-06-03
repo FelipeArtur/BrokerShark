@@ -1,8 +1,7 @@
 /* app.js — BrokerShark v2 app shell */
 /* global React, ReactDOM, fetchExpenseCategories, patchTransaction,
-          searchTransactions, postCategory, deleteCategory, deleteTransaction,
-          fetchAccounts, importPreview, importConfirm, importB3,
-          fetchUncategorized, fetchCategoriesList, bulkSetCategory, runAutoCategorize */
+          searchTransactions, postCategory, deleteCategory, deleteTransaction, restoreTransactions,
+          fetchAccounts, importPreview, importConfirm, importB3 */
 
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
 const {
@@ -115,33 +114,31 @@ function CategoryEditor({ tx, onClose, onSave }) {
 
   async function handleDelete() {
     if (deleting) return;
-    if (!confirm("Excluir esta transação permanentemente?")) return;
-    setDeleting(true);
-    try {
-      await deleteTransaction(tx.id);
-      onSave({ deleted: true });
-    }
-    catch (e) { setErr(e.message || "Erro ao excluir."); }
-    finally { setDeleting(false); }
+    onSave({ deleted: true, _tx: tx });
   }
 
   const METHOD_LABELS = { pix: "PIX", pix_received: "PIX", credit: "Crédito", ted: "TED", transfer: "Transfer.", other: "Outro" };
   const methodLabel = tx ? (METHOD_LABELS[tx.method] || tx.method || "") : "";
   const flowIsExpense = tx?.flow === "expense";
+  
+  const isSelf = tx?.counterpart === "SELF";
+  const isInvest = !isSelf && tx && (tx.method === "transfer" || (tx.flow === "income" && !tx.is_revenue));
+  const amtColor = isSelf ? "var(--info)" : isInvest ? "var(--reserve)" : (flowIsExpense ? "var(--neg)" : "var(--pos)");
+  const sign = flowIsExpense ? "−" : "+";
 
   return h(Modal, { open: !!tx, onClose, title: "Transação", width: 480 },
     tx && h("div", { style: { display: "flex", flexDirection: "column" } },
       h("div", { style: { background: "var(--bg-1)", padding: "12px 16px", borderBottom: "1px solid var(--line-1)" } },
         h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 } },
-          h("div", { style: { fontSize: 9, color: "var(--fg-3)", fontFamily: "var(--ff-mono)", textTransform: "uppercase", letterSpacing: "0.05em" } }, flowIsExpense ? "Comprovante de Despesa" : "Comprovante de Receita"),
+          h("div", { style: { fontSize: 9, color: "var(--fg-3)", fontFamily: "var(--ff-mono)", textTransform: "uppercase", letterSpacing: "0.05em" } }, isSelf ? "Transferência Própria" : isInvest ? "Movimento de Investimento" : flowIsExpense ? "Comprovante de Despesa" : "Comprovante de Receita"),
           h("div", { style: { fontSize: 10, color: "var(--fg-3)", fontFamily: "var(--ff-mono)" } }, fmtDateBR(tx.date))
         ),
         h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline" } },
           h("div", { style: { fontSize: 14, fontWeight: 500, color: "var(--fg-1)", flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", paddingRight: 16 } },
             displayName || tx.description
           ),
-          h("span", { className: "num", style: { fontSize: 32, fontWeight: 700, letterSpacing: "-0.04em", color: flowIsExpense ? "var(--fg-0)" : "var(--pos)", lineHeight: 1 } },
-            (flowIsExpense ? "−" : "+") + fmtBRL(tx.amount)
+          h("span", { className: "num", style: { fontSize: 32, fontWeight: 700, letterSpacing: "-0.04em", color: amtColor, lineHeight: 1 } },
+            sign + fmtBRL(tx.amount)
           )
         )
       ),
@@ -214,7 +211,7 @@ function CategoryEditor({ tx, onClose, onSave }) {
 }
 
 /* ── TweaksPanel ────────────────────────────────────────────────────────── */
-function TweaksPanel({ tw, setTw, onClose, onOpenCategories, onOpenCategorize }) {
+function TweaksPanel({ tw, setTw, onClose, onOpenCategories }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   const Row = ({ label, children }) => h("div", {
     style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 0", borderBottom: "1px solid var(--line-1)" }
@@ -243,16 +240,7 @@ function TweaksPanel({ tw, setTw, onClose, onOpenCategories, onOpenCategorize })
       h(Radio, { options: ["Dark", "Light"], value: tw.theme, onChange: v => setTw("theme", v) })
     ),
 
-    h("button", {
-      className: "btn btn-ghost btn-sm",
-      onClick: () => { onOpenCategorize(); onClose(); },
-      style: { justifyContent: "center", fontSize: 12, color: "var(--fg-1)", height: 34, width: "100%", marginTop: 14 }
-    },
-      h("span", { style: { fontSize: 14, marginRight: 4 } }, "✓"),
-      "Categorizar pendentes"
-    ),
-
-    h("div", { style: { marginTop: 6, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 } },
+    h("div", { style: { marginTop: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 } },
       h("button", {
         className: "btn btn-ghost btn-sm",
         onClick: () => { onOpenCategories(); onClose(); },
@@ -270,93 +258,6 @@ function TweaksPanel({ tw, setTw, onClose, onOpenCategories, onOpenCategorize })
         "Restaurar"
       )
     )
-  );
-}
-
-/* ── CategorizePanel — clear the uncategorized backlog, grouped by payee ──── */
-function CategorizePanel({ refreshKey, onRefresh, push }) {
-  const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
-  const [flow, setFlow] = useState("expense");
-  const [groups, setGroups] = useState([]);
-  const [cats, setCats] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
-
-  function load() {
-    setLoading(true);
-    Promise.all([fetchUncategorized(flow), fetchCategoriesList(flow)])
-      .then(([g, c]) => { setGroups(g); setCats(c); })
-      .catch(() => push && push("Erro ao carregar pendentes.", "error"))
-      .finally(() => setLoading(false));
-  }
-  useEffect(load, [flow, refreshKey]);
-
-  async function assign(group, categoryId) {
-    if (!categoryId) return;
-    try {
-      const res = await bulkSetCategory(group.ids, Number(categoryId));
-      setGroups(gs => gs.filter(g => g.label !== group.label));
-      push && push(`${res.updated} ${res.updated === 1 ? "lançamento categorizado" : "lançamentos categorizados"}`, "success");
-      onRefresh && onRefresh();
-    } catch (e) {
-      push && push(e.message || "Erro ao categorizar.", "error");
-    }
-  }
-
-  async function autoRun() {
-    setBusy(true);
-    try {
-      const res = await runAutoCategorize();
-      push && push(res.matched > 0 ? `${res.matched} auto-categorizados` : "Nenhum padrão novo reconhecido", res.matched > 0 ? "success" : "info");
-      load();
-      onRefresh && onRefresh();
-    } catch (e) {
-      push && push(e.message || "Erro ao auto-categorizar.", "error");
-    } finally { setBusy(false); }
-  }
-
-  const totalPend = groups.reduce((s, g) => s + g.count, 0);
-
-  return h("div", { className: "pane", style: { padding: 18 } },
-    h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14, flexWrap: "wrap", gap: 8 } },
-      h("div", null,
-        h("div", { className: "pane-title" }, "Categorizar pendentes"),
-        h("div", { style: { fontSize: 12, color: "var(--fg-3)", marginTop: 2 } },
-          loading ? "Carregando…" : `${groups.length} ${groups.length === 1 ? "grupo" : "grupos"} · ${totalPend} ${totalPend === 1 ? "lançamento" : "lançamentos"} sem categoria`)
-      ),
-      h("div", { style: { display: "flex", gap: 6, alignItems: "center" } },
-        h(SegmentControl, {
-          options: [{ value: "expense", label: "Despesas" }, { value: "income", label: "Receitas" }],
-          value: flow, onChange: setFlow, columns: 2,
-        }),
-        h("button", { className: "btn btn-ghost btn-sm", disabled: busy, onClick: autoRun, title: "Aplicar regras automáticas por descrição" },
-          busy ? "Aplicando…" : "✨ Auto")
-      )
-    ),
-
-    loading ? null :
-    groups.length === 0
-      ? h("div", { style: { textAlign: "center", padding: 40, color: "var(--fg-3)", fontSize: 13 } }, "Tudo categorizado por aqui. 🎉")
-      : h("div", { style: { display: "flex", flexDirection: "column", gap: 6 } },
-          groups.map(g => h("div", {
-            key: g.label,
-            style: { display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", border: "1px solid var(--line-1)", borderRadius: 6, background: "var(--bg-2)" }
-          },
-            h("div", { style: { flex: 1, minWidth: 0 } },
-              h("div", { style: { fontSize: 13, color: "var(--fg-1)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, g.label),
-              h("div", { style: { fontSize: 11, color: "var(--fg-3)", marginTop: 1 } },
-                `${g.count}× · ${fmtBRL(g.total)}`)
-            ),
-            h("select", {
-              className: "select", defaultValue: "",
-              style: { fontSize: 12, minWidth: 150, height: 30 },
-              onChange: e => { assign(g, e.target.value); e.target.value = ""; }
-            },
-              h("option", { value: "", disabled: true }, "Categoria…"),
-              cats.map(c => h("option", { key: c.id, value: c.id }, c.name))
-            )
-          ))
-        )
   );
 }
 
@@ -463,7 +364,6 @@ function SearchModal({ onClose, onSelect }) {
   );
 }
 
-/* ── Main App ────────────────────────────────────────────────────────────── */
 function IconImport({ size = 17 }) {
   return React.createElement("svg", {
     width: size, height: size, viewBox: "0 0 16 16", fill: "none",
@@ -475,15 +375,16 @@ function IconImport({ size = 17 }) {
   );
 }
 
-/* ── ImportModal — upload bank/broker export, review preview, confirm ─────── */
+/* ── ImportWizard ─────────────────────────────────────────────────────── */
 function ImportModal({ onClose, onDone }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
+  const { Modal, SegmentControl } = window.BS;
   const names = (window.BS && window.BS.accountNames) || {};
   const ACCOUNTS = [
-    { id: "nu-db",    label: names["nu-db"]    || "Nubank Conta",   hint: "Extrato (CSV)" },
-    { id: "inter-db", label: names["inter-db"] || "Inter Conta",    hint: "Extrato (CSV)" },
-    { id: "inter-cc", label: names["inter-cc"] || "Inter Crédito",  hint: "Fatura (CSV)" },
-    { id: "b3",       label: "Relatório B3",                        hint: "Posições (XLSX)" },
+    { id: "nu-db",    label: names["nu-db"]    || "Nubank",   hint: "Conta (CSV)" },
+    { id: "inter-db", label: names["inter-db"] || "Inter",    hint: "Conta (CSV)" },
+    { id: "inter-cc", label: names["inter-cc"] || "Inter CC", hint: "Fatura (CSV)" },
+    { id: "b3",       label: "Relatório B3",                  hint: "Posições (XLSX)" },
   ];
 
   const [account, setAccount]   = useState(null);
@@ -500,7 +401,7 @@ function ImportModal({ onClose, onDone }) {
     setBusy(true); setErr(null);
     try {
       if (account === "b3") {
-        const res = await importB3(f);          // preview only — nothing written
+        const res = await importB3(f);
         setB3Preview(res);
       } else {
         const res = await importPreview(f, account);
@@ -527,222 +428,165 @@ function ImportModal({ onClose, onDone }) {
         onDone({ inserted: res.total || 0, created: res.created || 0, updated: res.updated || 0, kind: "b3" });
         return;
       }
-      const res = await importConfirm(preview.batch_id, [...excluded]);
-      onDone(res);
-    } catch (e) { setErr(e.message || "Falha ao confirmar."); setBusy(false); }
+      const excludedArr = Array.from(excluded);
+      const res = await importConfirm(preview.batch_id, excludedArr);
+      onDone({ inserted: res.inserted || 0, kind: "tx" });
+    } catch (e) { setErr(e.message || "Falha ao confirmar."); }
+    finally { setBusy(false); }
   }
 
   const willImport = preview ? (preview.counts.new - excluded.size) : 0;
+  const isPreviewing = preview || b3Preview;
+  const [currentStep, setCurrentStep] = useState(1);
+  const step = isPreviewing ? 3 : currentStep;
 
-  const STATUS_META = {
-    new:       { label: "nova",      color: "var(--pos)" },
-    duplicate: { label: "já existe", color: "var(--fg-3)" },
-    skipped:   { label: "ignorada",  color: "var(--reserve)" },
+  const handleFileSelect = (f) => {
+    const ext = f.name.split('.').pop().toLowerCase();
+    const isB3 = account === "b3";
+    if (isB3 && ext !== "xlsx") return setErr("Para a B3, envie um arquivo .xlsx");
+    if (!isB3 && ext !== "csv") return setErr("Para bancos, envie um arquivo .csv");
+    setFile(f); setErr(null); analyze(f);
   };
 
-  function Chip({ n, meta }) {
-    return h("span", { style: {
-      fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 999,
-      background: "color-mix(in oklch, " + meta.color + " 16%, transparent)", color: meta.color,
-    } }, `${n} ${meta.label}${n === 1 ? "" : "s"}`);
-  }
-
-  const ACCOUNT_COLORS = { "nu-db": "#8A05BE", "inter-db": "#FF7A00", "inter-cc": "#FF7A00", "b3": "#0047BB" };
-  const currentAcctColor = ACCOUNT_COLORS[account];
-
-  // ── Step 1: choose account + file
-  const step1 = h("div", { style: { display: "flex", flexDirection: "column", gap: 32, marginTop: 12, pointerEvents: busy ? "none" : "auto", opacity: busy ? 0.6 : 1, transition: "all 0.2s" } },
-    h("div", null,
-      h("label", { style: { fontSize: 10, fontWeight: 700, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 12 } }, "1. Conta"),
-      h(SegmentControl, {
-        options: ACCOUNTS.map(a => ({ value: a.id, label: a.label })),
-        value: account,
-        onChange: (val) => { setAccount(val); setFile(null); setErr(null); },
-        columns: 2
-      })
-    ),
-    account && h("div", { className: "fade-in" },
-      h("label", { style: { fontSize: 10, fontWeight: 700, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 12, display: "block" } }, "2. Arquivo"),
-      h("label", {
-        style: {
-          display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-          border: file ? `1px solid ${currentAcctColor}` : "1px dashed var(--line-2)",
-          background: file ? `color-mix(in oklch, ${currentAcctColor} 8%, transparent)` : "var(--bg-0)",
-          padding: "32px", borderRadius: 8, cursor: "pointer", transition: "all 0.1s", minHeight: 120
-        }
-      },
-        busy
-          ? h("div", { style: { color: currentAcctColor, fontSize: 13, fontFamily: "var(--ff-mono)", fontWeight: 600 } }, "Analisando…")
-          : file
-            ? h("div", { style: { display: "flex", flexDirection: "column", alignItems: "flex-start", width: "100%", fontFamily: "var(--ff-mono)", fontSize: 12, color: currentAcctColor, gap: 4 } },
-                h("div", { style: { fontWeight: 600 } }, file.name),
-                h("div", { style: { color: "var(--fg-3)" } }, `${(file.size / 1024).toFixed(1)} KB · ${new Date(file.lastModified).toLocaleDateString("pt-BR")}`),
-                h("div", { style: { marginTop: 8, color: "var(--fg-2)" } }, "Analisando…")
-              )
-            : h("div", { style: { display: "flex", flexDirection: "column", alignItems: "center" } },
-                h("div", { style: { fontSize: 24, color: "var(--fg-3)", marginBottom: 12 } }, "◈"),
-                h("div", { style: { fontSize: 13, fontWeight: 600, color: "var(--fg-1)" } },
-                  "Arraste o arquivo ou clique"
-                ),
-                h("div", { style: { fontSize: 11, color: "var(--fg-3)", marginTop: 6, fontFamily: "var(--ff-mono)" } },
-                  account === "b3" ? "arquivo .xlsx" : "arquivo .csv"
-                )
-              ),
-        h("input", {
-          type: "file", accept: account === "b3" ? ".xlsx" : ".csv,text/csv",
-          style: { display: "none" },
-          onChange: e => { 
-            const f = e.target.files[0] || null;
-            if (!f) return;
-            
-            const ext = f.name.split('.').pop().toLowerCase();
-            const isB3 = account === "b3";
-            if (isB3 && ext !== "xlsx") {
-              setErr("Para a B3, envie um arquivo .xlsx");
-              e.target.value = null;
-              return;
-            }
-            if (!isB3 && ext !== "csv") {
-              setErr("Para bancos, envie um arquivo .csv");
-              e.target.value = null;
-              return;
-            }
-
-            setFile(f); setErr(null); 
-            analyze(f); 
-            e.target.value = null;
-          },
-        })
-      )
-    ),
-    err && h("div", { style: { color: "var(--neg)", fontSize: 12, background: "color-mix(in oklch, var(--neg) 10%, transparent)", padding: "10px 14px", borderRadius: 6 } }, err)
+  const step1View = h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 24 } },
+    h("div", { style: { color: "var(--fg-2)", fontSize: 13 } }, "Passo 1: De onde veio o arquivo que você quer importar?"),
+    h(SegmentControl, {
+      options: ACCOUNTS.map(a => ({ value: a.id, label: h("div", null, h("div", null, a.label), h("div", { style: { fontSize: 10, color: "var(--fg-3)", fontWeight: 400, marginTop: 2 } }, a.hint)) })),
+      value: account,
+      onChange: (val) => { setAccount(val); setFile(null); setErr(null); },
+      columns: 2
+    }),
+    h("div", { style: { display: "flex", justifyContent: "flex-end", marginTop: 8 } },
+      h("button", { 
+        className: "btn btn-primary", 
+        disabled: !account,
+        onClick: () => setCurrentStep(2)
+      }, "Próximo ›")
+    )
   );
 
-  // ── Step 2: preview + confirm
-  const nothingNew = preview && preview.counts.new === 0;
-  const thStyle = (w) => ({
-    padding: "6px 8px", textAlign: "left", fontSize: 10, fontWeight: 600,
-    color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.04em",
-    borderBottom: "1px solid var(--line-1)", ...(w ? { width: w } : {}),
-  });
-
-  const summaryChips = preview && h("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
-    h(Chip, { n: preview.counts.new,       meta: STATUS_META.new }),
-    h(Chip, { n: preview.counts.duplicate, meta: STATUS_META.duplicate }),
-    h(Chip, { n: preview.counts.skipped,   meta: STATUS_META.skipped })
-  );
-
-  // Empty state: re-uploading an already-imported file (the common monthly case).
-  const emptyState = preview && h("div", {
-    style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 10, padding: "28px 12px", textAlign: "center" }
+  const DropZone = h("label", {
+    style: {
+      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+      border: "2px dashed var(--line-2)", background: "var(--bg-0)", borderRadius: 8,
+      padding: "40px 24px", cursor: busy ? "wait" : "pointer",
+      minHeight: 160, color: "var(--fg-2)", fontSize: 13, textAlign: "center", transition: "all 0.2s"
+    },
+    onDragOver: e => { e.preventDefault(); e.currentTarget.style.borderColor = "var(--pos)"; e.currentTarget.style.color = "var(--pos)"; },
+    onDragLeave: e => { e.preventDefault(); e.currentTarget.style.borderColor = "var(--line-2)"; e.currentTarget.style.color = "var(--fg-2)"; },
+    onDrop: e => { e.preventDefault(); e.currentTarget.style.borderColor = "var(--line-2)"; const f = e.dataTransfer.files[0]; if (f) handleFileSelect(f); }
   },
-    h("div", { style: { fontSize: 28, color: "var(--pos)", lineHeight: 1 } }, "✓"),
-    h("div", { style: { fontSize: 14, fontWeight: 600, color: "var(--fg-1)" } }, "Tudo deste arquivo já está importado"),
-    h("div", { style: { fontSize: 12, color: "var(--fg-3)" } },
-      `Nada novo. ${preview.counts.duplicate} já existem · ${preview.counts.skipped} ignoradas`),
-    h("button", { className: "btn btn-primary", style: { marginTop: 6 }, onClick: onClose }, "Fechar")
+    busy ? h("div", { style: { display: "flex", alignItems: "center", gap: 12 } },
+      h("div", { className: "spinner", style: { width: 16, height: 16, border: "2px solid var(--line-2)", borderTopColor: "var(--pos)", borderRadius: "50%", animation: "spin 1s linear infinite" } }),
+      "Processando..."
+    ) : file ? h("div", { style: { color: "var(--pos)", fontWeight: 600 } }, `${file.name} (${(file.size/1024).toFixed(1)} KB)`) 
+    : h("div", null,
+      h("div", { style: { marginBottom: 8, color: "var(--fg-1)" } }, "Arraste o arquivo ou clique para selecionar"),
+      h("div", { style: { fontSize: 12, color: "var(--fg-3)" } }, account === "b3" ? "Apenas arquivos .xlsx" : "Apenas arquivos .csv")
+    ),
+    h("input", { type: "file", accept: account === "b3" ? ".xlsx" : ".csv,text/csv", style: { display: "none" }, onChange: e => { const f = e.target.files[0]; if (f) handleFileSelect(f); e.target.value = null; } })
   );
 
-  const reviewBody = preview && h("div", { style: { display: "flex", flexDirection: "column", gap: 12 } },
-    summaryChips,
-    h("div", { style: { fontSize: 12, color: "var(--fg-2)" } },
-      "Revise abaixo — desmarque o que não quiser importar."),
-    h("div", { style: { maxHeight: "44vh", overflow: "auto", border: "1px solid var(--line-1)", borderRadius: 8 } },
-      h("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 12 } },
-        h("thead", null,
-          h("tr", { style: { position: "sticky", top: 0, background: "var(--bg-2)", zIndex: 1 } },
-            h("th", { style: thStyle(28) }, ""),
-            h("th", { style: thStyle() }, "Data"),
-            h("th", { style: thStyle() }, "Descrição"),
-            h("th", { style: { ...thStyle(), textAlign: "right" } }, "Valor")
-          )
+  const step2View = h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 24 } },
+    h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
+      h("div", { style: { color: "var(--fg-2)", fontSize: 13 } }, "Passo 2: Envie o extrato ou fatura"),
+      h("button", { onClick: () => setCurrentStep(1), className: "btn btn-ghost btn-sm" }, "‹ Voltar")
+    ),
+    DropZone,
+    err && h("div", { style: { color: "var(--neg)", fontSize: 12, padding: "8px 12px", background: "color-mix(in oklch, var(--neg) 10%, transparent)", borderRadius: 6 } }, err)
+  );
+
+  const Stat = (label, val, color) => h("div", { style: { display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px dashed var(--line-1)", fontSize: 13 } },
+    h("span", { style: { color: "var(--fg-2)" } }, label),
+    h("span", { style: { color: color || "var(--fg-1)", fontWeight: 600 } }, val)
+  );
+
+  const reviewView = preview && h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 24 } },
+    h("div", { style: { display: "flex", gap: 24 } },
+      // Left pane: Summary
+      h("div", { style: { width: 240, flexShrink: 0, display: "flex", flexDirection: "column", gap: 16 } },
+        h("div", { style: { padding: 16, background: "var(--bg-1)", borderRadius: 8, border: "1px solid var(--line-1)" } },
+          Stat("Prontas para Importar", willImport, "var(--pos)"),
+          Stat("Já Existem", preview.counts.duplicate, "var(--fg-3)"),
+          Stat("Ignoradas", preview.counts.skipped, "var(--reserve)")
         ),
-        h("tbody", null,
-          preview.rows.map(r => {
-            const meta = STATUS_META[r.status] || STATUS_META.skipped;
-            const isNew = r.status === "new";
-            const checked = isNew && !excluded.has(r.id);
-            const sign = r.flow === "expense" ? "−" : "+";
-            return h("tr", { key: r.id, style: { borderTop: "1px solid var(--line-1)", opacity: isNew ? 1 : 0.55 } },
-              h("td", { style: { padding: "6px 8px", width: 28 } },
-                isNew
-                  ? h("input", { type: "checkbox", checked, "aria-label": `Importar ${r.description}`, onChange: () => toggle(r.id) })
-                  : h("span", { title: meta.label, style: { color: meta.color } }, "•")
-              ),
-              h("td", { style: { padding: "6px 8px", whiteSpace: "nowrap", color: "var(--fg-3)" } }, r.date),
-              h("td", { style: { padding: "6px 8px", maxWidth: 230, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } },
-                r.description,
-                r.method === "transfer" && h("span", {
-                  title: "não conta como gasto nem receita",
-                  style: { marginLeft: 6, fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 999, background: "var(--reserve-bg)", color: "var(--reserve)", whiteSpace: "nowrap" }
-                }, "transferência"),
-                r.note && r.status === "skipped" && h("span", { style: { marginLeft: 6, fontSize: 10, color: "var(--fg-3)" } }, r.note)
-              ),
-              h("td", { style: { padding: "6px 8px", textAlign: "right", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums", color: r.flow === "expense" ? "var(--neg)" : "var(--pos)" } },
-                `${sign} ${fmtBRL(r.amount)}`)
-            );
-          })
+        err && h("div", { style: { color: "var(--neg)", fontSize: 12 } }, err),
+        h("div", { style: { display: "flex", flexDirection: "column", gap: 8, marginTop: "auto" } },
+          h("button", { className: "btn btn-primary", disabled: busy || willImport <= 0, onClick: confirm }, busy ? "Importando..." : "Confirmar Importação"),
+          h("button", { className: "btn btn-ghost", onClick: () => { setPreview(null); setFile(null); setCurrentStep(2); } }, "Cancelar")
+        )
+      ),
+      // Right pane: Table
+      h("div", { style: { flex: 1, border: "1px solid var(--line-1)", borderRadius: 8, display: "flex", flexDirection: "column", overflow: "hidden", maxHeight: 400 } },
+        h("div", { style: { padding: "8px 12px", borderBottom: "1px solid var(--line-1)", background: "var(--bg-2)", fontSize: 12, color: "var(--fg-2)", display: "flex", justifyContent: "space-between" } },
+          h("span", null, "Transações Encontradas"),
+          h("span", null, "Desmarque para ignorar")
+        ),
+        h("div", { style: { flex: 1, overflowY: "auto", background: "var(--bg-0)" } },
+          h("table", { style: { width: "100%", borderCollapse: "collapse" } },
+            h("tbody", null,
+              preview.rows.map(r => {
+                const isNew = r.status === "new";
+                const checked = isNew && !excluded.has(r.id);
+                
+                const isSelf = r.counterpart === "SELF";
+                const isInvest = !isSelf && r && (r.method === "transfer" || (r.flow === "income" && !r.is_revenue));
+                const amtColor = isSelf ? "var(--info)" : isInvest ? "var(--reserve)" : (r.flow === "expense" ? "var(--neg)" : "var(--pos)");
+                const sign = r.flow === "expense" ? "−" : "+";
+
+                return h("tr", { key: r.id, style: { borderBottom: "1px solid var(--line-0)", opacity: (!isNew || !checked) ? 0.4 : 1, fontSize: 13 } },
+                  h("td", { style: { padding: "8px 12px", width: 32, textAlign: "center" } },
+                    isNew ? h("input", { type: "checkbox", checked, onChange: () => toggle(r.id), style: { cursor: "pointer" } }) : h("span", { style: { color: "var(--fg-3)" } }, "−")
+                  ),
+                  h("td", { style: { padding: "8px 12px", color: "var(--fg-2)", whiteSpace: "nowrap", fontSize: 11 } }, r.date),
+                  h("td", { style: { padding: "8px 12px", color: isNew ? "var(--fg-1)" : "var(--fg-3)", width: "100%", fontWeight: 500 } }, r.description),
+                  h("td", { style: { padding: "8px 12px", textAlign: "right", whiteSpace: "nowrap", color: amtColor, fontWeight: 600 } }, `${sign}${window.BS.fmtBRL(r.amount)}`)
+                );
+              })
+            )
+          )
         )
       )
-    ),
-    err && h("div", { style: { color: "var(--neg)", fontSize: 12 } }, err),
-    h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 } },
-      h("button", { className: "btn btn-ghost", onClick: () => { setPreview(null); setErr(null); } }, "‹ Voltar"),
-      h("button", { className: "btn btn-primary", disabled: busy || willImport <= 0, onClick: confirm },
-        busy ? "Importando…" : `Importar ${willImport} ${willImport === 1 ? "lançamento" : "lançamentos"}`)
     )
   );
 
-  // ── Step 2 (B3): review parsed investment positions before upsert
-  const B3_TYPE_LABEL = { savings: "Poupança", treasury: "Tesouro Direto", cdb: "CDB / Renda fixa", lci: "LCI / Renda fixa", lca: "LCA / Renda fixa" };
-  const b3Total = b3Preview ? b3Preview.total : 0;
-  const b3Body = b3Preview && h("div", { style: { display: "flex", flexDirection: "column", gap: 12 } },
-    h("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
-      h(Chip, { n: b3Preview.created, meta: STATUS_META.new }),
-      h(Chip, { n: b3Preview.updated, meta: { label: "atualiza", color: "var(--info)" } })
-    ),
-    b3Total === 0
-      ? h("div", { style: { padding: "20px 0", textAlign: "center", color: "var(--fg-3)", fontSize: 13 } }, "Nenhuma posição encontrada no relatório.")
-      : h("div", { style: { fontSize: 12, color: "var(--fg-2)" } },
-          "Cada posição vira/atualiza um investimento (saldo = valor atual). Nenhum lançamento de extrato é tocado."),
-    b3Total > 0 && h("div", { style: { maxHeight: "44vh", overflow: "auto", border: "1px solid var(--line-1)", borderRadius: 8 } },
-      h("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 12 } },
-        h("thead", null,
-          h("tr", { style: { position: "sticky", top: 0, background: "var(--bg-2)", zIndex: 1 } },
-            h("th", { style: thStyle() }, "Posição"),
-            h("th", { style: thStyle() }, "Tipo"),
-            h("th", { style: { ...thStyle(), textAlign: "right" } }, "Valor")
-          )
+  const b3View = b3Preview && h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 24 } },
+    h("div", { style: { display: "flex", gap: 24 } },
+      h("div", { style: { width: 240, flexShrink: 0, display: "flex", flexDirection: "column", gap: 16 } },
+        h("div", { style: { padding: 16, background: "var(--bg-1)", borderRadius: 8, border: "1px solid var(--line-1)" } },
+          Stat("Novas Posições", b3Preview.created, "var(--pos)"),
+          Stat("Atualizadas", b3Preview.updated, "var(--info)")
         ),
-        h("tbody", null,
-          b3Preview.positions.map((p, i) => h("tr", { key: i, style: { borderTop: "1px solid var(--line-1)" } },
-            h("td", { style: { padding: "6px 8px" } },
-              h("div", { style: { display: "flex", alignItems: "center", gap: 6 } },
-                h("span", { style: { maxWidth: 230, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, p.name),
-                p.status === "new"
-                  ? h("span", { style: { fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 999, background: "color-mix(in oklch, var(--pos) 16%, transparent)", color: "var(--pos)" } }, "nova")
-                  : h("span", { style: { fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 999, background: "color-mix(in oklch, var(--info) 16%, transparent)", color: "var(--info)" } }, "atualiza")
-              ),
-              h(BankChip, { bank: p.bank })
-            ),
-            h("td", { style: { padding: "6px 8px", color: "var(--fg-3)", whiteSpace: "nowrap" } }, B3_TYPE_LABEL[p.type] || p.type),
-            h("td", { style: { padding: "6px 8px", textAlign: "right", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums", fontWeight: 600 } }, fmtBRL(p.balance))
-          ))
+        h("div", { style: { display: "flex", flexDirection: "column", gap: 8, marginTop: "auto" } },
+          h("button", { className: "btn btn-primary", disabled: busy || b3Preview.total <= 0, onClick: confirm, style: { background: "var(--info)", borderColor: "var(--info)", color: "#000" } }, busy ? "Importando..." : "Confirmar B3"),
+          h("button", { className: "btn btn-ghost", onClick: () => { setB3Preview(null); setFile(null); setCurrentStep(2); } }, "Cancelar")
+        )
+      ),
+      h("div", { style: { flex: 1, border: "1px solid var(--line-1)", borderRadius: 8, display: "flex", flexDirection: "column", overflow: "hidden", maxHeight: 400 } },
+        h("div", { style: { padding: "8px 12px", borderBottom: "1px solid var(--line-1)", background: "var(--bg-2)", fontSize: 12, color: "var(--fg-2)" } }, "Posições B3"),
+        h("div", { style: { flex: 1, overflowY: "auto", background: "var(--bg-0)" } },
+          h("table", { style: { width: "100%", borderCollapse: "collapse" } },
+            h("tbody", null,
+              b3Preview.positions.map((p, i) => h("tr", { key: i, style: { borderBottom: "1px solid var(--line-0)", fontSize: 13 } },
+                h("td", { style: { padding: "8px 12px", color: p.status === "new" ? "var(--pos)" : "var(--info)", fontWeight: 600, fontSize: 11 } }, p.status === "new" ? "NOVA" : "ATUALIZA"),
+                h("td", { style: { padding: "8px 12px", color: "var(--fg-1)", width: "100%", fontWeight: 500 } }, p.name),
+                h("td", { style: { padding: "8px 12px", textAlign: "right", fontWeight: 600 } }, window.BS.fmtBRL(p.balance))
+              ))
+            )
+          )
         )
       )
-    ),
-    err && h("div", { style: { color: "var(--neg)", fontSize: 12 } }, err),
-    h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 } },
-      h("button", { className: "btn btn-ghost", onClick: () => { setB3Preview(null); setErr(null); } }, "‹ Voltar"),
-      h("button", { className: "btn btn-primary", disabled: busy || b3Total <= 0, onClick: confirm },
-        busy ? "Importando…" : `Importar ${b3Total} ${b3Total === 1 ? "posição" : "posições"}`)
     )
   );
 
-  const step2 = preview ? (nothingNew ? emptyState : reviewBody) : b3Body;
-
-  return h(Modal, { open: true, onClose, title: "Importar extrato / fatura", width: 620 },
-    (preview || b3Preview) ? step2 : step1);
+  return h(Modal, {
+    open: true,
+    onClose,
+    title: `Importar Dados ${step === 3 ? "— Revisão" : ""}`,
+    width: step === 3 ? 900 : 540
+  },
+    step === 1 ? step1View : step === 2 ? step2View : (preview ? reviewView : b3View)
+  );
 }
 
 function App() {
@@ -792,16 +636,35 @@ function App() {
       if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || e.target.tagName === "SELECT") return;
       if (e.key === "Escape") { setSearchModalOpen(false); setTweaksOpen(false); }
       if (e.key === "/") { e.preventDefault(); setSearchModalOpen(true); }
+      if (e.key === "c" || e.key === "C") { e.preventDefault(); setSection("categorize"); }
       if (SECTION_MAP[e.key]) setSection(SECTION_MAP[e.key]);
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // Single safe delete path: the server deletes immediately (handling installment
+  // groups, auto-transfer pairs and investment-balance reverts) and returns a
+  // restore payload. "Desfazer" replays it on the server — reliable, never a
+  // hidden-but-not-deleted row. Used by both the row actions and the editor modal.
   async function handleDeleteTx(id) {
     try {
-      await deleteTransaction(id);
+      const res = await deleteTransaction(id);
       setRefreshKey(k => k + 1);
+      const n = res?.deleted || 1;
+      const msg = n > 1 ? `${n} lançamentos excluídos` : "Lançamento excluído";
+      push(msg, "info", {
+        label: "Desfazer",
+        onClick: async () => {
+          try {
+            await restoreTransactions(res.restore);
+            push("Restaurado", "success");
+            setRefreshKey(k => k + 1);
+          } catch (e) {
+            push(e.message || "Erro ao restaurar.", "error");
+          }
+        },
+      });
     } catch (e) {
       push(e.message || "Erro ao excluir lançamento.", "error");
     }
@@ -879,7 +742,6 @@ function App() {
           }),
           section === "investments" && h(InvestmentsView, { refreshKey, filterMonth: "all" }),
           section === "categories" && h(CategoriesPanel, { refreshKey, onRefresh: () => setRefreshKey(k => k + 1) }),
-          section === "categorize" && h(CategorizePanel, { refreshKey, onRefresh: () => setRefreshKey(k => k + 1), push }),
 
           h("footer", { style: { marginTop: 20, padding: "12px 0", borderTop: "1px solid var(--line-1)", fontSize: 10, color: "var(--fg-3)" } },
             h("span", null, "BrokerShark · localhost:8080 · SQLite")
@@ -910,23 +772,25 @@ function App() {
       tw, setTw,
       onClose: () => setTweaksOpen(false),
       onOpenCategories: () => setSection("categories"),
-      onOpenCategorize: () => setSection("categorize"),
     }),
 
     h(CategoryEditor, {
       tx: editTx, onClose: () => setEditTx(null),
       onSave: (result) => {
         if (result?.deleted) {
-          push("Transação excluída", "success");
-        } else {
+          setEditTx(null);
+          handleDeleteTx(result._tx.id);  // same safe delete+undo path as the table
+          return;
+        }
+        {
           const parts = [];
           if (result?.category) parts.push(`Categoria: ${result.category}`);
           if ("display_name" in (result || {})) parts.push(result.display_name ? `Nome: ${result.display_name}` : "Nome fantasia removido");
           if ("is_third_party" in (result || {})) parts.push(result.is_third_party ? "Excluído dos gastos" : "Incluído nos gastos");
           push(parts.length ? parts.join(" · ") : "Salvo", "success");
+          setRefreshKey(k => k + 1);
         }
         setEditTx(null);
-        setRefreshKey(k => k + 1);
       }
     }),
 

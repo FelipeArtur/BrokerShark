@@ -407,20 +407,6 @@ def api_expense_categories() -> Response:
     return jsonify(database.get_expense_categories())
 
 
-@app.route("/api/categories-list")
-def api_categories_list() -> Response:
-    """Return ``{id, name}`` for every category of a given flow.
-
-    Query params:
-        flow: ``"expense"`` (default) or ``"income"``.
-    """
-    flow = request.args.get("flow", "expense")
-    if flow not in ("expense", "income"):
-        return jsonify({"error": "flow must be expense or income"}), 400
-    rows = database.get_categories(flow)
-    return jsonify([{"id": r["id"], "name": r["name"]} for r in rows])
-
-
 @app.route("/api/transactions/<int:transaction_id>", methods=["PATCH"])
 def api_patch_transaction(transaction_id: int) -> Response:
     """Update editable fields on a single transaction.
@@ -950,6 +936,14 @@ def api_expense_categories_full() -> Response:
     """Return all expense categories with their transaction count."""
     return jsonify(database.get_all_expense_categories())
 
+@app.route("/api/categories-full")
+def api_categories_full() -> Response:
+    """Return all categories for a flow with their transaction count."""
+    flow = request.args.get("flow", "expense")
+    if flow not in ("expense", "income"):
+        return jsonify({"error": "flow must be expense or income"}), 400
+    return jsonify(database.get_all_categories_full(flow))
+
 
 @app.route("/api/categories", methods=["POST"])
 def api_create_category() -> Response:
@@ -990,77 +984,44 @@ def api_delete_category(category_id: int) -> Response:
     return jsonify({"ok": True, "transactions_reassigned": affected})
 
 
-@app.route("/api/uncategorized")
-def api_uncategorized() -> Response:
-    """Return uncategorized consumption rows grouped by payee/merchant.
-
-    Query params:
-        flow: ``"expense"`` (default) or ``"income"``.
-
-    Returns:
-        JSON array of ``{label, count, total, ids}`` ordered by count desc.
-    """
-    flow = request.args.get("flow", "expense")
-    if flow not in ("expense", "income"):
-        return jsonify({"error": "flow must be expense or income"}), 400
-    return jsonify(database.get_uncategorized_grouped(flow))
-
-
-@app.route("/api/transactions/bulk-category", methods=["POST"])
-def api_bulk_category() -> Response:
-    """Assign one category to many transactions at once.
-
-    Body: ``{ids: int[], category_id: int}``.
-    Returns ``{"ok": true, "updated": N}``.
-    """
-    body = request.get_json(silent=True) or {}
-    ids = body.get("ids")
-    category_id = body.get("category_id")
-    if not isinstance(ids, list) or not all(isinstance(i, int) for i in ids):
-        return jsonify({"error": "ids must be a list of integers"}), 400
-    if not isinstance(category_id, int):
-        return jsonify({"error": "category_id must be an integer"}), 400
-    if not ids:
-        return jsonify({"error": "ids must not be empty"}), 400
-    if len(ids) > 5000:
-        return jsonify({"error": "too many ids (max 5000)"}), 400
-    category = database.get_category(category_id)
-    if category is None:
-        return jsonify({"error": "category_id does not exist"}), 400
-    # Restrict to the category's flow so an expense category can't land on income
-    # rows (or vice-versa) even from a stale client.
-    updated = database.bulk_set_category(ids, category_id, flow=category["flow"])
-    _events.notify()
-    return jsonify({"ok": True, "updated": updated})
-
-
-@app.route("/api/auto-categorize", methods=["POST"])
-def api_auto_categorize() -> Response:
-    """Run the keyword rules over all uncategorized consumption rows.
-
-    Returns ``{"ok": true, "matched": N, "scanned": M}``.
-    """
-    result = database.run_auto_categorize()
-    if result.get("matched"):
-        _events.notify()
-    return jsonify({"ok": True, **result})
-
-
 @app.route("/api/transactions/<int:transaction_id>", methods=["DELETE"])
 def api_delete_transaction(transaction_id: int) -> Response:
-    """Delete a transaction by ID.
+    """Delete a transaction (and integrity-linked siblings) by ID.
+
+    Installment groups, auto-transfer pairs and investment-balance reverts are
+    handled in :func:`database.delete_transaction`. The response carries an opaque
+    ``restore`` payload the client posts back to ``/api/transactions/restore`` for undo.
 
     Returns:
-        ``{"ok": true}`` on success, error JSON on failure (404 or 409).
+        ``{"ok": true, "deleted": N, "restore": {...}}`` on success;
+        404 if not found; 409 for a protected fatura payment.
     """
     try:
-        deleted = database.delete_transaction(transaction_id)
+        restore = database.delete_transaction(transaction_id)
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 409
-    if not deleted:
+    if restore is None:
         return jsonify({"error": "Transação não encontrada."}), 404
-    _events.notify()
-    return jsonify({"ok": True})
+    return jsonify({"ok": True, "deleted": len(restore["transactions"]), "restore": restore})
+
+
+@app.route("/api/transactions/restore", methods=["POST"])
+def api_restore_transactions() -> Response:
+    """Undo a delete: re-insert the rows from a ``restore`` payload.
+
+    Body: ``{restore: <payload from DELETE>}``.
+    Returns ``{"ok": true, "restored": N}``.
+    """
+    body = request.get_json(silent=True) or {}
+    payload = body.get("restore")
+    if not isinstance(payload, dict):
+        return jsonify({"error": "restore payload required"}), 400
+    try:
+        restored = database.restore_transactions(payload)
+    except Exception:
+        _logger.exception("Erro ao restaurar transações")
+        return jsonify({"error": "Falha ao restaurar."}), 500
+    return jsonify({"ok": True, "restored": restored})
 
 
 

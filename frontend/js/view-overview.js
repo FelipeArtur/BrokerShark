@@ -71,32 +71,42 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
   }
 
   if (isFirstRun) {
-    const Source = (color, name, ...lines) => h("div", { style: { borderLeft: `2px solid ${color}`, paddingLeft: 16 } },
-      h("div", { style: { color: "var(--fg-1)", fontWeight: 700, fontSize: 13, marginBottom: 8 } }, name),
-      ...lines.map((t, i) => h("div", { key: i, style: { fontSize: 11, color: "var(--fg-3)", marginBottom: 4 } }, "· ", t))
+    const SourceRow = (bank, format, type) => h("tr", { style: { borderBottom: "1px solid var(--line-1)", fontFamily: "var(--ff-mono)", fontSize: 12 } },
+      h("td", { style: { padding: "8px 0", color: "var(--fg-1)", fontWeight: 600 } }, bank),
+      h("td", { style: { padding: "8px 0", color: "var(--fg-3)" } }, type),
+      h("td", { style: { padding: "8px 0", color: "var(--fg-2)", textAlign: "right" } }, format)
     );
-    return h("div", { className: "fade-in" },
+
+    return h("div", { className: "fade-in", style: { width: "100%", maxWidth: 640 } },
       h("div", { className: "pane" },
-        h("div", { className: "pane-h" },
-          h("div", { className: "pane-title" }, "Começar"),
-          h("span", { style: { fontSize: 10, color: "var(--fg-3)", fontFamily: "var(--ff-mono)" } }, "100% local · SQLite")
+        h("div", { className: "pane-h", style: { background: "var(--bg-2)" } },
+          h("div", { className: "pane-title", style: { fontFamily: "var(--ff-mono)", textTransform: "uppercase", letterSpacing: "0.06em", fontSize: 11, color: "var(--fg-1)" } }, "SYS_INIT :: DB_EMPTY"),
+          h("span", { style: { fontSize: 10, color: "var(--pos)", fontFamily: "var(--ff-mono)" } }, "READY")
         ),
-        h("div", { className: "pane-content", style: { padding: "32px 28px" } },
-          h("div", { style: { fontSize: 20, fontWeight: 700, color: "var(--fg-0)", letterSpacing: "-0.01em" } }, "Nenhum dado ainda"),
-          h("div", { style: { fontSize: 13, lineHeight: 1.6, maxWidth: 560, color: "var(--fg-2)", marginTop: 8 } },
-            "O BrokerShark analisa seus dados localmente. Para começar, importe os extratos e faturas dos bancos ou o relatório de posições da corretora."
+        h("div", { className: "pane-content", style: { padding: "32px" } },
+          h("div", { style: { fontFamily: "var(--ff-mono)", fontSize: 13, color: "var(--fg-2)", lineHeight: 1.6, marginBottom: 32 } },
+            "O banco de dados local SQLite está vazio.",
+            h("br"),
+            "É necessário injetar dados estruturados para habilitar o painel de análise."
           ),
 
-          // Fontes de dados (informação real, não decoração)
-          h("div", { style: { marginTop: 28, display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 24, borderTop: "1px solid var(--line-1)", paddingTop: 28 } },
-            Source("#8A05BE", "Nubank", "Extrato da conta (CSV)", "Fatura do cartão (CSV)"),
-            Source("#FF7A00", "Inter", "Extrato da conta (CSV)", "Fatura do cartão (CSV)"),
-            Source("#0047BB", "B3", "Posições (XLSX)", "Exportado da Área do Investidor")
+          h("div", { style: { marginBottom: 12, fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--fg-3)", fontWeight: 700 } }, "Formatos Suportados"),
+          h("table", { style: { width: "100%", borderCollapse: "collapse", marginBottom: 32 } },
+            h("tbody", null,
+              SourceRow("Nubank", "*.csv", "Conta Corrente / Fatura"),
+              SourceRow("Inter", "*.csv", "Conta Corrente / Fatura"),
+              SourceRow("B3 (Bolsa)", "*.xlsx", "Relatório de Posições")
+            )
           ),
 
-          onImport && h("button", {
-            className: "btn btn-primary btn-lg", style: { marginTop: 32 }, onClick: onImport
-          }, "Importar dados")
+          onImport && h("div", { style: { display: "flex", gap: 12, alignItems: "center" } },
+            h("button", {
+              className: "btn btn-primary", 
+              style: { fontFamily: "var(--ff-mono)", textTransform: "uppercase", letterSpacing: "0.04em", fontSize: 12, padding: "8px 16px", borderRadius: 4 },
+              onClick: onImport
+            }, "> IMPORTAR_DADOS"),
+            h("span", { style: { fontFamily: "var(--ff-mono)", fontSize: 11, color: "var(--fg-3)" } }, "Atalho: i")
+          )
         )
       )
     );
@@ -277,6 +287,7 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
 
 function CategoriesPanel({ refreshKey, onRefresh }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
+  const [flow, setFlow] = _ovSt("expense");
   const [cats, setCats] = _ovSt([]);
   const [newName, setNewName] = _ovSt("");
   const [adding, setAdding] = _ovSt(false);
@@ -286,8 +297,8 @@ function CategoriesPanel({ refreshKey, onRefresh }) {
   const [deleting, setDeleting] = _ovSt(false);
 
   _ovEf(() => {
-    fetchExpenseCategoriesFull().then(setCats);
-  }, [refreshKey]);
+    fetchCategoriesFull(flow).then(setCats);
+  }, [flow, refreshKey]);
 
   async function handleAdd(e) {
     e.preventDefault();
@@ -295,9 +306,9 @@ function CategoriesPanel({ refreshKey, onRefresh }) {
     if (!name) return;
     setAdding(true); setErr("");
     try {
-      await postCategory(name, "expense");
+      await postCategory(name, flow);
       setNewName("");
-      fetchExpenseCategoriesFull().then(setCats);
+      fetchCategoriesFull(flow).then(setCats);
       onRefresh && onRefresh();
     } catch (ex) {
       setErr(ex.message);
@@ -312,7 +323,7 @@ function CategoriesPanel({ refreshKey, onRefresh }) {
     try {
       await deleteCategory(deleteModal.id, parseInt(reassignTo));
       setDeleteModal(null); setReassignTo("");
-      fetchExpenseCategoriesFull().then(setCats);
+      fetchCategoriesFull(flow).then(setCats);
       onRefresh && onRefresh();
     } catch (ex) {
       setErr(ex.message);
@@ -323,78 +334,89 @@ function CategoriesPanel({ refreshKey, onRefresh }) {
 
   const otherCats = deleteModal ? cats.filter(c => c.id !== deleteModal.id) : cats;
 
-  return h("div", { style: { padding: "20px 0" } },
-    h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 } },
-      h("span", { style: { fontWeight: 700, fontSize: "var(--fz-4)" } }, "Categorias de Gasto"),
+  return h("div", { className: "fade-in", style: { padding: "20px 0", maxWidth: 640, margin: "0 auto" } },
+    h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 } },
+      h("span", { style: { fontWeight: 700, fontSize: "var(--fz-4)" } }, "Gerenciar Categorias"),
+      h(window.BS.SegmentControl, {
+        options: [{ value: "expense", label: "Despesas" }, { value: "income", label: "Receitas" }],
+        value: flow, onChange: setFlow, columns: 2,
+      })
     ),
 
     // Add new category
-    h("form", { onSubmit: handleAdd, style: { display: "flex", gap: 8, marginBottom: 20 } },
-      h("input", {
-        type: "text", placeholder: "Nova categoria…", value: newName,
-        onChange: e => setNewName(e.target.value),
-        className: "input",
-      }),
-      h("button", {
-        type: "submit", className: "btn btn-primary", disabled: adding || !newName.trim(),
-      }, adding ? "…" : "+ Adicionar"),
+    h("div", { className: "pane", style: { padding: 16, marginBottom: 24 } },
+      h("form", { onSubmit: handleAdd, style: { display: "flex", gap: 12, alignItems: "center" } },
+        h("input", {
+          type: "text", placeholder: `Nova categoria de ${flow === 'expense' ? 'despesa' : 'receita'}…`, value: newName,
+          onChange: e => setNewName(e.target.value),
+          className: "input",
+          style: { flex: 1, padding: "8px 12px", border: "1px solid var(--line-1)", borderRadius: 6, background: "var(--bg-0)" }
+        }),
+        h("button", {
+          type: "submit", className: "btn btn-primary", disabled: adding || !newName.trim(),
+          style: { padding: "8px 16px", borderRadius: 6 }
+        }, adding ? "Processando…" : "Adicionar")
+      ),
+      err && h("div", { style: { marginTop: 12, color: "var(--neg)", fontSize: 12, padding: "8px 12px", background: "color-mix(in oklch, var(--neg) 10%, transparent)", borderRadius: 6 } }, err)
     ),
 
-    err ? h("p", { style: { color: "var(--neg)", fontSize: "var(--fz-8)", marginBottom: 12 } }, err) : null,
-
     // Category list
-    h("div", { style: { overflow: "auto", borderBottomLeftRadius: 4, borderBottomRightRadius: 4 } },
-      h("table", { className: "grid-table" },
-        h("thead", null,
-          h("tr", null,
-            h("th", null, "Nome da Categoria"),
-            h("th", { style: { width: 120, textAlign: "right" } }, "Lançamentos"),
-            h("th", { style: { width: 80 } })
+    h("div", { className: "pane", style: { display: "flex", flexDirection: "column" } },
+      h("div", { style: { display: "grid", gridTemplateColumns: "1fr 100px 80px", padding: "12px 16px", borderBottom: "1px solid var(--line-1)", background: "var(--bg-1)", borderTopLeftRadius: 8, borderTopRightRadius: 8, fontSize: 12, color: "var(--fg-2)" } },
+        h("span", null, "Nome"),
+        h("span", { style: { textAlign: "right" } }, "Lançamentos"),
+        h("span", null)
+      ),
+      h("div", { style: { display: "flex", flexDirection: "column" } },
+        cats.map(cat => h("div", { key: cat.id, style: { display: "grid", gridTemplateColumns: "1fr 100px 80px", padding: "12px 16px", borderBottom: "1px solid var(--line-0)", alignItems: "center", fontSize: 13 } },
+          h("div", { style: { fontWeight: 500, color: "var(--fg-1)", display: "flex", alignItems: "center", gap: 8 } }, 
+            h("span", { style: { width: 8, height: 8, borderRadius: "50%", background: flow === 'expense' ? "var(--neg)" : "var(--pos)" } }),
+            cat.name
+          ),
+          h("div", { className: "num", style: { textAlign: "right", color: "var(--fg-2)" } }, cat.transaction_count),
+          h("div", { style: { textAlign: "right" } },
+            h("button", {
+              className: "btn btn-ghost btn-sm",
+              style: { color: "var(--neg)", fontSize: 11, padding: "4px 8px" },
+              onClick: () => { setDeleteModal(cat); setReassignTo(cat.transaction_count > 0 ? "" : "0"); setErr(""); }
+            }, "Excluir")
           )
-        ),
-        h("tbody", null,
-          cats.map(cat => h("tr", { key: cat.id },
-            h("td", { style: { fontWeight: 500, color: "var(--fg-1)" } }, cat.name),
-            h("td", { className: "num", style: { textAlign: "right", color: "var(--fg-2)" } }, cat.transaction_count),
-            h("td", { style: { textAlign: "right", paddingRight: 8 } },
-              h("button", {
-                className: "btn btn-ghost btn-sm",
-                style: { color: "var(--neg)", padding: "2px 6px", fontSize: 11, minHeight: 24 },
-                onClick: () => { setDeleteModal(cat); setReassignTo(""); setErr(""); }
-              }, "Excluir")
-            )
-          ))
-        )
-      )
+        ))
+      ),
+      cats.length === 0 && h("div", { style: { padding: 32, textAlign: "center", color: "var(--fg-3)", fontSize: 13 } }, "Nenhuma categoria cadastrada.")
     ),
 
     // Delete confirmation modal
-    h(Modal, { open: !!deleteModal, onClose: () => setDeleteModal(null), title: deleteModal ? `Deletar "${deleteModal.name}"?` : "", width: 360 },
-      deleteModal && h("div", { style: { display: "flex", flexDirection: "column", gap: 12 } },
-        h("p", { style: { fontSize: "var(--fz-7)", color: "var(--fg-2)", margin: 0 } },
-          deleteModal.transaction_count > 0
-            ? `${deleteModal.transaction_count} transação(ões) serão reassignadas para:`
-            : "Sem transações vinculadas."
+    h(window.BS.Modal, { open: !!deleteModal, onClose: () => setDeleteModal(null), title: "Excluir Categoria", width: 400 },
+      deleteModal && h("div", { style: { display: "flex", flexDirection: "column", gap: 16 } },
+        h("p", { style: { fontSize: 14, color: "var(--fg-1)", margin: 0 } }, 
+          "Tem certeza que deseja excluir a categoria ", h("strong", null, deleteModal.name), "?"
         ),
-        h("select", {
-          value: reassignTo, onChange: e => setReassignTo(e.target.value),
-          className: "select", style: { fontSize: "var(--fz-7)" },
-        },
-          h("option", { value: "" }, "Escolher categoria…"),
-          otherCats.map(c => h("option", { key: c.id, value: c.id }, c.name)),
+        deleteModal.transaction_count > 0 && h("div", { style: { background: "var(--bg-1)", padding: 16, borderRadius: 8, border: "1px solid var(--line-1)" } },
+          h("p", { style: { fontSize: 13, color: "var(--warn)", margin: "0 0 12px 0", fontWeight: 500 } },
+            `Há ${deleteModal.transaction_count} lançamento(s) usando esta categoria.`
+          ),
+          h("label", { style: { fontSize: 11, color: "var(--fg-2)", marginBottom: 6, display: "block", textTransform: "uppercase", letterSpacing: "0.05em" } }, "Reatribuir para:"),
+          h("select", {
+            value: reassignTo, onChange: e => setReassignTo(e.target.value),
+            className: "select", style: { width: "100%", padding: "8px 12px", borderRadius: 6, border: "1px solid var(--line-1)", background: "var(--bg-0)" }
+          },
+            h("option", { value: "", disabled: true }, "Escolher categoria destino…"),
+            otherCats.map(c => h("option", { key: c.id, value: c.id }, c.name))
+          )
         ),
-        err && h("p", { style: { color: "var(--neg)", fontSize: "var(--fz-8)", margin: 0 } }, err),
-        h("div", { style: { display: "flex", gap: 8, justifyContent: "flex-end" } },
-          h("button", { className: "btn", onClick: () => setDeleteModal(null) }, "Cancelar"),
+        err && h("div", { style: { color: "var(--neg)", fontSize: 12, padding: "8px 12px", background: "color-mix(in oklch, var(--neg) 10%, transparent)", borderRadius: 6 } }, err),
+        h("div", { style: { display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 8 } },
+          h("button", { className: "btn btn-ghost", onClick: () => setDeleteModal(null) }, "Cancelar"),
           h("button", {
             className: "btn",
             onClick: handleDelete,
             disabled: deleting || (!reassignTo && deleteModal.transaction_count > 0),
-            style: { background: "var(--neg)", color: "var(--fg-0)", borderColor: "var(--neg)" },
-          }, deleting ? "…" : "Confirmar"),
-        ),
+            style: { background: "var(--neg)", color: "var(--fg-0)", borderColor: "var(--neg)", padding: "8px 16px", borderRadius: 6 }
+          }, deleting ? "Excluindo…" : "Excluir Definitivamente")
+        )
       )
-    ),
+    )
   );
 }
 

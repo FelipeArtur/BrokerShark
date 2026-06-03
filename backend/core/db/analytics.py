@@ -421,48 +421,6 @@ def get_expenses_by_category(year: int, month: int, bank: Optional[str] = None) 
     return [{"name": r["name"], "total": r["total"]} for r in rows]
 
 
-def get_uncategorized_grouped(flow: str) -> list[dict]:
-    """Group still-uncategorized *consumption* rows by their display text.
-
-    Collapses the categorization backlog into one entry per merchant/payee:
-    e.g. a payee that recurs 10× shows once with ``count=10`` and the list of
-    transaction ids, so the UI can assign a category to the whole group at once.
-
-    Only real consumption is returned — expense non-transfer, or revenue income
-    (``is_revenue=1``). Transfers, investment legs and self-transfers carry no
-    category by design and are excluded. ``flow`` is ``'expense'`` or ``'income'``.
-    Ordered by occurrence count descending (biggest wins first).
-    """
-    revenue_clause = "AND is_revenue = 1" if flow == "income" else ""
-    with _connect() as conn:
-        rows = conn.execute(
-            f"""SELECT COALESCE(display_name, description) AS label,
-                       COUNT(*) AS count,
-                       SUM(amount) AS total,
-                       GROUP_CONCAT(id) AS ids
-                  FROM transactions
-                 WHERE flow = ?
-                   AND category_id IS NULL
-                   AND dest_account_id IS NULL
-                   AND (method IS NULL OR method != 'transfer')
-                   AND (counterpart IS NULL OR counterpart != 'SELF')
-                   AND COALESCE(is_third_party,0)=0
-                   {revenue_clause}
-                 GROUP BY label
-                 ORDER BY count DESC, total DESC""",
-            (flow,),
-        ).fetchall()
-    return [
-        {
-            "label": r["label"],
-            "count": r["count"],
-            "total": r["total"],
-            "ids": [int(x) for x in r["ids"].split(",")],
-        }
-        for r in rows
-    ]
-
-
 def get_account_monthly_summary(account_id: str, year: int, month: int) -> dict:
     """Return total income, expenses, and top expense category for one account in a month."""
     start = f"{year:04d}-{month:02d}-01"

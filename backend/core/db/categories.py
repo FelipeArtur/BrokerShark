@@ -95,6 +95,22 @@ def get_all_expense_categories() -> list[dict]:
         ).fetchall()
         return [dict(r) for r in rows]
 
+def get_all_categories_full(flow: str) -> list[dict]:
+    """Return all categories for a given flow with their transaction count."""
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT c.id, c.name, COUNT(t.id) AS transaction_count
+                 FROM categories c
+                 LEFT JOIN transactions t
+                   ON t.category_id = c.id
+                  AND t.dest_account_id IS NULL
+                WHERE c.flow = ?
+                GROUP BY c.id
+                ORDER BY c.name""",
+            (flow,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
 
 def create_category(name: str, flow: str) -> int:
     """Insert a new category and return its generated id.
