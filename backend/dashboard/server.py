@@ -772,24 +772,26 @@ def api_get_investment_movements() -> Response:
 
 @app.route("/api/investment-movements", methods=["POST"])
 def api_post_investment_movement() -> Response:
-    """Insert an investment deposit or withdrawal from the web quick-entry form.
+    """Register an investment application/withdrawal from the web quick-entry form.
+
+    Recorded as a checking-account transfer leg (NOT an investment_movements row),
+    so it stays consistent across every screen — see
+    ``crud.register_investment_transfer``.
 
     Request body (JSON):
-        investment_name: str   — "Caixinha Nubank" | "Tesouro Direto" | "Porquinho Inter"
+        investment_name: str   — e.g. "Tesouro IPCA+ 2029" | "Caixinha Nubank"
         operation:       str   — "deposit" | "withdrawal"
         amount:          float
         date:            str   — "YYYY-MM-DD"
-        description:     str   — optional
 
     Returns:
-        ``{"ok": true, "id": int}`` on success.
+        ``{"ok": true, "id": int}`` (id = the created transaction) on success.
     """
     data = request.get_json(silent=True) or {}
     inv_name    = data.get("investment_name", "").strip()
     operation   = data.get("operation", "")
     amount      = data.get("amount")
     date_str    = data.get("date", "")
-    description = data.get("description", "").strip() or None
 
     if not isinstance(amount, (int, float)) or amount <= 0:
         return jsonify({"error": "amount must be a positive number"}), 400
@@ -802,14 +804,18 @@ def api_post_investment_movement() -> Response:
     if investment is None:
         return jsonify({"error": f"investment '{inv_name}' not found"}), 400
 
-    mv_id = database.insert_investment_movement(
-        date=date_str,
-        investment_id=investment["id"],
-        operation=operation,
-        amount=float(amount),
-        description=description,
-    )
-    return jsonify({"ok": True, "id": mv_id})
+    try:
+        tx_id = database.register_investment_transfer(
+            investment_id=investment["id"],
+            bank=investment["bank"],
+            operation=operation,
+            amount=float(amount),
+            date=date_str,
+            name=investment["name"],
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({"ok": True, "id": tx_id})
 
 
 @app.route("/api/import/b3/preview", methods=["POST"])
@@ -1016,7 +1022,14 @@ def api_bulk_category() -> Response:
         return jsonify({"error": "category_id must be an integer"}), 400
     if not ids:
         return jsonify({"error": "ids must not be empty"}), 400
-    updated = database.bulk_set_category(ids, category_id)
+    if len(ids) > 5000:
+        return jsonify({"error": "too many ids (max 5000)"}), 400
+    category = database.get_category(category_id)
+    if category is None:
+        return jsonify({"error": "category_id does not exist"}), 400
+    # Restrict to the category's flow so an expense category can't land on income
+    # rows (or vice-versa) even from a stale client.
+    updated = database.bulk_set_category(ids, category_id, flow=category["flow"])
     _events.notify()
     return jsonify({"ok": True, "updated": updated})
 

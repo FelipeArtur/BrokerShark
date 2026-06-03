@@ -149,3 +149,93 @@ def test_endpoint_categories_list(client):
     names = {c["name"] for c in income}
     assert "Salário" in names and "PIX recebido" in names
     assert client.get("/api/categories-list?flow=bogus").status_code == 400
+
+
+# ── Finding 3: bulk-category category validation + flow guard ────────────────
+
+def test_bulk_category_nonexistent_returns_400(client):
+    a = _add(client, date="2026-05-01", flow="expense", amount=10.0, description="X")
+    resp = client.post("/api/transactions/bulk-category",
+                       json={"ids": [a], "category_id": 99999})
+    assert resp.status_code == 400
+
+
+def test_bulk_category_flow_guard_skips_crossflow(client, db):
+    # An income category must not land on an expense row even if the client sends it.
+    exp = _add(db, date="2026-05-01", flow="expense", amount=10.0, description="X")
+    inc = _add(db, date="2026-05-02", flow="income", is_revenue=1, method="pix", amount=20.0, description="Y")
+    income_cat = _cat_id("PIX recebido", "income")
+    resp = client.post("/api/transactions/bulk-category",
+                       json={"ids": [exp, inc], "category_id": income_cat})
+    assert resp.status_code == 200
+    assert resp.get_json()["updated"] == 1  # only the income row
+    from core.db import crud
+    assert crud.get_transaction(exp)["category_id"] is None        # expense untouched
+    assert crud.get_transaction(inc)["category_id"] == income_cat
+
+
+# ── Finding 1: investment movement recorded as a checking transfer leg ───────
+
+def _make_investment(name="Tesouro IPCA+ 2029", type_="treasury", bank="nubank", balance=100.0):
+    from core.db import crud
+    inv_id = crud.upsert_investment(name, type_, bank)
+    crud.update_investment_balance(inv_id, balance)
+    return inv_id
+
+
+def test_register_investment_transfer_deposit(db):
+    from core.db import crud, analytics
+    inv_id = _make_investment(balance=100.0)
+    bal_before = analytics.get_account_balance("nu-db")
+
+    crud.register_investment_transfer(inv_id, "nubank", "deposit", 250.0, "2026-05-10", "Tesouro IPCA+ 2029")
+
+    # checking dropped by the applied amount, via a transfer-leg transaction
+    assert round(analytics.get_account_balance("nu-db") - bal_before, 2) == -250.0
+    # investment position rose
+    inv = analytics.get_investment_by_name("Tesouro IPCA+ 2029")
+    assert round(inv["current_balance"], 2) == 350.0
+    # NOT counted as consumption expense (method='transfer')
+    assert analytics.get_monthly_summary(2026, 5)["expenses"] == 0.0
+    # investment_movements ledger stays empty (no double-count path)
+    with __import__("sqlite3").connect(db) as raw:
+        assert raw.execute("SELECT COUNT(*) FROM investment_movements").fetchone()[0] == 0
+
+
+def test_register_investment_transfer_withdrawal(db):
+    from core.db import crud, analytics
+    inv_id = _make_investment(balance=500.0)
+    bal_before = analytics.get_account_balance("nu-db")
+
+    crud.register_investment_transfer(inv_id, "nubank", "withdrawal", 200.0, "2026-05-12", "Tesouro IPCA+ 2029")
+
+    assert round(analytics.get_account_balance("nu-db") - bal_before, 2) == 200.0  # cash back in
+    inv = analytics.get_investment_by_name("Tesouro IPCA+ 2029")
+    assert round(inv["current_balance"], 2) == 300.0
+    # resgate is income but not revenue, so it doesn't inflate income headline
+    assert analytics.get_monthly_summary(2026, 5)["income"] == 0.0
+
+
+def test_register_investment_transfer_unmapped_bank_raises(db):
+    from core.db import crud
+    inv_id = _make_investment(name="Cripto X", type_="other", bank="binance", balance=10.0)
+    import pytest as _pytest
+    with _pytest.raises(ValueError):
+        crud.register_investment_transfer(inv_id, "binance", "deposit", 10.0, "2026-05-10", "Cripto X")
+
+
+# ── Finding 6: auto-categorize runs after import confirm (own txn) ───────────
+
+def test_confirm_import_autocategorizes(db):
+    from core.db import crud
+    batch = "testbatch1"
+    crud.insert_staging_rows(batch, "nubank_extrato", [{
+        "date": "2026-05-01", "flow": "expense", "method": "pix", "account_id": "nu-db",
+        "amount": 22.0, "description": "SUBWAY centro", "dest_account_id": None,
+        "external_id": None, "is_revenue": 0, "counterpart": None, "status": "new", "note": None,
+    }])
+    res = crud.confirm_staging_batch(batch)
+    assert res["inserted"] == 1
+    from core.db import analytics
+    rows = analytics.get_recent_transactions("nu-db", limit=10)
+    assert rows[0]["category"] == "Alimentação"  # auto-filled post-commit

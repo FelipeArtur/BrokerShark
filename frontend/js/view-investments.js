@@ -17,6 +17,22 @@ const _INV_COLORS = [
   "oklch(74% 0.13 60)",  "oklch(70% 0.15 20)",  "oklch(72% 0.10 330)",
 ];
 
+/* Parse a BRL amount the way the backend parse_money does — so "1.000,50"
+   (dot thousands + comma decimal) becomes 1000.5 instead of parseFloat's 1.0.
+   Returns NaN on empty/garbage. */
+function _parseMoneyBR(raw) {
+  let s = String(raw == null ? "" : raw).trim().replace(/\s/g, "");
+  if (!s) return NaN;
+  if (s.includes(",")) {                 // comma = decimal → dots are thousands
+    s = s.replace(/\./g, "").replace(",", ".");
+  } else if ((s.match(/\./g) || []).length > 1) {  // multiple dots → all thousands
+    s = s.replace(/\./g, "");
+  } else if (/\.\d{3}$/.test(s)) {        // single dot + exactly 3 trailing → thousands
+    s = s.replace(/\./g, "");
+  }
+  return parseFloat(s);
+}
+
 /* ── MovementModal — register an application/withdrawal on a position ─────── */
 function MovementModal({ investments, onClose, onDone }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
@@ -28,7 +44,7 @@ function MovementModal({ investments, onClose, onDone }) {
   const [busy, setBusy] = _s3St(false);
 
   async function save() {
-    const val = parseFloat(String(amount).replace(",", "."));
+    const val = _parseMoneyBR(amount);
     if (isNaN(val) || val <= 0) { setErr("Valor inválido"); return; }
     if (!invName) { setErr("Selecione a posição"); return; }
     setErr(""); setBusy(true);
@@ -109,7 +125,7 @@ function InvestmentsView({ refreshKey, filterMonth }) {
   }, [filterMonth, refreshKey]);
 
   async function saveBalance(inv) {
-    const val = parseFloat(editInput.replace(",", "."));
+    const val = _parseMoneyBR(editInput);
     if (isNaN(val) || val < 0) { setEditErr("Valor inválido"); return; }
     setEditErr("");
     try {

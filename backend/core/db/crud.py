@@ -212,20 +212,26 @@ def update_transaction_fields(tx_id: int, **fields: Any) -> None:
         )
 
 
-def bulk_set_category(transaction_ids: list[int], category_id: int) -> int:
+def bulk_set_category(transaction_ids: list[int], category_id: int,
+                      flow: Optional[str] = None) -> int:
     """Assign one category to many transactions at once. Returns rows updated.
 
     Used by the "Categorizar pendentes" panel to categorize a whole merchant
-    group in a single click. No-op (returns 0) on an empty id list.
+    group in a single click. No-op (returns 0) on an empty id list. When ``flow``
+    is given, only rows of that flow are updated — this guards against assigning
+    an income category to expense rows (or vice-versa), so a stale client tab can
+    never cross-assign. ``rowcount`` then reflects only the rows actually changed.
     """
     if not transaction_ids:
         return 0
     placeholders = ",".join("?" for _ in transaction_ids)
+    sql = f"UPDATE transactions SET category_id = ? WHERE id IN ({placeholders})"
+    params: list = [category_id, *transaction_ids]
+    if flow is not None:
+        sql += " AND flow = ?"
+        params.append(flow)
     with _connect() as conn:
-        cur = conn.execute(
-            f"UPDATE transactions SET category_id = ? WHERE id IN ({placeholders})",
-            (category_id, *transaction_ids),
-        )
+        cur = conn.execute(sql, params)
         return cur.rowcount
 
 
@@ -315,6 +321,61 @@ def insert_investment_movement(
         )
     events.notify()
     return last_id
+
+
+# bank → checking account that funds/receives an investment movement.
+_BANK_CHECKING = {"nubank": "nu-db", "inter": "inter-db"}
+
+
+def register_investment_transfer(
+    investment_id: int,
+    bank: str,
+    operation: str,
+    amount: float,
+    date: str,
+    name: str,
+) -> int:
+    """Record an investment application/withdrawal as a checking-account transfer leg.
+
+    This mirrors how imported investment flows are stored (a ``method='transfer'``
+    transaction on the checking account), so the movement is visible and
+    consistent across every screen: it reduces/raises the checking balance via
+    the transactions ledger, lands in ``cashflow_statement.investment_net``, shows
+    in the Histórico tagged "investimento", and bumps ``investments.current_balance``.
+    Deliberately does NOT write ``investment_movements`` — that ledger is subtracted
+    from checking balances in ``get_account_balance``/``get_all_accounts_with_balance``
+    and would double-count against this transaction leg.
+
+    aplicação (deposit) → flow='expense', method='transfer', is_revenue=0, current_balance += amount
+    resgate (withdrawal) → flow='income', method='transfer', is_revenue=0, current_balance -= amount
+
+    Both legs are atomic (single transaction). Returns the new transaction id.
+
+    Raises:
+        ValueError: if the bank has no mapped checking account.
+    """
+    checking = _BANK_CHECKING.get(bank)
+    if checking is None:
+        raise ValueError(f"Banco '{bank}' não tem conta corrente mapeada para investimentos.")
+    if operation == "deposit":
+        flow, desc, delta = "expense", f"Aplicação: {name}", amount
+    else:
+        flow, desc, delta = "income", f"Resgate: {name}", -amount
+    with _connect() as conn:
+        cur = conn.execute(
+            """INSERT INTO transactions
+               (date, flow, method, account_id, amount, installments,
+                description, category_id, dest_account_id, counterpart, is_revenue, external_id)
+               VALUES (?,?,?,?,?,1,?,NULL,NULL,NULL,0,NULL)""",
+            (date, flow, "transfer", checking, amount, desc),
+        )
+        tx_id = cur.lastrowid
+        conn.execute(
+            "UPDATE investments SET current_balance = current_balance + ? WHERE id = ?",
+            (delta, investment_id),
+        )
+    events.notify()
+    return tx_id  # type: ignore[return-value]
 
 
 def update_investment_balance(investment_id: int, new_balance: float) -> None:
@@ -454,11 +515,18 @@ def confirm_staging_batch(batch_id: str, exclude_ids: Optional[set[int]] = None)
             if cur.rowcount:
                 inserted += 1
         conn.execute("DELETE FROM import_staging WHERE batch_id = ?", (batch_id,))
-        # Pre-fill obvious merchants on the rows just promoted (same txn, so a
-        # failure rolls the whole import back). Manual categories are never
-        # touched — auto_categorize only fills category_id IS NULL.
+    # Best-effort auto-categorize AFTER the import commits — in its own
+    # connection, wrapped so a categorization error can never roll back or fail a
+    # legitimate import. Note this is a GLOBAL pass: it fills category_id on every
+    # uncategorized consumption row (not just this batch), which is what we want
+    # (a newly-added rule should backfill history too). Only ever fills NULLs, so
+    # manual categories are never touched.
+    try:
         from core.ingestion.categorize import auto_categorize
-        auto_categorize(conn)
+        with _connect() as conn:
+            auto_categorize(conn)
+    except Exception:  # pragma: no cover - categorization is a convenience, never blocks import
+        pass
     events.notify()
     return {"inserted": inserted, "skipped": len(rows) - inserted}
 

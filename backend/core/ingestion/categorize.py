@@ -22,13 +22,20 @@ from typing import Optional
 # (category_name, keywords) — keywords matched case-insensitively as substrings.
 # category_name must exist in `categories` for the matching flow, or the rule is
 # silently skipped (a renamed/removed category never raises).
+#
+# Keywords are deliberately specific. Broad substrings were dropped after review
+# because they mis-categorize silently on every import: "mercado" caught Mercado
+# Livre/Pago (e-commerce/payments), "cafe"/"café" matched merchant legal names,
+# "uber" swallowed Uber Eats (food) into Lazer, "oferta" tagged any promo as a
+# church donation. When unsure, leave it for the manual panel — a wrong auto
+# category is worse than none.
 _EXPENSE_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Alimentação", (
         "vending machine", "svm comer", "svm vending", "comercial de alimentos",
         "garfodeouro", "garfo de ouro", "subway", "grill", "restaurante",
-        "lanche", "pizza", "burger", "hamburg", "ifood", "mercado",
-        "supermercado", "padaria", "acai", "açaí", "cafe", "café", "doceria",
-        "sorveteria", "bar e ", "espetinho", "churras",
+        "lanche", "pizza", "burger", "hamburg", "ifood",
+        "supermercado", "padaria", "acai", "açaí", "doceria",
+        "sorveteria", "espetinho", "churras",
     )),
     ("Carro", (
         "posto", "combustivel", "combustível", "ipva", "estacionamento",
@@ -45,7 +52,7 @@ _EXPENSE_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     )),
     ("Lazer", (
         "cinema", "netflix", "spotify", "disney", "hbo", "prime video",
-        "youtube premium", "ingresso", "uber", "99 tecnologia", "99app",
+        "youtube premium", "ingresso", "99 tecnologia", "99app",
         "cabify", "max stream",
     )),
     ("Eletrônicos", (
@@ -58,7 +65,7 @@ _EXPENSE_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     )),
     ("Igreja", (
         "instituicao exemplo", "instituicao exemplo", "igreja",
-        "dizimo", "dízimo", "oferta",
+        "dizimo", "dízimo",
     )),
 )
 
@@ -117,6 +124,7 @@ def auto_categorize(conn: sqlite3.Connection) -> dict[str, int]:
               AND dest_account_id IS NULL
               AND (method IS NULL OR method != 'transfer')
               AND (counterpart IS NULL OR counterpart != 'SELF')
+              AND COALESCE(is_third_party,0)=0
               AND ( (flow = 'expense')
                  OR (flow = 'income' AND is_revenue = 1) )"""
     ).fetchall()

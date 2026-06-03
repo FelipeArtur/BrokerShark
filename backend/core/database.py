@@ -24,6 +24,7 @@ from core.db.crud import (  # noqa: F401
     upsert_investment,
     set_investment_balance_by_name,
     insert_investment_movement,
+    register_investment_transfer,
     update_investment_balance,
     get_investment_movement,
     upsert_budget,
