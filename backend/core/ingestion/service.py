@@ -21,6 +21,11 @@ def _to_staging_dict(rec: Record) -> dict:
 
 def _row_view(row) -> dict:
     """Shape a staging row for the preview table / JSON response."""
+    keys = row.keys()
+
+    def g(k):
+        return row[k] if k in keys else None
+
     return {
         "id":              row["id"],
         "date":            row["date"],
@@ -32,21 +37,34 @@ def _row_view(row) -> dict:
         "is_revenue":      row["is_revenue"],
         "status":          row["status"],
         "note":            row["note"],
+        "category_id":     g("category_id"),
+        "display_name":    g("display_name"),
+        "original_amount": g("original_amount"),
     }
 
 
 def preview_import(account_id: str, data: bytes) -> dict:
-    """Parse + classify an uploaded file and stage it for review.
+    """Single-file convenience wrapper over :func:`preview_import_multi`."""
+    return preview_import_multi(account_id, [data])
 
-    Returns a summary dict with the batch id, per-status counts, and the staged
-    rows (with ids) for the preview table. Raises :class:`SourceMismatch` when
-    the file does not match the selected account.
+
+def preview_import_multi(account_id: str, files: list[bytes]) -> dict:
+    """Parse + classify one or more uploaded files into a single staged batch.
+
+    All files must belong to the selected account. Dedup runs across the COMBINED
+    set — ``dedup.classify`` tracks external-ids and the occurrence budget within the
+    batch, so a row duplicated across two files is caught. Returns the batch id,
+    per-status counts, the staged rows, and ``amount_divergence`` (0 until the user
+    edits a value). Raises :class:`SourceMismatch` if any file doesn't match the account.
     """
     crud.prune_staging(older_than_hours=24)  # drop abandoned previews
-    source = adapters.detect_source(account_id, data)
-    records = adapters.parse(account_id, data)
+    all_records: list[Record] = []
+    source: Optional[str] = None
+    for data in files:
+        source = adapters.detect_source(account_id, data)  # raises SourceMismatch
+        all_records.extend(adapters.parse(account_id, data))
 
-    parsed = [r for r in records if r.status != "skipped"]
+    parsed = [r for r in all_records if r.status != "skipped"]
     ext_ids = [r.external_id for r in parsed if r.external_id]
     existing = analytics.get_existing_external_ids(ext_ids)
 
@@ -57,23 +75,28 @@ def preview_import(account_id: str, data: bytes) -> dict:
             account_id, min(idless_dates), max(idless_dates)
         )
 
-    dedup.classify(records, existing, key_counts)
+    dedup.classify(all_records, existing, key_counts)
 
     batch_id = uuid4().hex
-    crud.insert_staging_rows(batch_id, source, [_to_staging_dict(r) for r in records])
+    crud.insert_staging_rows(batch_id, source, [_to_staging_dict(r) for r in all_records])
+    return get_staging_view(batch_id, source=source, account_id=account_id)
 
+
+def get_staging_view(batch_id: str, source: Optional[str] = None,
+                     account_id: Optional[str] = None) -> dict:
+    """Build the preview/staging response: counts, rows, and amount divergence."""
     rows = crud.get_staging_batch(batch_id)
     counts = {"new": 0, "duplicate": 0, "skipped": 0}
     for r in rows:
         counts[r["status"]] = counts.get(r["status"], 0) + 1
     counts["total"] = len(rows)
-
     return {
-        "batch_id":   batch_id,
-        "source":     source,
-        "account_id": account_id,
-        "counts":     counts,
-        "rows":       [_row_view(r) for r in rows],
+        "batch_id":          batch_id,
+        "source":            source or (rows[0]["source"] if rows else None),
+        "account_id":        account_id,
+        "counts":            counts,
+        "amount_divergence": crud.staging_divergence(batch_id),
+        "rows":              [_row_view(r) for r in rows],
     }
 
 

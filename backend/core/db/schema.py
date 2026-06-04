@@ -77,6 +77,7 @@ def init_db() -> None:
                 external_id     TEXT,
                 display_name    TEXT,
                 is_third_party  INTEGER NOT NULL DEFAULT 0,
+                original_amount REAL,
                 FOREIGN KEY (account_id)      REFERENCES accounts(id),
                 FOREIGN KEY (dest_account_id) REFERENCES accounts(id),
                 FOREIGN KEY (category_id)     REFERENCES categories(id)
@@ -135,6 +136,9 @@ def init_db() -> None:
                 external_id     TEXT,
                 is_revenue      INTEGER DEFAULT 0,
                 counterpart     TEXT,
+                category_id     INTEGER,
+                display_name    TEXT,
+                original_amount REAL,
                 note            TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_staging_batch
@@ -200,6 +204,22 @@ def _apply_column_migrations(conn: sqlite3.Connection) -> None:
         conn.execute("SELECT counterpart FROM import_staging LIMIT 1")
     except sqlite3.OperationalError:
         conn.execute("ALTER TABLE import_staging ADD COLUMN counterpart TEXT")
+        conn.commit()
+
+    # Editable import preview (P1b): transactions get original_amount (the bank's
+    # parsed value, set only when the user overrides the amount — the audit anchor);
+    # staging rows carry original_amount + user edits to category/name before confirm.
+    try:
+        conn.execute("SELECT original_amount FROM transactions LIMIT 1")
+    except sqlite3.OperationalError:
+        conn.execute("ALTER TABLE transactions ADD COLUMN original_amount REAL")
+        conn.commit()
+    try:
+        conn.execute("SELECT original_amount FROM import_staging LIMIT 1")
+    except sqlite3.OperationalError:
+        conn.execute("ALTER TABLE import_staging ADD COLUMN original_amount REAL")
+        conn.execute("ALTER TABLE import_staging ADD COLUMN category_id INTEGER")
+        conn.execute("ALTER TABLE import_staging ADD COLUMN display_name TEXT")
         conn.commit()
 
     # Partial UNIQUE index on external_id: enforces dedup for sources that

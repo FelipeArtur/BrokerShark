@@ -9,6 +9,11 @@ testable; all database access goes through :mod:`core.db.crud` and
     service.py   — orchestration: preview → staging, confirm → transactions
     b3.py        — parse B3 .xlsx investment positions → investments (snapshot upsert)
 """
-from core.ingestion.service import confirm_import, preview_import  # noqa: F401
+from core.ingestion.service import (  # noqa: F401
+    confirm_import,
+    preview_import,
+    preview_import_multi,
+    get_staging_view,
+)
 
-__all__ = ["preview_import", "confirm_import"]
+__all__ = ["preview_import", "preview_import_multi", "confirm_import", "get_staging_view"]

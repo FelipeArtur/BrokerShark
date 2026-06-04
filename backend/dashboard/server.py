@@ -873,25 +873,23 @@ def api_import_preview() -> Response:
     """Parse an uploaded export file, classify rows, and stage them for review.
 
     Multipart form:
-        file:       the uploaded CSV.
+        file:       one or more uploaded CSVs (repeat the field for a multi-file batch).
         account_id: target account (``nu-db`` | ``inter-db`` | ``inter-cc``).
 
     Returns:
-        ``{batch_id, source, account_id, counts:{new,duplicate,skipped,total}, rows:[…]}``.
-        400 if the account is invalid or the file does not match the account.
+        ``{batch_id, source, account_id, counts:{…}, amount_divergence, rows:[…]}``.
+        400 if the account is invalid or any file does not match the account.
     """
     account_id = (request.form.get("account_id") or "").strip()
     if account_id not in _VALID_ACCOUNTS:
         return jsonify({"error": "invalid account_id"}), 400
-    upload = request.files.get("file")
-    if upload is None:
+    uploads = request.files.getlist("file")  # one or many → a single staged batch
+    files = [b for b in (u.read() for u in uploads) if b]
+    if not files:
         return jsonify({"error": "file required"}), 400
-    data = upload.read()
-    if not data:
-        return jsonify({"error": "arquivo vazio"}), 400
 
     try:
-        result = ingestion.preview_import(account_id, data)
+        result = ingestion.preview_import_multi(account_id, files)
     except SourceMismatch as exc:
         return jsonify({"error": str(exc)}), 400
     return jsonify(result)
@@ -899,10 +897,55 @@ def api_import_preview() -> Response:
 
 @app.route("/api/import/staging/<batch_id>")
 def api_import_staging(batch_id: str) -> Response:
-    """Return the staged rows for a batch (re-read by the preview modal)."""
+    """Return the staged rows for a batch (re-read by the preview modal).
+
+    Each row now carries ``category_id``/``display_name``/``original_amount`` for the
+    editable preview; the divergence can be derived from ``amount`` vs ``original_amount``.
+    """
     from core.ingestion.service import _row_view  # local import: internal helper
     rows = database.get_staging_batch(batch_id)
     return jsonify([_row_view(r) for r in rows])
+
+
+@app.route("/api/import/staging/<batch_id>/<int:row_id>", methods=["PATCH"])
+def api_import_staging_edit(batch_id: str, row_id: int) -> Response:
+    """Edit a staged row's category/name/value before confirm (editable preview).
+
+    Body (JSON, any subset): ``{category_id?: int|null, display_name?: str|null,
+    amount?: number>0}``. The parsed ``original_amount`` is preserved, so overriding
+    the value is auditable and surfaces as ``amount_divergence``.
+
+    Returns ``{ok, row, amount_divergence}``; 404 if the row isn't in the batch.
+    """
+    body = request.get_json(silent=True) or {}
+    fields: dict = {}
+    if "category_id" in body:
+        cid = body["category_id"]
+        if cid is not None and not isinstance(cid, int):
+            return jsonify({"error": "category_id must be int or null"}), 400
+        fields["category_id"] = cid
+    if "display_name" in body:
+        dn = body["display_name"]
+        if dn is not None and not isinstance(dn, str):
+            return jsonify({"error": "display_name must be string or null"}), 400
+        fields["display_name"] = dn or None
+    if "amount" in body:
+        amt = body["amount"]
+        if isinstance(amt, bool) or not isinstance(amt, (int, float)) or amt <= 0:
+            return jsonify({"error": "amount must be a positive number"}), 400
+        fields["amount"] = float(amt)
+    if not fields:
+        return jsonify({"error": "no editable field provided"}), 400
+
+    row = database.update_staging_row(batch_id, row_id, fields)
+    if row is None:
+        return jsonify({"error": "staging row not found"}), 404
+    from core.ingestion.service import _row_view
+    return jsonify({
+        "ok": True,
+        "row": _row_view(row),
+        "amount_divergence": database.staging_divergence(batch_id),
+    })
 
 
 @app.route("/api/import/confirm", methods=["POST"])

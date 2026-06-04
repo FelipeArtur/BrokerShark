@@ -255,3 +255,76 @@ def test_cashflow_excludes_transfer(db):
     ingestion.confirm_import(ingestion.preview_import("nu-db", NUBANK_EXTRATO)["batch_id"])
     cf = analytics.get_cashflow_statement(1, 2026)
     assert cf["expense_total"] == 50.0  # only the Pix purchase, not the -2000 RDB
+
+
+# ── P1b: multi-file batch + editable preview (original_amount audit) ───────────
+
+def test_multifile_batch_dedup_across_files(db):
+    """Two files in one batch: the 2nd file's rows dedup against the 1st (intra-batch)."""
+    from core import ingestion
+
+    res = ingestion.preview_import_multi("nu-db", [NUBANK_EXTRATO, NUBANK_EXTRATO])
+    assert res["counts"]["total"] == 8
+    assert res["counts"]["new"] == 4          # first file's rows
+    assert res["counts"]["duplicate"] == 4    # second file = intra-batch duplicates
+    assert res["amount_divergence"] == 0.0    # nothing edited yet
+
+    out = ingestion.confirm_import(res["batch_id"])
+    assert out["inserted"] == 4               # only the 4 new rows promoted
+
+
+def test_staging_edit_amount_records_original_on_confirm(db):
+    """Editing a staged value keeps the parsed amount as original_amount (audit) and
+    surfaces divergence; an untouched row leaves original_amount NULL."""
+    import sqlite3
+    from core import ingestion
+    from core.db import crud
+
+    preview = ingestion.preview_import("nu-db", NUBANK_EXTRATO)
+    assert preview["amount_divergence"] == 0.0
+    pix = [r for r in preview["rows"] if r["description"] == "Pix - Padaria do Bairro"][0]
+    assert pix["original_amount"] == 50.0
+
+    updated = crud.update_staging_row(preview["batch_id"], pix["id"], {"amount": 45.50})
+    assert updated["amount"] == 45.50
+    assert crud.staging_divergence(preview["batch_id"]) == -4.50  # 45.50 − 50.00
+
+    ingestion.confirm_import(preview["batch_id"])
+    with sqlite3.connect(db) as raw:
+        raw.row_factory = sqlite3.Row
+        pix_tx = raw.execute(
+            "SELECT amount, original_amount FROM transactions WHERE description=?",
+            ("Pix - Padaria do Bairro",),
+        ).fetchone()
+        assert pix_tx["amount"] == 45.50
+        assert pix_tx["original_amount"] == 50.0          # bank value preserved as audit
+        rdb_tx = raw.execute(
+            "SELECT original_amount FROM transactions WHERE description=?",
+            ("Aplicação RDB",),
+        ).fetchone()
+        assert rdb_tx["original_amount"] is None          # untouched → NULL
+
+
+def test_staging_edit_category_and_name_flow_to_confirm(db):
+    import sqlite3
+    from core import ingestion
+    from core.db import crud
+
+    with sqlite3.connect(db) as raw:
+        raw.execute("INSERT INTO categories (name, flow) VALUES ('Padaria', 'expense')")
+        cat_id = raw.execute("SELECT id FROM categories WHERE name='Padaria'").fetchone()[0]
+
+    preview = ingestion.preview_import("nu-db", NUBANK_EXTRATO)
+    pix = [r for r in preview["rows"] if r["description"] == "Pix - Padaria do Bairro"][0]
+    crud.update_staging_row(preview["batch_id"], pix["id"],
+                            {"category_id": cat_id, "display_name": "Padaria do Bairro"})
+    ingestion.confirm_import(preview["batch_id"])
+
+    with sqlite3.connect(db) as raw:
+        raw.row_factory = sqlite3.Row
+        tx = raw.execute(
+            "SELECT category_id, display_name FROM transactions WHERE description=?",
+            ("Pix - Padaria do Bairro",),
+        ).fetchone()
+        assert tx["category_id"] == cat_id
+        assert tx["display_name"] == "Padaria do Bairro"

@@ -542,12 +542,15 @@ def insert_staging_rows(batch_id: str, source: str, rows: list[dict[str, Any]]) 
         rows: Dicts with keys from :data:`STAGING_COLS` (missing keys → NULL).
     """
     created = datetime.now().isoformat()
+    # original_amount seeds to the parsed amount — the audit anchor if the user later
+    # overrides the value in the editable preview.
+    cols = (*STAGING_COLS, "original_amount")
     payload = [
-        (batch_id, created, source, *(r.get(c) for c in STAGING_COLS))
+        (batch_id, created, source, *(r.get(c) for c in STAGING_COLS), r.get("amount"))
         for r in rows
     ]
-    placeholders = ", ".join(STAGING_COLS)
-    qmarks = ", ".join("?" for _ in STAGING_COLS)
+    placeholders = ", ".join(cols)
+    qmarks = ", ".join("?" for _ in cols)
     with _connect() as conn:
         conn.executemany(
             f"INSERT INTO import_staging (batch_id, created_at, source, {placeholders}) "
@@ -579,6 +582,53 @@ def _staging_counterpart(row: sqlite3.Row) -> Optional[str]:
     return row["counterpart"] if "counterpart" in row.keys() else None
 
 
+def _sget(row: sqlite3.Row, col: str) -> Any:
+    """Read an optional staging column, tolerating pre-migration rows (→ None)."""
+    return row[col] if col in row.keys() else None
+
+
+_STAGING_EDITABLE = {"category_id", "display_name", "amount"}
+
+
+def update_staging_row(batch_id: str, row_id: int, fields: dict[str, Any]) -> Optional[sqlite3.Row]:
+    """Edit a staged row's category/name/amount before confirm (editable preview).
+
+    Only ``category_id``, ``display_name`` and ``amount`` are editable — the parsed
+    ``original_amount`` is left untouched so divergence stays auditable. Returns the
+    updated row, or ``None`` if no editable field was given or the row wasn't found.
+    """
+    cols = {k: v for k, v in fields.items() if k in _STAGING_EDITABLE}
+    if not cols:
+        return None
+    set_clause = ", ".join(f"{k} = ?" for k in cols)
+    with _connect() as conn:
+        cur = conn.execute(
+            f"UPDATE import_staging SET {set_clause} WHERE batch_id = ? AND id = ?",
+            (*cols.values(), batch_id, row_id),
+        )
+        if not cur.rowcount:
+            return None
+        return conn.execute(
+            "SELECT * FROM import_staging WHERE id = ?", (row_id,)
+        ).fetchone()
+
+
+def staging_divergence(batch_id: str) -> float:
+    """Sum(edited amount) − Sum(parsed original_amount) over a batch's 'new' rows.
+
+    Non-zero means the user overrode one or more amounts, so the lote no longer
+    matches the bank statement total — the import modal surfaces this as a warning.
+    """
+    with _connect() as conn:
+        row = conn.execute(
+            """SELECT COALESCE(SUM(amount), 0)
+                      - COALESCE(SUM(COALESCE(original_amount, amount)), 0)
+               FROM import_staging WHERE batch_id = ? AND status = 'new'""",
+            (batch_id,),
+        ).fetchone()
+    return round(float(row[0] or 0.0), 2)
+
+
 def confirm_staging_batch(batch_id: str, exclude_ids: Optional[set[int]] = None) -> dict:
     """Atomically promote a batch's 'new' rows to transactions and drop the batch.
 
@@ -607,21 +657,26 @@ def confirm_staging_batch(batch_id: str, exclude_ids: Optional[set[int]] = None)
         for r in rows:
             if r["status"] != "new" or r["id"] in excluded:
                 continue
+            orig = _sget(r, "original_amount")
+            # store original_amount only when the user actually overrode the value,
+            # so it stays a clean audit flag (NULL = untouched bank value)
+            audit_amount = orig if (orig is not None and round(orig, 2) != round(r["amount"], 2)) else None
             cur = conn.execute(
                 """INSERT OR IGNORE INTO transactions
                    (date, flow, method, account_id, amount, installments,
                     description, category_id, dest_account_id, counterpart,
-                    is_revenue, external_id)
-                   VALUES (?,?,?,?,?,1,?,NULL,?,?,?,?)""",
+                    is_revenue, external_id, display_name, original_amount)
+                   VALUES (?,?,?,?,?,1,?,?,?,?,?,?,?,?)""",
                 (r["date"], r["flow"], r["method"], r["account_id"], r["amount"],
-                 r["description"], r["dest_account_id"], _staging_counterpart(r),
-                 r["is_revenue"] or 0, r["external_id"]),
+                 r["description"], _sget(r, "category_id"), r["dest_account_id"],
+                 _staging_counterpart(r), r["is_revenue"] or 0, r["external_id"],
+                 _sget(r, "display_name"), audit_amount),
             )
             if cur.rowcount:
                 inserted += 1
         conn.execute("DELETE FROM import_staging WHERE batch_id = ?", (batch_id,))
-    # Imported rows enter with category_id=NULL — categorized later by hand in the
-    # Histórico (filter "Sem categoria" + inline edit).
+    # Rows enter with category_id from the preview edit if set, else NULL — then
+    # categorized by hand in the Histórico (filter "Sem categoria" + inline edit).
     events.notify()
     return {"inserted": inserted, "skipped": len(rows) - inserted}
 

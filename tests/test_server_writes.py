@@ -64,3 +64,48 @@ def test_expense_installments_expanded_via_endpoint(client):
     rows = analytics.get_recent_transactions("nu-cc", limit=10)
     assert len(rows) == 3
     assert sum(r["amount"] for r in rows) == pytest.approx(300.0, abs=0.001)
+
+
+# ── P1b: editable import-staging route ────────────────────────────────────────
+
+def _stage_one_pix(account="nu-db"):
+    from core import ingestion
+    extrato = (
+        "Data,Valor,Identificador,Descrição\n"
+        "10/01/2026,-50.00,uuid-pix,Pix - Padaria do Bairro\n"
+    ).encode("utf-8")
+    return ingestion.preview_import(account, extrato)
+
+
+def test_import_staging_edit_amount_route(client):
+    preview = _stage_one_pix()
+    row = preview["rows"][0]
+    resp = client.patch(
+        f"/api/import/staging/{preview['batch_id']}/{row['id']}",
+        json={"amount": 45.50, "display_name": "Padaria"},
+    )
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["ok"] is True
+    assert body["row"]["amount"] == 45.50
+    assert body["row"]["display_name"] == "Padaria"
+    assert body["amount_divergence"] == -4.50  # 45.50 − 50.00
+
+
+def test_import_staging_edit_rejects_bad_amount(client):
+    preview = _stage_one_pix()
+    row = preview["rows"][0]
+    resp = client.patch(
+        f"/api/import/staging/{preview['batch_id']}/{row['id']}",
+        json={"amount": -5},
+    )
+    assert resp.status_code == 400
+
+
+def test_import_staging_edit_unknown_row_404(client):
+    preview = _stage_one_pix()
+    resp = client.patch(
+        f"/api/import/staging/{preview['batch_id']}/999999",
+        json={"amount": 10.0},
+    )
+    assert resp.status_code == 404
