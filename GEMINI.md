@@ -29,7 +29,9 @@ BrokerShark is a **personal money-analysis tool** running **100% locally** on Li
 
 **Apoio:** Telegram (**somente consulta + relatórios/alertas**; não registra nem edita), importação CSV mensal pela web, chat de IA local. SQLite é a fonte única; backup mensal local (HDD).
 
-**User:** Single user, Nubank + Inter (CC + conta corrente). No debit card. Investments: Caixinha Nubank, Porquinho Inter, Tesouro Direto.
+**North star:** fácil de alimentar + extremamente confiável. Registro = **import de extratos/faturas em lote** com **resumo editável antes de confirmar**; correções na web = **alinhamento de valores**, não digitação manual. Re-import semanal só acrescenta a cauda nova (dedup).
+
+**User:** Single user, Nubank + Inter (CC + conta corrente). Débito **não é rotina** (defensivo: tolera um `debit` avulso sem quebrar totais/breakdown). Investments: Caixinha Nubank, Porquinho Inter, Tesouro Direto.
 
 ---
 
@@ -53,8 +55,10 @@ Telegram = somente leitura (consulta + notificações) — nunca escreve no DB
 - **A análise é o produto.** Web (Visão do Mês + Histórico + Investimentos) no centro; Telegram/import/IA são apoio.
 - **Toda escrita é pela web.** Registro/edição/importação só na interface web. **Telegram é read-only** (consulta + notificações).
 - **CSV import via web UI** ("+ Importar" modal → preview/staging → confirm; dedup por UUID/hash). Pipeline em `backend/core/ingestion/`. Fontes: `nu-db`, `inter-db`, `inter-cc`. Importados entram com `category_id=NULL`; **categorização é manual no Histórico** (filtro "Sem categoria" + edição inline na tabela → `PATCH /api/transactions/<id>`). Sem auto-categorização por regras.
+  - **Alvo (backlog):** preview **editável** (categoria/nome/valor + excluir, antes de gravar) + **lote multi-arquivo**. Hoje: 1 arquivo/vez, preview só exclui linhas.
 - **AI is Pierre-inspired:** tool calling, never fabricates data, always fetches via tools. **Tools são todas de leitura** — não há `register_*`/`confirm`/`cancel`.
-- **Backup is monthly:** `should_backup()` checa por mês-calendário → local HDD (sem cloud).
+- **Runtime (alvo, decidido 2026-06-04):** **híbrido** — dashboard+bot **sob demanda** (launcher); jobs agendados (backup/semanal/fechamento) como **systemd user timers** (`Persistent=true`, catch-up no boot). Sem daemon eterno; **APScheduler aposentado**. Telegram responde só com o launcher aberto; notificações agendadas saem sempre (oneshot `bot.send_message`). **eng-review 2026-06-04:** exige `loginctl enable-linger` (senão catch-up de boot não dispara) + backup via **API SQLite** (`conn.backup`/`VACUUM INTO`, WAL-safe, não `shutil.copy2`) + bootstrap compartilhado (DRY).
+- **Backup is monthly:** `should_backup()` checa por mês-calendário → local HDD (sem cloud). **Alvo:** systemd user timer no lugar do APScheduler cron.
 
 ---
 
@@ -86,7 +90,7 @@ tests/   conftest.py, test_database.py, test_ingestion.py, test_ai_chat.py, test
 | Bot | python-telegram-bot v21 |
 | Database | SQLite (WAL mode) |
 | Backup | local HDD copy (monthly cron) |
-| Scheduler | APScheduler |
+| Scheduler | APScheduler hoje → **systemd user timers** (`Persistent`) |
 | Dashboard API | Flask 3.1 + Waitress 3.0 (32 threads) |
 | Frontend | React 18 + Babel standalone, Chart.js |
 | Real-time | SSE via `events.py` |
@@ -218,7 +222,20 @@ Navegação = **3 telas**: **Visão do Mês** (`OverviewView`), **Histórico** (
 | `nu-db`, `inter-db` | Histórico completo |
 | `budgets` | Seeded com limites padrão (Alimentação R$1500, etc.) — editáveis no dashboard |
 
+## Roadmap (decidido 2026-06-04; re-sequenciado pela /plan-ceo-review)
+
+- **P1a · Backup confiável** — API de backup do SQLite (`conn.backup`/`VACUUM INTO`, WAL-safe) + **restore de 1 comando + `integrity_check`**. Slice rápido, decoupled; solta **primeiro**.
+- **P1b · Preview de import editável + lote** — editar categoria/nome/valor + excluir antes de gravar; multi-arquivo; valor com auditoria (`original_amount` + aviso de divergência). Valor semanal ("fácil de alimentar").
+- **P1c · Migração de runtime** — systemd timers (`Persistent`) + `enable-linger` + launcher on-demand + bootstrap compartilhado; aposenta APScheduler. Bloco coeso, **depois** de P1a/P1b.
+- **P2 · Breakdown por método** — crédito × PIX × TED × débito (dado já existe em `transactions.method`; falta a visão).
+- **P2 · Débito defensivo** — `debit` avulso não quebra totais/breakdown.
+- **Fora do roadmap (/plan-ceo-review):** refactor hexagonal completo — YAGNI p/ 1 usuário; ports só oportunista (banco novo = um `StatementParser`; timers = um `Clock`). Kernel fica como referência no `CLAUDE.md`.
+
+---
+
 ## Running
+
+> **Hoje (a migrar — ver Runtime/Roadmap):** processo único.
 
 ```bash
 source .venv/bin/activate.fish

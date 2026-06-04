@@ -34,9 +34,11 @@ BrokerShark is a **personal money-analysis tool** running **100% locally** on Li
 
 > **Regra de ouro:** todo registro e edição de dados acontece **exclusivamente na interface web**. O Telegram lê dados e notifica — nunca escreve.
 
+> **North star:** **fácil de alimentar + extremamente confiável.** O dinheiro deve aparecer **verídico já depois do import** — correções na web são **alinhamento de valores**, não digitação manual lançamento a lançamento. O registro é a **importação de extratos/faturas** que eu baixo de cada banco (em **lote**), com **resumo editável antes de confirmar**; updates **semanais** do mês corrente só acrescentam a cauda nova (dedup), dando histórico em tempo real.
+
 Every transaction is persisted in a local SQLite database (single source of truth). Monthly backups go to a local HDD directory.
 
-**User profile:** Single user, accounts at Nubank and Inter (credit card + conta corrente). Does **not** use debit card. Investments: Caixinha Nubank, Porquinho Inter, Tesouro Direto.
+**User profile:** Single user, accounts at Nubank and Inter (credit card + conta corrente). Cartão de débito **não é rotina** — pode aparecer esporadicamente, e o sistema deve **tolerar um `debit` avulso sem quebrar totais nem o breakdown por método** (defensivo, não é foco). Investments: Caixinha Nubank, Porquinho Inter, Tesouro Direto.
 
 ---
 
@@ -130,6 +132,12 @@ Why they don't conflict:
 
 This logic is symmetric for both Nubank CC and Inter CC.
 
+### Clareza da fatura × método de pagamento (requisito)
+
+> **Decisão (2026-06-04):** os gastos têm que ser legíveis **por método** — separar com clareza **fatura do cartão (crédito)** de **PIX**, **TED/transferência** e **débito**. A fatura precisa aparecer destacada (é dívida com o banco, paga em bloco), distinta do que sai direto da conta corrente.
+
+O dado já existe (`transactions.method ∈ {pix, credit, ted, transfer, debit, …}`) e a anti-duplicação de CC acima já separa **fatura** (paga via `dest_account_id IN ('nu-cc','inter-cc')`) das **compras individuais** (`nu-cc`/`inter-cc`). Falta a **visão**: um breakdown por método no Histórico/Visão do Mês (**alvo, backlog**). **Débito** entra como caso defensivo — não é gasto rotineiro, mas se surgir no extrato cai na própria fatia sem inflar PIX/crédito.
+
 ### Exclusão segura de lançamentos
 
 A segurança vem de uma **confirmação explícita antes da ação** (`ConfirmDeleteModal` em `app.js`): clicar "Excluir lançamento" no modal de transação abre um diálogo que mostra o lançamento (descrição/valor/data), avisa quando é **parcela** (todas as N serão excluídas — detectado por `(k/N)` + `installments`) ou **auto-transferência** (os dois legs), e diz que "não pode ser desfeita". Só "Excluir" confirma; "Cancelar" é no-op. **Não há undo via toast** — o toast só notifica o resultado. Caminho único no front (`handleDeleteTx`).
@@ -153,7 +161,7 @@ A segurança vem de uma **confirmação explícita antes da ação** (`ConfirmDe
 | Bot framework | python-telegram-bot v21 |
 | Database | SQLite (WAL mode) |
 | Backup | local HDD copy (monthly cron) |
-| Scheduler | APScheduler |
+| Scheduler | APScheduler in-process **hoje** — migrando p/ **systemd user timers (`Persistent=true`)**, ver "Modelo de execução" |
 | Dashboard API | Flask 3.1 + Waitress 3.0 (32 threads, daemon thread) |
 | Dashboard frontend | React 18 + Babel standalone (no build step), Chart.js |
 | Real-time updates | SSE via `events.py` — no polling, < 1s latency |
@@ -175,13 +183,38 @@ python backend/main.py
 
 ---
 
+## Modelo de execução (runtime & deploy)
+
+> **Decisão (2026-06-04):** rodar como **app/serviço do Linux**, **sem daemon eterno**. O PC (CachyOS) é de uso geral e **não fica sempre ligado** — nada deve consumir recursos em segundo plano além de **jobs curtos disparados por tempo**.
+
+**Modelo híbrido (alvo):**
+
+| Peça | Como roda | Disponibilidade |
+|------|-----------|-----------------|
+| Dashboard web + bot Telegram | **Sob demanda** — um launcher sobe a stack e abre `localhost:8080`; encerra quando eu fecho | Só enquanto aberto |
+| Backup mensal · relatório semanal · fechamento mensal | **systemd user timers** (`Persistent=true`) → cada job é um *oneshot* curto que roda e sai | Sempre que o PC liga (catch-up no boot) |
+
+**Consequências (explícitas, por design):**
+- **Notificações agendadas (saída)** seguem confiáveis mesmo com a UI fechada — um oneshot só faz `bot.send_message` (HTTP); não precisa do long-poll de pé.
+- **Consultas do Telegram (entrada)** só respondem **enquanto o launcher está aberto**. Aceitável: Telegram é apoio (read-only) e o produto é a web. PC desligado = ninguém responde — esperado.
+- **`Persistent=true`** atende a exigência de confiabilidade: se o PC estava desligado na hora marcada, o timer dispara no **próximo boot** — backup mensal nunca é "pulado" em silêncio.
+- **APScheduler é aposentado** — o agendamento sai do processo Python e vai pro systemd.
+
+**Estado atual (a migrar):** hoje `backend/main.py` sobe **bot + APScheduler + dashboard** num único processo `Type=simple` (`deploy/brokershark.service`, `WantedBy=multi-user.target`). Migração (backlog): (1) extrair os 3 jobs em entrypoints chamáveis (`python -m …`); (2) escrever 3 `*.service` (oneshot) + 3 `*.timer` (`Persistent=true`, `WantedBy=timers.target`) de **usuário** (`systemctl --user`); (3) launcher (`brokershark`/`.desktop`) p/ dashboard+bot sob demanda; (4) remover `build_scheduler` + os hooks `_post_init`/`_post_shutdown` do APScheduler; (5) **`loginctl enable-linger joao`** — timers de usuário só disparam o catch-up de boot com linger ligado; **sem isso o backup pode ser pulado em silêncio** (passo obrigatório no install/README); (6) **bootstrap compartilhado** (`load_dotenv` + `config.validate` + logging + DB path) reusado por `main.py` e por cada entrypoint de job (DRY — evita 4× duplicação e drift de config).
+
+> **Hardening da /plan-eng-review (2026-06-04):** o relatório semanal/fechamento deve ancorar o período na **data agendada** (não em `datetime.now()`) p/ um catch-up tardio não rotular a janela errada; backup já é idempotente (`should_backup`). `drop_pending_updates=True` (mantido) descarta mensagens recebidas com o launcher fechado — consequência aceita.
+
+---
+
 ## Backup Strategy
 
 **Local (HDD):**
 - Path hardcoded: `/mnt/HDD_Arquivos/Backups/brokershark`
 - `should_backup()` — returns `True` if `brokershark_YYYY-MM.db` does not yet exist this calendar month
 - `run_backup()` — copies DB if due; keeps last 12 monthly files
-- Triggered by monthly cron job (1st of each month at 07:00)
+- **Alvo:** disparado por **systemd user timer** (`Persistent=true` → catch-up no boot se o PC esteve desligado na hora). **Hoje:** APScheduler cron (1º de cada mês, 07:00) — ver "Modelo de execução"
+- **Alvo (eng-review 2026-06-04):** snapshot consistente via **API de backup do SQLite** (`conn.backup()` / `VACUUM INTO`), **não** `shutil.copy2` — em WAL, com o launcher aberto/escrevendo, copiar só o `.db` perderia commits presos no `-wal`. No modelo multi-processo (timer ≠ app) isso vira risco real de backup stale/inconsistente
+- **Alvo (ceo-review 2026-06-04):** **restore de 1 comando + verificação de integridade** (`PRAGMA integrity_check` no snapshot) — um backup só é rede de segurança depois de testado restaurar. Entra junto da troca pela API SQLite (slice **P1a**, ver backlog)
 
 > Cloud backup (Google Drive) was removed — backup is local-only.
 
@@ -282,6 +315,12 @@ Excluded from summaries via `AND dest_account_id IS NULL`.
 
 Sources are uploaded via the **"+ Importar"** header button (3-step modal: conta+arquivo → preview → confirmar). Pipeline lives in `backend/core/ingestion/` (`adapters.py` parse, `dedup.py` classify, `service.py` orchestrate) — all DB access routes through `crud`/`analytics`.
 
+**Fluxo de registro (regra canônica):** o **único** caminho de registro é a **importação de extratos/faturas** baixados de cada banco. Correções na web são **alinhamento de valores** — o dinheiro sai verídico do import, não digitado lançamento a lançamento. Updates **semanais** do mês corrente são suportados: re-subir o arquivo cumulativo só acrescenta a **cauda nova** (dedup), dando histórico em tempo real no mês.
+
+**Preview editável + lote (alvo — decidido 2026-06-04):** o resumo antes de confirmar deve permitir **editar categoria, nome (display) e valor, além de excluir linhas** — alinhar o lote inteiro *antes* de gravar — e aceitar **múltiplos arquivos numa só leva** (lote). **Hoje:** o modal aceita **1 arquivo por vez** e o preview só **exclui linhas** (categorização é pós-import, inline no Histórico). A evolução p/ edição-no-preview + multi-arquivo está no backlog; quando entrar, a categorização inline do Histórico segue valendo para ajustes posteriores.
+
+> **Integridade da edição de valor (eng-review 2026-06-04):** categoria/nome são livres (não alteram a verdade financeira), mas editar **valor** preserva o valor parseado original (coluna de auditoria `original_amount` + flag de linha editada) e **avisa quando a soma do lote diverge do extrato**. Mantém o norte "extremamente confiável": o número do banco continua sendo a âncora auditável; sua correção fica explícita, nunca silenciosa.
+
 - **Supported now:** `nu-db` (extrato Nubank, comma/point, UUID dedup), `inter-db` (extrato Inter, semicolon/comma decimal, 5-line preamble), `inter-cc` (fatura Inter, quoted `R$`, bank category). `nu-cc` (fatura Nubank) deferred — sample dir empty, format unknown.
 - **Staging:** rows land in `import_staging` (batch_id + status `new`/`duplicate`/`skipped`); `confirm` promotes `new` rows then deletes the batch. Nothing is written to `transactions` until confirm.
 - **Dedup:** Nubank by `external_id` (partial UNIQUE index `idx_tx_external_id WHERE external_id IS NOT NULL` + `INSERT OR IGNORE`); Inter by occurrence count on `(account, date, round(amount,2), description)` — re-uploaded cumulative files add only the new tail, legitimate same-day duplicates preserved.
@@ -374,6 +413,8 @@ All chart components receive **real API data only** — no placeholder data.
 
 ## Automated Jobs
 
+> **Alvo (ver "Modelo de execução"):** estes 3 jobs migram de APScheduler in-process para **systemd user timers** com `Persistent=true` (catch-up no boot). Os horários abaixo permanecem; o que muda é a confiabilidade — não pulam se o PC esteve desligado na hora.
+
 **Monthly backup (1st, 07:00):** local backup to `/mnt/HDD_Arquivos/Backups/brokershark` if not yet done this month (keeps last 12 files).
 
 **Weekly report (Monday 08:00):** expenses, income, top category, reserves, fatura due dates.
@@ -414,9 +455,16 @@ Produto = **análise do meu dinheiro**. A web (3 telas: **Visão do Mês** + **H
 - Bot Telegram **somente consulta** (perguntas em linguagem natural via tools de leitura + comandos rápidos) + relatórios/alertas agendados. Registro/edição removidos do Telegram (2026-06-02) — escrita é exclusiva da web.
 - Backup mensal: HDD local; SSE ao vivo.
 
-**Backlog (diferido):**
+**Backlog (decidido 2026-06-04; re-sequenciado pela /plan-ceo-review — ordenado por prioridade):**
+- [ ] **P1a · Backup confiável (slice rápido, decoupled)** — trocar `shutil.copy2` pela **API de backup do SQLite** (`conn.backup()`/`VACUUM INTO`, WAL-safe) **+ restore de 1 comando + `PRAGMA integrity_check`** do snapshot. Solta **primeiro** — ganho de confiabilidade barato, independe da migração de runtime. Ver "Backup Strategy".
+- [ ] **P1b · Preview de import editável + lote** — editar categoria/nome/valor + excluir antes de gravar; múltiplos arquivos numa leva; edição de valor com **auditoria** (`original_amount` + aviso de divergência com o extrato). Valor semanal ("fácil de alimentar"). Ver "Web Import → Preview editável + lote".
+- [ ] **P1c · Migração de runtime (systemd timers + launcher)** — aposentar APScheduler; 3 jobs oneshot+timer (`Persistent=true`) + **`enable-linger`** + launcher on-demand + **bootstrap compartilhado** (DRY). Bloco coeso, **depois** de P1a/P1b (o app atual já funciona — não é incêndio). Ver "Modelo de execução".
+- [ ] **P2 · Breakdown por método** — visão separando crédito (fatura) × PIX × TED/transfer × débito no Histórico/Visão do Mês. Ver "Clareza da fatura × método".
+- [ ] **P2 · Débito defensivo** — garantir que um `debit` avulso não quebra totais nem o breakdown (teste de regressão).
+- [ ] **P2 · Testes de regressão** — backup consistente com o app escrevendo (WAL) + restore verificado; cada entrypoint de job roda standalone; divergência de valor no import dispara aviso.
 - [ ] Adapter fatura Nubank (`nu-cc`) — formato desconhecido (diretório de exemplo vazio).
 - [ ] Desfazer última importação (reverter batch por `batch_id`).
+- [x] ~~Refactor hexagonal (ports & adapters)~~ — **tirado do roadmap** (/plan-ceo-review 2026-06-04): YAGNI p/ ferramenta de 1 usuário; ports só oportunistas. Ver "Arquitetura — ports & adapters".
 - [x] ~~Filtro "sem categoria" / categorizar~~ — entregue como **categorização inline no Histórico** (filtro "Sem categoria" + `<select>` por linha). Auto-categorização por regras e painel de lote foram descartados (manual é mais previsível).
 - [x] ~~Registrar movimentos do Tesouro Direto~~ — entregue via **"+ Movimento"** na aba Investimentos (`MovementModal`).
 
@@ -436,6 +484,14 @@ Produto = **análise do meu dinheiro**. A web (3 telas: **Visão do Mês** + **H
 - [x] **Superado (2026-06-02):** o Telegram não escreve mais no DB. As tools `register_*`/`confirm`/`cancel` e seus validadores (`_pos_amount`, `_require`, allow-lists) foram **removidos** de `ai_chat.py` — a superfície de prompt-injection que levava a gravação deixou de existir (não há mais caminho de escrita a partir do LLM). Toda escrita passa pelas rotas web, que validam `type`/`method`/`installments`/`amount` no servidor. Testes em `tests/test_ai_chat.py` (somente leitura) e `tests/test_server_writes.py`.
 - [x] **Resolvido — B3 (xlsx):** `core/ingestion/b3.py` lê o arquivo em memória (`io.BytesIO`, sem extrair → zip-slip não aplicável); openpyxl 3.x não resolve entidades externas nem busca rede (XXE não exposto); cap de tamanho (16 MB) antes do parse; não-xlsx/corrupto → `B3ParseError` (sem 500). Testes em `tests/test_b3.py`.
 - [ ] **Se adicionar export (CSV/planilha):** neutralizar CSV formula injection (células começando com `= + - @`) — hoje os dados são só renderizados via React (escapados), sem export, então não explorável.
+
+## Arquitetura — ports & adapters (considerado e tirado do roadmap)
+
+> **Decisão /plan-ceo-review (2026-06-04):** um refactor hexagonal completo é **YAGNI para uma ferramenta de 1 usuário que já funciona** — risco de regressão por ganho marginal. **Fora do roadmap, não é trabalho planejado.**
+
+O benefício de "expandir fácil" se captura **de graça e oportunisticamente**, não como projeto: quando adicionar um **banco/fonte novo**, isole aquele parse atrás de uma função no estilo `StatementParser` (o `core/ingestion/adapters.py` já tem essa forma — parser por fonte → linha canônica); quando os **timers** exigirem tempo testável, injete um `Clock` em vez de `datetime.now()` direto. Nunca um big-bang. O kernel da ideia (domínio puro no centro — classificação, patrimônio/cashflow, ciclo de fatura, dedup; I/O nas bordas atrás de ports como `TransactionRepository`/`StatementParser`/`Notifier`/`LLMClient`/`EventBus`) fica registrado aqui **só como referência** se um dia a expansão pedir.
+
+---
 
 ## Skill routing
 
