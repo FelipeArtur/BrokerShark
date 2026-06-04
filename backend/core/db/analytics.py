@@ -838,6 +838,20 @@ def get_investment_movements_for_month(month: int, year: int) -> list[dict]:
         ).fetchall()
     return [dict(r) for r in rows]
 
+def get_recent_investment_movements(limit: int = 100) -> list[dict]:
+    """Return recent investment movements."""
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT im.id, im.date, im.investment_id, im.operation, im.amount,
+                      COALESCE(im.description, '') AS description,
+                      i.name AS investment_name, i.bank
+               FROM investment_movements im
+               JOIN investments i ON i.id = im.investment_id
+               ORDER BY im.date DESC LIMIT ?""",
+            (limit,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
 
 def get_budgets() -> list[dict]:
     """Return all budgets joined with category names."""

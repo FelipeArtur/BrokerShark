@@ -752,7 +752,7 @@ def api_get_investment_movements() -> Response:
     month = request.args.get("month", type=int)
     year  = request.args.get("year",  type=int)
     if not month or not year:
-        return jsonify([])
+        return jsonify(database.get_recent_investment_movements(limit=100))
     return jsonify(database.get_investment_movements_for_month(month, year))
 
 

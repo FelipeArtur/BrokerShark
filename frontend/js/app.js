@@ -126,140 +126,122 @@ function CategoryEditor({ tx, onClose, onSave }) {
   const amtColor = isSelf ? "var(--info)" : isInvest ? "var(--reserve)" : (flowIsExpense ? "var(--neg)" : "var(--pos)");
   const sign = flowIsExpense ? "−" : "+";
 
-  return h(Modal, { open: !!tx, onClose, title: "Transação", width: 480 },
-    tx && h("div", { style: { display: "flex", flexDirection: "column" } },
-      h("div", { style: { background: "var(--bg-1)", padding: "12px 16px", borderBottom: "1px solid var(--line-1)" } },
-        h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 } },
-          h("div", { style: { fontSize: 9, color: "var(--fg-3)", fontFamily: "var(--ff-mono)", textTransform: "uppercase", letterSpacing: "0.05em" } }, isSelf ? "Transferência Própria" : isInvest ? "Movimento de Investimento" : flowIsExpense ? "Comprovante de Despesa" : "Comprovante de Receita"),
-          h("div", { style: { fontSize: 10, color: "var(--fg-3)", fontFamily: "var(--ff-mono)" } }, fmtDateBR(tx.date))
-        ),
-        h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline" } },
-          h("div", { style: { fontSize: 14, fontWeight: 500, color: "var(--fg-1)", flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", paddingRight: 16 } },
-            displayName || tx.description
+  return h(Modal, { open: !!tx, onClose, title: "Perfil da Transação", width: 640 },
+    tx && h("div", { style: { display: "flex", flexDirection: "column", gap: 32 } },
+      
+      // Hero Header Block - More Premium
+      h("div", { style: { background: "var(--bg-1)", padding: "40px 32px", borderRadius: 16, border: "1px solid var(--line-1)", display: "flex", flexDirection: "column", position: "relative", overflow: "hidden" } },
+        
+        // Background accent
+        h("div", { style: { position: "absolute", top: 0, left: 0, right: 0, height: 4, background: amtColor } }),
+        
+        // Top Row: Type & Date vs Bank
+        h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 32 } },
+          h("div", { style: { display: "flex", flexDirection: "column", gap: 6 } },
+            h("div", { style: { fontSize: 11, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700 } }, 
+               isSelf ? "Transferência Própria" : isInvest ? "Movimento de Investimento" : flowIsExpense ? "Comprovante de Despesa" : "Comprovante de Receita"
+            ),
+            h("div", { className: "mono", style: { fontSize: 13, color: "var(--fg-2)" } }, fmtDateBR(tx.date))
           ),
-          h("span", { className: "num", style: { fontSize: 32, fontWeight: 700, letterSpacing: "-0.04em", color: amtColor, lineHeight: 1 } },
+          h(window.BS.BankChip, { accountId: tx.account_id, bank: tx.bank })
+        ),
+        
+        // Amount & Display Name
+        h("div", { style: { display: "flex", flexDirection: "column", gap: 16 } },
+          h("span", { className: "num", style: { fontSize: 56, fontWeight: 800, letterSpacing: "-0.04em", color: amtColor, lineHeight: 1 } },
             sign + fmtBRL(tx.amount)
+          ),
+          h("div", { style: { fontSize: 24, fontWeight: 700, color: "var(--fg-0)", wordBreak: "break-word", lineHeight: 1.2 } },
+            displayName || tx.description
+          )
+        ),
+
+        // Technical details strip (cleaner)
+        h("div", { style: { display: "flex", gap: 32, marginTop: 40, paddingTop: 24, borderTop: "1px dashed var(--line-2)" } },
+          h("div", { style: { display: "flex", flexDirection: "column", gap: 6, flex: 1, minWidth: 0 } },
+             h("span", { style: { color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700, fontSize: 10 } }, "Nome Original"),
+             h("span", { className: "mono", style: { color: "var(--fg-1)", fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, tx.description)
+          ),
+          h("div", { style: { display: "flex", flexDirection: "column", gap: 6 } },
+             h("span", { style: { color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700, fontSize: 10 } }, "Método"),
+             h("span", { className: "mono", style: { color: "var(--fg-1)", fontSize: 12, textTransform: "uppercase" } }, methodLabel || "—")
           )
         )
       ),
 
-      h("div", { style: { display: "flex", flexDirection: "column", gap: 16, padding: "16px 20px" } },
+      // Edit Form Block
+      h("div", { style: { display: "flex", flexDirection: "column", gap: 32, padding: "0 8px" } },
 
-        h("div", { style: { display: "flex", flexDirection: "column", gap: 6 } },
-          h("label", { style: { fontSize: 10, color: "var(--fg-2)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.02em" } }, "Nome fantasia"),
+        // Name
+        h("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
+          h("label", { style: { fontSize: 11, color: "var(--fg-2)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" } }, "Renomear Transação"),
           h("input", {
             className: "input", type: "text",
-            placeholder: tx.description?.slice(0, 50) || "Nome amigável…",
+            placeholder: tx.description?.slice(0, 50) || "Ex: Almoço Padaria...",
             value: displayName,
             onChange: e => setDisplayName(e.target.value),
-            style: { fontSize: 13, background: "var(--bg-2)", border: "1px solid var(--line-2)", padding: "8px 10px" }
+            style: { fontSize: 15, height: 44, borderRadius: 8, padding: "0 16px", background: "var(--bg-1)", border: "1px solid var(--line-1)" }
           })
         ),
 
-        flowIsExpense && h("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
-          h("div", { style: { fontSize: 10, color: "var(--fg-2)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.02em" } }, "Categoria"),
-          h("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 4 } },
+        // Category
+        flowIsExpense && h("div", { style: { display: "flex", flexDirection: "column", gap: 12 } },
+          h("div", { style: { fontSize: 11, color: "var(--fg-2)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" } }, "Classificação"),
+          h("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 } },
             cats.map(c => h("button", {
               key: c.id, type: "button",
               onClick: () => setSelected(c.id),
               "aria-pressed": selected === c.id,
               style: {
-                padding: "6px 8px", borderRadius: 4, textAlign: "center",
-                fontSize: 11, fontWeight: selected === c.id ? 600 : 500,
-                background: selected === c.id ? "var(--info-bg)" : "var(--bg-1)",
-                border: selected === c.id ? "1px solid var(--info)" : "1px solid var(--line-1)",
-                color: selected === c.id ? "var(--fg-0)" : "var(--fg-1)",
-                whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis"
+                padding: "12px 8px", borderRadius: 8, textAlign: "center",
+                fontSize: 12, fontWeight: selected === c.id ? 700 : 500,
+                background: selected === c.id ? "var(--fg-0)" : "var(--bg-1)",
+                border: selected === c.id ? "1px solid var(--fg-0)" : "1px solid var(--line-1)",
+                color: selected === c.id ? "var(--bg-0)" : "var(--fg-1)",
+                whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", transition: "all 0.15s", cursor: "pointer"
               }
             }, c.name))
           )
         ),
 
+        // Third Party toggle
         h("button", {
           type: "button",
           onClick: handleToggleThirdParty,
           style: {
             display: "flex", alignItems: "center", justifyContent: "space-between",
-            padding: "8px 12px", borderRadius: 4, textAlign: "left",
+            padding: "16px 20px", borderRadius: 8, textAlign: "left",
             background: isThirdParty ? "var(--warn-bg, rgba(255,160,0,0.12))" : "var(--bg-1)",
             border: isThirdParty ? "1px solid var(--warn, #fa0)" : "1px solid var(--line-1)",
             color: isThirdParty ? "var(--warn, #fa0)" : "var(--fg-2)",
-            fontSize: 11, fontWeight: isThirdParty ? 600 : 500, cursor: "pointer",
+            fontSize: 13, fontWeight: isThirdParty ? 600 : 500, cursor: "pointer", transition: "all 0.15s"
           }
         },
-          h("span", {}, isThirdParty ? "Excluído dos meus gastos (Terceiros)" : "Não é meu — excluir dos meus gastos"),
-          h("span", { style: { fontSize: 12 } }, isThirdParty ? "🔒" : "🔓")
+          h("span", {}, isThirdParty ? "Transação de terceiros (Ocultada dos totais)" : "Marcar como transação de terceiros"),
+          h("span", { style: { fontSize: 16 } }, isThirdParty ? "🔒" : "🔓")
         ),
 
-        err && h("div", { style: { fontSize: 11, color: "var(--neg)", padding: "2px 0" } }, err),
+        err && h("div", { style: { fontSize: 12, color: "var(--neg)", background: "color-mix(in oklch, var(--neg) 10%, transparent)", padding: "12px 16px", borderRadius: 8 } }, err)
+      ),
 
-        h("div", { style: { display: "flex", gap: 8, justifyContent: "space-between", marginTop: 4, paddingTop: 16, borderTop: "1px solid var(--line-1)" } },
-          h("button", {
-            className: "btn btn-ghost btn-sm",
-            onClick: handleDelete, disabled: deleting,
-            style: { color: "var(--neg)", fontSize: 12, padding: "0 8px" }
-          }, deleting ? "Excluindo…" : "Excluir lançamento"),
-          h("div", { style: { display: "flex", gap: 8 } },
-            h("button", { className: "btn btn-ghost btn-sm", onClick: onClose }, "Cancelar"),
-            h("button", { className: "btn btn-primary btn-sm", onClick: save, disabled: saving, style: { minWidth: 80, fontSize: 12 } },
-              saving ? "Salvando…" : "Salvar")
-          )
+      // Footer Actions
+      h("div", { style: { display: "flex", gap: 12, justifyContent: "space-between", alignItems: "center", paddingTop: 16 } },
+        h("button", {
+          className: "btn btn-ghost",
+          onClick: handleDelete, disabled: deleting,
+          style: { color: "var(--neg)", fontSize: 13, fontWeight: 700, padding: "0 16px", height: 40 }
+        }, deleting ? "Excluindo…" : "Excluir lançamento"),
+        h("div", { style: { display: "flex", gap: 12 } },
+          h("button", { className: "btn btn-ghost", onClick: onClose, style: { fontSize: 13, fontWeight: 600, padding: "0 16px", height: 40 } }, "Cancelar"),
+          h("button", { className: "btn btn-primary", onClick: save, disabled: saving, style: { padding: "0 24px", height: 40, fontSize: 13, fontWeight: 700, borderRadius: 8 } },
+            saving ? "Salvando…" : "Salvar Alterações")
         )
       )
     )
   );
 }
 
-/* ── TweaksPanel ────────────────────────────────────────────────────────── */
-function TweaksPanel({ tw, setTw, onClose, onOpenCategories }) {
-  const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
-  const Row = ({ label, children }) => h("div", {
-    style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 0", borderBottom: "1px solid var(--line-1)" }
-  },
-    h("span", { style: { fontSize: "var(--fz-7)", color: "var(--fg-1)" } }, label), children);
 
-  const Radio = ({ options, value, onChange }) => h("div", { style: { display: "flex", gap: 4 } },
-    options.map(o => h("button", {
-      key: o, type: "button", onClick: () => onChange(o),
-      style: {
-        padding: "3px 9px", fontSize: 11, borderRadius: 4,
-        border: o === value ? "1px solid var(--info)" : "1px solid var(--line-1)",
-        background: o === value ? "var(--info-bg)" : "var(--bg-2)",
-        color: o === value ? "var(--info)" : "var(--fg-1)"
-      }
-    }, o))
-  );
-
-  return h("div", { className: "tweaks-panel", role: "dialog", "aria-label": "Configurações" },
-    h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 } },
-      h("span", { style: { fontWeight: 700, fontSize: "var(--fz-5)" } }, "Configurações"),
-      h("button", { className: "btn btn-ghost btn-sm", "aria-label": "Fechar", onClick: onClose }, "✕")
-    ),
-
-    h(Row, { label: "Tema" },
-      h(Radio, { options: ["Dark", "Light"], value: tw.theme, onChange: v => setTw("theme", v) })
-    ),
-
-    h("div", { style: { marginTop: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 } },
-      h("button", {
-        className: "btn btn-ghost btn-sm",
-        onClick: () => { onOpenCategories(); onClose(); },
-        style: { justifyContent: "center", fontSize: 12, color: "var(--fg-1)", height: 34 }
-      },
-        h("span", { style: { fontSize: 14, marginRight: 4 } }, "⊞"),
-        "Categorias"
-      ),
-      h("button", {
-        className: "btn btn-ghost btn-sm",
-        onClick: () => { localStorage.removeItem("bs_tweaks"); location.reload(); },
-        style: { justifyContent: "center", fontSize: 12, color: "var(--fg-3)", height: 34 }
-      },
-        h("span", { style: { fontSize: 14, marginRight: 4 } }, "↺"),
-        "Restaurar"
-      )
-    )
-  );
-}
 
 /* ── SearchModal ─────────────────────────────────────────────────────────── */
 function SearchModal({ onClose, onSelect }) {
@@ -310,55 +292,68 @@ function SearchModal({ onClose, onSelect }) {
       ref: panelRef,
       role: "dialog", "aria-modal": "true", "aria-label": "Buscar transações",
       onClick: e => e.stopPropagation(),
-      style: { width: 520, background: "var(--bg-1)", border: "1px solid var(--line-2)", borderRadius: "var(--r-2)", boxShadow: "0 8px 32px oklch(0% 0 0 / 0.5)", overflow: "hidden" }
+      style: { width: 720, background: "var(--bg-1)", border: "1px solid var(--line-1)", borderRadius: 16, boxShadow: "0 16px 48px oklch(0% 0 0 / 0.4)", overflow: "hidden", display: "flex", flexDirection: "column" }
     },
       h("div", {
         "aria-live": "polite", "aria-atomic": "true",
         style: { position: "absolute", width: 1, height: 1, padding: 0, margin: -1, overflow: "hidden", clip: "rect(0,0,0,0)", whiteSpace: "nowrap", border: 0 }
       }, query.length >= 2 ? `${results.length} resultado${results.length !== 1 ? "s" : ""}` : ""),
-      h("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderBottom: "1px solid var(--line-1)" } },
-        h("span", { style: { color: "var(--fg-3)", display: "flex", alignItems: "center", flexShrink: 0 } },
-          h(IconSearch, { size: 18 })
+      h("div", { style: { display: "flex", alignItems: "center", gap: 16, padding: "20px 24px", borderBottom: "1px solid var(--line-0)" } },
+        h("span", { style: { color: "var(--fg-2)", display: "flex", alignItems: "center", flexShrink: 0 } },
+          h(IconSearch, { size: 24 })
         ),
         h("input", {
           ref: inputRef,
           value: query, onChange: e => setQuery(e.target.value),
           onKeyDown: onKey,
-          placeholder: "Buscar transações…",
-          style: { flex: 1, background: "none", border: "none", outline: "none", fontSize: 14, color: "var(--fg-0)" }
+          placeholder: "Buscar transações por nome, categoria ou valor...",
+          style: { flex: 1, background: "none", border: "none", outline: "none", fontSize: 18, color: "var(--fg-0)", fontWeight: 500 }
         })
       ),
-      results.length > 0 && h("div", { style: { maxHeight: 360, overflowY: "auto" } },
-        h("div", { style: { padding: "4px 14px", fontSize: 9, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, background: "var(--bg-2)" } },
+      results.length > 0 && h("div", { style: { maxHeight: 440, overflowY: "auto", padding: "12px 0" } },
+        h("div", { style: { padding: "4px 24px 12px", fontSize: 11, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700 } },
           results.length, " resultado", results.length !== 1 ? "s" : ""
         ),
-        results.map((t, i) => h("button", {
-          key: t.id,
-          onClick: () => { onSelect(t); onClose(); },
-          onMouseEnter: () => setActiveIdx(i),
-          style: {
-            display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10,
-            width: "100%", padding: "10px 14px", borderBottom: "1px solid var(--line-1)",
-            background: i === activeIdx ? "var(--bg-2)" : "transparent",
-          }
-        },
-          h("div", { style: { minWidth: 0, flex: 1, textAlign: "left" } },
-            h("div", { style: { fontSize: 13, color: "var(--fg-0)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, t.description),
-            h("div", { style: { fontSize: 10, color: "var(--fg-3)", marginTop: 2, fontFamily: "var(--ff-mono)" } },
-              fmtDateBR(t.date), " · ", t.category || "—"
+        results.map((t, i) => {
+          const hlt = (text) => {
+            if (!query || query.length < 2 || !text) return text;
+            const parts = text.toString().split(new RegExp(`(${query})`, 'gi'));
+            return parts.map((p, idx) => p.toLowerCase() === query.toLowerCase() 
+              ? h("strong", { key: idx, style: { color: "var(--info)", background: "color-mix(in oklch, var(--info) 20%, transparent)", padding: "0 2px", borderRadius: 2 } }, p) 
+              : p);
+          };
+          return h("button", {
+            key: t.id,
+            onClick: () => { onSelect(t); onClose(); },
+            onMouseEnter: () => setActiveIdx(i),
+            style: {
+              display: "flex", alignItems: "center",
+              width: "100%", padding: "12px 24px", border: "none",
+              background: i === activeIdx ? "var(--bg-2)" : "transparent",
+              cursor: "pointer", transition: "background 0.05s"
+            }
+          },
+            h("div", { style: { minWidth: 0, flex: 1, textAlign: "left", display: "grid", gridTemplateColumns: "1fr 140px 100px", alignItems: "center", gap: 16 } },
+              h("div", { style: { display: "flex", flexDirection: "column", gap: 4, minWidth: 0 } },
+                h("div", { style: { fontSize: 14, color: "var(--fg-0)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, hlt(t.description)),
+                h("div", { style: { fontSize: 12, color: "var(--fg-3)" } }, hlt(t.category || "—"))
+              ),
+              h("div", { style: { fontSize: 12, color: "var(--fg-2)", fontFamily: "var(--ff-mono)" } }, fmtDateBR(t.date)),
+              h("div", { style: { textAlign: "right" } },
+                h("span", { className: "num", style: { color: COLOR[t.flow] || "var(--fg-1)", fontSize: 14, fontWeight: 700, letterSpacing: "-0.02em" } },
+                  LABEL[t.flow] || "", fmtBRL(t.amount))
+              )
             )
-          ),
-          h("span", { style: { color: COLOR[t.flow] || "var(--fg-1)", fontSize: 13, fontWeight: 700, fontFamily: "var(--ff-mono)", flexShrink: 0 } },
-            LABEL[t.flow] || "", fmtBRL(t.amount, { decimals: 0 }))
-        ))
+          );
+        })
       ),
       query.length >= 2 && results.length === 0 && h("div", {
-        style: { padding: "24px 14px", textAlign: "center", color: "var(--fg-3)", fontSize: 13 }
+        style: { padding: "40px 24px", textAlign: "center", color: "var(--fg-3)", fontSize: 14 }
       }, `Nenhum resultado para "${query}"`),
-      h("div", { style: { padding: "6px 14px", borderTop: "1px solid var(--line-1)", fontSize: 10, color: "var(--fg-3)", display: "flex", gap: 14 } },
-        h("span", null, "↑↓ navegar"),
-        h("span", null, "Enter selecionar"),
-        h("span", null, "Esc fechar")
+      h("div", { style: { padding: "12px 24px", borderTop: "1px solid var(--line-0)", background: "var(--bg-0)", fontSize: 11, color: "var(--fg-3)", display: "flex", gap: 24 } },
+        h("span", null, h("span", { style: { fontFamily: "var(--ff-mono)", background: "var(--bg-2)", padding: "2px 6px", borderRadius: 4, marginRight: 6 } }, "↑↓"), "Navegar"),
+        h("span", null, h("span", { style: { fontFamily: "var(--ff-mono)", background: "var(--bg-2)", padding: "2px 6px", borderRadius: 4, marginRight: 6 } }, "Enter"), "Selecionar"),
+        h("span", null, h("span", { style: { fontFamily: "var(--ff-mono)", background: "var(--bg-2)", padding: "2px 6px", borderRadius: 4, marginRight: 6 } }, "Esc"), "Fechar")
       )
     )
   );
@@ -367,11 +362,11 @@ function SearchModal({ onClose, onSelect }) {
 function IconImport({ size = 17 }) {
   return React.createElement("svg", {
     width: size, height: size, viewBox: "0 0 16 16", fill: "none",
-    stroke: "currentColor", strokeWidth: 1.6, strokeLinecap: "round", strokeLinejoin: "round",
+    stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round",
   },
-    React.createElement("path", { d: "M8 2 L8 10" }),
-    React.createElement("path", { d: "M5 7 L8 10 L11 7" }),
-    React.createElement("path", { d: "M3 12 L13 12" })
+    React.createElement("path", { d: "M8 11 L8 2" }),
+    React.createElement("path", { d: "M4 6 L8 2 L12 6" }),
+    React.createElement("path", { d: "M2 14 L14 14" })
   );
 }
 
@@ -510,7 +505,7 @@ function ImportModal({ onClose, onDone }) {
           Stat("Já Existem", preview.counts.duplicate, "var(--fg-3)"),
           Stat("Ignoradas", preview.counts.skipped, "var(--reserve)")
         ),
-        err && h("div", { style: { color: "var(--neg)", fontSize: 12 } }, err),
+        err && h("div", { style: { color: "var(--neg)", fontSize: 12, background: "color-mix(in oklch, var(--neg) 10%, transparent)", padding: "10px 14px", borderRadius: 6, border: "1px dashed color-mix(in oklch, var(--neg) 30%, transparent)" } }, err),
         h("div", { style: { display: "flex", flexDirection: "column", gap: 8, marginTop: "auto" } },
           h("button", { className: "btn btn-primary", disabled: busy || willImport <= 0, onClick: confirm }, busy ? "Importando..." : "Confirmar Importação"),
           h("button", { className: "btn btn-ghost", onClick: () => { setPreview(null); setFile(null); setCurrentStep(2); } }, "Cancelar")
@@ -638,6 +633,7 @@ function App() {
   const [tweaksOpen, setTweaksOpen] = useState(false);
   const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [categoriesOpen, setCategoriesOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [historyAccount, setHistoryAccount] = useState(null); // drill-down: filter Histórico by account
   const { push, Toaster } = useToasts();
@@ -700,81 +696,110 @@ function App() {
   }
 
   const SECTIONS = [
-    { id: "money",       label: "Visão do Mês"  },
-    { id: "history",     label: "Histórico" },
-    { id: "investments", label: "Investimentos" },
+    { id: "money",       label: "Visão do Mês", shortcut: "1" },
+    { id: "history",     label: "Histórico",    shortcut: "2" },
+    { id: "investments", label: "Investimentos",shortcut: "3" },
   ];
 
-  return h("div", { id: "app", style: { height: "100vh", display: "flex", flexDirection: "column" } },
+  return h("div", { id: "app", style: { height: "100vh", display: "flex", flexDirection: "column", background: "var(--bg-0)" } },
 
-    // ── Topbar
-    h("header", { className: "app-topbar" },
-      h(BrokerSharkLogo, { size: 26 }),
-      h("div", { style: { width: 1, height: 20, background: "var(--line-1)", margin: "0 6px" } }),
-
-      // Nav
-      h("nav", { style: { display: "flex", gap: 2 } },
-        SECTIONS.map(s => h("button", {
-          key: s.id, className: `nav-btn${section === s.id ? " active" : ""}`,
-          onClick: () => setSection(s.id),
-          "aria-current": section === s.id ? "page" : undefined,
-        }, s.label))
+    // ── Premium Topbar
+    h("header", { style: { 
+      height: 72, padding: "0 48px", 
+      display: "flex", alignItems: "center", justifyContent: "space-between",
+      background: "var(--bg-0)", borderBottom: "1px solid var(--line-0)",
+      position: "sticky", top: 0, zIndex: 10
+    } },
+      
+      // Left: Logo & Nav
+      h("div", { style: { display: "flex", alignItems: "center", gap: 48 } },
+        h("div", { style: { display: "flex", alignItems: "center", gap: 12, cursor: "pointer" }, onClick: () => setSection("money") },
+          h(BrokerSharkLogo, { size: 28 })
+        ),
+        h("nav", { style: { display: "flex", gap: 8 } },
+          SECTIONS.map(s => h("button", {
+            key: s.id, onClick: () => setSection(s.id),
+            style: { 
+              padding: "6px 14px", borderRadius: 6, fontSize: 13, fontWeight: 600, border: "none", cursor: "pointer",
+              color: section === s.id ? "var(--bg-0)" : "var(--fg-1)",
+              background: section === s.id ? "var(--fg-0)" : "transparent",
+              transition: "all 0.15s", display: "flex", alignItems: "center", gap: 8
+            },
+            onMouseEnter: e => { if(section !== s.id) { e.currentTarget.style.color = "var(--fg-0)"; } },
+            onMouseLeave: e => { if(section !== s.id) { e.currentTarget.style.color = "var(--fg-1)"; } }
+          }, 
+            s.label,
+            s.shortcut && h("kbd", { style: { 
+              fontFamily: "var(--ff-mono)", fontSize: 10, fontWeight: 600,
+              color: section === s.id ? "color-mix(in oklch, var(--bg-0) 70%, transparent)" : "var(--fg-3)", 
+              background: section === s.id ? "color-mix(in oklch, var(--bg-0) 15%, transparent)" : "var(--bg-1)", 
+              border: section === s.id ? "none" : "1px solid var(--line-1)",
+              padding: "0 5px", borderRadius: 4, height: 18, display: "inline-flex", alignItems: "center"
+            } }, s.shortcut)
+          ))
+        )
       ),
 
-      h("div", { style: { flex: 1 } }),
+      // Right: Actions
+      h("div", { style: { display: "flex", alignItems: "center", gap: 16 } },
+        
+        // Search Trigger
+        h("div", { 
+          onClick: () => setSearchModalOpen(true),
+          style: { display: "flex", alignItems: "center", gap: 12, padding: "0 16px", height: 36, borderRadius: 18, background: "var(--bg-1)", border: "1px solid var(--line-1)", color: "var(--fg-3)", fontSize: 13, cursor: "text", width: 220, transition: "border-color 0.15s" },
+          onMouseEnter: e => e.currentTarget.style.borderColor = "var(--line-2)",
+          onMouseLeave: e => e.currentTarget.style.borderColor = "var(--line-1)"
+        },
+          h(IconSearch, { size: 14 }),
+          h("span", { style: { flex: 1, fontWeight: 500 } }, "Buscar..."),
+          h("kbd", { style: { fontFamily: "var(--ff-mono)", fontSize: 10, background: "var(--bg-2)", padding: "2px 6px", borderRadius: 4, color: "var(--fg-3)" } }, "/")
+        ),
 
-      // Import button
-      h("button", {
-        className: "btn btn-ghost btn-sm",
-        onClick: () => setImportOpen(true),
-        title: "Importar extrato ou fatura (CSV)",
-        style: { display: "flex", alignItems: "center", gap: 6, padding: "0 10px", height: 30 }
-      },
-        h(IconImport, { size: 17 }),
-        h("span", { style: { fontSize: 12 } }, "Importar")
-      ),
+        // Categories Toggle
+        h("button", { 
+          onClick: () => setCategoriesOpen(true),
+          title: "Gerenciar Categorias",
+          style: { width: 36, height: 36, borderRadius: 18, background: "var(--bg-1)", border: "1px solid var(--line-1)", color: "var(--fg-1)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, transition: "background 0.1s" },
+          onMouseEnter: e => e.currentTarget.style.background = "var(--bg-2)",
+          onMouseLeave: e => e.currentTarget.style.background = "var(--bg-1)"
+        }, "⚙️"),
 
-      // Search button
-      h("button", {
-        className: "btn btn-ghost btn-sm",
-        onClick: () => setSearchModalOpen(true),
-        title: "Buscar transações (/)",
-        style: { display: "flex", alignItems: "center", gap: 6, padding: "0 10px", height: 30 }
-      },
-        h(IconSearch, { size: 17 }),
-        h("span", { style: { fontSize: 12 } }, "Buscar")
-      ),
-
-      // Settings
-      h("button", {
-        className: "btn btn-ghost btn-sm",
-        onClick: () => setTweaksOpen(o => !o),
-        title: "Configurações",
-        style: { display: "flex", alignItems: "center", padding: "0 10px", height: 30 }
-      },
-        h(IconSettings, { size: 17 })
+        // Theme Toggle
+        h("button", { 
+          onClick: () => setTw("theme", tw.theme === "Dark" ? "Light" : "Dark"),
+          title: "Alternar Tema",
+          style: { width: 36, height: 36, borderRadius: 18, background: "var(--bg-1)", border: "1px solid var(--line-1)", color: "var(--fg-1)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, transition: "background 0.1s" },
+          onMouseEnter: e => e.currentTarget.style.background = "var(--bg-2)",
+          onMouseLeave: e => e.currentTarget.style.background = "var(--bg-1)"
+        }, tw.theme === "Dark" ? "☀️" : "🌙"),
+        
+        // Prominent Import Button
+        h("button", { 
+          onClick: () => setImportOpen(true),
+          style: { height: 36, padding: "0 20px", borderRadius: 18, background: "var(--fg-0)", color: "var(--bg-0)", border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, transition: "transform 0.1s" },
+          onMouseEnter: e => e.currentTarget.style.transform = "scale(1.03)",
+          onMouseLeave: e => e.currentTarget.style.transform = "scale(1)"
+        }, h(IconImport, { size: 16 }), "Importar Dados")
       )
     ),
 
     // ── Body
-    h("div", { className: "app-body" },
-      h("main", { className: "app-main" },
-        h("div", { className: "main-content" },
-          section === "money"      && h(OverviewView, {
-            onJumpToAccount: (accId) => { setHistoryAccount(accId || null); setSection("history"); },
-            onEditCategory: setEditTx, onDeleteTx: handleDeleteTx, refreshKey, filterMonth: currentMonth,
-            onImport: () => setImportOpen(true)
-          }),
-          section === "history"    && h(HistoryView, {
-            onEditCategory: setEditTx, onDeleteTx: handleDeleteTx, refreshKey,
-            initialAccount: historyAccount, onAccountConsumed: () => setHistoryAccount(null)
-          }),
-          section === "investments" && h(InvestmentsView, { refreshKey, filterMonth: "all" }),
-          section === "categories" && h(CategoriesPanel, { refreshKey, onRefresh: () => setRefreshKey(k => k + 1) }),
+    h("main", { style: { flex: 1, overflowY: "auto", position: "relative" } },
+      h("div", { style: { width: "100%", maxWidth: 1200, margin: "0 auto", padding: "48px 0", minHeight: "100%", display: "flex", flexDirection: "column" } },
+        section === "money"      && h(OverviewView, {
+          onJumpToAccount: (accId) => { setHistoryAccount(accId || null); setSection("history"); },
+          onEditCategory: setEditTx, onDeleteTx: handleDeleteTx, refreshKey, filterMonth: currentMonth,
+          onImport: () => setImportOpen(true)
+        }),
+        section === "history"    && h(HistoryView, {
+          onEditCategory: setEditTx, onDeleteTx: handleDeleteTx, refreshKey,
+          initialAccount: historyAccount, onAccountConsumed: () => setHistoryAccount(null)
+        }),
+        section === "investments" && h(InvestmentsView, { refreshKey, filterMonth: "all" }),
 
-          h("footer", { style: { marginTop: 20, padding: "12px 0", borderTop: "1px solid var(--line-1)", fontSize: 10, color: "var(--fg-3)" } },
-            h("span", null, "BrokerShark · localhost:8080 · SQLite")
-          )
+        h("footer", { style: { marginTop: "auto", paddingTop: 64, paddingBottom: 24, fontSize: 11, color: "var(--fg-3)", display: "flex", justifyContent: "space-between", alignItems: "center" } },
+          h("span", null, "BrokerShark"),
+          h("span", { style: { fontFamily: "var(--ff-mono)" } }, "localhost:8080 · SQLite")
         )
       )
     ),
@@ -800,8 +825,12 @@ function App() {
     tweaksOpen && h(TweaksPanel, {
       tw, setTw,
       onClose: () => setTweaksOpen(false),
-      onOpenCategories: () => setSection("categories"),
+      onOpenCategories: () => setCategoriesOpen(true),
     }),
+
+    categoriesOpen && h(window.BS.Drawer, {
+      open: categoriesOpen, onClose: () => setCategoriesOpen(false), width: 680
+    }, h(window.BS.CategoriesPanel, { refreshKey, onRefresh: () => setRefreshKey(k => k + 1) })),
 
     h(CategoryEditor, {
       tx: editTx, onClose: () => setEditTx(null),

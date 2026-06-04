@@ -36,10 +36,10 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
     }).catch(() => setLoadErr(true));
   }, [refreshKey, filterMonth, retryTick]);
 
-  if (loadErr) return h("div", { className: "pane", style: { padding: 24, display: "flex", flexDirection: "column", gap: 10, alignItems: "flex-start" } },
-    h("div", { style: { color: "var(--neg)", fontSize: 13, fontWeight: 600 } }, "Falha ao carregar os dados do mês."),
-    h("div", { style: { color: "var(--fg-3)", fontSize: 12 } }, "O servidor local não respondeu. Verifique se o BrokerShark está rodando."),
-    h("button", { className: "btn btn-sm", onClick: () => setRetryTick(t => t + 1) }, "Tentar de novo")
+  if (loadErr) return h("div", { style: { background: "color-mix(in oklch, var(--neg) 5%, transparent)", border: "1px solid color-mix(in oklch, var(--neg) 30%, transparent)", borderRadius: 12, padding: 24, display: "flex", flexDirection: "column", gap: 12, alignItems: "flex-start", maxWidth: 480 } },
+    h("div", { style: { color: "var(--neg)", fontSize: 14, fontWeight: 700 } }, "Falha ao carregar os dados do mês."),
+    h("div", { style: { color: "var(--fg-2)", fontSize: 13 } }, "O servidor local não respondeu. Verifique se o BrokerShark está rodando."),
+    h("button", { className: "btn btn-ghost", style: { color: "var(--neg)", padding: "6px 12px", border: "1px solid color-mix(in oklch, var(--neg) 30%, transparent)", borderRadius: 6, fontWeight: 600 }, onClick: () => setRetryTick(t => t + 1) }, "Tentar de novo")
   );
 
   if (!summary) return h("div", { style: { padding: 24, color: "var(--fg-2)" } }, "Carregando…");
@@ -63,10 +63,17 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
   const availNeg   = available ? available.available < 0 : false;
 
   function LedgerRow({ label, value, color, negative, strong, sub }) {
-    return h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: sub ? "2px 0" : "4px 0" } },
-      h("span", { style: { fontSize: sub ? 12 : 13, color: sub ? "var(--fg-3)" : "var(--fg-2)", textTransform: strong ? "uppercase" : "none", letterSpacing: strong ? "0.04em" : "0", fontWeight: strong ? 600 : 400, paddingLeft: sub ? 10 : 0 } }, label),
-      h("span", { className: "num", style: { fontWeight: strong ? 700 : 600, fontSize: strong ? 18 : 15, color: color || "var(--fg-0)" } },
+    return h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: sub ? "6px 0" : "8px 0", borderBottom: sub ? "none" : "1px solid var(--line-0)" } },
+      h("span", { style: { fontSize: sub ? 12 : 13, color: sub ? "var(--fg-2)" : "var(--fg-1)", fontWeight: strong ? 600 : 500 } }, label),
+      h("span", { className: "num", style: { fontWeight: strong ? 700 : 600, fontSize: strong ? 16 : 14, color: color || "var(--fg-0)" } },
         (negative ? "−" : "") + fmtBRL(Math.abs(value)))
+    );
+  }
+
+  function HeroStat({ label, value, color, negative }) {
+    return h("div", { style: { display: "flex", flexDirection: "column", gap: 4 } },
+      h("span", { style: { fontSize: 11, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.04em", fontWeight: 700 } }, label),
+      h("span", { className: "num", style: { fontSize: 15, fontWeight: 700, color: color || "var(--fg-1)" } }, (negative ? "−" : "") + fmtBRL(Math.abs(value)))
     );
   }
 
@@ -112,174 +119,173 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
     );
   }
 
-  return h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 14 } },
+  return h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 32, flex: 1, height: "100%" } },
 
-    // Hero: Disponível pra gastar (liquidez) — 2 cards pane
-    h("div", { style: { display: "grid", gridTemplateColumns: "var(--col-hero)", gap: 14, marginBottom: 14 } },
-      // Left: número herói + equação + sparkline de liquidez (now converted to Ledger UI)
-      h("div", { className: "pane" },
-        h("div", { className: "pane-h" },
-          h("div", { className: "pane-title" }, "Disponível pra gastar")
-        ),
-        h("div", { className: "pane-content" },
-          availErr
-            ? h("div", { style: { padding: "8px 0", color: "var(--neg)", fontSize: 12 } }, "Falha ao carregar liquidez")
-            : !available
-              ? h(LedgerRow, { label: "Disponível", value: 0, strong: true })
-              : h("div", null,
-                  h(LedgerRow, { 
-                    label: "Disponível", 
-                    value: Math.abs(availValue), 
-                    color: availNeg ? "var(--neg)" : "var(--pos)", 
-                    negative: availNeg, 
-                    strong: true 
-                  }),
-                  h(LedgerRow, { label: "Caixa (Contas)", value: available.checking_total, sub: true }),
-                  h(LedgerRow, { label: "Faturas", value: available.faturas_total, sub: true, color: available.faturas_total > 0 ? "var(--neg)" : "var(--fg-3)", negative: available.faturas_total > 0 })
+    // ── 1. THE MONTH AT A GLANCE (Hero Panel) ──
+    h("div", { style: { display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 32, background: "var(--bg-1)", padding: 40, borderRadius: 16, border: "1px solid var(--line-1)" } },
+      
+      // Left: Disponível
+      h("div", { style: { display: "flex", flexDirection: "column", justifyContent: "center" } },
+        h("div", { style: { fontSize: 13, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700, marginBottom: 16 } }, "Disponível pra gastar"),
+        availErr
+          ? h("div", { style: { color: "var(--neg)", background: "color-mix(in oklch, var(--neg) 10%, transparent)", padding: "12px 16px", borderRadius: 8, border: "1px dashed color-mix(in oklch, var(--neg) 30%, transparent)", fontSize: 13, fontWeight: 600 } }, "Falha ao carregar liquidez")
+          : !available
+            ? h("div", { className: "num", style: { fontSize: 48, fontWeight: 800, color: "var(--fg-0)" } }, "R$ 0,00")
+            : h("div", null,
+                h("div", { className: "num", style: { fontSize: 56, fontWeight: 800, letterSpacing: "-0.04em", lineHeight: 1, color: availNeg ? "var(--neg)" : "var(--pos)", marginBottom: 24 } },
+                  (availNeg ? "−" : "") + fmtBRL(Math.abs(availValue))
+                ),
+                h("div", { style: { display: "flex", gap: 24 } },
+                  h(HeroStat, { label: "Saldo nas Contas", value: available.checking_total, color: "var(--fg-1)" }),
+                  h("div", { style: { width: 1, background: "var(--line-2)" } }),
+                  h(HeroStat, { label: "Faturas Acumuladas", value: available.faturas_total, color: available.faturas_total > 0 ? "var(--neg)" : "var(--fg-2)", negative: available.faturas_total > 0 })
                 )
-        )
+              )
       ),
-      // Right: patrimônio líquido — contas + investimentos − faturas em aberto
-      h("div", { className: "pane" },
-        h("div", { className: "pane-h" },
-          h("div", { className: "pane-title" }, "Patrimônio líquido")
-        ),
-        h("div", { className: "pane-content" },
-          h(LedgerRow, { label: "Patrimônio líquido", value: Math.abs(patrimonioLiquido), color: patrimonioLiquido < 0 ? "var(--neg)" : "var(--fg-0)", negative: patrimonioLiquido < 0, strong: true }),
-          h(LedgerRow, { label: "Contas", value: checkingTotal, sub: true }),
-          h(LedgerRow, { label: "Investimentos", value: totalReservas, sub: true, color: "var(--reserve)" }),
-          h(LedgerRow, { label: "− Faturas em aberto", value: totalFaturas, sub: true, color: totalFaturas > 0 ? "var(--neg)" : "var(--fg-3)", negative: totalFaturas > 0 })
+
+      // Right: Balanço do Mês
+      cashflow && h("div", { style: { display: "flex", flexDirection: "column" } },
+        h("div", { style: { fontSize: 13, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700, marginBottom: 16 } }, "Balanço deste mês"),
+        h("div", { style: { display: "flex", flexDirection: "column", gap: 12, flex: 1, justifyContent: "center" } },
+          h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline" } },
+            h("span", { style: { fontSize: 14, color: "var(--fg-2)", fontWeight: 600 } }, "↓ Despesas"),
+            h("div", { style: { display: "flex", alignItems: "baseline", gap: 8 } },
+              (cashflow.expense_by_source.cc > 0 || cashflow.expense_by_source.direct > 0) && h("span", { style: { fontSize: 10, color: "var(--fg-3)", fontFamily: "var(--ff-mono)" } }, 
+                `${fmtBRL(cashflow.expense_by_source.cc)} cart · ${fmtBRL(cashflow.expense_by_source.direct)} deb`),
+              h("span", { className: "num", style: { fontSize: 16, fontWeight: 700, color: "var(--neg)" } }, "−" + fmtBRL(cashflow.expense_total))
+            )
+          ),
+          h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline" } },
+            h("span", { style: { fontSize: 14, color: "var(--fg-2)", fontWeight: 600 } }, "↑ Receitas"),
+            h("span", { className: "num", style: { fontSize: 16, fontWeight: 700, color: "var(--pos)" } }, "+" + fmtBRL(cashflow.income_total))
+          ),
+          h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline" } },
+            h("span", { style: { fontSize: 14, color: "var(--fg-2)", fontWeight: 600 } }, cashflow.investment_net < 0 ? "← Resgatado" : "→ Investido"),
+            h("span", { className: "num", style: { fontSize: 16, fontWeight: 700, color: cashflow.investment_net === 0 ? "var(--fg-3)" : (cashflow.investment_net > 0 ? "var(--reserve)" : "var(--warn)") } }, fmtBRL(Math.abs(cashflow.investment_net)))
+          ),
+          h("div", { style: { height: 1, background: "var(--line-2)", margin: "4px 0" } }),
+          h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline" } },
+            h("span", { style: { fontSize: 15, color: "var(--fg-1)", fontWeight: 700 } }, "Saldo do Mês"),
+            h("span", { className: "num", style: { fontSize: 20, fontWeight: 800, color: cashflow.free_balance >= 0 ? "var(--pos)" : (cashflow.income_total === 0 ? "var(--warn)" : "var(--neg)") } }, 
+              (cashflow.free_balance >= 0 ? "+" : "−") + fmtBRL(Math.abs(cashflow.free_balance))
+            )
+          ),
+          (() => {
+            const now = new Date();
+            const isCur = cashflow.month === now.getMonth() + 1 && cashflow.year === now.getFullYear();
+            const daysElapsed = now.getDate();
+            const daysInMonth = new Date(cashflow.year, cashflow.month, 0).getDate();
+            const projExpense = cashflow.expense_total / daysElapsed * daysInMonth;
+            const projFree = cashflow.income_total - projExpense - cashflow.investment_net;
+            const hasData = isCur && cashflow.expense_total > 0;
+            return h("div", { style: { marginTop: 4, paddingTop: 12, borderTop: "1px dashed var(--line-2)", display: "flex", justifyContent: "space-between", alignItems: "baseline" } },
+              h("span", { style: { fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--fg-3)", fontWeight: 700 } }, "Estimativa fechamento"),
+              h("span", { className: "num", style: { color: hasData ? "var(--fg-2)" : "var(--fg-3)", fontWeight: 600, fontSize: 14 } }, 
+                hasData ? ("~ " + (projFree >= 0 ? "+" : "−") + fmtBRL(Math.abs(projFree))) : "—"
+              )
+            );
+          })()
         )
       )
     ),
 
-    // Faturas em aberto — o que vence (cards lado a lado)
-    h("div", null,
-      h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "0 2px 8px" } },
-        h("div", { className: "pane-title" }, "Faturas em aberto"),
-        h("span", { className: "num", style: { fontSize: "var(--fz-4)", fontWeight: 600 } }, fmtBRL(totalFaturas))
-      ),
-      faturas.length === 0
-        ? h("div", { className: "pane", style: { padding: "20px 12px", textAlign: "center", color: "var(--fg-2)", fontSize: 12 } }, "Nenhuma fatura em aberto.")
-        : h("div", { style: { display: "grid", gridTemplateColumns: faturas.length > 1 ? "1fr 1fr" : "1fr", gap: 14 } },
-            faturas.map((f, i) => {
-              const tone = f.days_until_due <= 3 ? "neg" : f.days_until_due <= 7 ? "warn" : "ok";
-              const color = tone === "neg" ? "var(--neg)" : tone === "warn" ? "var(--warn)" : "var(--pos)";
-              const due = f.days_until_due > 0 ? `em ${f.days_until_due}d` : f.days_until_due === 0 ? "hoje" : `há ${Math.abs(f.days_until_due)}d`;
-              const trend = (f.last_total > 0) ? ((f.total - f.last_total) / f.last_total) * 100 : null;
-              
-              const _parseBR = s => { const p = (s || "").split("/").map(Number); return (p.length === 3 && p[0] && p[1] && p[2]) ? new Date(p[2], p[1] - 1, p[0]) : null; };
-              let cycleProj = null;
-              const _cs = _parseBR(f.cycle_start), _ce = _parseBR(f.cycle_end);
-              if (_cs && _ce && f.total > 0) {
-                const _today = new Date(); _today.setHours(0, 0, 0, 0);
-                const _len  = Math.round((_ce - _cs) / 86400000);
-                const _into = Math.round((_today - _cs) / 86400000);
-                if (_into >= 5 && _into < _len) cycleProj = f.total / _into * _len;
-              }
-              const _bg0 = `color-mix(in oklch, ${color} 8%, var(--bg-1))`;
-              const _bg1 = `color-mix(in oklch, ${color} 14%, var(--bg-2))`;
-              
-              return h("button", {
-                key: i, onClick: () => onJumpToAccount && onJumpToAccount(f.accountId),
-                className: "fatura-btn pane",
-                style: { "--fatura-bg": _bg0, "--fatura-bg-hover": _bg1, display: "block", textAlign: "left", padding: 14, border: `1px solid color-mix(in oklch, ${color} 28%, var(--line-1))`, cursor: "pointer", minHeight: 44 },
-              },
-                h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 } },
-                  h(BankChip, { bank: f.label.toLowerCase().startsWith("nu") ? "nubank" : "inter" }),
-                  h("span", { style: { fontSize: 11, color, fontWeight: 600 } }, `vence ${due}`)
-                ),
-                h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline" } },
-                  h("span", { className: "num", style: { fontSize: 22, fontWeight: 700 } }, fmtBRL(f.total)),
-                  trend !== null && h("span", { style: { fontSize: 10, fontFamily: "var(--ff-mono)", color: trend >= 0 ? "var(--neg)" : "var(--pos)" } },
-                    `${trend >= 0 ? "▲" : "▼"} ${Math.abs(trend).toFixed(1)}%`)
-                ),
-                h("div", { style: { fontSize: 9, color: "var(--fg-2)", fontFamily: "var(--ff-mono)", marginTop: 4 } },
-                  `${fmtCycleDate(f.cycle_start)} → ${fmtCycleDate(f.cycle_end)}`
-                ),
-                cycleProj !== null && h("div", { style: { marginTop: 6, paddingTop: 5, borderTop: "1px dashed color-mix(in oklch, var(--line-2) 70%, transparent)", display: "flex", justifyContent: "space-between", fontSize: 9, fontFamily: "var(--ff-mono)" } },
-                  h("span", { style: { color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.04em" } }, "estimativa fechamento"),
-                  h("span", { style: { color: "var(--fg-2)" } }, `~ ${fmtBRL(cycleProj, { decimals: 0 })}`)
-                )
-              );
-            })
+    // ── 2. PATRIMÔNIO (Global State) ──
+    h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", background: "var(--bg-1)", padding: "24px 32px", borderRadius: 16, border: "1px solid var(--line-1)", flexShrink: 0 } },
+      h("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
+        h("div", { style: { fontSize: 13, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700 } }, "Patrimônio líquido global"),
+        h("div", { style: { display: "flex", alignItems: "center", gap: 24 } },
+          h("div", { className: "num", style: { fontSize: 24, fontWeight: 800, color: patrimonioLiquido < 0 ? "var(--neg)" : "var(--fg-0)" } },
+             (patrimonioLiquido < 0 ? "−" : "") + fmtBRL(Math.abs(patrimonioLiquido))
+          ),
+          h("div", { style: { display: "flex", gap: 16, fontSize: 12, color: "var(--fg-2)" } },
+            h("span", null, "Caixa: ", h("strong", { style: { color: "var(--fg-1)" } }, fmtBRL(checkingTotal))),
+            h("span", null, "Investimentos: ", h("strong", { style: { color: "var(--reserve)" } }, fmtBRL(totalReservas))),
+            totalFaturas > 0 && h("span", null, "Faturas: ", h("strong", { style: { color: "var(--neg)" } }, "−" + fmtBRL(totalFaturas)))
           )
-    ),
-
-    // Este mês + Contas correntes (2 colunas, sem empilhar)
-    h("div", { style: { display: "grid", gridTemplateColumns: "var(--col-2)", gap: 14 } },
-    // Este mês — cash flow statement
-    cashflow && h("div", { className: "pane" },
-      h("div", { className: "pane-h" },
-        h("div", { className: "pane-title" }, "Este mês")
-      ),
-      h("div", { className: "pane-content", style: { display: "flex", flexDirection: "column", gap: 7 } },
-        h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline" } },
-          h("span", { style: { color: "var(--neg)", fontSize: 13 } }, "↓ Despesas"),
-          h("span", { className: "num", style: { color: "var(--neg)", fontWeight: 700, fontSize: 16 } }, fmtBRL(cashflow.expense_total))
-        ),
-        (cashflow.expense_by_source.cc > 0 || cashflow.expense_by_source.direct > 0) && h("div", {
-          style: { textAlign: "right", fontSize: 10, color: "var(--fg-3)", fontFamily: "var(--ff-mono)", marginTop: -4 }
-        }, `${fmtBRL(cashflow.expense_by_source.cc, { decimals: 0 })} cartão · ${fmtBRL(cashflow.expense_by_source.direct, { decimals: 0 })} débito`),
-        h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline" } },
-          h("span", { style: { color: "var(--pos)", fontSize: 13 } }, "↑ Receitas"),
-          h("span", { className: "num", style: { color: "var(--pos)", fontWeight: 700, fontSize: 16 } }, fmtBRL(cashflow.income_total))
-        ),
-        cashflow.investment_net !== 0 && h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline" } },
-          h("span", { style: { color: cashflow.investment_net > 0 ? "var(--reserve)" : "var(--info)", fontSize: 13 } },
-            cashflow.investment_net > 0 ? "→ Investido" : "← Resgatado"),
-          h("span", { className: "num", style: { color: cashflow.investment_net > 0 ? "var(--reserve)" : "var(--info)", fontWeight: 700, fontSize: 16 } },
-            fmtBRL(Math.abs(cashflow.investment_net)))
-        ),
-        h("div", { style: { borderTop: "1px solid var(--line-1)", paddingTop: 8, marginTop: 2, display: "flex", justifyContent: "space-between", alignItems: "baseline" } },
-          h("span", { style: { fontSize: 13, color: "var(--fg-1)", fontWeight: 600 } }, "Saldo livre"),
-          h("span", { className: "num", style: { fontSize: 20, fontWeight: 700, color: cashflow.free_balance >= 0 ? "var(--pos)" : (cashflow.income_total === 0 ? "var(--warn)" : "var(--neg)") } }, fmtBRL(cashflow.free_balance))
-        ),
-        // Projeção de fechamento (run-rate) — só no mês atual. Bloco de ESTIMATIVA,
-        // visualmente separado dos números reais acima (régua tracejada + cor atenuada),
-        // para nunca ser confundido com fato.
-        (() => {
-          const now = new Date();
-          const isCur = cashflow.month === now.getMonth() + 1 && cashflow.year === now.getFullYear();
-          if (!isCur || cashflow.expense_total <= 0) return null;
-          const daysElapsed = now.getDate();
-          const daysInMonth = new Date(cashflow.year, cashflow.month, 0).getDate();
-          const projExpense = cashflow.expense_total / daysElapsed * daysInMonth;
-          const projFree = cashflow.income_total - projExpense - cashflow.investment_net;
-          return h("div", { style: { marginTop: 10, paddingTop: 8, borderTop: "1px dashed var(--line-2)", display: "flex", justifyContent: "space-between", alignItems: "baseline" } },
-            h("span", { style: { fontSize: 9, textTransform: "uppercase", letterSpacing: "0.07em", color: "var(--fg-3)", fontWeight: 600 } },
-              "Estimativa · no ritmo atual"),
-            h("span", { className: "num", style: { color: "var(--fg-2)", fontWeight: 600, fontSize: 13 } },
-              "~ ", (projFree >= 0 ? "" : "−") + fmtBRL(Math.abs(projFree), { decimals: 0 }))
-          );
-        })()
+        )
       )
     ),
 
-    // Contas correntes — onde está o caixa
-    h("div", { className: "pane" },
-      h("div", { className: "pane-h" },
-        h("div", { className: "pane-title" }, "Contas correntes"),
-        h("span", { className: "num", style: { fontSize: "var(--fz-4)", fontWeight: 600 } }, fmtBRL(checkingTotal))
+    // ── 3. FATURAS & CONTAS (2 columns) ──
+    h("div", { style: { display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 32, flex: 1, minHeight: 0 } },
+      
+      // Faturas em Aberto
+      h("div", { style: { background: "var(--bg-1)", padding: 24, borderRadius: 16, border: "1px solid var(--line-1)", display: "flex", flexDirection: "column", minHeight: 0 } },
+        h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 24 } },
+          h("div", { style: { fontSize: 13, fontWeight: 700, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em" } }, "Faturas em aberto"),
+          h("span", { className: "num", style: { fontSize: 16, fontWeight: 700, color: "var(--fg-0)" } }, fmtBRL(totalFaturas))
+        ),
+        faturas.length === 0
+          ? h("div", { style: { padding: "16px 0", color: "var(--fg-3)", fontSize: 13, fontStyle: "italic", flex: 1 } }, "Nenhuma fatura em aberto.")
+          : h("div", { className: "custom-scrollbar", style: { display: "flex", flexDirection: "column", gap: 12, overflowY: "auto", flex: 1, paddingRight: 8, marginRight: -8 } },
+              faturas.map((f, i) => {
+                const tone = f.days_until_due <= 3 ? "neg" : f.days_until_due <= 7 ? "warn" : "ok";
+                const color = tone === "neg" ? "var(--neg)" : tone === "warn" ? "var(--warn)" : "var(--pos)";
+                const due = f.days_until_due > 0 ? `em ${f.days_until_due}d` : f.days_until_due === 0 ? "hoje" : `há ${Math.abs(f.days_until_due)}d`;
+                const trend = (f.last_total > 0) ? ((f.total - f.last_total) / f.last_total) * 100 : null;
+                
+                const _parseBR = s => { const p = (s || "").split("/").map(Number); return (p.length === 3 && p[0] && p[1] && p[2]) ? new Date(p[2], p[1] - 1, p[0]) : null; };
+                let cycleProj = null;
+                const _cs = _parseBR(f.cycle_start), _ce = _parseBR(f.cycle_end);
+                if (_cs && _ce && f.total > 0) {
+                  const _today = new Date(); _today.setHours(0, 0, 0, 0);
+                  const _len  = Math.round((_ce - _cs) / 86400000);
+                  const _into = Math.round((_today - _cs) / 86400000);
+                  if (_into >= 5 && _into < _len) cycleProj = f.total / _into * _len;
+                }
+                const _bg0 = `color-mix(in oklch, ${color} 8%, var(--bg-1))`;
+                
+                return h("button", {
+                  key: i, onClick: () => onJumpToAccount && onJumpToAccount(f.accountId),
+                  className: "fatura-btn",
+                  style: { background: _bg0, display: "block", textAlign: "left", padding: "12px 16px", borderRadius: 8, border: "none", cursor: "pointer", transition: "transform 0.1s, background 0.1s" },
+                },
+                  h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 } },
+                    h(BankChip, { bank: f.label.toLowerCase().startsWith("nu") ? "nubank" : "inter" }),
+                    h("span", { style: { fontSize: 11, color, fontWeight: 600 } }, `vence ${due}`)
+                  ),
+                  h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline" } },
+                    h("span", { className: "num", style: { fontSize: 20, fontWeight: 700, color: "var(--fg-0)" } }, fmtBRL(f.total)),
+                    trend !== null && h("span", { style: { fontSize: 11, fontFamily: "var(--ff-mono)", color: trend >= 0 ? "var(--neg)" : "var(--pos)" } },
+                      `${trend >= 0 ? "▲" : "▼"} ${Math.abs(trend).toFixed(1)}%`)
+                  ),
+                  h("div", { style: { fontSize: 10, color: "var(--fg-2)", fontFamily: "var(--ff-mono)", marginTop: 4 } },
+                    `${fmtCycleDate(f.cycle_start)} → ${fmtCycleDate(f.cycle_end)}`
+                  ),
+                  cycleProj !== null && h("div", { style: { marginTop: 8, paddingTop: 8, borderTop: "1px dashed color-mix(in oklch, var(--line-2) 70%, transparent)", display: "flex", justifyContent: "space-between", fontSize: 10, fontFamily: "var(--ff-mono)" } },
+                    h("span", { style: { color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.04em" } }, "estimativa fechamento"),
+                    h("span", { style: { color: "var(--fg-2)" } }, `~ ${fmtBRL(cycleProj)}`)
+                  )
+                );
+              })
+            )
       ),
-      h("div", { className: "pane-content", style: { display: "flex", flexDirection: "column", gap: 2 } },
-        checkingAccounts.length === 0
-          ? h("div", { style: { padding: "16px 12px", textAlign: "center", color: "var(--fg-2)", fontSize: 12 } }, "Nenhuma conta corrente.")
-          : checkingAccounts.map(a => h("button", {
-              key: a.id, onClick: () => onJumpToAccount && onJumpToAccount(a.id),
-              className: "fatura-btn",
-              style: { "--fatura-bg": "transparent", "--fatura-bg-hover": "var(--bg-2)", display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", padding: "6px 8px", borderRadius: "var(--r-2)", cursor: "pointer", minHeight: 36, textAlign: "left" },
-            },
-              h("span", { style: { display: "flex", alignItems: "center", gap: 8 } },
-                h(BankChip, { bank: a.bank }),
-                h("span", { style: { fontSize: 14, color: "var(--fg-1)" } }, a.name)
-              ),
-              h("span", { className: "num", style: { fontSize: 17, fontWeight: 600, color: (a.balance || 0) < 0 ? "var(--neg)" : "var(--fg-0)" } }, fmtBRL(a.balance || 0))
-            ))
-      )
-    ),
-    ),
 
+      // Contas Correntes
+      h("div", { style: { background: "var(--bg-1)", padding: 24, borderRadius: 16, border: "1px solid var(--line-1)", display: "flex", flexDirection: "column", minHeight: 0 } },
+        h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 24 } },
+          h("div", { style: { fontSize: 13, fontWeight: 700, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em" } }, "Contas correntes"),
+          h("span", { className: "num", style: { fontSize: 16, fontWeight: 700, color: "var(--fg-0)" } }, fmtBRL(checkingTotal))
+        ),
+        h("div", { className: "custom-scrollbar", style: { display: "flex", flexDirection: "column", gap: 8, overflowY: "auto", flex: 1, paddingRight: 8, marginRight: -8 } },
+          checkingAccounts.length === 0
+            ? h("div", { style: { padding: "16px 0", color: "var(--fg-3)", fontSize: 13, fontStyle: "italic" } }, "Nenhuma conta corrente.")
+            : checkingAccounts.map(a => h("button", {
+                key: a.id, onClick: () => onJumpToAccount && onJumpToAccount(a.id),
+                className: "fatura-btn",
+                style: { background: "var(--bg-1)", border: "1px solid var(--line-1)", display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", padding: "10px 14px", borderRadius: 8, cursor: "pointer", transition: "background 0.1s, border-color 0.1s", textAlign: "left" },
+                onMouseEnter: e => { e.currentTarget.style.background = "var(--bg-2)"; e.currentTarget.style.borderColor = "var(--line-2)"; },
+                onMouseLeave: e => { e.currentTarget.style.background = "var(--bg-1)"; e.currentTarget.style.borderColor = "var(--line-1)"; }
+              },
+                h("span", { style: { display: "flex", alignItems: "center", gap: 10 } },
+                  h(BankChip, { bank: a.bank }),
+                  h("span", { style: { fontSize: 13, fontWeight: 500, color: "var(--fg-1)" } }, a.name)
+                ),
+                h("span", { className: "num", style: { fontSize: 16, fontWeight: 700, color: (a.balance || 0) < 0 ? "var(--neg)" : "var(--fg-0)" } }, fmtBRL(a.balance || 0))
+              ))
+        )
+      )
+    )
   );
 }
 
@@ -344,7 +350,7 @@ function CategoriesPanel({ refreshKey, onRefresh }) {
     ),
 
     // Add new category
-    h("div", { className: "pane", style: { padding: 16, marginBottom: 24 } },
+    h("div", { style: { background: "var(--bg-1)", padding: 24, borderRadius: 16, border: "1px solid var(--line-1)", marginBottom: 24 } },
       h("form", { onSubmit: handleAdd, style: { display: "flex", gap: 12, alignItems: "center" } },
         h("input", {
           type: "text", placeholder: `Nova categoria de ${flow === 'expense' ? 'despesa' : 'receita'}…`, value: newName,
@@ -361,14 +367,14 @@ function CategoriesPanel({ refreshKey, onRefresh }) {
     ),
 
     // Category list
-    h("div", { className: "pane", style: { display: "flex", flexDirection: "column" } },
-      h("div", { style: { display: "grid", gridTemplateColumns: "1fr 100px 80px", padding: "12px 16px", borderBottom: "1px solid var(--line-1)", background: "var(--bg-1)", borderTopLeftRadius: 8, borderTopRightRadius: 8, fontSize: 12, color: "var(--fg-2)" } },
+    h("div", { style: { background: "var(--bg-1)", borderRadius: 16, border: "1px solid var(--line-1)", display: "flex", flexDirection: "column", overflow: "hidden" } },
+      h("div", { style: { display: "grid", gridTemplateColumns: "1fr 100px 80px", padding: "16px 24px", borderBottom: "1px solid var(--line-1)", background: "var(--bg-1)", fontSize: 12, color: "var(--fg-2)" } },
         h("span", null, "Nome"),
         h("span", { style: { textAlign: "right" } }, "Lançamentos"),
         h("span", null)
       ),
       h("div", { style: { display: "flex", flexDirection: "column" } },
-        cats.map(cat => h("div", { key: cat.id, style: { display: "grid", gridTemplateColumns: "1fr 100px 80px", padding: "12px 16px", borderBottom: "1px solid var(--line-0)", alignItems: "center", fontSize: 13 } },
+        cats.map(cat => h("div", { key: cat.id, style: { display: "grid", gridTemplateColumns: "1fr 100px 80px", padding: "16px 24px", borderBottom: "1px solid var(--line-0)", alignItems: "center", fontSize: 13 } },
           h("div", { style: { fontWeight: 500, color: "var(--fg-1)", display: "flex", alignItems: "center", gap: 8 } }, 
             h("span", { style: { width: 8, height: 8, borderRadius: "50%", background: flow === 'expense' ? "var(--neg)" : "var(--pos)" } }),
             cat.name

@@ -59,25 +59,25 @@ function DualLine({ data, height = 180 }) {
 
     const ctx = canvasRef.current.getContext("2d");
     chartRef.current = new Chart(ctx, {
-      type: "line",
+      type: "bar",
       data: {
         labels: data.map(d => d.label),
         datasets: [
           {
             label: "Receita",
             data: data.map(d => d.income || 0),
-            borderColor: posColor,
-            backgroundColor: posColor.replace(')', ' / 0.12)'),
-            borderWidth: 1.5, tension: 0.4, fill: true,
-            pointRadius: 2.5, pointBackgroundColor: posColor
+            backgroundColor: posColor,
+            borderRadius: 4,
+            barPercentage: 0.6,
+            categoryPercentage: 0.8
           },
           {
             label: "Despesa",
             data: data.map(d => d.expenses || 0),
-            borderColor: negColor,
-            backgroundColor: negColor.replace(')', ' / 0.12)'),
-            borderWidth: 1.5, tension: 0.4, fill: true,
-            pointRadius: 2.5, pointBackgroundColor: negColor
+            backgroundColor: negColor,
+            borderRadius: 4,
+            barPercentage: 0.6,
+            categoryPercentage: 0.8
           }
         ]
       },
@@ -87,7 +87,15 @@ function DualLine({ data, height = 180 }) {
         interaction: { mode: 'index', intersect: false },
         plugins: {
           legend: { display: false },
-          tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmtBRL(ctx.raw)}` } }
+          tooltip: {
+            backgroundColor: "oklch(20% 0.01 250 / 0.9)",
+            titleFont: { size: 11, family: "Inter" },
+            bodyFont: { size: 13, family: "JetBrains Mono", weight: "bold" },
+            padding: 12,
+            boxPadding: 6,
+            usePointStyle: true,
+            callbacks: { label: ctx => `${ctx.dataset.label}: ${fmtBRL(ctx.raw)}` }
+          }
         },
         scales: {
           x: {
@@ -98,7 +106,7 @@ function DualLine({ data, height = 180 }) {
             beginAtZero: true,
             grid: { color: line1Color, drawBorder: false, tickLength: 0, borderDash: [2, 3] },
             border: { display: false },
-            ticks: { color: fg2Color, font: { size: 9, family: "JetBrains Mono" }, callback: v => fmtBRLCompact(v), maxTicksLimit: 4 }
+            ticks: { color: fg2Color, font: { size: 10, family: "JetBrains Mono" }, callback: v => fmtBRLCompact(v), maxTicksLimit: 5 }
           }
         }
       }
@@ -248,13 +256,38 @@ function useToasts() {
   return { push, Toaster };
 }
 
+/* ── Drawer ─────────────────────────────────────────────────────────────── */
+function Drawer({ open, onClose, children, width = 480, title }) {
+  _useEffect(() => {
+    if (open) document.body.style.overflow = "hidden";
+    else document.body.style.overflow = "";
+    return () => { document.body.style.overflow = ""; };
+  }, [open]);
+
+  if (!open) return null;
+  return React.createElement("div", {
+    onClick: onClose, role: "presentation",
+    style: { position: "fixed", inset: 0, background: "oklch(0% 0 0 / 0.4)", backdropFilter: "blur(2px)", zIndex: 200, display: "flex", justifyContent: "flex-end" }
+  },
+    React.createElement("div", {
+      onClick: e => e.stopPropagation(),
+      style: { width, maxWidth: "100%", height: "100%", background: "var(--bg-0)", boxShadow: "-8px 0 32px oklch(0% 0 0 / 0.2)", display: "flex", flexDirection: "column", animation: "slide-left 0.25s cubic-bezier(0.16, 1, 0.3, 1)" }
+    },
+      title && React.createElement("div", { style: { padding: "16px 24px", borderBottom: "1px solid var(--line-0)", display: "flex", justifyContent: "space-between", alignItems: "center" } },
+        React.createElement("span", { style: { fontWeight: 700, fontSize: 16 } }, title),
+        React.createElement("button", { onClick: onClose, className: "btn btn-ghost btn-sm", "aria-label": "Fechar" }, "✕")
+      ),
+      React.createElement("div", { style: { flex: 1, overflowY: "auto" } }, children)
+    )
+  );
+}
+
 /* ── BankChip ───────────────────────────────────────────────────────────── */
-const _BANKCHIP_FALLBACK = { "nu-cc": "Nu Crédito", "nu-db": "Nu Conta", "inter-cc": "Inter Crédito", "inter-db": "Inter Conta" };
 function BankChip({ bank, accountId }) {
-  const label = accountId
-    ? (window.BS.accountNames?.[accountId] || _BANKCHIP_FALLBACK[accountId] || accountId)
-    : (bank === "nubank" ? "Nubank" : "Inter");
-  const cls = bank || (accountId?.startsWith("nu") ? "nubank" : "inter");
+  const isNu = bank === "nubank" || (accountId && accountId.startsWith("nu"));
+  const isInter = bank === "inter" || (accountId && accountId.startsWith("inter"));
+  const label = isNu ? "Nubank" : (isInter ? "Inter" : (bank || accountId));
+  const cls = isNu ? "nubank" : (isInter ? "inter" : "");
   return React.createElement("span", { className: `chip ${cls}` }, label);
 }
 
@@ -287,20 +320,12 @@ function BrokerSharkLogo({ size = 28 }) {
 }
 
 /* ── TxRow ──────────────────────────────────────────────────────────────── */
-const TxRow = React.memo(({ t, cols, onEditCategory, cats, onInlineCategoryChange }) => {
+const TxRow = React.memo(({ t, cols, onEditCategory }) => {
   const h = React.createElement;
-  const [editing, setEditing] = React.useState(false);
   const isThirdParty = !!t.is_third_party;
-  // Non-consumption cash legs, shown but NOT counted as despesa/receita (neutral + tag):
-  //  - auto-Pix entre contas próprias  → counterpart='SELF'  → tag "transferência"
-  //  - aplicação/resgate de investimento (transfer / income is_revenue=0) → tag "investimento"
+  // Non-consumption cash legs
   const isSelf   = t.counterpart === "SELF";
   const isInvest = !isSelf && (t.method === "transfer" || (t.flow === "income" && !t.is_revenue));
-  const isNeutral = isSelf || isInvest;
-  // Inline category edit: only on real consumption/income rows, and only when the
-  // host wired a handler + a category list. stopPropagation keeps the row's
-  // onClick (which opens the full editor modal) from firing while editing.
-  const canEdit = !isNeutral && !!onInlineCategoryChange && Array.isArray(cats) && cats.length > 0;
   const amtColor = isSelf ? "var(--info)" : isInvest ? "var(--reserve)" : (t.flow === "expense" ? "var(--neg)" : "var(--pos)");
   const rows = [
     h("tr", { 
@@ -315,41 +340,22 @@ const TxRow = React.memo(({ t, cols, onEditCategory, cats, onInlineCategoryChang
           isThirdParty && h("span", { title: "Despesa de terceiros: não contabilizada", style: { fontSize: 9, padding: "2px 6px", borderRadius: 4, border: "1px dashed var(--fg-3)", color: "var(--fg-2)", fontWeight: 600, flexShrink: 0 } }, "TERCEIROS")
         )
       ),
-      cols.includes("cat") && h("td", { onClick: canEdit ? (e => e.stopPropagation()) : undefined },
+      cols.includes("cat") && h("td", null,
         isSelf
           ? h("span", { className: "data-tag", style: { borderColor: "color-mix(in oklch, var(--info) 30%, transparent)", color: "var(--info)" }, title: "transferência entre suas contas — não conta como despesa nem receita" }, "transferência")
           : isInvest
             ? h("span", { className: "data-tag", style: { borderColor: "color-mix(in oklch, var(--reserve) 30%, transparent)", color: "var(--reserve)" }, title: "movimento de investimento — não conta como despesa nem receita" }, "investimento")
-            : editing
-              ? h("select", {
-                  className: "select", autoFocus: true,
-                  value: t.category_id || "",
-                  style: { height: 24, fontSize: 11, padding: "0 4px", maxWidth: 140 },
-                  onClick: e => e.stopPropagation(),
-                  onChange: e => { const v = e.target.value; if (v) onInlineCategoryChange(t.id, v); setEditing(false); },
-                  onBlur: () => setEditing(false),
-                },
-                  h("option", { value: "", disabled: true }, "Escolher…"),
-                  cats.map(c => h("option", { key: c.id, value: c.id }, c.name))
-                )
-              : t.category
-                ? h("span", {
-                    className: "data-tag",
-                    onClick: canEdit ? (e => { e.stopPropagation(); setEditing(true); }) : undefined,
-                    style: {
-                      cursor: canEdit ? "pointer" : "default",
-                      ...(t.flow === "income" ? { borderColor: "color-mix(in oklch, var(--pos) 30%, transparent)", color: "var(--pos)" } : {}),
-                    },
-                    title: canEdit ? "Clique para mudar a categoria" : undefined,
-                  }, t.category)
-                : canEdit
-                  ? h("span", {
-                      className: "data-tag",
-                      onClick: e => { e.stopPropagation(); setEditing(true); },
-                      style: { cursor: "pointer", borderStyle: "dashed", color: "var(--fg-3)" },
-                      title: "Clique para categorizar",
-                    }, "+ categoria")
-                  : h("span", { className: "data-tag" }, t.flow === "expense" ? "—" : "Receita")
+            : t.category
+              ? h("span", {
+                  className: "data-tag",
+                  style: {
+                    ...(t.flow === "income" ? { borderColor: "color-mix(in oklch, var(--pos) 30%, transparent)", color: "var(--pos)" } : {}),
+                  }
+                }, t.category)
+              : h("span", {
+                  className: "data-tag",
+                  style: { borderStyle: "dashed", color: "var(--fg-3)" },
+                }, t.flow === "expense" ? "Sem categoria" : "Receita")
       ),
       cols.includes("account") && h("td", null, h(BankChip, { accountId: t.account_id, bank: t.bank })),
       cols.includes("amount") && h("td", { className: "num" },
@@ -368,8 +374,7 @@ const TxRow = React.memo(({ t, cols, onEditCategory, cats, onInlineCategoryChang
   prev.t.category === next.t.category &&
   prev.t.category_id === next.t.category_id &&
   prev.t.is_third_party === next.t.is_third_party &&
-  prev.t.display_name === next.t.display_name &&
-  prev.cats === next.cats
+  prev.t.display_name === next.t.display_name
 );
 
 window.BS = window.BS || {};
@@ -377,7 +382,7 @@ Object.assign(window.BS, {
   fmtBRL, fmtBRLCompact, fmtDateBR,
   PT_MONTHS, PT_SHORT, fmtCycleDate,
   DualLine, Donut,
-  Modal, useToasts, BankChip, SegmentControl,
+  Modal, Drawer, useToasts, BankChip, SegmentControl,
   BrokerSharkLogo, TxRow,
 });
 
