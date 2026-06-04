@@ -1030,7 +1030,15 @@ def get_key_counts(account_id: str, date_lo: str, date_hi: str) -> dict[tuple, i
     return counts
 
 def get_investment_evolution(months: int = 12) -> list[dict]:
-    """Return deposit and withdrawal totals for the last N months, zero-filled."""
+    """Return cumulative invested (deposits − withdrawals) for the last N months.
+
+    Derived from the **transactions** ledger (investment legs), not the empty
+    ``investment_movements`` table — same canonical source as
+    ``get_cashflow_statement.investment_net``: aplicação = ``flow='expense' AND
+    method='transfer' AND dest_account_id IS NULL``; resgate = ``flow='income' AND
+    is_revenue=0 AND dest_account_id IS NULL``; both exclude ``counterpart='SELF'``
+    and ``is_third_party``. Zero-filled across the window.
+    """
     today   = date.today()
     periods: list[tuple[int, int]] = []
     for i in range(months - 1, -1, -1):
@@ -1046,23 +1054,33 @@ def get_investment_evolution(months: int = 12) -> list[dict]:
     start = f"{start_y:04d}-{start_m:02d}-01"
     end   = f"{end_y:04d}-{end_m:02d}-31"
 
+    # Investment legs in the transactions ledger (same predicate as
+    # get_cashflow_statement.investment_net). aplicação = +amount, resgate = −amount.
+    _APLIC = ("flow='expense' AND method='transfer' AND dest_account_id IS NULL "
+              "AND COALESCE(counterpart,'') != 'SELF' AND COALESCE(is_third_party,0)=0")
+    _RESG  = ("flow='income' AND is_revenue=0 AND dest_account_id IS NULL "
+              "AND COALESCE(counterpart,'') != 'SELF' AND COALESCE(is_third_party,0)=0")
+
     with _connect() as conn:
-        # 1. Obter a linha de base (todos os aportes menos resgates ANTES do período de start)
+        # 1. Linha de base: aportes − resgates ANTES do período de start.
         baseline_cur = conn.execute(
-            """SELECT COALESCE(SUM(CASE WHEN operation='deposit' THEN amount ELSE -amount END), 0)
-               FROM investment_movements
+            f"""SELECT COALESCE(SUM(
+                   CASE WHEN {_APLIC} THEN amount
+                        WHEN {_RESG}  THEN -amount
+                        ELSE 0 END), 0)
+               FROM transactions
                WHERE date < ?""",
             (start,)
         ).fetchone()
         baseline = float(baseline_cur[0])
 
-        # 2. Obter os movimentos dentro da janela de 12 meses
+        # 2. Aplicações/resgates dentro da janela de N meses, por mês.
         rows = conn.execute(
-            """SELECT
+            f"""SELECT
                    strftime('%Y-%m', date) AS ym,
-                   COALESCE(SUM(CASE WHEN operation='deposit' THEN amount ELSE 0 END), 0) AS deposit,
-                   COALESCE(SUM(CASE WHEN operation='withdrawal' THEN amount ELSE 0 END), 0) AS withdrawal
-               FROM investment_movements
+                   COALESCE(SUM(CASE WHEN {_APLIC} THEN amount ELSE 0 END), 0) AS deposit,
+                   COALESCE(SUM(CASE WHEN {_RESG}  THEN amount ELSE 0 END), 0) AS withdrawal
+               FROM transactions
                WHERE date BETWEEN ? AND ?
                GROUP BY ym""",
             (start, end),
