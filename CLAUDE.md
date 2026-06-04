@@ -455,13 +455,11 @@ Produto = **análise do meu dinheiro**. A web (3 telas: **Visão do Mês** + **H
 - Bot Telegram **somente consulta** (perguntas em linguagem natural via tools de leitura + comandos rápidos) + relatórios/alertas agendados. Registro/edição removidos do Telegram (2026-06-02) — escrita é exclusiva da web.
 - Backup mensal: HDD local; SSE ao vivo.
 
-**Backlog (decidido 2026-06-04; re-sequenciado pela /plan-ceo-review — ordenado por prioridade):**
-- [ ] **P1a · Backup confiável (slice rápido, decoupled)** — trocar `shutil.copy2` pela **API de backup do SQLite** (`conn.backup()`/`VACUUM INTO`, WAL-safe) **+ restore de 1 comando + `PRAGMA integrity_check`** do snapshot. Solta **primeiro** — ganho de confiabilidade barato, independe da migração de runtime. Ver "Backup Strategy".
-- [ ] **P1b · Preview de import editável + lote** — editar categoria/nome/valor + excluir antes de gravar; múltiplos arquivos numa leva; edição de valor com **auditoria** (`original_amount` + aviso de divergência com o extrato). Valor semanal ("fácil de alimentar"). Ver "Web Import → Preview editável + lote".
-- [ ] **P1c · Migração de runtime (systemd timers + launcher)** — aposentar APScheduler; 3 jobs oneshot+timer (`Persistent=true`) + **`enable-linger`** + launcher on-demand + **bootstrap compartilhado** (DRY). Bloco coeso, **depois** de P1a/P1b (o app atual já funciona — não é incêndio). Ver "Modelo de execução".
-- [ ] **P2 · Breakdown por método** — visão separando crédito (fatura) × PIX × TED/transfer × débito no Histórico/Visão do Mês. Ver "Clareza da fatura × método".
-- [ ] **P2 · Débito defensivo** — garantir que um `debit` avulso não quebra totais nem o breakdown (teste de regressão).
-- [ ] **P2 · Testes de regressão** — backup consistente com o app escrevendo (WAL) + restore verificado; cada entrypoint de job roda standalone; divergência de valor no import dispara aviso.
+**Roadmap (decidido 2026-06-04; re-sequenciado pela /plan-ceo-review). Backend aplicado inline 2026-06-04 — UI ficou com o dono:**
+- [x] **P1a · Backup confiável** — `shutil.copy2` → **API de backup do SQLite** (`conn.backup()`, WAL-safe) + `restore_backup` + `verify_backup` (`PRAGMA integrity_check`); snapshot corrompido é descartado. Commit `dd0f588`, `tests/test_backup.py`.
+- [~] **P1b · Preview de import editável + lote — BACKEND pronto** (`b343a8d`): `transactions.original_amount` + staging editável (`update_staging_row`, `staging_divergence`), lote multi-arquivo (`preview_import_multi`, dedup intra-batch), `PATCH /api/import/staging/<batch>/<row>`, `amount_divergence` na resposta. **Falta (UI):** modal de import com células editáveis (categoria/nome/valor) + multi-arquivo + banner de divergência.
+- [x] **P1c · Migração de runtime — código pronto** (`aa65479`): `bootstrap.py` compartilhado, `jobs/{backup,weekly_report,monthly_closing}` (`python -m`), `bot/reports.py`, APScheduler removido, `main.py` = launcher, `deploy/systemd/*` + `deploy/brokershark.sh` + `deploy/README.md`. **Falta (ativação):** `systemctl --user enable --now brokershark-*.timer` + **`loginctl enable-linger joao`**.
+- [~] **P2 · Breakdown por método** — **backend já existia** (`get_expenses_by_method` + `/api/expenses-by-method` + `fetchExpensesByMethod`); débito defensivo travado por teste (`3f4d6ab`). **Falta (UI):** painel "Por método" no Histórico (dado já é servido).
 - [ ] Adapter fatura Nubank (`nu-cc`) — formato desconhecido (diretório de exemplo vazio).
 - [ ] Desfazer última importação (reverter batch por `batch_id`).
 - [x] ~~Refactor hexagonal (ports & adapters)~~ — **tirado do roadmap** (/plan-ceo-review 2026-06-04): YAGNI p/ ferramenta de 1 usuário; ports só oportunistas. Ver "Arquitetura — ports & adapters".

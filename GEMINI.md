@@ -222,14 +222,13 @@ Navegação = **3 telas**: **Visão do Mês** (`OverviewView`), **Histórico** (
 | `nu-db`, `inter-db` | Histórico completo |
 | `budgets` | Seeded com limites padrão (Alimentação R$1500, etc.) — editáveis no dashboard |
 
-## Roadmap (decidido 2026-06-04; re-sequenciado pela /plan-ceo-review)
+## Roadmap (decidido 2026-06-04; backend aplicado inline 2026-06-04 — UI ficou com o dono)
 
-- **P1a · Backup confiável** — API de backup do SQLite (`conn.backup`/`VACUUM INTO`, WAL-safe) + **restore de 1 comando + `integrity_check`**. Slice rápido, decoupled; solta **primeiro**.
-- **P1b · Preview de import editável + lote** — editar categoria/nome/valor + excluir antes de gravar; multi-arquivo; valor com auditoria (`original_amount` + aviso de divergência). Valor semanal ("fácil de alimentar").
-- **P1c · Migração de runtime** — systemd timers (`Persistent`) + `enable-linger` + launcher on-demand + bootstrap compartilhado; aposenta APScheduler. Bloco coeso, **depois** de P1a/P1b.
-- **P2 · Breakdown por método** — crédito × PIX × TED × débito (dado já existe em `transactions.method`; falta a visão).
-- **P2 · Débito defensivo** — `debit` avulso não quebra totais/breakdown.
-- **Fora do roadmap (/plan-ceo-review):** refactor hexagonal completo — YAGNI p/ 1 usuário; ports só oportunista (banco novo = um `StatementParser`; timers = um `Clock`). Kernel fica como referência no `CLAUDE.md`.
+- **P1a · Backup confiável** ✅ `dd0f588` — `conn.backup()` WAL-safe + `restore_backup` + `verify_backup` (`integrity_check`); `tests/test_backup.py`.
+- **P1b · Preview de import editável + lote** 🔧 backend `b343a8d` — `transactions.original_amount`, staging editável (`update_staging_row`/`staging_divergence`), lote (`preview_import_multi`, dedup intra-batch), `PATCH /api/import/staging/<batch>/<row>`, `amount_divergence`. **Falta UI:** modal com células editáveis + multi-arquivo + banner de divergência.
+- **P1c · Migração de runtime** ✅ código `aa65479` — `bootstrap.py`, `jobs/*` (`python -m`), `bot/reports.py`, APScheduler removido, `main.py`=launcher, `deploy/systemd/*`+README. **Falta ativar:** `systemctl --user enable --now brokershark-*.timer` + `loginctl enable-linger`.
+- **P2 · Breakdown por método** 🔧 backend já existia (`get_expenses_by_method`+`/api/expenses-by-method`); débito defensivo travado por teste (`3f4d6ab`). **Falta UI:** painel "Por método" no Histórico.
+- **Fora do roadmap (/plan-ceo-review):** refactor hexagonal completo — YAGNI p/ 1 usuário; ports só oportunista. Kernel como referência no `CLAUDE.md`.
 
 ---
 
