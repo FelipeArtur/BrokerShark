@@ -56,3 +56,30 @@ def test_register_investment_transfer_unmapped_bank_raises(db):
     inv_id = _make_investment(name="Cripto X", type_="other", bank="binance", balance=10.0)
     with pytest.raises(ValueError):
         crud.register_investment_transfer(inv_id, "binance", "deposit", 10.0, "2026-05-10", "Cripto X")
+
+
+def test_investment_evolution_derives_from_transactions(db):
+    # Regression: ISSUE-001 — the "Evolução do Patrimônio (Aportes)" chart read the
+    # empty investment_movements table, so it rendered a flat R$0 line despite real
+    # invested money. It must derive from the transactions ledger (investment legs),
+    # the same source as get_cashflow_statement.investment_net.
+    # Found by /qa on 2026-06-04.
+    import sqlite3
+    from datetime import date
+    from core.db import crud, analytics
+
+    inv_id = _make_investment(balance=0.0)
+    today = date.today().isoformat()
+    crud.register_investment_transfer(inv_id, "nubank", "deposit", 1000.0, today, "Tesouro IPCA+ 2029")
+    crud.register_investment_transfer(inv_id, "nubank", "withdrawal", 300.0, today, "Tesouro IPCA+ 2029")
+
+    ev = analytics.get_investment_evolution(12)
+    current = ev[-1]  # window ends on the current month
+    assert round(current["deposit"], 2) == 1000.0
+    assert round(current["withdrawal"], 2) == 300.0
+    # cumulative reflects net invested from transactions — NOT zero (the bug)
+    assert round(current["cumulative"], 2) == 700.0
+
+    # proves the chart no longer reads investment_movements (which stays empty)
+    with sqlite3.connect(db) as raw:
+        assert raw.execute("SELECT COUNT(*) FROM investment_movements").fetchone()[0] == 0
