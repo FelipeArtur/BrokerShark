@@ -110,6 +110,38 @@ def test_get_monthly_summary_excludes_third_party(db):
     assert summary["expenses"] == 150.0
 
 
+def test_expenses_by_method_debit_is_its_own_bucket(db):
+    # P2 débito defensivo: a stray `debit` expense must land in its own method
+    # bucket and not inflate pix/credito; the breakdown must still sum to total
+    # consumption (credit-card purchases bucket under 'credit' — the fatura).
+    from core.db import crud, analytics
+
+    crud.insert_transaction(date="2026-05-02", flow="expense", method="pix",
+                            account_id="nu-db", amount=100.0, description="PIX mercado")
+    crud.insert_transaction(date="2026-05-03", flow="expense", method="credit",
+                            account_id="nu-cc", amount=200.0, description="Compra cartão")
+    crud.insert_transaction(date="2026-05-04", flow="expense", method="ted",
+                            account_id="nu-db", amount=50.0, description="TED aluguel")
+    crud.insert_transaction(date="2026-05-05", flow="expense", method="debit",
+                            account_id="nu-db", amount=30.0, description="Débito padaria")
+    # a transfer (fatura payment) must NOT show up in the method breakdown
+    crud.insert_transaction(date="2026-05-06", flow="expense", method="transfer",
+                            account_id="nu-db", amount=999.0, description="Pagamento fatura",
+                            dest_account_id="nu-cc")
+
+    rows = analytics.get_expenses_by_method(2026, 5)
+    by_method: dict[str, float] = {}
+    for r in rows:
+        by_method[r["method"]] = by_method.get(r["method"], 0.0) + r["total"]
+
+    assert by_method["debit"] == 30.0          # débito in its own bucket
+    assert by_method["pix"] == 100.0           # not inflated by débito
+    assert by_method["credit"] == 200.0        # CC purchase = fatura bucket
+    assert by_method["ted"] == 50.0
+    assert "transfer" not in by_method         # fatura payment excluded
+    assert round(sum(by_method.values()), 2) == 380.0  # == total consumption
+
+
 def test_get_patrimonio_history_shape(db):
     from core.db import analytics
 
