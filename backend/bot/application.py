@@ -1,4 +1,4 @@
-"""Application factory — monta todos os handlers e conecta os lifecycle hooks do scheduler."""
+"""Application factory — monta todos os handlers (os agendados saíram p/ systemd timers)."""
 import warnings
 
 from telegram import Update
@@ -25,19 +25,6 @@ async def _auth_gate(update: Update, context: object) -> None:
         raise ApplicationHandlerStop
 
 
-async def _post_init(app: Application) -> None:
-    from bot.scheduler import build_scheduler
-    scheduler = build_scheduler(app.bot)
-    scheduler.start()
-    app.bot_data["scheduler"] = scheduler
-
-
-async def _post_shutdown(app: Application) -> None:
-    scheduler = app.bot_data.get("scheduler")
-    if scheduler and scheduler.running:
-        scheduler.shutdown(wait=False)
-
-
 def build_application() -> Application:
     """Build and return the fully configured Telegram Application."""
     warnings.filterwarnings("ignore", message="If 'per_message=False'", category=UserWarning)
@@ -45,8 +32,6 @@ def build_application() -> Application:
     app = (
         Application.builder()
         .token(config.TELEGRAM_TOKEN)
-        .post_init(_post_init)
-        .post_shutdown(_post_shutdown)
         .build()
     )
 

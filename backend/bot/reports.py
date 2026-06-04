@@ -1,34 +1,29 @@
-"""APScheduler jobs — monthly backup, weekly report, and monthly closing report.
+"""Composição dos relatórios agendados (semanal + fechamento mensal).
 
-Jobs registered:
-- ``monthly_backup``  — 1st of each month 07:00; local (HDD) backup (only if due)
-- ``weekly_report``   — Monday 08:00 with income/expense summary and fatura info
-- ``monthly_closing`` — 1st of each month 08:00 with full previous-month breakdown
+Disparados por **systemd user timers** (oneshot) via ``backend/jobs/*``. Cada função
+recebe um ``telegram.Bot``, lê o DB (somente leitura) e envia a mensagem ao chat do
+dono. Antes viviam no ``bot/scheduler.py`` (APScheduler, aposentado).
 """
-import asyncio
 import json
 import logging
 from datetime import datetime, timedelta
 
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from telegram import Bot
 
-from core import backup, database
+from core import database
 from bot.utils import _fmt_brl as _fmt, _PT_MONTHS
 from integrations import ollama
 import config
 
-TELEGRAM_CHAT_ID = config.TELEGRAM_CHAT_ID
-
 _logger = logging.getLogger(__name__)
 
 
-async def _send_weekly_report(bot: Bot) -> None:
+async def send_weekly_report(bot: Bot) -> None:
     """Compose and send the weekly financial summary to the configured chat.
 
-    Covers the calendar week that ended last Sunday (i.e., the previous full
-    Monday-to-Sunday period).  Includes total expenses, income, top category,
-    total reserves, and credit card due-date information for both banks.
+    Covers the calendar week that ended last Sunday (the previous full Monday-to-
+    Sunday period): total expenses, income, top category, total reserves, and credit
+    card due-date information for both banks.
 
     Args:
         bot: The :class:`telegram.Bot` instance used to send the message.
@@ -77,15 +72,16 @@ async def _send_weekly_report(bot: Bot) -> None:
     if insight:
         text += f"\n\n💡 _{insight}_"
 
-    await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=text, parse_mode="Markdown")
+    await bot.send_message(chat_id=config.TELEGRAM_CHAT_ID, text=text, parse_mode="Markdown")
 
 
-async def _send_monthly_closing_report(bot: Bot) -> None:
+async def send_monthly_closing_report(bot: Bot) -> None:
     """Compose and send the monthly closing report for the previous month.
 
-    Sent on the 1st of each month at 08:00. Covers the entire previous calendar
-    month: income, expenses, balance, category breakdown, investment movements,
-    and total accumulated reserves.
+    Sent on the 1st of each month. Covers the entire previous calendar month: income,
+    expenses, balance, category breakdown, investment movements, and total reserves.
+    Anchors to ``today``'s previous month, so a late catch-up still reports the right
+    period.
 
     Args:
         bot: The :class:`telegram.Bot` instance used to send the message.
@@ -145,56 +141,7 @@ async def _send_monthly_closing_report(bot: Bot) -> None:
         lines.append(f"\n💡 _{insight}_")
 
     await bot.send_message(
-        chat_id=TELEGRAM_CHAT_ID,
+        chat_id=config.TELEGRAM_CHAT_ID,
         text="\n".join(lines),
         parse_mode="Markdown",
     )
-
-
-async def _run_monthly_backup() -> None:
-    """Run the local (HDD) backup on the 1st of each month if not yet done."""
-    await asyncio.to_thread(backup.run_backup)
-
-
-def build_scheduler(bot: Bot) -> AsyncIOScheduler:
-    """Create and configure the APScheduler with all recurring jobs.
-
-    Args:
-        bot: The :class:`telegram.Bot` instance passed to report jobs.
-
-    Returns:
-        A configured :class:`~apscheduler.schedulers.asyncio.AsyncIOScheduler`
-        (not yet started — the caller must call ``.start()``).
-    """
-    scheduler = AsyncIOScheduler()
-
-    scheduler.add_job(
-        _run_monthly_backup,
-        trigger="cron",
-        day=1,
-        hour=7,
-        minute=0,
-        id="monthly_backup",
-    )
-
-    scheduler.add_job(
-        _send_weekly_report,
-        trigger="cron",
-        day_of_week="mon",
-        hour=8,
-        minute=0,
-        id="weekly_report",
-        kwargs={"bot": bot},
-    )
-
-    scheduler.add_job(
-        _send_monthly_closing_report,
-        trigger="cron",
-        day=1,
-        hour=8,
-        minute=0,
-        id="monthly_closing",
-        kwargs={"bot": bot},
-    )
-
-    return scheduler

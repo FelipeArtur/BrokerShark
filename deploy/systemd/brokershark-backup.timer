@@ -1,0 +1,9 @@
+[Unit]
+Description=BrokerShark — backup mensal (timer)
+
+[Timer]
+OnCalendar=*-*-01 07:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,19 +1,17 @@
-"""Entry point — initialises the database, starts the dashboard thread, then runs the bot."""
+"""Entry point — on-demand launcher: bootstrap, start the dashboard, run the bot.
+
+The 3 periodic jobs (backup, weekly report, monthly closing) are NOT started here
+anymore — they run as **systemd user timers** (see ``backend/jobs/`` + ``deploy/``).
+This process is the on-demand UI: it boots the dashboard + the Telegram bot and exits
+when closed. ``bootstrap`` is imported first so ``.env`` loads before ``config`` is read.
+"""
 import asyncio
 import logging
-from pathlib import Path
 
-from dotenv import load_dotenv
+from bootstrap import bootstrap
 
-load_dotenv()
-
-import config
-from core import database
 from bot import build_application
 from dashboard import start_dashboard
-
-logging.basicConfig(level=logging.INFO, format=config.LOG_FORMAT)
-Path(config.LOG_DIR).mkdir(exist_ok=True)
 
 
 def main() -> None:
@@ -22,8 +20,7 @@ def main() -> None:
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
-    config.validate()  # fail fast on missing TELEGRAM_TOKEN / TELEGRAM_CHAT_ID
-    database.init_db()
+    bootstrap()  # load_dotenv + config.validate + logging + database.init_db
     start_dashboard()
     app = build_application()
     logging.getLogger(__name__).info("BrokerShark is running...")
