@@ -59,7 +59,7 @@ def preview_import_multi(account_id: str, files: list[bytes]) -> dict:
     """
     crud.prune_staging(older_than_hours=24)  # drop abandoned previews
     all_records: list[Record] = []
-    source: Optional[str] = None
+    source = ""  # set per file below; server guards against an empty upload
     for data in files:
         source = adapters.detect_source(account_id, data)  # raises SourceMismatch
         all_records.extend(adapters.parse(account_id, data))

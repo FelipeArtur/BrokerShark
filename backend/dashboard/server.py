@@ -459,9 +459,10 @@ def api_transactions() -> Response:
         limit = min(int(request.args.get("limit", 100)), 200)
     except ValueError:
         limit = 100
+    m, y = request.args.get("month"), request.args.get("year")
     try:
-        month = int(request.args.get("month")) if request.args.get("month") else None
-        year  = int(request.args.get("year"))  if request.args.get("year")  else None
+        month = int(m) if m else None
+        year  = int(y) if y else None
     except ValueError:
         month, year = None, None
     return jsonify(database.get_recent_transactions(account_id, limit, month, year))

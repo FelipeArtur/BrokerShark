@@ -352,6 +352,15 @@ Sources are uploaded via the **"+ Importar"** header button (3-step modal: conta
 - `PRAGMA journal_mode=WAL` and `PRAGMA foreign_keys=ON` at connection time
 - **Backup failures never propagate** — logged silently
 - **Dashboard Flask server runs in a daemon thread** — never block the event loop
+- **Health Stack (qualidade):** antes de commitar, `ruff check backend tests` + `mypy` + `pytest` verdes. Config em `pyproject.toml` (ruff = E/F/B, sem isort; mypy estrito no `core/` — a lógica de dinheiro — e relaxado nas bordas de framework: `return-value` do Flask e `union-attr` do PTB em `dashboard.server`/`bot.handlers.*`).
+
+---
+
+## Health Stack
+
+- typecheck: mypy
+- lint: ruff check backend tests
+- test: pytest
 
 ---
 

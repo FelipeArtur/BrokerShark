@@ -57,7 +57,7 @@ def insert_transaction(
     try:
         datetime.strptime(date, "%Y-%m-%d")
     except (ValueError, TypeError):
-        raise ValueError(f"Invalid date format: '{date}'. Expected YYYY-MM-DD.")
+        raise ValueError(f"Invalid date format: '{date}'. Expected YYYY-MM-DD.") from None
     # OR IGNORE only for the dedup path: an external_id collision is the one
     # constraint we want to swallow. Without an external_id, a constraint failure
     # is a real bug (bad method, broken FK) and must raise, not return -1.
@@ -73,7 +73,7 @@ def insert_transaction(
              description, category_id, dest_account_id, counterpart, is_revenue,
              external_id),
         )
-        last_id = cur.lastrowid if cur.rowcount else -1
+        last_id = cur.lastrowid if (cur.rowcount and cur.lastrowid is not None) else -1
     events.notify()
     return last_id
 
@@ -418,7 +418,7 @@ def insert_investment_movement(
                VALUES (?,?,?,?,?)""",
             (date, investment_id, operation, amount, description),
         )
-        last_id = cur.lastrowid
+        last_id = cur.lastrowid if cur.lastrowid is not None else -1
         delta = amount if operation == "deposit" else -amount
         conn.execute(
             "UPDATE investments SET current_balance = current_balance + ? WHERE id = ?",

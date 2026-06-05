@@ -227,7 +227,7 @@ async def ai_chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         last_edit = 0.0
         last_typing = time.monotonic()
 
-        async for delta, accumulated, done in ollama.chat_stream(messages):
+        async for _delta, accumulated, _done in ollama.chat_stream(messages):
             full_content = accumulated
 
             # Detecta tipo da resposta nos primeiros tokens significativos

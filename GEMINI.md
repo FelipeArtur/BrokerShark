@@ -180,7 +180,7 @@ Tools (7, somente leitura): `get_monthly_summary`, `get_monthly_comparison`, `ge
 ## Engineering Directives
 
 - **All SQL through `core/database.py`** — no inline SQL elsewhere
-- **Type hints mandatory** on every function signature
+- **Type hints mandatory** on every function signature — **verificadas por mypy** (Health Stack: `ruff` + `mypy` + `pytest` verdes antes de commitar; config em `pyproject.toml`, mypy estrito no `core/`)
 - **`PRAGMA journal_mode=WAL` + `PRAGMA foreign_keys=ON`** at connection time
 - **Bot never writes to DB directly** — data validated before INSERT
 - **Backup failures silent** — logged, never raised

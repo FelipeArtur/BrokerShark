@@ -38,7 +38,7 @@ def test_insert_transaction_invalid_date(db):
 def test_insert_transaction_installments(db):
     from core.db import crud, analytics
 
-    tx_id = crud.insert_transaction(
+    crud.insert_transaction(
         date="2026-05-15",
         flow="expense",
         method="credit",
@@ -196,7 +196,6 @@ def test_patrimonio_cc_fatura_counted_as_expense(db):
 
 def test_patrimonio_excludes_investment_movements(db):
     """Investment deposits/withdrawals must NOT appear in patrimônio history."""
-    import sqlite3
     from core.db import crud, analytics, schema
 
     crud.insert_transaction(

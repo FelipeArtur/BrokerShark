@@ -30,8 +30,6 @@ def db(tmp_path, monkeypatch):
     import core.db.categories as categories_mod
 
     # Re-patch _connect in each sub-module so they all use the test DB
-    original_connect = schema_mod._connect
-
     def _test_connect():
         import sqlite3
         conn = sqlite3.connect(db_file)
