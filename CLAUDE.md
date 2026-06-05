@@ -157,11 +157,11 @@ A segurança vem de uma **confirmação explícita antes da ação** (`ConfirmDe
 
 | Component | Technology |
 |---|---|
-| Language | Python 3.12 |
+| Language | Python 3.14 (venv) — código usa recursos 3.12+ |
 | Bot framework | python-telegram-bot v21 |
 | Database | SQLite (WAL mode) |
 | Backup | local HDD copy (monthly cron) |
-| Scheduler | APScheduler in-process **hoje** — migrando p/ **systemd user timers (`Persistent=true`)**, ver "Modelo de execução" |
+| Scheduler | **systemd user timers** (`Persistent=true`) via `backend/jobs/*` — APScheduler aposentado (P1c). Ver "Modelo de execução" |
 | Dashboard API | Flask 3.1 + Waitress 3.0 (32 threads, daemon thread) |
 | Dashboard frontend | React 18 + Babel standalone (no build step), Chart.js |
 | Real-time updates | SSE via `events.py` — no polling, < 1s latency |

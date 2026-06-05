@@ -86,11 +86,11 @@ tests/   conftest.py, test_database.py, test_ingestion.py, test_ai_chat.py, test
 
 | Component | Technology |
 |---|---|
-| Language | Python 3.12 |
+| Language | Python 3.14 (venv); código 3.12+ |
 | Bot | python-telegram-bot v21 |
 | Database | SQLite (WAL mode) |
 | Backup | local HDD copy (monthly cron) |
-| Scheduler | APScheduler hoje → **systemd user timers** (`Persistent`) |
+| Scheduler | **systemd user timers** (`Persistent`) via `backend/jobs/*`; APScheduler aposentado |
 | Dashboard API | Flask 3.1 + Waitress 3.0 (32 threads) |
 | Frontend | React 18 + Babel standalone, Chart.js |
 | Real-time | SSE via `events.py` |
