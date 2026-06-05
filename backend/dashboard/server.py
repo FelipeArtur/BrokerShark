@@ -923,6 +923,10 @@ def api_import_staging_edit(batch_id: str, row_id: int) -> Response:
         cid = body["category_id"]
         if cid is not None and not isinstance(cid, int):
             return jsonify({"error": "category_id must be int or null"}), 400
+        # reject unknown categories up front — confirm's INSERT OR IGNORE would
+        # otherwise drop the row silently on a FK violation
+        if cid is not None and database.get_category(cid) is None:
+            return jsonify({"error": "category_id not found"}), 400
         fields["category_id"] = cid
     if "display_name" in body:
         dn = body["display_name"]

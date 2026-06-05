@@ -40,4 +40,4 @@ journalctl --user -u brokershark-backup.service -n 30
 ```
 
 Os horários: backup `1º 07:00`, relatório semanal `seg 08:00`, fechamento mensal `1º 08:00`.
-As units leem `EnvironmentFile=.env` (precisa do `TELEGRAM_TOKEN`/`TELEGRAM_CHAT_ID` para os relatórios; o backup não usa Telegram).
+As units rodam com `WorkingDirectory` no repo; o `.env` é carregado pelo `bootstrap()` (python-dotenv, mesma fonte/parsing do app) — precisa do `TELEGRAM_TOKEN`/`TELEGRAM_CHAT_ID` para os relatórios; o backup não usa Telegram.

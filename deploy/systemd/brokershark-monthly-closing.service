@@ -7,7 +7,8 @@ Wants=network-online.target
 Type=oneshot
 WorkingDirectory=/home/joao/Projetos/brokershark
 Environment=PYTHONPATH=/home/joao/Projetos/brokershark/backend
-EnvironmentFile=/home/joao/Projetos/brokershark/.env
+# .env é carregado pelo bootstrap() (python-dotenv) a partir do WorkingDirectory —
+# mesma fonte/parsing do app, evitando divergência com o parser de EnvironmentFile.
 ExecStart=/home/joao/Projetos/brokershark/.venv/bin/python -m jobs.monthly_closing
 # Hardening (least privilege; valid for --user units)
 NoNewPrivileges=true

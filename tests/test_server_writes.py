@@ -109,3 +109,15 @@ def test_import_staging_edit_unknown_row_404(client):
         json={"amount": 10.0},
     )
     assert resp.status_code == 404
+
+
+def test_import_staging_edit_rejects_unknown_category(client):
+    # a bad category_id must be rejected up front, not silently dropped by
+    # confirm's INSERT OR IGNORE (FK violation)
+    preview = _stage_one_pix()
+    row = preview["rows"][0]
+    resp = client.patch(
+        f"/api/import/staging/{preview['batch_id']}/{row['id']}",
+        json={"category_id": 999999},
+    )
+    assert resp.status_code == 400
