@@ -1,64 +1,46 @@
 # BrokerShark — Gemini CLI Reference Guide
 
-> For complete specs — conversation flows, full roadmap, design decisions — read [`CLAUDE.md`](./CLAUDE.md).
+> Specs completas e invariantes detalhadas: [`CLAUDE.md`](./CLAUDE.md). Roadmap/hashes/logs datados vivem no `git log`.
 
----
-
-## AI Development Tools
-
-This project is co-developed using **Claude Code CLI** and **Gemini CLI**.
-
-| File | Purpose |
-|---|---|
-| `CLAUDE.md` | Full source of truth — architecture, flows, design decisions (Claude Code) |
-| `GEMINI.md` | Concise context guide for Gemini CLI |
-| `.agents/skills/` | Gemini CLI skills (e.g., `impeccable`) |
-| `.claude/commands/` | Claude Code slash-command skills |
-
-When making permanent changes (new categories, new accounts, schema changes), update **both** `CLAUDE.md` and `GEMINI.md`.
+Co-desenvolvido com **Claude Code CLI** e **Gemini CLI**. `.agents/skills/` = skills do Gemini; `.claude/commands/` = slash-commands do Claude. **Mudança permanente (categoria/conta/schema) → atualizar `CLAUDE.md` e `GEMINI.md`.**
 
 ---
 
 ## Overview
 
-BrokerShark is a **personal money-analysis tool** running **100% locally** on Linux. Pergunta central: **"quanto eu posso gastar agora?"**, e então análise do dinheiro ao longo do tempo.
+Ferramenta pessoal de análise de dinheiro, 100% local (Linux, 1 usuário). Pergunta central: **"quanto eu posso gastar agora?"**.
 
 **O centro é a análise (web, React 18 + Flask, `http://localhost:8080`):**
-- **Dinheiro** — herói **Disponível pra gastar** (liquidez = contas − faturas) + faturas, "Este mês", contas, atividade e projeções.
-- **Histórico / Análise** — meses com dados (intervalo real do banco), métricas, fluxo 6m, investimentos, categorias, Top PIX, tabela filtrável.
+- **Dinheiro** — herói **Disponível pra gastar** (liquidez = contas − faturas) + faturas, "Este mês", contas, atividade, projeções.
+- **Histórico / Análise** — meses com dados, métricas, fluxo 6m, investimentos, categorias, Top PIX, tabela filtrável.
+- **Investimentos** — donut + posições editáveis + "+ Movimento".
 
-**Apoio:** Telegram (**somente consulta + relatórios/alertas**; não registra nem edita), importação CSV mensal pela web, chat de IA local. SQLite é a fonte única; backup mensal local (HDD).
+**Apoio:** Telegram (**somente consulta + notificações**; não escreve), import CSV mensal pela web, chat de IA local. SQLite = fonte única; backup mensal local (HDD).
 
-**North star:** fácil de alimentar + extremamente confiável. Registro = **import de extratos/faturas em lote** com **resumo editável antes de confirmar**; correções na web = **alinhamento de valores**, não digitação manual. Re-import semanal só acrescenta a cauda nova (dedup).
+> **Regra de ouro:** toda escrita é pela web. Telegram lê e notifica — nunca escreve.
 
-**User:** Single user, Nubank + Inter (CC + conta corrente). Débito **não é rotina** (defensivo: tolera um `debit` avulso sem quebrar totais/breakdown). Investments: Caixinha Nubank, Porquinho Inter, Tesouro Direto.
+> **North star:** fácil de alimentar + extremamente confiável. Registro = **import de extratos/faturas em lote** com resumo editável antes de confirmar; correções na web = alinhamento de valores. Re-import semanal só acrescenta a cauda nova (dedup).
+
+**User:** Nubank + Inter (CC + conta corrente). Débito não é rotina (defensivo: tolera `debit` avulso). Investimentos: Caixinha Nubank, Porquinho Inter, Tesouro Direto, CDBs.
 
 ---
 
 ## Architecture
-
-### Data flow
 
 ```
 User (web form / CSV import — único caminho de escrita)
       ↓
 core/database.py — INSERT (SQLite)
       ↓
-core/events.notify() — SSE push to browser (< 1s)
+core/events.notify() — SSE push ao browser (< 1s)
 
-Telegram = somente leitura (consulta + notificações) — nunca escreve no DB
+Telegram = somente leitura (consulta + notificações)
 ```
 
-### Key principles
-
-- **SQLite = single source of truth.** No external write-back.
-- **A análise é o produto.** Web (Visão do Mês + Histórico + Investimentos) no centro; Telegram/import/IA são apoio.
-- **Toda escrita é pela web.** Registro/edição/importação só na interface web. **Telegram é read-only** (consulta + notificações).
-- **CSV import via web UI** ("+ Importar" modal → preview/staging → confirm; dedup por UUID/hash). Pipeline em `backend/core/ingestion/`. Fontes: `nu-db`, `inter-db`, `inter-cc`. Importados entram com `category_id=NULL`; **categorização é manual no Histórico** (filtro "Sem categoria" + edição inline na tabela → `PATCH /api/transactions/<id>`). Sem auto-categorização por regras.
-  - **Alvo (backlog):** preview **editável** (categoria/nome/valor + excluir, antes de gravar) + **lote multi-arquivo**. Hoje: 1 arquivo/vez, preview só exclui linhas.
-- **AI is Pierre-inspired:** tool calling, never fabricates data, always fetches via tools. **Tools são todas de leitura** — não há `register_*`/`confirm`/`cancel`.
-- **Runtime (alvo, decidido 2026-06-04):** **híbrido** — dashboard+bot **sob demanda** (launcher); jobs agendados (backup/semanal/fechamento) como **systemd user timers** (`Persistent=true`, catch-up no boot). Sem daemon eterno; **APScheduler aposentado**. Telegram responde só com o launcher aberto; notificações agendadas saem sempre (oneshot `bot.send_message`). **eng-review 2026-06-04:** exige `loginctl enable-linger` (senão catch-up de boot não dispara) + backup via **API SQLite** (`conn.backup`/`VACUUM INTO`, WAL-safe, não `shutil.copy2`) + bootstrap compartilhado (DRY).
-- **Backup is monthly:** `should_backup()` checa por mês-calendário → local HDD (sem cloud). **Alvo:** systemd user timer no lugar do APScheduler cron.
+- **SQLite = fonte única.** Sem write-back externo. Toda escrita pela web; Telegram read-only.
+- **AI Pierre-inspired** (Telegram only): tool calling, nunca fabrica dado. **7 tools, todas de leitura** — sem `register_*`/`confirm`/`cancel`. Pedido de registro → prompt redireciona pra web.
+- **CSV import via web** ("+ Importar" → preview/staging → confirm; dedup UUID/hash). Pipeline `backend/core/ingestion/`. Fontes: `nu-db`, `inter-db`, `inter-cc`. Importados entram com `category_id=NULL`; **categorização manual no Histórico** (filtro "Sem categoria" + inline → `PATCH /api/transactions/<id>`).
+- **Runtime (alvo):** híbrido — dashboard+bot sob demanda (launcher); jobs (backup/semanal/fechamento) como **systemd user timers** (`Persistent=true`, catch-up no boot, exige `loginctl enable-linger`). APScheduler aposentado. Backup via **API SQLite** (`conn.backup()`, WAL-safe), não `shutil.copy2`. Hoje: processo único.
 
 ---
 
@@ -66,18 +48,15 @@ Telegram = somente leitura (consulta + notificações) — nunca escreve no DB
 
 ```
 backend/
-  main.py, config.py
-  core/     database.py (shim), events.py, backup.py,
-            db/ (schema, crud, analytics, categories), ingestion/ (adapters, dedup, service, b3)
-  integrations/  ollama.py
-  dashboard/     server.py
-  bot/      application.py, scheduler.py, utils.py, constants.py, handlers/ (commands, ai_chat)
-frontend/
-  css/ style.css   img/ favicon.ico
-  js/  api.js, primitives.js, view-overview.js, view-history.js, app.js
-deploy/  brokershark.service
-docs/    (PRODUCT.md, notas)
-tests/   conftest.py, test_database.py, test_ingestion.py, test_ai_chat.py, test_b3.py, test_server_writes.py
+  main.py, config.py, bootstrap.py
+  core/  database.py (shim), events.py, backup.py,
+         db/ (schema, crud, analytics, categories), ingestion/ (adapters, dedup, service, b3)
+  jobs/  backup, weekly_report, monthly_closing (python -m)
+  integrations/ollama.py | dashboard/server.py
+  bot/   application.py, constants.py, utils.py, reports.py, handlers/ (commands, ai_chat)
+frontend/js/  api.js, primitives.js, view-overview.js, view-history.js, view-investments.js, app.js
+deploy/  systemd/*, brokershark.sh, README.md
+tests/   test_database, test_ingestion, test_ai_chat, test_b3, test_backup, test_server_writes
 ```
 
 ---
@@ -89,7 +68,7 @@ tests/   conftest.py, test_database.py, test_ingestion.py, test_ai_chat.py, test
 | Language | Python 3.14 (venv); código 3.12+ |
 | Bot | python-telegram-bot v21 |
 | Database | SQLite (WAL mode) |
-| Backup | local HDD copy (monthly cron) |
+| Backup | local HDD copy (mensal) |
 | Scheduler | **systemd user timers** (`Persistent`) via `backend/jobs/*`; APScheduler aposentado |
 | Dashboard API | Flask 3.1 + Waitress 3.0 (32 threads) |
 | Frontend | React 18 + Babel standalone, Chart.js |
@@ -103,93 +82,63 @@ tests/   conftest.py, test_database.py, test_ingestion.py, test_ai_chat.py, test
 ```sql
 accounts (id: nu-cc | nu-db | inter-cc | inter-db, bank, type, name, billing_day, due_day)
 categories (id, name, flow: expense|income)
-transactions (id, date, flow, method, account_id, amount, installments,
-              description, category_id, dest_account_id, counterpart, is_revenue)
+transactions (id, date, flow, method, account_id, amount, installments, description,
+              category_id, dest_account_id, counterpart, is_revenue, external_id,
+              display_name, is_third_party, original_amount)
 investments (id, name, type, bank, current_balance)
 investment_movements (id, date, investment_id, operation, amount, description)
 budgets (id, category_id, amount_limit)
 ```
 
-`method` CHECK: `pix | credit | ted | transfer | debit | salary | freelance | pix_received | other` (os 4 últimos são subtipos de receita — sem eles, `INSERT OR IGNORE` descartava receitas silenciosamente num DB novo).
+`method` CHECK: `pix | credit | ted | transfer | debit | salary | freelance | pix_received | other` (4 últimos = subtipos de receita; sem eles `INSERT OR IGNORE` descartava receita em silêncio).
 
-Internal transfers: `flow='expense', method='transfer', dest_account_id=<dest>`.
-Excluded from summaries via `AND dest_account_id IS NULL`.
+### Invariantes financeiras (load-bearing)
 
-Compra parcelada no crédito é expandida em N lançamentos mensais via `crud.insert_expense` (1/N por fatura). Insert manual sem `external_id` levanta erro em vez de retornar `-1`; `is_third_party` é excluído de saldos e resumos.
-
-**`is_revenue`:** Integer flag — `1` for real income, `0` for self-transfers (`counterpart='SELF'`). Critical: must be set explicitly on every `insert_transaction()` for income rows.
-
-**`counterpart='SELF'` (auto-Pix/TED entre contas próprias):** contraparte = o próprio dono → nem despesa, nem receita, nem investimento. Saída `method='transfer'`, entrada `is_revenue=0`, ambas `counterpart='SELF'`. Saldos preservados; fora de Despesas/Receitas e de `investment_net`. Classificado no import por `adapters._is_self_transfer` (`config.OWNER_SELF_KEYWORDS`).
-
-**CC anti-duplication:** Fatura total payment sits in nu-db/inter-db with `dest_account_id='nu-cc'/'inter-cc'` (for patrimônio); individual purchases sit in nu-cc/inter-cc with `dest_account_id IS NULL` (for expense summaries). They never overlap. Logic is symmetric for Nubank and Inter.
-
-**Patrimônio:** `get_patrimonio_history()` returns **checking balance only** (`initial_balances + income - expenses`). Investment movements are excluded. Frontend computes `patrTotal = patrNow + totalReservas` (investments.current_balance) for the big number; sparkline shows checking history only. CC fatura payments are counted as outflows via `dest_account_id IN ('nu-cc','inter-cc')`.
+- **Consumption-expense rule:** despesa filtra `dest_account_id IS NULL AND method != 'transfer'` — transferência (leg de investimento / pagamento de fatura) nunca é despesa. Aplicada no backend e replicada no front (Histórico recebe `is_revenue`). Despesas/Receitas batem em todas as telas.
+- **CC anti-duplicação:** total da fatura em `nu-db`/`inter-db` com `dest_account_id='nu-cc'/'inter-cc'` (patrimônio); compras individuais em `nu-cc`/`inter-cc` com `dest_account_id IS NULL` (resumos). Nunca se sobrepõem; simétrico Nubank/Inter.
+- **Patrimônio:** `get_patrimonio_history()` = só conta corrente (`initial_balances + income − expenses`); investimentos entram no display via `current_balance`. **Não filtra por method** (precisa contar pagamento de fatura via `dest IN ('nu-cc','inter-cc')`).
+- **`is_revenue`:** `1` receita real, `0` self-transfer. **Sempre explícito** em `insert_transaction()`.
+- **`counterpart='SELF'`** (auto-Pix/TED entre contas próprias): nem despesa/receita/investimento. Saída `method='transfer'`, entrada `is_revenue=0`, ambas `SELF`. Saldos preservados, fora de Despesas/Receitas e `investment_net`. Via `adapters._is_self_transfer` (`config.OWNER_SELF_KEYWORDS`).
+- **Transferência interna:** `flow='expense', method='transfer', dest_account_id=<dest>` — excluída via `AND dest_account_id IS NULL`.
+- **Investimento (fonte = transações, não `investment_movements`):** aplicação = `expense/transfer/dest NULL`; resgate = `income/is_revenue=0/dest NULL`. `free_balance = receitas − despesas − investment_net`. "+ Movimento" → `crud.register_investment_transfer` (leg na conta + ajusta `current_balance`; **não** escreve `investment_movements`, que causaria dupla contagem).
+- **Parcelamento:** crédito parcelado → N lançamentos via `crud.insert_expense`. Insert sem `external_id` levanta `IntegrityError` (não retorna `-1`). `is_third_party` excluído de saldos/resumos.
+- **Exclusão segura** (`crud.delete_transaction` + `ConfirmDeleteModal`): pagamento de fatura não excluível (409); parcela apaga grupo `(k/N)`; SELF apaga 2 legs; legs de investimento revertem `current_balance`.
 
 ---
 
 ## AI Architecture (Pierre-inspired)
 
-`backend/bot/handlers/ai_chat.py` — **Telegram only, somente consulta** (não há chat de IA na web):
-- Tool calling via prompt engineering (not native tools API — qwen2.5:7b compatible)
-- MAX_ROUNDS=3 agentic loop; **todas as tools são de leitura** (sem escrita)
-- Persona: "BrokerShark" — direct, analytical, finance-scoped only
-- Se o usuário pedir registro/edição, o system prompt redireciona para a interface web
-
-Tools (7, somente leitura): `get_monthly_summary`, `get_monthly_comparison`, `get_expenses_by_category`, `get_account_balances`, `get_investments`, `get_recent_transactions`, `get_budgets`. As tools de escrita (`register_*`/`confirm`/`cancel`) foram removidas.
+`backend/bot/handlers/ai_chat.py` — **Telegram only, somente consulta** (sem IA na web): tool calling via prompt (não native API — qwen2.5:7b), MAX_ROUNDS=3, persona "BrokerShark". Tools (7, leitura): `get_monthly_summary`, `get_monthly_comparison`, `get_expenses_by_category`, `get_account_balances`, `get_investments`, `get_recent_transactions`, `get_budgets`. Tools de escrita removidas.
 
 ---
 
-## Dashboard API Endpoints
+## Dashboard API (resumo)
 
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| GET | `/api/summary` | Monthly totals (bank?, account?, month?, year?) |
-| GET | `/api/accounts` | Balances |
-| GET | `/api/investments` | Investment balances |
-| GET | `/api/monthly` | Income vs expenses (`months=N`, default 6; `bank=?`; `account=?`) |
-| GET | `/api/daily-spend` | Full calendar month zero-filled (`month=M&year=Y`; defaults to current month) |
-| GET | `/api/month-transactions` | All non-transfer txns for a month (`month=M&year=Y` required) |
-| GET | `/api/categories` | Expenses by category |
-| GET | `/api/faturas` | CC billing — includes `last_total` for trend display |
-| GET | `/api/transactions` | Account transactions |
-| GET | `/api/recent-activity` | 20 latest |
-| GET | `/api/available` | Liquidez "disponível pra gastar": `{checking_total, faturas_total, available}` (available = checking − faturas) |
-| GET | `/api/liquidity-history` | Tendência de liquidez 12M `{label, value}[]` (sparkline do herói) |
-| GET | `/api/patrimonio-history` | 12-month net worth |
-| GET | `/api/budgets` | Budget limits |
-| GET | `/api/events` | SSE stream |
-| POST | `/api/transactions` | Create expense |
-| POST | `/api/incomes` | Create income/transfer |
-| POST | `/api/investment-movements` | Create investment movement |
-| POST | `/api/import/preview` | Upload+parse+classify+stage (`file`, `account_id`) |
-| GET | `/api/import/staging/<batch_id>` | Re-read staged rows |
-| POST | `/api/import/confirm` | Promote `new` rows (`batch_id`, `exclude_ids[]`) |
-| POST | `/api/investment-movements` | Aplicação/resgate (atualiza `current_balance` atomicamente) — usado pelo "+ Movimento" |
-| GET | `/api/categories-full` | `{id,name,transaction_count}[]` por flow — edição inline de categoria no Histórico |
-| PATCH | `/api/budgets/<id>` | Update budget |
-| PATCH | `/api/transactions/<id>` | Reassign category |
+Escrita (validada no servidor): `POST /api/transactions` (despesa), `POST /api/incomes` (receita/transferência), `POST /api/investment-movements`, `PATCH /api/transactions/<id>`, `PATCH /api/budgets/<id>`, `DELETE /api/transactions/<id>` (409 fatura), `POST /api/transactions/restore`. Import: `POST /api/import/preview`, `GET /api/import/staging/<batch_id>`, `POST /api/import/confirm`.
 
-### Response shape notes
-- `/api/monthly` items: `{ label: "Mar/26", month: 3, year: 2026, income, expenses }` — `month`/`year` as int in all variants (global and per-account)
-- `/api/daily-spend` always zero-fills every day of the month — no sparse "last 30 days" mode
-- `/api/month-transactions` items: `{ id, date, description, amount, flow, account_id, bank, category, category_id }`
-- `/api/faturas` items include `last_total` (previous billing cycle BRL total)
+Leitura: `/api/available` (herói), `/api/summary`, `/api/accounts`, `/api/investments`, `/api/monthly` (`?present=1` = só meses com dados), `/api/categories`, `/api/faturas` (inclui `last_total`), `/api/transactions`, `/api/recent-activity`, `/api/patrimonio-history`, `/api/daily-spend` (mês zero-filled), `/api/month-transactions` (inclui `is_revenue`), `/api/budgets`, `/api/categories-full`, `/api/pix-top`, `/api/expenses-by-method`, `/api/events` (SSE).
+
+---
+
+## Frontend — 3 telas
+
+Navegação: **Visão do Mês** (`OverviewView`), **Histórico** (`HistoryView`), **Investimentos** (`InvestmentsView`). Atalhos `1`/`2`/`3`. Categorias vive em Configurações.
+
+- **Dinheiro** (agora): herói **Disponível pra gastar** (`/api/available`); direita = ledger Patrimônio líquido. Sempre mês atual. Projeções advisory. Clicar fatura/conta → Histórico filtrado.
+- **Histórico** (análise): meses com dados (`/api/monthly?present=1`), 4 métricas (Δ vs média), fluxo 6m (`DualLine`), por categoria, Top PIX, tabela filtrável (flow · método · categoria · conta · busca) + categorização inline.
+- **Investimentos:** donut (`Donut`) + Σ `current_balance` + lista editável + "+ Movimento".
 
 ---
 
 ## Engineering Directives
 
-- **All SQL through `core/database.py`** — no inline SQL elsewhere
-- **Type hints mandatory** on every function signature — **verificadas por mypy** (Health Stack: `ruff` + `mypy` + `pytest` verdes antes de commitar; config em `pyproject.toml`, mypy estrito no `core/`)
-- **`PRAGMA journal_mode=WAL` + `PRAGMA foreign_keys=ON`** at connection time
-- **Bot never writes to DB directly** — data validated before INSERT
-- **Backup failures silent** — logged, never raised
-- **Async:** Dashboard in daemon thread, never block event loop
-- **Authorization check first** in every Telegram handler (chat_id)
-- **Internal transfers ≠ income:** `flow='expense', method='transfer', dest_account_id=<dest>`
-- **`ollama.py` is pure HTTP client:** no business logic, no system prompts
-- **CSV ingestion:** `core/ingestion/` — `adapters.py` (parse), `dedup.py` (classify), `service.py` (orchestrate). Fontes: `nu-db`, `inter-db`, `inter-cc`
-- **B3 ingestion:** `core/ingestion/b3.py` — parseia posições do Relatório B3 (.xlsx) → `investments` (snapshot, upsert idempotente por nome). Renda Fixa usa valor CURVA, Tesouro usa Valor líquido. Lido em memória (sem zip-slip), openpyxl não resolve XXE, cap de tamanho.
+- **Todo SQL via `core/database.py`** — sem SQL inline.
+- **Type hints obrigatórias** — verificadas por mypy. Health Stack: `ruff` + `mypy` + `pytest` verdes antes de commitar (`pyproject.toml`, mypy estrito em `core/`).
+- `PRAGMA journal_mode=WAL` + `PRAGMA foreign_keys=ON` no connect.
+- **Bot nunca escreve direto no DB**; dado validado antes do INSERT. **Auth check primeiro** em todo handler (chat_id).
+- Backup failures silent (logged, never raised). Dashboard em daemon thread, nunca bloqueia event loop.
+- `ollama.py` = cliente HTTP puro (sem lógica de negócio/prompt).
+- **B3 ingestion:** `core/ingestion/b3.py` → `investments` (snapshot, upsert por nome; Renda Fixa = valor CURVA, Tesouro = Valor líquido). Memória (sem zip-slip), cap de tamanho, sem XXE.
 
 ---
 
@@ -204,37 +153,11 @@ OLLAMA_URL=http://localhost:11434
 OLLAMA_MODEL=qwen2.5:7b
 OLLAMA_TIMEOUT=60
 ```
-
-## Dashboard frontend — 3 telas
-
-Navegação = **3 telas**: **Visão do Mês** (`OverviewView`), **Histórico** (`HistoryView`) e **Investimentos** (`view-investments.js` → `InvestmentsView`). Atalhos `1`/`2`/`3`. Categorias saiu da nav → vive em Configurações. A aba Investimentos mostra donut + total (Σ `investments.current_balance`) + lista editável por posição (B3 CDB/Tesouro + Caixinha + Porquinho).
-
-**Dinheiro (tela "agora"):** herói = **Disponível pra gastar** (`fetchAvailable` → `/api/available`, liquidez = contas − faturas), verde/vermelho, com equação `Contas − Faturas` + sparkline de liquidez; direita = contexto (Patrimônio/Investimentos/Faturas). Abaixo: cards de fatura, "Este mês", lista de contas correntes, atividade recente. Sempre mês atual. Estado de 1ª vez (zero dados) = convite **Importar**. Clicar fatura/conta → vai pra Histórico filtrado pela conta.
-
-**HistoryView (tela "análise"):** seletor dos meses com dados (`/api/monthly?present=1`, só meses com lançamentos) + 4 métricas (número + Δ vs média, sem sparkline) + gráfico fluxo 6m + `InvestmentsView` embutido (donut + movimentos) + por categoria + Top PIX (lado a lado) + tabela filtrável em largura total (flow · método · categoria · **conta** · busca). Props `initialAccount`/`onAccountConsumed` = drill-down.
-
-## Estado dos dados
-
-| Conta | Situação |
-|-------|----------|
-| `nu-cc` | **Sem lançamentos individuais** — apenas totais de fatura |
-| `inter-cc` | Lançamentos importados |
-| `nu-db`, `inter-db` | Histórico completo |
-| `budgets` | Seeded com limites padrão (Alimentação R$1500, etc.) — editáveis no dashboard |
-
-## Roadmap (decidido 2026-06-04; backend aplicado inline 2026-06-04 — UI ficou com o dono)
-
-- **P1a · Backup confiável** ✅ `dd0f588` — `conn.backup()` WAL-safe + `restore_backup` + `verify_backup` (`integrity_check`); `tests/test_backup.py`.
-- **P1b · Preview de import editável + lote** 🔧 backend `b343a8d` — `transactions.original_amount`, staging editável (`update_staging_row`/`staging_divergence`), lote (`preview_import_multi`, dedup intra-batch), `PATCH /api/import/staging/<batch>/<row>`, `amount_divergence`. **Falta UI:** modal com células editáveis + multi-arquivo + banner de divergência.
-- **P1c · Migração de runtime** ✅ código `aa65479` — `bootstrap.py`, `jobs/*` (`python -m`), `bot/reports.py`, APScheduler removido, `main.py`=launcher, `deploy/systemd/*`+README. **Falta ativar:** `systemctl --user enable --now brokershark-*.timer` + `loginctl enable-linger`.
-- **P2 · Breakdown por método** 🔧 backend já existia (`get_expenses_by_method`+`/api/expenses-by-method`); débito defensivo travado por teste (`3f4d6ab`). **Falta UI:** painel "Por método" no Histórico.
-- **Fora do roadmap (/plan-ceo-review):** refactor hexagonal completo — YAGNI p/ 1 usuário; ports só oportunista. Kernel como referência no `CLAUDE.md`.
+> `LOCAL_BACKUP_DIR` é hardcoded em `config.py`.
 
 ---
 
 ## Running
-
-> **Hoje (a migrar — ver Runtime/Roadmap):** processo único.
 
 ```bash
 source .venv/bin/activate.fish
