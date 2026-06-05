@@ -224,7 +224,6 @@ def api_investments() -> Response:
         for inv in investments
     ])
 
-
 @app.route("/api/investment-evolution")
 def api_investment_evolution() -> Response:
     """Return historical investment deposits vs withdrawals for the last 12 months.
@@ -749,9 +748,14 @@ def api_post_income() -> Response:
 
 @app.route("/api/investment-movements", methods=["GET"])
 def api_get_investment_movements() -> Response:
-    """Return investment movements for a given month/year."""
+    """Return investment movements for a given month/year or specific investment."""
     month = request.args.get("month", type=int)
     year  = request.args.get("year",  type=int)
+    inv_id = request.args.get("investment_id", type=str)
+    
+    if inv_id:
+        return jsonify(database.get_investment_movements_by_id(inv_id))
+        
     if not month or not year:
         return jsonify(database.get_recent_investment_movements(limit=100))
     return jsonify(database.get_investment_movements_for_month(month, year))

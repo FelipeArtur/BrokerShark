@@ -311,7 +311,6 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
             
             return items.map((c, i) => {
               const globalPct = totalExp ? (c.total / totalExp) * 100 : 0;
-              const barPct = maxVal ? (c.total / maxVal) * 100 : 0;
               
               return h("div", { key: i, style: { display: "flex", flexDirection: "column", gap: 6 } },
                 h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline" } },
@@ -322,7 +321,7 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
                   )
                 ),
                 h("div", { style: { width: "100%", height: 6, background: "var(--bg-2)", borderRadius: 3, overflow: "hidden" } },
-                  h("div", { style: { width: `${barPct}%`, height: "100%", background: c.isOther ? "var(--line-2)" : (i === 0 ? "var(--info)" : "var(--fg-2)"), borderRadius: 3, transition: "width 0.5s ease-out" } })
+                  h("div", { style: { width: `${globalPct}%`, height: "100%", background: c.isOther ? "var(--line-2)" : (i === 0 ? "var(--info)" : "var(--fg-2)"), borderRadius: 3, transition: "width 0.5s ease-out" } })
                 )
               );
             });
@@ -381,7 +380,7 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
           ),
           h("select", {
             value: filterCat, onChange: e => setFilterCat(e.target.value),
-            className: "select", style: { height: 26, fontSize: 11, padding: "0 24px 0 10px", width: "auto", borderRadius: 6, background: "transparent", border: "1px dashed var(--line-2)", color: "var(--fg-1)", fontWeight: 500, cursor: "pointer" }
+            className: "select", style: { height: 26, fontSize: 11, padding: "0 24px 0 10px", width: "auto", borderRadius: 6, background: "var(--bg-1)", border: "1px solid var(--line-1)", color: "var(--fg-1)", fontWeight: 500, cursor: "pointer" }
           },
             h("option", { value: "all" }, "Categoria ▾"),
             h("option", { value: "__none__" }, "⚠ Sem categoria"),
@@ -389,7 +388,7 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
           ),
           h("select", {
             value: filterAccount, onChange: e => setFilterAccount(e.target.value),
-            className: "select", style: { height: 26, fontSize: 11, padding: "0 24px 0 10px", width: "auto", borderRadius: 6, background: "transparent", border: "1px dashed var(--line-2)", color: "var(--fg-1)", fontWeight: 500, cursor: "pointer" }
+            className: "select", style: { height: 26, fontSize: 11, padding: "0 24px 0 10px", width: "auto", borderRadius: 6, background: "var(--bg-1)", border: "1px solid var(--line-1)", color: "var(--fg-1)", fontWeight: 500, cursor: "pointer" }
           },
             h("option", { value: "all" }, "Banco ▾"),
             bankNames.map(b => h("option", { key: b, value: b }, b))
@@ -399,7 +398,7 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
             h("input", {
               value: search, onChange: e => setSearch(e.target.value),
               placeholder: "Buscar…", className: "input",
-              style: { height: 26, fontSize: 11, padding: "0 10px", width: 140, borderRadius: 6, background: "transparent", border: "1px dashed var(--line-2)", color: "var(--fg-1)", fontWeight: 500 },
+              style: { height: 26, fontSize: 11, padding: "0 10px", width: 140, borderRadius: 6, background: "var(--bg-1)", border: "1px solid var(--line-1)", color: "var(--fg-1)", fontWeight: 500 },
             }),
             hasFilter && h("button", {
               onClick: () => { setFilterFlow("all"); setFilterMethod("all"); setFilterCat("all"); setFilterAccount("all"); setSearch(""); },

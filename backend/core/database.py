@@ -64,6 +64,7 @@ from core.db.analytics import (  # noqa: F401
     get_investment_movements_by_period,
     get_investment_movements_for_month,
     get_recent_investment_movements,
+    get_investment_movements_by_id,
     get_investment_evolution,
     get_budgets,
     search_transactions,

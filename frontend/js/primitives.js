@@ -146,7 +146,13 @@ function Donut({ data, size = 140, thickness = 18, valueKey = "balance", colors 
       type: "doughnut",
       data: {
         labels: data.map(d => d.name || d.label || "Item"),
-        datasets: [{ data: data.map(d => d[valueKey] || 0), backgroundColor: COLORS, borderWidth: 0, hoverOffset: 4 }]
+        datasets: [{ 
+          data: data.map(d => d[valueKey] || 0), 
+          backgroundColor: COLORS, 
+          borderWidth: 3, 
+          borderColor: getComputedStyle(document.documentElement).getPropertyValue("--bg-1").trim() || "transparent",
+          hoverOffset: 6 
+        }]
       },
       options: {
         responsive: true,
@@ -417,18 +423,36 @@ function SingleAreaChart({ data, height = 180, color = "var(--pos)", label = "Ev
           label: label,
           data: data.map(d => d.value || 0),
           borderColor: mainColor,
-          backgroundColor: mainColor.replace('oklch(', 'color-mix(in oklch, ').replace(')', ' 12%, transparent)'),
-          borderWidth: 2, tension: 0.3, fill: true,
-          pointRadius: 0, pointHoverRadius: 4, pointBackgroundColor: mainColor
+          backgroundColor: (context) => {
+            const chart = context.chart;
+            const {ctx, chartArea} = chart;
+            if (!chartArea) return "transparent";
+            const gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+            const base = mainColor.includes("oklch") ? mainColor : "oklch(60% 0.15 250)";
+            const inner = base.replace(/oklch\((.*?)\)/, "$1").split("/")[0].trim();
+            gradient.addColorStop(0, `oklch(${inner} / 0.15)`);
+            gradient.addColorStop(1, `oklch(${inner} / 0.01)`);
+            return gradient;
+          },
+          borderWidth: 3, tension: 0.4, fill: true,
+          pointRadius: 0, pointHoverRadius: 6, pointBackgroundColor: "var(--bg-0)", pointBorderColor: mainColor, pointBorderWidth: 2
         }]
       },
       options: {
         responsive: true, maintainAspectRatio: false,
         interaction: { mode: "index", intersect: false },
-        plugins: { legend: { display: false }, tooltip: { backgroundColor: "rgba(0,0,0,0.8)", titleFont: { size: 11 }, bodyFont: { size: 13, weight: "bold" }, displayColors: false } },
+        plugins: { 
+          legend: { display: false }, 
+          tooltip: { 
+            backgroundColor: "oklch(20% 0.01 250 / 0.9)", 
+            titleFont: { size: 11, family: "var(--ff-sans)" }, 
+            bodyFont: { size: 13, weight: "bold", family: "var(--ff-mono)" }, 
+            displayColors: false, padding: 12, cornerRadius: 8
+          } 
+        },
         scales: {
-          x: { grid: { display: false, drawBorder: false }, ticks: { color: fg2Color, font: { size: 10 } } },
-          y: { position: "right", beginAtZero: true, grid: { color: line1Color, drawBorder: false }, ticks: { color: fg2Color, font: { size: 10, family: "monospace" }, maxTicksLimit: 6, callback: v => "R$ " + (v/1000 >= 1 ? (v/1000).toFixed(1) + "k" : v) } }
+          x: { grid: { display: false, drawBorder: false }, ticks: { color: fg2Color, font: { size: 10, family: "var(--ff-mono)" } } },
+          y: { position: "right", beginAtZero: true, grid: { color: line1Color, drawBorder: false, borderDash: [2, 4] }, border: { display: false }, ticks: { color: fg2Color, font: { size: 10, family: "var(--ff-mono)" }, maxTicksLimit: 6, callback: v => "R$ " + (v/1000 >= 1 ? (v/1000).toFixed(1) + "k" : v) } }
         }
       }
     });

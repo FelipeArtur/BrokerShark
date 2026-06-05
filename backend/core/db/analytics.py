@@ -246,7 +246,7 @@ def get_credit_card_statement(account_id: str, start_date: str, end_date: str) -
                WHERE account_id=? AND flow='expense' AND date BETWEEN ? AND ?""",
             (account_id, start_date, end_date),
         ).fetchone()
-        return row[0]
+        return float(row[0])
 
 
 def get_credit_card_billing_info(account_id: str) -> dict:
@@ -849,6 +849,21 @@ def get_recent_investment_movements(limit: int = 100) -> list[dict]:
                JOIN investments i ON i.id = im.investment_id
                ORDER BY im.date DESC LIMIT ?""",
             (limit,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+def get_investment_movements_by_id(investment_id: str) -> list[dict]:
+    """Return all investment movements for a specific investment."""
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT im.id, im.date, im.investment_id, im.operation, im.amount,
+                      COALESCE(im.description, '') AS description,
+                      i.name AS investment_name, i.bank
+               FROM investment_movements im
+               JOIN investments i ON i.id = im.investment_id
+               WHERE im.investment_id = ?
+               ORDER BY im.date DESC""",
+            (investment_id,),
         ).fetchall()
     return [dict(r) for r in rows]
 

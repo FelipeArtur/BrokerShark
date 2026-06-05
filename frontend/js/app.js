@@ -705,16 +705,16 @@ function App() {
 
     // ── Premium Topbar
     h("header", { style: { 
-      height: 72, padding: "0 48px", 
+      height: 60, padding: "0 32px", 
       display: "flex", alignItems: "center", justifyContent: "space-between",
-      background: "var(--bg-0)", borderBottom: "1px solid var(--line-0)",
+      background: "var(--bg-0)", borderBottom: "1px solid var(--line-1)",
       position: "sticky", top: 0, zIndex: 10
     } },
       
       // Left: Logo & Nav
       h("div", { style: { display: "flex", alignItems: "center", gap: 48 } },
         h("div", { style: { display: "flex", alignItems: "center", gap: 12, cursor: "pointer" }, onClick: () => setSection("money") },
-          h(BrokerSharkLogo, { size: 28 })
+          h(BrokerSharkLogo, { size: 24 })
         ),
         h("nav", { style: { display: "flex", gap: 8 } },
           SECTIONS.map(s => h("button", {
@@ -725,8 +725,8 @@ function App() {
               background: section === s.id ? "var(--fg-0)" : "transparent",
               transition: "all 0.15s", display: "flex", alignItems: "center", gap: 8
             },
-            onMouseEnter: e => { if(section !== s.id) { e.currentTarget.style.color = "var(--fg-0)"; } },
-            onMouseLeave: e => { if(section !== s.id) { e.currentTarget.style.color = "var(--fg-1)"; } }
+            onMouseEnter: e => { if(section !== s.id) { e.currentTarget.style.color = "var(--fg-0)"; e.currentTarget.style.background = "var(--bg-1)"; } },
+            onMouseLeave: e => { if(section !== s.id) { e.currentTarget.style.color = "var(--fg-1)"; e.currentTarget.style.background = "transparent"; } }
           }, 
             s.label,
             s.shortcut && h("kbd", { style: { 
@@ -741,12 +741,12 @@ function App() {
       ),
 
       // Right: Actions
-      h("div", { style: { display: "flex", alignItems: "center", gap: 16 } },
+      h("div", { style: { display: "flex", alignItems: "center", gap: 12 } },
         
         // Search Trigger
         h("div", { 
           onClick: () => setSearchModalOpen(true),
-          style: { display: "flex", alignItems: "center", gap: 12, padding: "0 16px", height: 36, borderRadius: 18, background: "var(--bg-1)", border: "1px solid var(--line-1)", color: "var(--fg-3)", fontSize: 13, cursor: "text", width: 220, transition: "border-color 0.15s" },
+          style: { display: "flex", alignItems: "center", gap: 10, padding: "0 12px", height: 32, borderRadius: 6, background: "var(--bg-1)", border: "1px solid var(--line-1)", color: "var(--fg-3)", fontSize: 13, cursor: "text", width: 200, transition: "border-color 0.15s" },
           onMouseEnter: e => e.currentTarget.style.borderColor = "var(--line-2)",
           onMouseLeave: e => e.currentTarget.style.borderColor = "var(--line-1)"
         },
@@ -759,7 +759,7 @@ function App() {
         h("button", { 
           onClick: () => setCategoriesOpen(true),
           title: "Gerenciar Categorias",
-          style: { width: 36, height: 36, borderRadius: 18, background: "var(--bg-1)", border: "1px solid var(--line-1)", color: "var(--fg-1)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, transition: "background 0.1s" },
+          style: { width: 32, height: 32, borderRadius: 6, background: "var(--bg-1)", border: "1px solid var(--line-1)", color: "var(--fg-1)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, transition: "background 0.1s" },
           onMouseEnter: e => e.currentTarget.style.background = "var(--bg-2)",
           onMouseLeave: e => e.currentTarget.style.background = "var(--bg-1)"
         }, "⚙️"),
@@ -768,7 +768,7 @@ function App() {
         h("button", { 
           onClick: () => setTw("theme", tw.theme === "Dark" ? "Light" : "Dark"),
           title: "Alternar Tema",
-          style: { width: 36, height: 36, borderRadius: 18, background: "var(--bg-1)", border: "1px solid var(--line-1)", color: "var(--fg-1)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, transition: "background 0.1s" },
+          style: { width: 32, height: 32, borderRadius: 6, background: "var(--bg-1)", border: "1px solid var(--line-1)", color: "var(--fg-1)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, transition: "background 0.1s" },
           onMouseEnter: e => e.currentTarget.style.background = "var(--bg-2)",
           onMouseLeave: e => e.currentTarget.style.background = "var(--bg-1)"
         }, tw.theme === "Dark" ? "☀️" : "🌙"),
@@ -776,10 +776,10 @@ function App() {
         // Prominent Import Button
         h("button", { 
           onClick: () => setImportOpen(true),
-          style: { height: 36, padding: "0 20px", borderRadius: 18, background: "var(--fg-0)", color: "var(--bg-0)", border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, transition: "transform 0.1s" },
-          onMouseEnter: e => e.currentTarget.style.transform = "scale(1.03)",
+          style: { height: 32, padding: "0 16px", borderRadius: 6, background: "var(--fg-0)", color: "var(--bg-0)", border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, transition: "transform 0.1s" },
+          onMouseEnter: e => e.currentTarget.style.transform = "scale(1.02)",
           onMouseLeave: e => e.currentTarget.style.transform = "scale(1)"
-        }, h(IconImport, { size: 16 }), "Importar Dados")
+        }, h(IconImport, { size: 14 }), "Importar Dados")
       )
     ),
 

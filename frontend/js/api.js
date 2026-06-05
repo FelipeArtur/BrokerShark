@@ -66,7 +66,7 @@ async function fetchPixTop({ month, year } = {}) { return _get(`/api/pix-top${_p
 async function patchBudget(budgetId, categoryId, amountLimit) {
   return _patch(`/api/budgets/${budgetId}`, { category_id: categoryId, amount_limit: amountLimit });
 }
-async function fetchInvestmentMovements({ month, year } = {}) { return _get(`/api/investment-movements${_params({ month, year })}`); }
+async function fetchInvestmentMovements({ month, year, investment_id } = {}) { return _get(`/api/investment-movements${_params({ month, year, investment_id })}`); }
 async function patchInvestmentBalance(id, balance) {
   return _patch(`/api/investments/${id}/balance`, { balance });
 }
