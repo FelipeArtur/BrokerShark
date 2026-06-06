@@ -110,7 +110,9 @@ budgets (id, category_id, amount_limit)
 
 ## AI Architecture (Pierre-inspired)
 
-`backend/bot/handlers/ai_chat.py` — **Telegram only, somente consulta** (sem IA na web): tool calling via prompt (não native API — qwen2.5:7b), MAX_ROUNDS=3, persona "BrokerShark". Tools (7, leitura): `get_monthly_summary`, `get_monthly_comparison`, `get_expenses_by_category`, `get_account_balances`, `get_investments`, `get_recent_transactions`, `get_budgets`. Tools de escrita removidas.
+`backend/bot/handlers/ai_chat.py` — **Telegram only, somente consulta** (sem IA na web): tool calling via prompt (não native API — qwen2.5:7b). MAX_ROUNDS=3, persona "BrokerShark". Tools (7, leitura): `get_monthly_summary`, `get_monthly_comparison`, `get_expenses_by_category`, `get_account_balances`, `get_investments`, `get_recent_transactions`, `get_budgets`. Tools de escrita removidas.
+
+> **ROADMAP (Hermes Agent):** O uso atual de `qwen2.5:7b` via parsing manual de JSON provou-se ineficiente e propenso a quebras de loop. Há um plano de refatoração (`T-C`) para acoplar um **Agente Hermes** (ex: `Hermes-3-Llama-3.1-8B`) focado nativamente em Tool Calling, substituindo a lógica manual por uma comunicação mais fluida, efetiva e rápida com o banco de dados via Telegram.
 
 ---
 

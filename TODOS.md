@@ -55,3 +55,15 @@ catch-up (the one failure CLAUDE.md flags). Verify with `list-timers` after.
 - CP1 — inline category in import preview (revisit after living with editable preview).
 - CP4 — CSV source auto-detect (only if the per-file account picker proves annoying;
   carries a dedup-key risk note).
+
+---
+
+## T-C — Migrate Local AI to Hermes Agent (P3, architecture)
+
+**What:** Swap the current `qwen2.5:7b` prompt-based tool calling loop for a dedicated Hermes agent (e.g. `Hermes-3-Llama-3.1-8B` or similar) utilizing native tool-calling capabilities.
+
+**Why:** The current AI integration in Telegram (`backend/bot/handlers/ai_chat.py`) relies on a fragile regex/JSON-parsing loop to simulate tool-calling. It is not being effectively used because it's slow and occasionally fails parsing. A Hermes agent is heavily fine-tuned for precise tool-calling, making the Telegram bot faster and much more reliable for queries.
+
+**Context:** The Telegram bot strictly executes read-only tools (`get_monthly_summary`, `get_account_balances`, etc). Hermes could act as the conversational layer (Agent) connecting the Telegram front to the BrokerShark database, making queries instant and accurate. We will likely transition from plain text-based prompt engineering to OpenAI-compatible Tool structures.
+
+**Effort:** M (human + AI). **Priority:** P3. **Depends on:** evaluating local hardware constraints for Hermes 8B.
