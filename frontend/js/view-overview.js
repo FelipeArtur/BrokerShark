@@ -192,15 +192,6 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
     );
   }
 
-  function HeroStat({ label, value, color, negative, items, totalLabel, position }) {
-    const stat = h("div", { style: { display: "flex", flexDirection: "column", gap: 4, cursor: items ? "help" : "inherit" } },
-      h("span", { style: { fontSize: 11, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.04em", fontWeight: 700 } }, label),
-      h("span", { className: "num", style: { fontSize: 15, fontWeight: 700, color: color || "var(--fg-1)" } }, (negative ? "−" : "") + fmtBRL(Math.abs(value)))
-    );
-    if (!items) return stat;
-    return h(BreakdownPopover, { items, totalLabel, totalValue: value, position }, stat);
-  }
-
   if (isFirstRun) {
     const SourceRow = (bank, format, type) => h("tr", { style: { borderBottom: "1px solid var(--line-1)", fontSize: 13 } },
       h("td", { style: { padding: "8px 0", color: "var(--fg-1)", fontWeight: 600 } }, bank),
@@ -211,13 +202,11 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
     return h("div", { className: "fade-in", style: { width: "100%", maxWidth: 640 } },
       h("div", { className: "pane" },
         h("div", { className: "pane-h", style: { background: "var(--bg-2)" } },
-          h("div", { className: "pane-title" }, "Banco de Dados Vazio")
+          h("div", { className: "pane-title" }, "Sem dados ainda")
         ),
         h("div", { className: "pane-content", style: { padding: "32px" } },
           h("div", { style: { fontSize: 13, color: "var(--fg-2)", lineHeight: 1.6, marginBottom: 32 } },
-            "O banco de dados local SQLite está vazio.",
-            h("br"),
-            "É necessário importar extratos e faturas para iniciar as análises."
+            "Importe extratos e faturas para ver quanto você pode gastar."
           ),
 
           h("div", { style: { marginBottom: 12, fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--fg-3)", fontWeight: 700 } }, "Formatos Suportados"),
@@ -235,7 +224,7 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
               style: { fontSize: 13, padding: "8px 16px", borderRadius: 4, fontWeight: 600 },
               onClick: onImport
             }, "Importar Arquivos"),
-            h("span", { style: { fontSize: 12, color: "var(--fg-3)" } }, "Atalho: i")
+            h("span", { style: { fontSize: 12, color: "var(--fg-3)", display: "flex", alignItems: "center", gap: 6 } }, "Atalho", h("span", { className: "kbd" }, "i"))
           )
         )
       )
@@ -359,25 +348,23 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
           ),
           h("div", { className: "custom-scrollbar", style: { display: "flex", flexDirection: "column", overflowY: "auto", flex: 1, paddingRight: 8, marginRight: -8 } },
             faturas.length === 0
-              ? h("div", { style: { padding: "16px 0", color: "var(--fg-3)", fontSize: 13, fontStyle: "italic" } }, "Nenhuma fatura em aberto.")
-              : [...faturas].sort((a,b) => (a.label.toLowerCase().includes("nu") ? 1 : 2) - (b.label.toLowerCase().includes("nu") ? 1 : 2)).map((f, i, arr) => {
+              ? h("div", { style: { padding: "16px 0", color: "var(--fg-3)", fontSize: 13 } }, "Nenhuma fatura em aberto.")
+              : [...faturas].sort((a,b) => ((a.accountId||"").startsWith("nu") ? 1 : 2) - ((b.accountId||"").startsWith("nu") ? 1 : 2)).map((f, i, arr) => {
                   const tone = f.days_until_due <= 3 ? "neg" : f.days_until_due <= 7 ? "warn" : "ok";
                   const color = tone === "neg" ? "var(--neg)" : tone === "warn" ? "var(--warn)" : "var(--pos)";
                   const due = f.days_until_due > 0 ? `em ${f.days_until_due}d` : f.days_until_due === 0 ? "hoje" : `há ${Math.abs(f.days_until_due)}d`;
                   const trend = (f.last_total > 0) ? ((f.total - f.last_total) / f.last_total) * 100 : null;
-                  const isNu = f.label.toLowerCase().includes("nu");
-                  const bankColor = isNu ? "var(--nubank)" : "var(--inter)";
-                  
+                  const bankColor = (f.accountId || "").startsWith("nu") ? "var(--nubank)" : "var(--inter)";
+
                   return h("button", {
-                    key: i, onClick: () => setFaturaReceipt({ accountId: f.accountId, label: f.label, start: f.cycle_start, end: f.cycle_end, total: f.total, bankColor }),
-                    style: { 
-                      display: "flex", justifyContent: "space-between", alignItems: "center", 
+                    key: i, className: "row-hover",
+                    onClick: () => setFaturaReceipt({ accountId: f.accountId, label: f.label, start: f.cycle_start, end: f.cycle_end, total: f.total }),
+                    style: {
+                      display: "flex", justifyContent: "space-between", alignItems: "center",
                       height: 60, padding: "0 16px", background: "transparent", border: "none",
                       borderBottom: i < arr.length - 1 ? "1px dashed var(--line-1)" : "none",
-                      cursor: "pointer", textAlign: "left", borderRadius: 8, transition: "background 0.1s"
+                      cursor: "pointer", textAlign: "left", borderRadius: 8
                     },
-                    onMouseEnter: (e) => e.currentTarget.style.background = "var(--bg-2)",
-                    onMouseLeave: (e) => e.currentTarget.style.background = "transparent",
                   },
                     h("div", { style: { display: "flex", flexDirection: "column", justifyContent: "center", gap: 4 } },
                       h("span", { style: { fontSize: 13, fontWeight: 700, color: "var(--fg-1)", display: "flex", alignItems: "center", gap: 10 } }, 
@@ -388,8 +375,8 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
                     ),
                     h("div", { style: { display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "flex-end", gap: 4 } },
                       h("span", { className: "num", style: { fontSize: 16, fontWeight: 800, color: "var(--fg-0)", letterSpacing: "-0.02em" } }, fmtBRL(f.total)),
-                      trend !== null && h("span", { title: "Crescimento vs Mês Passado", style: { cursor: "help", fontSize: 11, fontWeight: 700, color: trend >= 0 ? "var(--neg)" : "var(--pos)", display: "flex", gap: 4, alignItems: "center", height: 13 } },
-                        trend >= 0 ? "↗" : "↘", `${Math.abs(trend).toFixed(1)}%`)
+                      trend !== null && h("span", { className: "num", title: "Variação vs. fatura anterior", style: { fontSize: 11, fontWeight: 700, color: trend >= 0 ? "var(--neg)" : "var(--pos)", height: 13 } },
+                        `${trend >= 0 ? "+" : "−"}${Math.abs(trend).toFixed(0)}% vs. anterior`)
                     )
                   );
                 })
@@ -404,31 +391,26 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
           ),
           h("div", { className: "custom-scrollbar", style: { display: "flex", flexDirection: "column", overflowY: "auto", flex: 1, paddingRight: 8, marginRight: -8 } },
             checkingAccounts.length === 0
-              ? h("div", { style: { padding: "16px 0", color: "var(--fg-3)", fontSize: 13, fontStyle: "italic" } }, "Nenhuma conta corrente.")
-              : [...checkingAccounts].sort((a,b) => (a.name.toLowerCase().includes("nu") ? 1 : 2) - (b.name.toLowerCase().includes("nu") ? 1 : 2)).map((a, i, arr) => {
-                  const isNu = a.name.toLowerCase().includes("nu");
-                  const bankColor = isNu ? "var(--nubank)" : "var(--inter)";
+              ? h("div", { style: { padding: "16px 0", color: "var(--fg-3)", fontSize: 13 } }, "Nenhuma conta corrente.")
+              : [...checkingAccounts].sort((a,b) => ((a.id||"").startsWith("nu") ? 1 : 2) - ((b.id||"").startsWith("nu") ? 1 : 2)).map((a, i, arr) => {
+                  const bankColor = (a.bank === "nubank" || (a.id||"").startsWith("nu")) ? "var(--nubank)" : "var(--inter)";
                   const pct = checkingTotal > 0 ? ((a.balance || 0) / checkingTotal) * 100 : 0;
-                  
+
                   return h("button", {
-                    key: a.id, onClick: () => onJumpToAccount && onJumpToAccount(a.id),
-                    style: { 
-                      display: "flex", justifyContent: "space-between", alignItems: "center", 
+                    key: a.id, className: "row-hover",
+                    onClick: () => onJumpToAccount && onJumpToAccount(a.id),
+                    style: {
+                      display: "flex", justifyContent: "space-between", alignItems: "center",
                       height: 60, padding: "0 16px", background: "transparent", border: "none",
                       borderBottom: i < arr.length - 1 ? "1px dashed var(--line-1)" : "none",
-                      cursor: "pointer", textAlign: "left", borderRadius: 8, transition: "background 0.1s"
+                      cursor: "pointer", textAlign: "left", borderRadius: 8
                     },
-                    onMouseEnter: (e) => e.currentTarget.style.background = "var(--bg-2)",
-                    onMouseLeave: (e) => e.currentTarget.style.background = "transparent",
                   },
                     h("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
                       h("div", { style: { width: 8, height: 8, borderRadius: "50%", background: bankColor } }),
                       h("span", { style: { fontSize: 13, fontWeight: 600, color: "var(--fg-1)" } }, a.name)
                     ),
-                    h("div", { style: { display: "flex", alignItems: "baseline", gap: 16 } },
-                      h("span", { title: "Representação no Caixa", style: { fontSize: 12, color: "var(--fg-3)", fontFamily: "var(--ff-mono)" } }, `${pct.toFixed(1)}%`),
-                      h("span", { className: "num", style: { fontSize: 15, fontWeight: 700, color: (a.balance || 0) < 0 ? "var(--neg)" : "var(--fg-0)", minWidth: 90, textAlign: "right" } }, fmtBRL(a.balance || 0))
-                    )
+                    h("span", { className: "num", title: `${pct.toFixed(1)}% do caixa`, style: { fontSize: 15, fontWeight: 700, color: (a.balance || 0) < 0 ? "var(--neg)" : "var(--fg-0)", minWidth: 90, textAlign: "right" } }, fmtBRL(a.balance || 0))
                   );
                 })
           )
@@ -450,12 +432,12 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
           ),
           h("div", { style: { textAlign: "right" } },
              h("div", { style: { fontSize: 12, color: "var(--fg-3)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 } }, "Período"),
-             h("div", { style: { fontSize: 13, color: "var(--fg-1)", fontFamily: "var(--ff-mono)" } }, `${faturaReceipt.start} - ${faturaReceipt.end}`)
+             h("div", { style: { fontSize: 13, color: "var(--fg-1)", fontFamily: "var(--ff-mono)" } }, `${fmtCycleDate(faturaReceipt.start)} – ${fmtCycleDate(faturaReceipt.end)}`)
           )
         ),
-        
-        !faturaTxs ? h("div", { style: { padding: 32, textAlign: "center", color: "var(--fg-3)" } }, "Carregando compras...") :
-        faturaTxs.length === 0 ? h("div", { style: { padding: 32, textAlign: "center", color: "var(--fg-3)", fontStyle: "italic" } }, "Nenhuma compra importada para este período.") :
+
+        !faturaTxs ? h("div", { style: { padding: 32, textAlign: "center", color: "var(--fg-3)" } }, "Carregando lançamentos…") :
+        faturaTxs.length === 0 ? h("div", { style: { padding: 32, textAlign: "center", color: "var(--fg-3)" } }, "Nenhum lançamento neste período.") :
         h("div", { className: "custom-scrollbar", style: { display: "flex", flexDirection: "column", maxHeight: 400, overflowY: "auto", paddingRight: 8, marginRight: -8 } },
           faturaTxs.map((t, i) => h("div", {
             key: t.id,

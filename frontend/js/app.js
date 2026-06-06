@@ -42,17 +42,6 @@ function IconSettings({ size = 17 }) {
   );
 }
 
-function IconTheme({ size = 17 }) {
-  // Half-filled disc — the canonical contrast/theme glyph (Linear-style), no emoji.
-  return React.createElement("svg", {
-    width: size, height: size, viewBox: "0 0 16 16", fill: "none",
-    stroke: "currentColor", strokeWidth: 1.7, style: { display: "block", flexShrink: 0 }
-  },
-    React.createElement("circle", { cx: 8, cy: 8, r: 6 }),
-    React.createElement("path", { d: "M8 2 A6 6 0 0 1 8 14 Z", fill: "currentColor", stroke: "none" })
-  );
-}
-
 function IconLock({ size = 16, open = false }) {
   return React.createElement("svg", {
     width: size, height: size, viewBox: "0 0 16 16", fill: "none",
@@ -81,6 +70,44 @@ function useTweaks() {
     document.documentElement.dataset.density = "comfortable";  // fixo — densidade não é editável
   }, [tw.theme]);
   return [tw, setTw];
+}
+
+/* ── TweaksPanel — dropdown de Configurações (tema · categorias · reset) ──── */
+function TweaksPanel({ tw, setTw, onClose, onOpenCategories }) {
+  const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
+  const isDefault = tw.theme === TWEAK_DEFAULTS.theme;
+  return h("div", { className: "tweaks-panel fade-in", role: "dialog", "aria-label": "Configurações" },
+    h("div", { className: "eyebrow", style: { marginBottom: 10 } }, "Configurações"),
+
+    // Tema
+    h("div", { style: { display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 } },
+      h("span", { style: { fontSize: 12, color: "var(--fg-2)" } }, "Tema"),
+      h(SegmentControl, {
+        options: [{ value: "Dark", label: "Escuro" }, { value: "Light", label: "Claro" }],
+        value: tw.theme, onChange: v => setTw("theme", v), columns: 2,
+      })
+    ),
+
+    h("div", { style: { height: 1, background: "var(--line-1)", margin: "4px 0 10px" } }),
+
+    // Atalho p/ Categorias
+    h("button", {
+      className: "btn btn-ghost",
+      style: { width: "100%", justifyContent: "flex-start", height: 34 },
+      onClick: () => { onClose(); onOpenCategories(); },
+    }, h(IconSettings, { size: 14 }), "Gerenciar categorias"),
+
+    // Restaurar padrões
+    h("button", {
+      className: "btn btn-ghost",
+      style: { width: "100%", justifyContent: "flex-start", height: 34, color: isDefault ? "var(--fg-3)" : "var(--fg-2)" },
+      disabled: isDefault,
+      onClick: () => setTw("theme", TWEAK_DEFAULTS.theme),
+    }, "Restaurar padrões"),
+
+    h("div", { style: { display: "flex", justifyContent: "flex-end", marginTop: 8 } },
+      h("button", { className: "btn btn-sm", onClick: onClose }, "Fechar"))
+  );
 }
 
 /* ── Transaction panel (micro-profile modal) ────────────────────────────── */
@@ -932,24 +959,15 @@ function App() {
       h("div", { style: { display: "flex", alignItems: "center", gap: 12 } },
         
 
-        // Categories Toggle
-        h("button", { 
-          onClick: () => setCategoriesOpen(true),
-          title: "Gerenciar Categorias",
+        // Settings (Configurações) — abre o TweaksPanel (tema · categorias · reset)
+        h("button", {
+          onClick: () => setTweaksOpen(true),
+          title: "Configurações",
           style: { width: 32, height: 32, borderRadius: 6, background: "var(--bg-1)", border: "1px solid var(--line-1)", color: "var(--fg-1)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, transition: "background 0.1s" },
           onMouseEnter: e => e.currentTarget.style.background = "var(--bg-2)",
           onMouseLeave: e => e.currentTarget.style.background = "var(--bg-1)"
         }, h(IconSettings, { size: 15 })),
 
-        // Theme Toggle
-        h("button", {
-          onClick: () => setTw("theme", tw.theme === "Dark" ? "Light" : "Dark"),
-          title: "Alternar Tema",
-          style: { width: 32, height: 32, borderRadius: 6, background: "var(--bg-1)", border: "1px solid var(--line-1)", color: "var(--fg-1)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.1s" },
-          onMouseEnter: e => e.currentTarget.style.background = "var(--bg-2)",
-          onMouseLeave: e => e.currentTarget.style.background = "var(--bg-1)"
-        }, h(IconTheme, { size: 15 })),
-        
         // Prominent Import Button
         h("button", { 
           onClick: () => setImportOpen(true),

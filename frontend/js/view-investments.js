@@ -129,6 +129,10 @@ function InvestmentsView({ refreshKey, filterMonth }) {
       color: _INV_COLORS[idx % _INV_COLORS.length]
     };
   });
+  // Color keyed by group name (single source of truth) — the ledger reads this
+  // instead of cross-indexing summaryByCategory by position, which would desync
+  // the donut and ledger dots if the two arrays ever drift.
+  const colorByGroup = Object.fromEntries(summaryByCategory.map(s => [s.name, s.color]));
 
   const displayedMovements = _s3Memo(() => periodMovements.filter(m => {
     if (bankFilter !== "all" && m.bank !== bankFilter) return false;
@@ -190,7 +194,7 @@ function InvestmentsView({ refreshKey, filterMonth }) {
           h("div", { style: { fontSize: 18, fontWeight: 700, color: "var(--fg-1)" } }, "Ativos em carteira")
         ),
         h("div", { style: { display: "flex", flexDirection: "column", gap: 32 } },
-          grouped.map(([groupName, groupInvs], gIdx) => h("div", { key: groupName },
+          grouped.map(([groupName, groupInvs]) => h("div", { key: groupName },
             h("div", { style: { display: "flex", alignItems: "baseline", borderBottom: "1px solid var(--line-1)", paddingBottom: 8, marginBottom: 12 } },
               h("div", { style: { flex: 1, fontSize: 11, fontWeight: 700, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em" } }, groupName)
             ),
@@ -198,7 +202,7 @@ function InvestmentsView({ refreshKey, filterMonth }) {
               groupInvs.map((inv) => {
                 const bal = inv.balance || 0;
                 const pct = total ? (bal / total) * 100 : 0;
-                const color = summaryByCategory[gIdx].color;
+                const color = colorByGroup[groupName];
                 return h("div", { key: inv.id, onClick: () => setDetailsAsset(inv), className: "row-hover", style: { display: "flex", alignItems: "center", padding: "10px 12px", margin: "0 -12px", borderRadius: 8, cursor: "pointer" } },
                   h("div", { style: { display: "flex", alignItems: "center", gap: 16, flex: 1, minWidth: 0 } },
                     h("span", { style: { width: 8, height: 8, borderRadius: "50%", background: color, flexShrink: 0 } }),
