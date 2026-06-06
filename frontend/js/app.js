@@ -149,38 +149,35 @@ function CategoryEditor({ tx, onClose, onSave }) {
   const amtColor = isSelf ? "var(--info)" : isInvest ? "var(--reserve)" : (flowIsExpense ? "var(--neg)" : "var(--pos)");
   const sign = flowIsExpense ? "−" : "+";
 
-  return h(Modal, { open: !!tx, onClose, title: "Perfil da Transação", width: 640 },
+  return h(Modal, { open: !!tx, onClose, title: "Perfil da Transação", width: 460 },
     tx && h("div", { style: { display: "flex", flexDirection: "column", gap: 32 } },
       
-      // Hero Header Block - More Premium
-      h("div", { style: { background: "var(--bg-1)", padding: "40px 32px", borderRadius: 16, border: "1px solid var(--line-1)", display: "flex", flexDirection: "column", position: "relative", overflow: "hidden" } },
-        
-        // Background accent
-        h("div", { style: { position: "absolute", top: 0, left: 0, right: 0, height: 4, background: amtColor } }),
+      // Hero Header Block - Seamless Integration
+      h("div", { style: { display: "flex", flexDirection: "column" } },
         
         // Top Row: Type & Date vs Bank
-        h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 32 } },
-          h("div", { style: { display: "flex", flexDirection: "column", gap: 6 } },
-            h("div", { style: { fontSize: 11, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700 } }, 
-               isSelf ? "Transferência Própria" : isInvest ? "Movimento de Investimento" : flowIsExpense ? "Comprovante de Despesa" : "Comprovante de Receita"
+        h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 } },
+          h("div", { style: { display: "flex", flexDirection: "column", gap: 4 } },
+            h("div", { style: { fontSize: 10, color: amtColor, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 800 } }, 
+               isSelf ? "Transferência Própria" : isInvest ? "Movimento de Invest" : flowIsExpense ? "Comprovante de Despesa" : "Comprovante de Receita"
             ),
-            h("div", { className: "mono", style: { fontSize: 13, color: "var(--fg-2)" } }, fmtDateBR(tx.date))
+            h("div", { className: "mono", style: { fontSize: 12, color: "var(--fg-2)" } }, fmtDateBR(tx.date))
           ),
           h(window.BS.BankChip, { accountId: tx.account_id, bank: tx.bank })
         ),
         
         // Amount & Display Name
-        h("div", { style: { display: "flex", flexDirection: "column", gap: 16 } },
-          h("span", { className: "num", style: { fontSize: 56, fontWeight: 800, letterSpacing: "-0.04em", color: amtColor, lineHeight: 1 } },
+        h("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
+          h("span", { className: "num", style: { fontSize: 44, fontWeight: 800, letterSpacing: "-0.04em", color: amtColor, lineHeight: 1 } },
             sign + fmtBRL(tx.amount)
           ),
-          h("div", { style: { fontSize: 24, fontWeight: 700, color: "var(--fg-0)", wordBreak: "break-word", lineHeight: 1.2 } },
+          h("div", { style: { fontSize: 20, fontWeight: 700, color: "var(--fg-0)", wordBreak: "break-word", lineHeight: 1.2 } },
             displayName || tx.description
           )
         ),
 
         // Technical details strip (cleaner)
-        h("div", { style: { display: "flex", gap: 32, marginTop: 40, paddingTop: 24, borderTop: "1px dashed var(--line-2)" } },
+        h("div", { style: { display: "flex", gap: 32, marginTop: 32, paddingTop: 24, borderTop: "1px dashed var(--line-2)" } },
           h("div", { style: { display: "flex", flexDirection: "column", gap: 6, flex: 1, minWidth: 0 } },
              h("span", { style: { color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700, fontSize: 10 } }, "Nome Original"),
              h("span", { className: "mono", style: { color: "var(--fg-1)", fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, tx.description)
@@ -193,7 +190,7 @@ function CategoryEditor({ tx, onClose, onSave }) {
       ),
 
       // Edit Form Block
-      h("div", { style: { display: "flex", flexDirection: "column", gap: 32, padding: "0 8px" } },
+      h("div", { style: { display: "flex", flexDirection: "column", gap: 32 } },
 
         // Name
         h("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
@@ -210,13 +207,13 @@ function CategoryEditor({ tx, onClose, onSave }) {
         // Category
         flowIsExpense && h("div", { style: { display: "flex", flexDirection: "column", gap: 12 } },
           h("div", { style: { fontSize: 11, color: "var(--fg-2)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" } }, "Classificação"),
-          h("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 } },
+          h("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 } },
             cats.map(c => h("button", {
               key: c.id, type: "button",
               onClick: () => setSelected(c.id),
               "aria-pressed": selected === c.id,
               style: {
-                padding: "12px 8px", borderRadius: 8, textAlign: "center",
+                padding: "10px 8px", borderRadius: 8, textAlign: "center",
                 fontSize: 12, fontWeight: selected === c.id ? 700 : 500,
                 background: selected === c.id ? "var(--fg-0)" : "var(--bg-1)",
                 border: selected === c.id ? "1px solid var(--fg-0)" : "1px solid var(--line-1)",
@@ -233,14 +230,14 @@ function CategoryEditor({ tx, onClose, onSave }) {
           onClick: handleToggleThirdParty,
           style: {
             display: "flex", alignItems: "center", justifyContent: "space-between",
-            padding: "16px 20px", borderRadius: 8, textAlign: "left",
+            padding: "14px 16px", borderRadius: 8, textAlign: "left",
             background: isThirdParty ? "var(--warn-bg)" : "var(--bg-1)",
             border: isThirdParty ? "1px solid var(--warn)" : "1px solid var(--line-1)",
             color: isThirdParty ? "var(--warn)" : "var(--fg-2)",
-            fontSize: 13, fontWeight: isThirdParty ? 600 : 500, cursor: "pointer", transition: "all 0.15s"
+            fontSize: 12, fontWeight: isThirdParty ? 600 : 500, cursor: "pointer", transition: "all 0.15s"
           }
         },
-          h("span", {}, isThirdParty ? "Transação de terceiros (Ocultada dos totais)" : "Marcar como transação de terceiros"),
+          h("span", {}, isThirdParty ? "Transação de terceiros (Ocultada)" : "Marcar como transação de terceiros"),
           h(IconLock, { open: !isThirdParty })
         ),
 
@@ -252,11 +249,10 @@ function CategoryEditor({ tx, onClose, onSave }) {
         h("button", {
           className: "btn btn-ghost",
           onClick: handleDelete, disabled: deleting,
-          style: { color: "var(--neg)", fontSize: 13, fontWeight: 700, padding: "0 16px", height: 40 }
+          style: { color: "var(--neg)", fontSize: 13, fontWeight: 700, padding: "0 16px", marginLeft: -16, height: 44, borderRadius: 8 }
         }, deleting ? "Excluindo…" : "Excluir lançamento"),
         h("div", { style: { display: "flex", gap: 12 } },
-          h("button", { className: "btn btn-ghost", onClick: onClose, style: { fontSize: 13, fontWeight: 600, padding: "0 16px", height: 40 } }, "Cancelar"),
-          h("button", { className: "btn btn-primary", onClick: save, disabled: saving, style: { padding: "0 24px", height: 40, fontSize: 13, fontWeight: 700, borderRadius: 8 } },
+          h("button", { className: "btn btn-primary", onClick: save, disabled: saving, style: { padding: "0 24px", height: 44, fontSize: 13, fontWeight: 700, borderRadius: 8 } },
             saving ? "Salvando…" : "Salvar Alterações")
         )
       )
@@ -601,36 +597,39 @@ function ImportModal({ onClose, onDone }) {
   /* ── Step 1: drop files + assign an account per file ── */
   const DropZone = h("label", {
     style: {
-      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-      border: "2px dashed var(--line-2)", background: "var(--bg-0)", borderRadius: 8,
-      padding: "28px 24px", cursor: busy ? "wait" : "pointer",
-      color: "var(--fg-2)", fontSize: 13, textAlign: "center", transition: "all 0.2s",
+      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12,
+      border: "2px dashed var(--line-2)", background: "var(--bg-1)", borderRadius: 12,
+      padding: "40px 24px", cursor: busy ? "wait" : "pointer",
+      color: "var(--fg-2)", textAlign: "center", transition: "all 0.2s",
     },
-    onDragOver: e => { e.preventDefault(); e.currentTarget.style.borderColor = "var(--pos)"; },
-    onDragLeave: e => { e.preventDefault(); e.currentTarget.style.borderColor = "var(--line-2)"; },
-    onDrop: e => { e.preventDefault(); e.currentTarget.style.borderColor = "var(--line-2)"; addFiles(e.dataTransfer.files); },
+    onDragOver: e => { e.preventDefault(); e.currentTarget.style.borderColor = "var(--pos)"; e.currentTarget.style.background = "var(--pos-bg)"; },
+    onDragLeave: e => { e.preventDefault(); e.currentTarget.style.borderColor = "var(--line-2)"; e.currentTarget.style.background = "var(--bg-1)"; },
+    onDrop: e => { e.preventDefault(); e.currentTarget.style.borderColor = "var(--line-2)"; e.currentTarget.style.background = "var(--bg-1)"; addFiles(e.dataTransfer.files); },
   },
-    h("div", { style: { marginBottom: 6, color: "var(--fg-1)" } }, "Arraste os arquivos do mês ou clique para selecionar"),
-    h("div", { style: { fontSize: 12, color: "var(--fg-3)" } }, "Vários extratos/faturas (.csv) de uma vez · relatório B3 (.xlsx)"),
+    h("div", { style: { background: "var(--bg-2)", padding: 12, borderRadius: "50%", color: "var(--fg-1)", marginBottom: 4 } }, h(IconImport, { size: 24 })),
+    h("div", { style: { fontSize: 15, fontWeight: 600, color: "var(--fg-0)" } }, "Arraste os arquivos bancários aqui"),
+    h("div", { style: { fontSize: 13, color: "var(--fg-3)" } }, "Múltiplos extratos/faturas (.csv) ou relatórios B3 (.xlsx)"),
     h("input", { type: "file", accept: ".csv,.xlsx,text/csv", multiple: true, style: { display: "none" },
       onChange: e => { addFiles(e.target.files); e.target.value = null; } })
   );
 
   const fileList = files.length > 0 && h("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
-    files.map(f => h("div", { key: f.key, style: { display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: "var(--bg-1)", border: "1px solid var(--line-1)", borderRadius: 6 } },
-      h("span", { style: { flex: 1, fontSize: 13, color: "var(--fg-1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } },
-        f.file.name, h("span", { style: { color: "var(--fg-3)", marginLeft: 6, fontSize: 11 } }, `${(f.file.size / 1024).toFixed(1)} KB`)),
+    files.map(f => h("div", { key: f.key, style: { display: "flex", alignItems: "center", gap: 16, padding: "12px 16px", background: "var(--bg-1)", border: "1px solid var(--line-1)", borderRadius: 8 } },
+      h("div", { style: { display: "flex", flexDirection: "column", flex: 1, minWidth: 0 } },
+        h("span", { style: { fontSize: 13, fontWeight: 600, color: "var(--fg-0)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, f.file.name),
+        h("span", { style: { color: "var(--fg-3)", fontSize: 11, fontFamily: "var(--ff-mono)" } }, `${(f.file.size / 1024).toFixed(1)} KB`)
+      ),
       f.b3
-        ? h("span", { className: "chip", style: { fontSize: 11 } }, "Relatório B3")
+        ? h("span", { style: { fontSize: 11, fontWeight: 700, padding: "6px 12px", background: "var(--info-bg)", color: "var(--info)", borderRadius: 6 } }, "B3")
         : h("select", {
             value: f.account || "", onChange: e => setFileAccount(f.key, e.target.value || null),
             "aria-label": "Conta de origem",
-            style: { fontSize: 12, padding: "4px 8px", borderRadius: 5, background: "var(--bg-2)", color: f.account ? "var(--fg-0)" : "var(--fg-3)", border: `1px solid ${f.account ? "var(--line-2)" : "var(--reserve)"}` },
+            style: { fontSize: 13, fontWeight: 600, padding: "8px 12px", borderRadius: 6, background: "var(--bg-0)", color: f.account ? "var(--fg-0)" : "var(--fg-3)", border: `1px solid ${f.account ? "var(--line-2)" : "var(--reserve)"}`, cursor: "pointer", outline: "none" },
           },
-            h("option", { value: "" }, "Conta de origem…"),
+            h("option", { value: "" }, "Atribuir Conta…"),
             BANKS.map(b => h("option", { key: b.id, value: b.id }, b.label))
           ),
-      h("button", { className: "btn btn-ghost btn-sm", onClick: () => removeFile(f.key), "aria-label": "Remover", title: "Remover" }, "✕")
+      h("button", { onClick: () => removeFile(f.key), title: "Remover arquivo", style: { width: 32, height: 32, borderRadius: "50%", background: "transparent", border: "none", color: "var(--fg-3)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.1s" }, onMouseEnter: e => { e.currentTarget.style.color = "var(--neg)"; e.currentTarget.style.background = "var(--bg-2)"; }, onMouseLeave: e => { e.currentTarget.style.color = "var(--fg-3)"; e.currentTarget.style.background = "transparent"; } }, "✕")
     ))
   );
 
@@ -660,44 +659,43 @@ function ImportModal({ onClose, onDone }) {
     const newRows = groupNew(g.account);
     const subtotal = newRows.reduce((s, r) => s + (r.flow === "expense" ? -r.amount : r.amount), 0);
     const div = g.amount_divergence || 0;
-    return h("div", { key: g.account, style: { border: "1px solid var(--line-1)", borderRadius: 8, overflow: "hidden" } },
-      h("div", { style: { padding: "9px 14px", background: "var(--bg-1)", borderBottom: "1px solid var(--line-1)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 } },
-        h("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
+    return h("div", { key: g.account, style: { border: "1px solid var(--line-1)", borderRadius: 12, overflow: "hidden" } },
+      h("div", { style: { padding: "16px 20px", background: "var(--bg-1)", borderBottom: "1px solid var(--line-1)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 } },
+        h("div", { style: { display: "flex", alignItems: "center", gap: 12 } },
           h(BankChip, { accountId: g.account }),
-          h("span", { style: { fontWeight: 600, fontSize: 13 } }, accLabel(g.account))
+          h("span", { style: { fontWeight: 700, fontSize: 14, color: "var(--fg-0)" } }, accLabel(g.account))
         ),
-        h("div", { style: { display: "flex", alignItems: "center", gap: 14, fontSize: 12, color: "var(--fg-2)" } },
+        h("div", { style: { display: "flex", alignItems: "center", gap: 16, fontSize: 12, color: "var(--fg-2)", fontWeight: 600 } },
           h("span", null, `${newRows.length} ${newRows.length === 1 ? "nova" : "novas"}`),
           g.counts.duplicate > 0 && h("span", { style: { color: "var(--fg-3)" } }, `${g.counts.duplicate} já existem`),
-          h("span", { style: { fontFamily: "var(--ff-mono)", fontWeight: 700, color: subtotal < 0 ? "var(--neg)" : "var(--pos)" } }, `${subtotal < 0 ? "−" : "+"}${fmtBRL(subtotal)}`)
+          h("span", { style: { fontFamily: "var(--ff-mono)", fontSize: 14, color: subtotal < 0 ? "var(--neg)" : "var(--pos)" } }, `${subtotal < 0 ? "−" : "+"}${fmtBRL(Math.abs(subtotal))}`)
         )
       ),
-      g.err && h("div", { style: { padding: "10px 14px", fontSize: 12, color: "var(--neg)", background: "color-mix(in oklch, var(--neg) 10%, transparent)" } }, g.err),
-      Math.abs(div) >= 0.01 && h("div", { style: { padding: "7px 14px", fontSize: 12, color: "var(--reserve)", background: "color-mix(in oklch, var(--reserve) 12%, transparent)", borderBottom: "1px solid var(--line-1)" } },
-        `Valores ajustados: ${div > 0 ? "+" : "−"}${fmtBRL(Math.abs(div))} vs extrato`),
-      !g.err && h("div", { style: { maxHeight: 280, overflowY: "auto", background: "var(--bg-0)" } },
+      g.err && h("div", { style: { padding: "12px 20px", fontSize: 12, fontWeight: 600, color: "var(--neg)", background: "color-mix(in oklch, var(--neg) 10%, transparent)" } }, g.err),
+      Math.abs(div) >= 0.01 && h("div", { style: { padding: "12px 20px", fontSize: 12, fontWeight: 600, color: "var(--reserve)", background: "color-mix(in oklch, var(--reserve) 12%, transparent)", borderBottom: "1px solid var(--line-1)" } },
+        `Ajuste de Saldo: ${div > 0 ? "+" : "−"}${fmtBRL(Math.abs(div))} vs extrato original`),
+      !g.err && h("div", { style: { maxHeight: 320, overflowY: "auto", background: "var(--bg-0)" } },
         h("table", { style: { width: "100%", borderCollapse: "collapse" } },
-          h("tbody", null, rows.map(r => {
+          h("tbody", null, rows.map((r, i) => {
             const isNew = r.status === "new";
             const checked = isNew && !excluded.has(r.id);
             const { color, sign } = amtMeta(r);
-            return h("tr", { key: r.id, style: { borderBottom: "1px solid var(--line-0)", opacity: (!isNew || !checked) ? 0.45 : 1, fontSize: 13 } },
-              h("td", { style: { padding: "7px 10px", width: 30, textAlign: "center" } },
-                isNew ? h("input", { type: "checkbox", checked, onChange: () => toggle(r.id), "aria-label": "Incluir", style: { cursor: "pointer" } })
+            return h("tr", { key: r.id, style: { borderBottom: i < rows.length - 1 ? "1px solid var(--line-0)" : "none", opacity: (!isNew || !checked) ? 0.45 : 1, fontSize: 13, transition: "background 0.1s" }, onMouseEnter: e => e.currentTarget.style.background = "var(--bg-1)", onMouseLeave: e => e.currentTarget.style.background = "transparent" },
+              h("td", { style: { padding: "12px 16px", width: 40, textAlign: "center" } },
+                isNew ? h("input", { type: "checkbox", checked, onChange: () => toggle(r.id), "aria-label": "Incluir", style: { cursor: "pointer", accentColor: "var(--fg-0)" } })
                       : h("span", { style: { color: "var(--fg-3)" } }, "−")),
-              h("td", { style: { padding: "7px 10px", color: "var(--fg-3)", whiteSpace: "nowrap", fontSize: 11 } }, fmtDateBR(r.date)),
-              h("td", { style: { padding: "7px 10px", width: "100%" } },
-                // raw bank description stays visible as context (never a placeholder-as-label)
-                h("div", { style: { color: isNew ? "var(--fg-1)" : "var(--fg-3)", fontWeight: 500 } }, r.description),
-                isNew && h("div", { style: { fontSize: 11, color: "var(--fg-3)", marginTop: 1 } },
-                  "apelido: ", h(EditableCell, {
-                    value: r.display_name || "", kind: "text", color: "var(--fg-2)",
-                    render: v => v || "—",
+              h("td", { style: { padding: "12px 0", color: "var(--fg-3)", whiteSpace: "nowrap", fontSize: 11, fontWeight: 600, fontFamily: "var(--ff-mono)" } }, fmtDateBR(r.date)),
+              h("td", { style: { padding: "12px 16px", width: "100%" } },
+                h("div", { style: { color: isNew ? "var(--fg-0)" : "var(--fg-3)", fontWeight: 600 } }, r.description),
+                isNew && h("div", { style: { fontSize: 11, color: "var(--fg-3)", marginTop: 4, display: "flex", gap: 6, alignItems: "center" } },
+                  "APELIDO:", h(EditableCell, {
+                    value: r.display_name || "", kind: "text", color: "var(--info)",
+                    render: v => v || "Adicionar...",
                     onCommit: v => editRow(g.account, g.batch_id, r.id, { display_name: v }),
                     onError: m => toast(m),
                   }))
               ),
-              h("td", { style: { padding: "7px 10px", textAlign: "right", whiteSpace: "nowrap" } },
+              h("td", { style: { padding: "12px 20px", textAlign: "right", whiteSpace: "nowrap" } },
                 isNew ? h(EditableCell, {
                   value: r.amount, kind: "amount", align: "right", color,
                   render: v => `${sign}${fmtBRL(v)}`,
@@ -707,7 +705,7 @@ function ImportModal({ onClose, onDone }) {
                     return editRow(g.account, g.batch_id, r.id, { amount: n });
                   },
                   onError: m => toast(m),
-                }) : h("span", { style: { color, fontWeight: 600, fontFamily: "var(--ff-mono)" } }, `${sign}${fmtBRL(r.amount)}`))
+                }) : h("span", { style: { color, fontWeight: 700, fontFamily: "var(--ff-mono)" } }, `${sign}${fmtBRL(r.amount)}`))
             );
           }))
         )
@@ -715,17 +713,17 @@ function ImportModal({ onClose, onDone }) {
     );
   };
 
-  const renderB3 = (b) => h("div", { key: b.key, style: { border: "1px solid var(--line-1)", borderRadius: 8, overflow: "hidden" } },
-    h("div", { style: { padding: "9px 14px", background: "var(--bg-1)", borderBottom: "1px solid var(--line-1)", display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--fg-2)" } },
-      h("span", { style: { fontWeight: 600, fontSize: 13, color: "var(--fg-1)" } }, "Relatório B3 — posições"),
-      b.preview && h("span", null, `${b.preview.created} novas · ${b.preview.updated} atualizadas`)),
-    b.err && h("div", { style: { padding: "10px 14px", fontSize: 12, color: "var(--neg)", background: "color-mix(in oklch, var(--neg) 10%, transparent)" } }, b.err),
-    b.preview && h("div", { style: { maxHeight: 240, overflowY: "auto", background: "var(--bg-0)" } },
+  const renderB3 = (b) => h("div", { key: b.key, style: { border: "1px solid var(--line-1)", borderRadius: 12, overflow: "hidden" } },
+    h("div", { style: { padding: "16px 20px", background: "var(--bg-1)", borderBottom: "1px solid var(--line-1)", display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--fg-2)" } },
+      h("span", { style: { fontWeight: 700, fontSize: 14, color: "var(--fg-0)" } }, "Relatório B3 — posições"),
+      b.preview && h("span", { style: { fontWeight: 600 } }, `${b.preview.created} novas · ${b.preview.updated} atualizadas`)),
+    b.err && h("div", { style: { padding: "12px 20px", fontSize: 12, fontWeight: 600, color: "var(--neg)", background: "color-mix(in oklch, var(--neg) 10%, transparent)" } }, b.err),
+    b.preview && h("div", { style: { maxHeight: 280, overflowY: "auto", background: "var(--bg-0)" } },
       h("table", { style: { width: "100%", borderCollapse: "collapse" } },
-        h("tbody", null, b.preview.positions.map((p, i) => h("tr", { key: i, style: { borderBottom: "1px solid var(--line-0)", fontSize: 13 } },
-          h("td", { style: { padding: "7px 10px", color: p.status === "new" ? "var(--pos)" : "var(--info)", fontWeight: 600, fontSize: 11 } }, p.status === "new" ? "NOVA" : "ATUALIZA"),
-          h("td", { style: { padding: "7px 10px", color: "var(--fg-1)", width: "100%", fontWeight: 500 } }, p.name),
-          h("td", { style: { padding: "7px 10px", textAlign: "right", fontWeight: 600, fontFamily: "var(--ff-mono)" } }, fmtBRL(p.balance))
+        h("tbody", null, b.preview.positions.map((p, i) => h("tr", { key: i, style: { borderBottom: i < b.preview.positions.length - 1 ? "1px solid var(--line-0)" : "none", fontSize: 13, transition: "background 0.1s" }, onMouseEnter: e => e.currentTarget.style.background = "var(--bg-1)", onMouseLeave: e => e.currentTarget.style.background = "transparent" },
+          h("td", { style: { padding: "12px 16px", color: p.status === "new" ? "var(--pos)" : "var(--info)", fontWeight: 700, fontSize: 11 } }, p.status === "new" ? "NOVA" : "ATUALIZA"),
+          h("td", { style: { padding: "12px 16px", color: "var(--fg-0)", width: "100%", fontWeight: 600 } }, p.name),
+          h("td", { style: { padding: "12px 20px", textAlign: "right", fontWeight: 700, fontFamily: "var(--ff-mono)", color: "var(--fg-0)" } }, fmtBRL(p.balance))
         ))))
     )
   );
@@ -870,7 +868,16 @@ function App() {
       const res = await deleteTransaction(id);
       setRefreshKey(k => k + 1);
       const n = res?.deleted || 1;
-      push(n > 1 ? `${n} lançamentos excluídos` : "Lançamento excluído", "success");
+      push(n > 1 ? `${n} lançamentos excluídos` : "Lançamento excluído", "success", {
+        label: "Desfazer",
+        onClick: async () => {
+          if (res?.restore) {
+             await restoreTransactions(res.restore);
+             setRefreshKey(k => k + 1);
+             push("Lançamento restaurado com sucesso.", "info");
+          }
+        }
+      });
     } catch (e) {
       push(e.message || "Erro ao excluir lançamento.", "error");
     }
@@ -1044,7 +1051,7 @@ function App() {
       onConfirm: () => { const id = confirmDelete.id; setConfirmDelete(null); handleDeleteTx(id); },
     }),
 
-    h(Toaster, null)
+    Toaster()
   );
 }
 

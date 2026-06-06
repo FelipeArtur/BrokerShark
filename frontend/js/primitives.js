@@ -224,14 +224,15 @@ function useToasts() {
   const [list, setList] = _useState([]);
   const push = _useCallback((msg, kind = "info", action = null) => {
     const id = Math.random().toString(36).slice(2);
-    setList(l => [...l, { id, msg, kind, action }]);
+    const duration = action ? 6000 : 3500;
+    setList(l => [...l, { id, msg, kind, action, duration }]);
     const timer = setTimeout(() => {
       setList(l => {
         const item = l.find(x => x.id === id);
         if (item && item.action && item.action.onTimeout) item.action.onTimeout();
         return l.filter(t => t.id !== id);
       });
-    }, action ? 5000 : 3500);
+    }, duration);
     return () => { clearTimeout(timer); setList(l => l.filter(t => t.id !== id)); };
   }, []);
 
@@ -240,30 +241,64 @@ function useToasts() {
     window.addEventListener('bs-toast', handler);
     return () => window.removeEventListener('bs-toast', handler);
   }, [push]);
-  const Toaster = () => React.createElement("div", {
+
+  const ICONS = {
+    success: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`,
+    error: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`,
+    info: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>`
+  };
+
+  const Toaster = _useCallback(() => React.createElement("div", {
     role: "status", "aria-live": "polite", "aria-atomic": "false",
-    style: { position: "fixed", bottom: 20, right: 20, display: "flex", flexDirection: "column", gap: 8, zIndex: 200 }
+    style: { position: "fixed", bottom: 24, right: 24, display: "flex", flexDirection: "column", gap: 12, zIndex: 999, alignItems: "flex-end" }
   },
     list.map(t => {
       const _k = t.kind === "success" ? "pos" : t.kind === "error" ? "neg" : "info";
       return React.createElement("div", {
-        key: t.id, className: "toast pane",
+        key: t.id, className: "toast",
         style: {
-          background: `var(--${_k}-bg)`,
-          border: `1px solid color-mix(in oklch, var(--${_k}) 30%, transparent)`,
-          padding: "10px 14px", minWidth: 240, fontSize: "var(--fz-6)",
-          boxShadow: "0 4px 16px oklch(0% 0 0 / 0.3)",
-          display: "flex", justifyContent: "space-between", alignItems: "center"
+          background: "var(--bg-1)",
+          border: "1px solid var(--line-2)",
+          color: "var(--fg-0)",
+          padding: "10px 16px 10px 12px", minWidth: 320, maxWidth: 500,
+          borderRadius: 12, fontSize: 13, fontWeight: 500,
+          boxShadow: "0 12px 32px oklch(0% 0 0 / 0.25), 0 4px 12px oklch(0% 0 0 / 0.15)",
+          display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16,
+          position: "relative", overflow: "hidden"
         }
       },
-        React.createElement("span", null, t.msg),
-        t.action && React.createElement("button", {
-          onClick: () => { t.action.onClick(); setList(l => l.filter(x => x.id !== t.id)); },
-          style: { cursor: "pointer", background: "var(--bg-2)", border: "1px solid var(--line-1)", borderRadius: 4, padding: "4px 8px", fontSize: 11, fontWeight: 600, color: "var(--fg-0)", marginLeft: 12 }
-        }, t.action.label)
+        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 12, zIndex: 1 } },
+          React.createElement("div", { 
+            dangerouslySetInnerHTML: { __html: ICONS[t.kind] || ICONS.info },
+            style: { display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: "50%", background: `var(--${_k}-bg)`, color: `var(--${_k})`, flexShrink: 0 }
+          }),
+          React.createElement("span", { style: { lineHeight: 1.3 } }, t.msg)
+        ),
+        React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "center", zIndex: 1 } },
+          t.action && React.createElement("button", {
+            onClick: () => { t.action.onClick(); setList(l => l.filter(x => x.id !== t.id)); },
+            style: { cursor: "pointer", background: "transparent", border: "none", padding: "6px 12px", borderRadius: 8, fontSize: 12, fontWeight: 700, color: `var(--${_k})`, textTransform: "uppercase", letterSpacing: "0.04em", transition: "background 0.15s" },
+            onMouseEnter: e => e.currentTarget.style.background = `var(--${_k}-bg)`,
+            onMouseLeave: e => e.currentTarget.style.background = "transparent"
+          }, t.action.label),
+          React.createElement("button", {
+            onClick: () => setList(l => l.filter(x => x.id !== t.id)),
+            title: "Fechar",
+            style: { cursor: "pointer", background: "transparent", border: "none", padding: 0, width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "50%", color: "var(--fg-3)", transition: "all 0.15s" },
+            onMouseEnter: e => { e.currentTarget.style.color = "var(--fg-0)"; e.currentTarget.style.background = "var(--bg-2)"; },
+            onMouseLeave: e => { e.currentTarget.style.color = "var(--fg-3)"; e.currentTarget.style.background = "transparent"; }
+          }, "✕")
+        ),
+        t.action && React.createElement("div", {
+          style: {
+            position: "absolute", bottom: 0, left: 0, height: 3, background: `var(--${_k})`,
+            animation: `toast-progress ${t.duration}ms linear forwards`
+          }
+        })
       );
     })
-  );
+  ), [list]);
+
   return { push, Toaster };
 }
 

@@ -230,7 +230,8 @@ button.data-tag:hover { border-color: var(--fg-2); color: var(--fg-0); backgroun
   to { transform: translateX(0); }
 }
 @keyframes toast-in { from { transform: translateY(8px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-.toast { animation: toast-in 0.2s ease-out; }
+@keyframes toast-progress { from { width: 100%; } to { width: 0%; } }
+.toast { animation: toast-in 0.2s cubic-bezier(0.16, 1, 0.3, 1); }
 
 /* Responsive grid tokens — overridden at narrow breakpoints */
 :root {
