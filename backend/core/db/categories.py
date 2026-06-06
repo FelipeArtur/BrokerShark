@@ -142,16 +142,24 @@ def delete_category(category_id: int, reassign_to_id: int) -> int:
     with _connect() as conn:
         if category_id == reassign_to_id:
             raise ValueError("Categoria de origem e destino não podem ser iguais.")
-        target = conn.execute(
-            "SELECT id FROM categories WHERE id=?", (reassign_to_id,)
-        ).fetchone()
-        if not target:
-            raise ValueError(f"Categoria destino id={reassign_to_id} não encontrada.")
-        cur = conn.execute(
-            "UPDATE transactions SET category_id=? WHERE category_id=?",
-            (reassign_to_id, category_id),
-        )
-        affected = cur.rowcount
+        
+        if reassign_to_id > 0:
+            target = conn.execute(
+                "SELECT id FROM categories WHERE id=?", (reassign_to_id,)
+            ).fetchone()
+            if not target:
+                raise ValueError(f"Categoria destino id={reassign_to_id} não encontrada.")
+            cur = conn.execute(
+                "UPDATE transactions SET category_id=? WHERE category_id=?",
+                (reassign_to_id, category_id),
+            )
+            affected = cur.rowcount
+        else:
+            count = conn.execute("SELECT COUNT(*) FROM transactions WHERE category_id=?", (category_id,)).fetchone()[0]
+            if count > 0:
+                raise ValueError("Existem lançamentos, é obrigatório reatribuir para exclusão.")
+            affected = 0
+
         conn.execute("DELETE FROM budgets WHERE category_id=?", (category_id,))
         conn.execute("DELETE FROM categories WHERE id=?", (category_id,))
         return affected

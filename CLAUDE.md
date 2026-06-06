@@ -88,6 +88,7 @@ Telegram (read-only): ai_chat / comandos → SELECT → resposta
 - **Fluxo de investimento (fonte única = transações, não `investment_movements`, que está vazia):** aplicação = `expense/method='transfer'/dest NULL`; resgate = `income/is_revenue=0/dest NULL`. `free_balance = receitas − despesas − investment_net`. "+ Movimento" grava via `crud.register_investment_transfer` (leg na conta corrente do banco **+** ajusta `current_balance` atomicamente) — **não** escreve `investment_movements` (essa tabela é subtraída dos saldos e causaria dupla contagem).
 - **Parcelamento:** compra parcelada no crédito é expandida em N lançamentos mensais por `crud.insert_expense` (1/N por ciclo, resto na última parcela, dia clampado). Insert manual sem `external_id` **levanta** `IntegrityError` (não retorna `-1` silenciosamente).
 - **Exclusão segura** (`crud.delete_transaction`, confirmação prévia em `ConfirmDeleteModal`): pagamento de fatura nunca é excluível (`ValueError` → 409); excluir uma parcela apaga o grupo `(k/N)` inteiro; SELF apaga os dois legs; legs de investimento do modal revertem `current_balance`. `restore_transactions`/`POST /api/transactions/restore` existem como primitivo dormente (nenhuma UI aciona).
+- **Import reversível** (`crud.delete_batch`, contraparte deliberada do guard por linha): cada confirm marca as linhas inseridas com um `import_batch_id` de sessão (gerado no cliente, compartilhado entre os confirms de um drop multi-conta). `delete_batch` remove o lote inteiro **incluindo a linha-total da fatura** — que o delete por linha recusa (409) e que o Histórico esconde (`dest IS NULL`), então sem isso a fatura seria irreversível e deixaria órfão de dupla contagem. Reverte `current_balance` de legs de investimento e devolve um payload p/ `restore_transactions`. UI: toast com "Desfazer" (janela de 5 s) após importar; `DELETE /api/import/batch/<id>`.
 
 ---
 
@@ -115,10 +116,14 @@ accounts (id, bank, type, name, billing_day, due_day, initial_balance)   -- nu-c
 categories (id, name, flow)        -- flow: expense | income
 transactions (id, date, flow, method, account_id, amount, installments,
               description, category_id, dest_account_id, counterpart,
-              is_revenue, external_id, display_name, is_third_party, original_amount)
+              is_revenue, external_id, display_name, is_third_party, original_amount,
+              import_batch_id)
               -- external_id: UUID Nubank, dedup | display_name: nome editável (UI)
               -- is_third_party: 1 = fora de todos os cálculos pessoais
               -- original_amount: valor parseado do extrato (auditoria de edição no preview)
+              -- import_batch_id: tag de sessão de import (1 por "drop", pode abranger
+              --   vários staging batches/contas) → import reversível em bloco via
+              --   crud.delete_batch. NULL p/ entradas manuais (índice PARCIAL enxuto).
 investments (id, name, type, bank, current_balance)
 investment_movements (id, date, investment_id, operation, amount, description)
 budgets (id, category_id, amount_limit)
@@ -130,10 +135,12 @@ budgets (id, category_id, amount_limit)
 
 ## Web Import (ingestão mensal)
 
-Upload pelo botão **"+ Importar"** (modal: conta+arquivo → preview → confirmar). Pipeline em `backend/core/ingestion/` — todo acesso a DB via `crud`/`analytics`.
+Upload pelo botão **"+ Importar"** (modal `ImportModal`: solta **vários arquivos** do mês → atribui a conta de cada um → preview agrupado por conta, **editável** → confirmar). Pipeline em `backend/core/ingestion/` — todo acesso a DB via `crud`/`analytics`.
 
 - **Fontes:** `nu-db` (extrato Nubank, UUID dedup), `inter-db` (extrato Inter, 5-line preamble), `inter-cc` (fatura Inter). `nu-cc` (fatura Nubank) ainda não suportado (formato desconhecido).
-- **Staging:** linhas vão p/ `import_staging` (status `new`/`duplicate`/`skipped`); `confirm` promove as `new` e apaga o batch. Nada é escrito em `transactions` até confirmar.
+- **Multi-arquivo:** o front manda todos os `file` da **mesma conta** num só POST (`preview_import_multi`) p/ dedup no conjunto combinado — um POST por arquivo reintroduziria dupes entre arquivos. Drop multi-conta = vários confirms compartilhando um `import_batch_id` (sessão), reversível como uma unidade.
+- **Preview editável:** cada linha `new` pode ter amount/apelido ajustados inline (`PATCH /api/import/staging/<batch>/<row>`); divergência vs extrato vira `amount_divergence` (auditoria via `original_amount`).
+- **Staging:** linhas vão p/ `import_staging` (status `new`/`duplicate`/`skipped`); `confirm` promove as `new` (marcando `import_batch_id`) e apaga o batch. Nada é escrito em `transactions` até confirmar.
 - **Dedup:** Nubank por `external_id` (índice UNIQUE parcial + `INSERT OR IGNORE`); Inter por contagem de ocorrência em `(account, date, round(amount,2), description)` — re-upload cumulativo só adiciona a cauda nova.
 - **Classificação no import:** investimentos (Aplicação RDB/NuInvest/Caixinha/Porquinho…) → `method='transfer', is_revenue=0`; pagamento de fatura → `method='transfer', dest_account_id=<bank>-cc`; auto-Pix/TED → `counterpart='SELF'`.
 - **Categorização = 100% manual no Histórico:** importados entram com `category_id=NULL` → filtro "Sem categoria" + edição inline (`<select>` por linha → `PATCH /api/transactions/<id>`). Sem auto-categorização por regras.
@@ -143,7 +150,7 @@ Upload pelo botão **"+ Importar"** (modal: conta+arquivo → preview → confir
 
 ## Dashboard API (resumo)
 
-Escrita (toda validada no servidor): `POST /api/transactions` (despesa), `POST /api/incomes` (receita/transferência), `POST /api/investment-movements`, `PATCH /api/transactions/<id>` (category_id/display_name/is_third_party), `PATCH /api/budgets/<id>`, `DELETE /api/transactions/<id>` (409 p/ fatura), `POST /api/transactions/restore`. Import: `POST /api/import/preview`, `GET /api/import/staging/<batch_id>`, `POST /api/import/confirm`.
+Escrita (toda validada no servidor): `POST /api/transactions` (despesa), `POST /api/incomes` (receita/transferência), `POST /api/investment-movements`, `PATCH /api/transactions/<id>` (category_id/display_name/is_third_party), `PATCH /api/budgets/<id>`, `DELETE /api/transactions/<id>` (409 p/ fatura), `POST /api/transactions/restore`. Import: `POST /api/import/preview` (aceita **múltiplos `file`** da mesma conta — dedup no conjunto combinado), `GET /api/import/staging/<batch_id>`, `PATCH /api/import/staging/<batch_id>/<row_id>` (edita amount/category_id/display_name no preview → `amount_divergence`), `POST /api/import/confirm` (recebe e ecoa `import_batch_id`), `DELETE /api/import/batch/<id>` (reverte o lote inteiro).
 
 Leitura: `/api/available` (herói liquidez), `/api/summary`, `/api/accounts`, `/api/investments`, `/api/monthly` (`?present=1` = só meses com dados), `/api/categories`, `/api/faturas`, `/api/transactions`, `/api/recent-activity`, `/api/patrimonio-history`, `/api/daily-spend` (mês calendário zero-filled), `/api/month-transactions` (inclui `is_revenue` p/ o front replicar a consumption-rule), `/api/budgets`, `/api/categories-full`, `/api/pix-top`, `/api/expenses-by-method`, `/api/events` (SSE).
 

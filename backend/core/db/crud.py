@@ -5,7 +5,8 @@ import calendar
 import re
 import sqlite3
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
+from uuid import uuid4
 
 from core.db.schema import _connect
 from core import events
@@ -150,7 +151,8 @@ def get_transaction(transaction_id: int) -> Optional[sqlite3.Row]:
 _TX_COLUMNS = (
     "id", "date", "flow", "method", "account_id", "amount", "installments",
     "description", "category_id", "dest_account_id", "counterpart", "is_revenue",
-    "external_id", "display_name", "is_third_party",
+    "external_id", "display_name", "is_third_party", "original_amount",
+    "import_batch_id",
 )
 
 _INSTALLMENT_RE = re.compile(r"^(?P<base>.+) \((?P<k>\d+)/(?P<n>\d+)\)$")
@@ -218,6 +220,27 @@ def _investment_balance_delta(conn: sqlite3.Connection, row: sqlite3.Row) -> Opt
     return None
 
 
+def _revert_investment_deltas(
+    conn: sqlite3.Connection, rows: Iterable[sqlite3.Row]
+) -> list[dict]:
+    """Subtract each row's investment-leg delta from ``current_balance``.
+
+    Shared by :func:`delete_transaction` and :func:`delete_batch`: for every modal-created
+    investment leg in ``rows``, reverse the balance change it applied and collect
+    ``{id, applied_delta}`` for the restore payload. Non-leg rows are skipped.
+    """
+    deltas: list[dict] = []
+    for r in rows:
+        delta = _investment_balance_delta(conn, r)
+        if delta is not None:
+            deltas.append(delta)
+            conn.execute(
+                "UPDATE investments SET current_balance = current_balance - ? WHERE id = ?",
+                (delta["applied_delta"], delta["id"]),
+            )
+    return deltas
+
+
 def delete_transaction(tx_id: int) -> Optional[dict]:
     """Delete a transaction (and its integrity-linked siblings) and return a restore payload.
 
@@ -259,15 +282,7 @@ def delete_transaction(tx_id: int) -> Optional[dict]:
             to_delete[partner["id"]] = partner
 
         # Reverse current_balance for any investment legs in the set.
-        investment_deltas: list[dict] = []
-        for r in to_delete.values():
-            delta = _investment_balance_delta(conn, r)
-            if delta is not None:
-                investment_deltas.append(delta)
-                conn.execute(
-                    "UPDATE investments SET current_balance = current_balance - ? WHERE id = ?",
-                    (delta["applied_delta"], delta["id"]),
-                )
+        investment_deltas = _revert_investment_deltas(conn, to_delete.values())
 
         ids = list(to_delete.keys())
         placeholders = ",".join("?" for _ in ids)
@@ -306,6 +321,55 @@ def restore_transactions(payload: dict) -> int:
             )
     events.notify()
     return len(txs)
+
+
+def count_batch(import_batch_id: str) -> int:
+    """Number of transactions tagged with ``import_batch_id`` (incl. hidden fatura rows)."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM transactions WHERE import_batch_id = ?",
+            (import_batch_id,),
+        ).fetchone()
+    return int(row[0] or 0)
+
+
+def delete_batch(import_batch_id: str) -> dict:
+    """Reverse a whole import in one transaction — every row that shares the tag.
+
+    This is the deliberate counterpart to :func:`delete_transaction`'s per-row guard.
+    A single-row delete refuses fatura-total rows (``dest IN ('nu-cc','inter-cc')``)
+    because those are load-bearing for patrimônio; but a fatura import stages exactly
+    such a row, and those rows are invisible in the Histórico (``get_month_transactions``
+    filters ``dest IS NULL``). So per-row delete can never reverse a fatura import and
+    would leave a double-counting orphan. ``delete_batch`` removes the entire tagged set
+    — purchases AND the fatura total — restoring the books to their pre-import state.
+
+    Installment groups all share the tag (imported card rows are single rows anyway),
+    so they go together by definition. Any modal-style investment legs revert
+    ``current_balance`` (imported rows use a different description format and normally
+    have no delta — the check is defensive).
+
+    Returns ``{"deleted": int, "transactions": [...], "investment_deltas": [...]}``;
+    the last two form a restore payload :func:`restore_transactions` can replay.
+    """
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM transactions WHERE import_batch_id = ?",
+            (import_batch_id,),
+        ).fetchall()
+        if not rows:
+            return {"deleted": 0, "transactions": [], "investment_deltas": []}
+
+        investment_deltas = _revert_investment_deltas(conn, rows)
+        conn.execute(
+            "DELETE FROM transactions WHERE import_batch_id = ?", (import_batch_id,)
+        )
+    events.notify()
+    return {
+        "deleted": len(rows),
+        "transactions": [{c: r[c] for c in _TX_COLUMNS} for r in rows],
+        "investment_deltas": investment_deltas,
+    }
 
 
 def get_transactions_by_period(
@@ -629,7 +693,11 @@ def staging_divergence(batch_id: str) -> float:
     return round(float(row[0] or 0.0), 2)
 
 
-def confirm_staging_batch(batch_id: str, exclude_ids: Optional[set[int]] = None) -> dict:
+def confirm_staging_batch(
+    batch_id: str,
+    exclude_ids: Optional[set[int]] = None,
+    import_batch_id: Optional[str] = None,
+) -> dict:
     """Atomically promote a batch's 'new' rows to transactions and drop the batch.
 
     All inserts AND the batch delete run inside a single connection/transaction:
@@ -640,12 +708,18 @@ def confirm_staging_batch(batch_id: str, exclude_ids: Optional[set[int]] = None)
     Args:
         batch_id: Token from :func:`insert_staging_rows`.
         exclude_ids: Staging-row ids the user unchecked in the preview.
+        import_batch_id: Shared session token tagged onto every inserted row so the
+            whole import (which may span several per-account staging batches) is
+            reversible as one unit via :func:`delete_batch`. Generated when omitted.
+            Only rows actually inserted carry it — ``INSERT OR IGNORE`` collisions and
+            excluded rows are not tagged (so the tag = the exact undo set).
 
     Returns:
-        ``{"inserted": int, "skipped": int}``, or ``{"missing": True, …}`` if the
-        batch no longer exists (expired or already confirmed).
+        ``{"inserted": int, "skipped": int, "import_batch_id": str}``, or
+        ``{"missing": True, …}`` if the batch no longer exists.
     """
     excluded = exclude_ids or set()
+    import_batch_id = import_batch_id or uuid4().hex
     with _connect() as conn:
         rows = conn.execute(
             "SELECT * FROM import_staging WHERE batch_id = ? ORDER BY date ASC, id ASC",
@@ -665,12 +739,13 @@ def confirm_staging_batch(batch_id: str, exclude_ids: Optional[set[int]] = None)
                 """INSERT OR IGNORE INTO transactions
                    (date, flow, method, account_id, amount, installments,
                     description, category_id, dest_account_id, counterpart,
-                    is_revenue, external_id, display_name, original_amount)
-                   VALUES (?,?,?,?,?,1,?,?,?,?,?,?,?,?)""",
+                    is_revenue, external_id, display_name, original_amount,
+                    import_batch_id)
+                   VALUES (?,?,?,?,?,1,?,?,?,?,?,?,?,?,?)""",
                 (r["date"], r["flow"], r["method"], r["account_id"], r["amount"],
                  r["description"], _sget(r, "category_id"), r["dest_account_id"],
                  _staging_counterpart(r), r["is_revenue"] or 0, r["external_id"],
-                 _sget(r, "display_name"), audit_amount),
+                 _sget(r, "display_name"), audit_amount, import_batch_id),
             )
             if cur.rowcount:
                 inserted += 1
@@ -678,7 +753,8 @@ def confirm_staging_batch(batch_id: str, exclude_ids: Optional[set[int]] = None)
     # Rows enter with category_id from the preview edit if set, else NULL — then
     # categorized by hand in the Histórico (filter "Sem categoria" + inline edit).
     events.notify()
-    return {"inserted": inserted, "skipped": len(rows) - inserted}
+    return {"inserted": inserted, "skipped": len(rows) - inserted,
+            "import_batch_id": import_batch_id}
 
 
 def prune_staging(older_than_hours: int = 24) -> int:

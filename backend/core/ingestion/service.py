@@ -100,19 +100,26 @@ def get_staging_view(batch_id: str, source: Optional[str] = None,
     }
 
 
-def confirm_import(batch_id: str, exclude_ids: Optional[Iterable[int]] = None) -> dict:
+def confirm_import(
+    batch_id: str,
+    exclude_ids: Optional[Iterable[int]] = None,
+    import_batch_id: Optional[str] = None,
+) -> dict:
     """Promote a batch's 'new' rows to transactions and delete the batch.
 
     Args:
         batch_id: The token returned by :func:`preview_import`.
         exclude_ids: Staging-row ids the user unchecked in the preview; these are
             skipped even if classified 'new'.
+        import_batch_id: Shared session token tagged onto inserted rows so a
+            multi-account drop reverses as one unit. Generated when omitted.
 
     Returns:
-        ``{"inserted": int, "skipped": int}``. ``inserted`` may be lower than the
-        'new' count if an ``external_id`` collided at insert time (race / re-run).
+        ``{"inserted": int, "skipped": int, "import_batch_id": str}``. ``inserted``
+        may be lower than the 'new' count if an ``external_id`` collided at insert
+        time (race / re-run).
     """
     # All inserts + the batch delete happen atomically in one transaction
     # (crud.confirm_staging_batch), with a single SSE notify. Imports enter with
     # category_id=NULL — categorize later in the TransactionPanel.
-    return crud.confirm_staging_batch(batch_id, set(exclude_ids or ()))
+    return crud.confirm_staging_batch(batch_id, set(exclude_ids or ()), import_batch_id)

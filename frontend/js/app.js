@@ -1,7 +1,8 @@
 /* app.js — BrokerShark v2 app shell */
 /* global React, ReactDOM, fetchExpenseCategories, patchTransaction,
           searchTransactions, postCategory, deleteCategory, deleteTransaction,
-          fetchAccounts, importPreview, importConfirm, importB3 */
+          fetchAccounts, importPreview, importConfirm, importB3,
+          patchStagingRow, deleteImportBatch */
 
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
 const {
@@ -38,6 +39,28 @@ function IconSettings({ size = 17 }) {
     React.createElement("circle", { cx: 9.5, cy: 5, r: 1.7, fill: "currentColor", stroke: "none" }),
     React.createElement("line", { x1: 2, y1: 11, x2: 14, y2: 11 }),
     React.createElement("circle", { cx: 5.5, cy: 11, r: 1.7, fill: "currentColor", stroke: "none" })
+  );
+}
+
+function IconTheme({ size = 17 }) {
+  // Half-filled disc — the canonical contrast/theme glyph (Linear-style), no emoji.
+  return React.createElement("svg", {
+    width: size, height: size, viewBox: "0 0 16 16", fill: "none",
+    stroke: "currentColor", strokeWidth: 1.7, style: { display: "block", flexShrink: 0 }
+  },
+    React.createElement("circle", { cx: 8, cy: 8, r: 6 }),
+    React.createElement("path", { d: "M8 2 A6 6 0 0 1 8 14 Z", fill: "currentColor", stroke: "none" })
+  );
+}
+
+function IconLock({ size = 16, open = false }) {
+  return React.createElement("svg", {
+    width: size, height: size, viewBox: "0 0 16 16", fill: "none",
+    stroke: "currentColor", strokeWidth: 1.6, strokeLinecap: "round", strokeLinejoin: "round",
+    style: { display: "block", flexShrink: 0 }
+  },
+    React.createElement("rect", { x: 3.5, y: 7, width: 9, height: 6.5, rx: 1.2 }),
+    React.createElement("path", { d: open ? "M5.5 7 V5 a2.5 2.5 0 0 1 4.8 -1" : "M5.5 7 V5 a2.5 2.5 0 0 1 5 0 V7" })
   );
 }
 
@@ -211,14 +234,14 @@ function CategoryEditor({ tx, onClose, onSave }) {
           style: {
             display: "flex", alignItems: "center", justifyContent: "space-between",
             padding: "16px 20px", borderRadius: 8, textAlign: "left",
-            background: isThirdParty ? "var(--warn-bg, rgba(255,160,0,0.12))" : "var(--bg-1)",
-            border: isThirdParty ? "1px solid var(--warn, #fa0)" : "1px solid var(--line-1)",
-            color: isThirdParty ? "var(--warn, #fa0)" : "var(--fg-2)",
+            background: isThirdParty ? "var(--warn-bg)" : "var(--bg-1)",
+            border: isThirdParty ? "1px solid var(--warn)" : "1px solid var(--line-1)",
+            color: isThirdParty ? "var(--warn)" : "var(--fg-2)",
             fontSize: 13, fontWeight: isThirdParty ? 600 : 500, cursor: "pointer", transition: "all 0.15s"
           }
         },
           h("span", {}, isThirdParty ? "Transação de terceiros (Ocultada dos totais)" : "Marcar como transação de terceiros"),
-          h("span", { style: { fontSize: 16 } }, isThirdParty ? "🔒" : "🔓")
+          h(IconLock, { open: !isThirdParty })
         ),
 
         err && h("div", { style: { fontSize: 12, color: "var(--neg)", background: "color-mix(in oklch, var(--neg) 10%, transparent)", padding: "12px 16px", borderRadius: 8 } }, err)
@@ -370,218 +393,376 @@ function IconImport({ size = 17 }) {
   );
 }
 
-/* ── ImportWizard ─────────────────────────────────────────────────────── */
+/* ── EditableCell — click-to-edit preview cell ────────────────────────────
+   Verification-first: a row reads as plain text until you click (or press
+   Enter/F2) a cell. Commit on blur or Enter; Esc reverts. onCommit does the
+   PATCH and throws on failure, which reverts the cell and toasts. */
+function EditableCell({ value, kind, render, onCommit, onError, align = "left", color }) {
+  const h = React.createElement;
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [flash, setFlash] = useState(false);
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    if (editing && inputRef.current) { inputRef.current.focus(); inputRef.current.select(); }
+  }, [editing]);
+
+  function start() { setDraft(value == null ? "" : String(value)); setEditing(true); }
+  async function commit() {
+    setEditing(false);
+    const same = String(draft) === String(value == null ? "" : value);
+    if (same) return;
+    setSaving(true);
+    try {
+      await onCommit(draft);
+      setFlash(true); setTimeout(() => setFlash(false), 600);
+    } catch (e) {
+      if (onError) onError(e.message || "não salvou");
+    } finally { setSaving(false); }
+  }
+
+  if (editing) {
+    return h("input", {
+      ref: inputRef, value: draft,
+      onChange: e => setDraft(e.target.value),
+      onBlur: commit,
+      onKeyDown: e => {
+        if (e.key === "Enter") { e.preventDefault(); e.target.blur(); }
+        else if (e.key === "Escape") { e.preventDefault(); setEditing(false); }
+      },
+      inputMode: kind === "amount" ? "decimal" : "text",
+      "aria-label": kind === "amount" ? "Editar valor" : "Editar apelido",
+      style: {
+        width: "100%", boxSizing: "border-box", font: "inherit",
+        textAlign: align, color: "var(--fg-0)", background: "var(--bg-2)",
+        border: "1px solid var(--pos)", borderRadius: 4, padding: "1px 5px",
+        fontFamily: kind === "amount" ? "var(--ff-mono)" : "inherit",
+      },
+    });
+  }
+  return h("span", {
+    tabIndex: 0, role: "button", title: "Clique para editar",
+    onClick: start,
+    onKeyDown: e => { if (e.key === "Enter" || e.key === "F2") { e.preventDefault(); start(); } },
+    onFocus: e => { e.currentTarget.style.borderBottomColor = "var(--line-2)"; },
+    onBlur: e => { e.currentTarget.style.borderBottomColor = "transparent"; },
+    onMouseEnter: e => { e.currentTarget.style.borderBottomColor = "var(--line-2)"; },
+    onMouseLeave: e => { e.currentTarget.style.borderBottomColor = "transparent"; },
+    style: {
+      cursor: "text", display: "inline-block", maxWidth: "100%",
+      color: color || "var(--fg-1)", outline: "none", borderBottom: "1px dashed transparent",
+      background: flash ? "color-mix(in oklch, var(--pos) 20%, transparent)" : "transparent",
+      borderRadius: 3, transition: "background 0.4s",
+      fontFamily: kind === "amount" ? "var(--ff-mono)" : "inherit",
+    },
+  }, saving ? "…" : render(value));
+}
+
+function _parseAmountInput(raw) {
+  let s = String(raw).trim().replace(/[R$\s]/g, "");
+  if (s.includes(",")) s = s.replace(/\./g, "").replace(",", ".");  // BRL "1.234,56"
+  const n = parseFloat(s);
+  return (isFinite(n) && n > 0) ? Math.round(n * 100) / 100 : null;
+}
+
+/* ── ImportModal — multi-file, per-account, editable preview ──────────────── */
 function ImportModal({ onClose, onDone }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
-  const { Modal, SegmentControl } = window.BS;
+  const { Modal, BankChip } = window.BS;
   const names = (window.BS && window.BS.accountNames) || {};
-  const ACCOUNTS = [
-    { id: "nu-db",    label: names["nu-db"]    || "Nubank",   hint: "Conta (CSV)" },
-    { id: "inter-db", label: names["inter-db"] || "Inter",    hint: "Conta (CSV)" },
-    { id: "inter-cc", label: names["inter-cc"] || "Inter CC", hint: "Fatura (CSV)" },
-    { id: "b3",       label: "Relatório B3",                  hint: "Posições (XLSX)" },
+  const BANKS = [
+    { id: "nu-db",    label: names["nu-db"]    || "Nubank" },
+    { id: "inter-db", label: names["inter-db"] || "Inter" },
+    { id: "inter-cc", label: names["inter-cc"] || "Inter CC" },
   ];
+  const accLabel = id => (BANKS.find(b => b.id === id) || {}).label || id;
+  const uuid = () => (window.crypto && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : "imp-" + Date.now() + "-" + Math.random().toString(16).slice(2);
+  const toast = (msg, kind = "error") =>
+    window.dispatchEvent(new CustomEvent("bs-toast", { detail: { msg, kind } }));
 
-  const [account, setAccount]   = useState(null);
-  const [file, setFile]         = useState(null);
-  const [preview, setPreview]   = useState(null);
-  const [b3Preview, setB3Preview] = useState(null);
-  const [excluded, setExcluded] = useState(() => new Set());
-  const [busy, setBusy]         = useState(false);
-  const [err, setErr]           = useState(null);
+  const [files, setFiles]         = useState([]);   // [{key, file, account|null, b3}]
+  const [groups, setGroups]       = useState(null); // tx groups (one per account)
+  const [b3s, setB3s]             = useState([]);   // [{key, file, preview, err}]
+  const [rowsByGroup, setRowsByGroup] = useState({}); // account -> editable rows copy
+  const [excluded, setExcluded]   = useState(() => new Set());
+  const [busy, setBusy]           = useState(false);
+  const [err, setErr]             = useState(null);
+  const [results, setResults]     = useState(null); // per-account confirm status
 
-  async function analyze(targetFile) {
-    const f = targetFile || file;
-    if (!f) { setErr("Escolha um arquivo."); return; }
+  const step = (groups || b3s.length) ? 2 : 1;
+
+  function addFiles(fileList) {
+    setErr(null);
+    const incoming = Array.from(fileList || []).map(f => {
+      const ext = (f.name.split(".").pop() || "").toLowerCase();
+      if (ext !== "csv" && ext !== "xlsx") return null;
+      return { key: uuid(), file: f, account: null, b3: ext === "xlsx" };
+    }).filter(Boolean);
+    if (!incoming.length) { setErr("Envie .csv (extratos/faturas) ou .xlsx (relatório B3)."); return; }
+    setFiles(prev => [...prev, ...incoming]);
+  }
+  const removeFile = key => setFiles(prev => prev.filter(f => f.key !== key));
+  const setFileAccount = (key, account) =>
+    setFiles(prev => prev.map(f => f.key === key ? { ...f, account } : f));
+
+  const canAnalyze = files.length > 0 && files.every(f => f.b3 || f.account) && !busy;
+
+  async function analyze() {
     setBusy(true); setErr(null);
     try {
-      if (account === "b3") {
-        const res = await importB3(f);
-        setB3Preview(res);
-      } else {
-        const res = await importPreview(f, account);
-        setPreview(res);
-        setExcluded(new Set());
+      const byAccount = {};
+      files.filter(f => !f.b3).forEach(f => {
+        (byAccount[f.account] = byAccount[f.account] || []).push(f.file);
+      });
+      const txGroups = [];
+      for (const account of Object.keys(byAccount)) {
+        try {
+          const res = await importPreview(byAccount[account], account);  // one POST, all files
+          txGroups.push({ account, ...res, err: null });
+        } catch (e) {
+          txGroups.push({ account, batch_id: null,
+            counts: { new: 0, duplicate: 0, skipped: 0, total: 0 }, rows: [],
+            amount_divergence: 0, err: e.message || "Falha ao analisar." });
+        }
       }
+      const b3Previews = [];
+      for (const f of files.filter(f => f.b3)) {
+        try { b3Previews.push({ key: f.key, file: f.file, preview: await importB3(f.file), err: null }); }
+        catch (e) { b3Previews.push({ key: f.key, file: f.file, preview: null, err: e.message || "Falha ao ler B3." }); }
+      }
+      const rmap = {};
+      txGroups.forEach(g => { rmap[g.account] = g.rows || []; });
+      setRowsByGroup(rmap);
+      setExcluded(new Set());
+      setGroups(txGroups.length ? txGroups : null);
+      setB3s(b3Previews);
+      if (!txGroups.length && !b3Previews.length) setErr("Nada para importar.");
     } catch (e) { setErr(e.message || "Falha ao analisar."); }
     finally { setBusy(false); }
   }
 
   function toggle(id) {
-    setExcluded(prev => {
-      const n = new Set(prev);
-      n.has(id) ? n.delete(id) : n.add(id);
-      return n;
-    });
+    setExcluded(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   }
+
+  // PATCH one staged row, then refresh its row + the group's divergence.
+  async function editRow(account, batchId, rowId, fields) {
+    const res = await patchStagingRow(batchId, rowId, fields);  // throws → EditableCell reverts
+    setRowsByGroup(prev => ({
+      ...prev,
+      [account]: (prev[account] || []).map(r => r.id === rowId ? { ...r, ...res.row } : r),
+    }));
+    setGroups(prev => (prev || []).map(g =>
+      g.account === account ? { ...g, amount_divergence: res.amount_divergence } : g));
+  }
+
+  function groupNew(account) {
+    return (rowsByGroup[account] || []).filter(r => r.status === "new" && !excluded.has(r.id));
+  }
+  const txWillImport = (groups || []).reduce((s, g) => s + groupNew(g.account).length, 0);
+  const b3Count = b3s.filter(b => b.preview && b.preview.total > 0).length;
 
   async function confirm() {
     setBusy(true); setErr(null);
+    const sessionId = uuid();
+    let totalInserted = 0, b3Created = 0, b3Updated = 0;
+    const status = [];
     try {
-      if (b3Preview) {
-        const res = await importB3(file, { confirm: true });
-        onDone({ inserted: res.total || 0, created: res.created || 0, updated: res.updated || 0, kind: "b3" });
-        return;
+      for (const g of (groups || [])) {
+        if (!g.batch_id || g.err) continue;
+        const excl = (rowsByGroup[g.account] || []).filter(r => excluded.has(r.id)).map(r => r.id);
+        try {
+          const res = await importConfirm(g.batch_id, excl, sessionId);  // shared session id
+          totalInserted += res.inserted || 0;
+          status.push({ account: g.account, ok: true, inserted: res.inserted || 0 });
+        } catch (e) {
+          status.push({ account: g.account, ok: false, msg: e.message || "falhou" });
+        }
       }
-      const excludedArr = Array.from(excluded);
-      const res = await importConfirm(preview.batch_id, excludedArr);
-      onDone({ inserted: res.inserted || 0, kind: "tx" });
+      for (const b of b3s) {
+        if (!b.preview || b.err) continue;
+        try { const res = await importB3(b.file, { confirm: true }); b3Created += res.created || 0; b3Updated += res.updated || 0; }
+        catch (e) { status.push({ account: "b3", ok: false, msg: e.message || "falhou" }); }
+      }
+      if (status.some(s => !s.ok)) {
+        setResults(status);  // a per-account confirm failed → show status, stay open
+      } else {
+        onDone({ inserted: totalInserted, kind: "tx", importBatchId: sessionId,
+                 b3: { created: b3Created, updated: b3Updated } });
+      }
     } catch (e) { setErr(e.message || "Falha ao confirmar."); }
     finally { setBusy(false); }
   }
 
-  const willImport = preview ? (preview.counts.new - excluded.size) : 0;
-  const isPreviewing = preview || b3Preview;
-  const [currentStep, setCurrentStep] = useState(1);
-  const step = isPreviewing ? 3 : currentStep;
-
-  const handleFileSelect = (f) => {
-    const ext = f.name.split('.').pop().toLowerCase();
-    const isB3 = account === "b3";
-    if (isB3 && ext !== "xlsx") return setErr("Para a B3, envie um arquivo .xlsx");
-    if (!isB3 && ext !== "csv") return setErr("Para bancos, envie um arquivo .csv");
-    setFile(f); setErr(null); analyze(f);
-  };
-
-  const step1View = h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 24 } },
-    h("div", { style: { color: "var(--fg-2)", fontSize: 13 } }, "Passo 1: De onde veio o arquivo que você quer importar?"),
-    h(SegmentControl, {
-      options: ACCOUNTS.map(a => ({ value: a.id, label: h("div", null, h("div", null, a.label), h("div", { style: { fontSize: 10, color: "var(--fg-3)", fontWeight: 400, marginTop: 2 } }, a.hint)) })),
-      value: account,
-      onChange: (val) => { setAccount(val); setFile(null); setErr(null); },
-      columns: 2
-    }),
-    h("div", { style: { display: "flex", justifyContent: "flex-end", marginTop: 8 } },
-      h("button", { 
-        className: "btn btn-primary", 
-        disabled: !account,
-        onClick: () => setCurrentStep(2)
-      }, "Próximo ›")
-    )
-  );
-
+  /* ── Step 1: drop files + assign an account per file ── */
   const DropZone = h("label", {
     style: {
       display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
       border: "2px dashed var(--line-2)", background: "var(--bg-0)", borderRadius: 8,
-      padding: "40px 24px", cursor: busy ? "wait" : "pointer",
-      minHeight: 160, color: "var(--fg-2)", fontSize: 13, textAlign: "center", transition: "all 0.2s"
+      padding: "28px 24px", cursor: busy ? "wait" : "pointer",
+      color: "var(--fg-2)", fontSize: 13, textAlign: "center", transition: "all 0.2s",
     },
-    onDragOver: e => { e.preventDefault(); e.currentTarget.style.borderColor = "var(--pos)"; e.currentTarget.style.color = "var(--pos)"; },
-    onDragLeave: e => { e.preventDefault(); e.currentTarget.style.borderColor = "var(--line-2)"; e.currentTarget.style.color = "var(--fg-2)"; },
-    onDrop: e => { e.preventDefault(); e.currentTarget.style.borderColor = "var(--line-2)"; const f = e.dataTransfer.files[0]; if (f) handleFileSelect(f); }
+    onDragOver: e => { e.preventDefault(); e.currentTarget.style.borderColor = "var(--pos)"; },
+    onDragLeave: e => { e.preventDefault(); e.currentTarget.style.borderColor = "var(--line-2)"; },
+    onDrop: e => { e.preventDefault(); e.currentTarget.style.borderColor = "var(--line-2)"; addFiles(e.dataTransfer.files); },
   },
-    busy ? h("div", { style: { display: "flex", alignItems: "center", gap: 12 } },
-      h("div", { className: "spinner", style: { width: 16, height: 16, border: "2px solid var(--line-2)", borderTopColor: "var(--pos)", borderRadius: "50%", animation: "spin 1s linear infinite" } }),
-      "Processando..."
-    ) : file ? h("div", { style: { color: "var(--pos)", fontWeight: 600 } }, `${file.name} (${(file.size/1024).toFixed(1)} KB)`) 
-    : h("div", null,
-      h("div", { style: { marginBottom: 8, color: "var(--fg-1)" } }, "Arraste o arquivo ou clique para selecionar"),
-      h("div", { style: { fontSize: 12, color: "var(--fg-3)" } }, account === "b3" ? "Apenas arquivos .xlsx" : "Apenas arquivos .csv")
-    ),
-    h("input", { type: "file", accept: account === "b3" ? ".xlsx" : ".csv,text/csv", style: { display: "none" }, onChange: e => { const f = e.target.files[0]; if (f) handleFileSelect(f); e.target.value = null; } })
+    h("div", { style: { marginBottom: 6, color: "var(--fg-1)" } }, "Arraste os arquivos do mês ou clique para selecionar"),
+    h("div", { style: { fontSize: 12, color: "var(--fg-3)" } }, "Vários extratos/faturas (.csv) de uma vez · relatório B3 (.xlsx)"),
+    h("input", { type: "file", accept: ".csv,.xlsx,text/csv", multiple: true, style: { display: "none" },
+      onChange: e => { addFiles(e.target.files); e.target.value = null; } })
   );
 
-  const step2View = h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 24 } },
-    h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
-      h("div", { style: { color: "var(--fg-2)", fontSize: 13 } }, "Passo 2: Envie o extrato ou fatura"),
-      h("button", { onClick: () => setCurrentStep(1), className: "btn btn-ghost btn-sm" }, "‹ Voltar")
-    ),
+  const fileList = files.length > 0 && h("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
+    files.map(f => h("div", { key: f.key, style: { display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: "var(--bg-1)", border: "1px solid var(--line-1)", borderRadius: 6 } },
+      h("span", { style: { flex: 1, fontSize: 13, color: "var(--fg-1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } },
+        f.file.name, h("span", { style: { color: "var(--fg-3)", marginLeft: 6, fontSize: 11 } }, `${(f.file.size / 1024).toFixed(1)} KB`)),
+      f.b3
+        ? h("span", { className: "chip", style: { fontSize: 11 } }, "Relatório B3")
+        : h("select", {
+            value: f.account || "", onChange: e => setFileAccount(f.key, e.target.value || null),
+            "aria-label": "Conta de origem",
+            style: { fontSize: 12, padding: "4px 8px", borderRadius: 5, background: "var(--bg-2)", color: f.account ? "var(--fg-0)" : "var(--fg-3)", border: `1px solid ${f.account ? "var(--line-2)" : "var(--reserve)"}` },
+          },
+            h("option", { value: "" }, "Conta de origem…"),
+            BANKS.map(b => h("option", { key: b.id, value: b.id }, b.label))
+          ),
+      h("button", { className: "btn btn-ghost btn-sm", onClick: () => removeFile(f.key), "aria-label": "Remover", title: "Remover" }, "✕")
+    ))
+  );
+
+  const step1View = h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 16 } },
+    h("div", { style: { color: "var(--fg-2)", fontSize: 13 } }, "Solte os arquivos do mês e diga de qual conta cada um veio."),
     DropZone,
-    err && h("div", { style: { color: "var(--neg)", fontSize: 12, padding: "8px 12px", background: "color-mix(in oklch, var(--neg) 10%, transparent)", borderRadius: 6 } }, err)
-  );
-
-  const Stat = (label, val, color) => h("div", { style: { display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px dashed var(--line-1)", fontSize: 13 } },
-    h("span", { style: { color: "var(--fg-2)" } }, label),
-    h("span", { style: { color: color || "var(--fg-1)", fontWeight: 600 } }, val)
-  );
-
-  const reviewView = preview && h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 24 } },
-    h("div", { style: { display: "flex", gap: 24 } },
-      // Left pane: Summary
-      h("div", { style: { width: 240, flexShrink: 0, display: "flex", flexDirection: "column", gap: 16 } },
-        h("div", { style: { padding: 16, background: "var(--bg-1)", borderRadius: 8, border: "1px solid var(--line-1)" } },
-          Stat("Prontas para Importar", willImport, "var(--pos)"),
-          Stat("Já Existem", preview.counts.duplicate, "var(--fg-3)"),
-          Stat("Ignoradas", preview.counts.skipped, "var(--reserve)")
-        ),
-        err && h("div", { style: { color: "var(--neg)", fontSize: 12, background: "color-mix(in oklch, var(--neg) 10%, transparent)", padding: "10px 14px", borderRadius: 6, border: "1px dashed color-mix(in oklch, var(--neg) 30%, transparent)" } }, err),
-        h("div", { style: { display: "flex", flexDirection: "column", gap: 8, marginTop: "auto" } },
-          h("button", { className: "btn btn-primary", disabled: busy || willImport <= 0, onClick: confirm }, busy ? "Importando..." : "Confirmar Importação"),
-          h("button", { className: "btn btn-ghost", onClick: () => { setPreview(null); setFile(null); setCurrentStep(2); } }, "Cancelar")
-        )
-      ),
-      // Right pane: Table
-      h("div", { style: { flex: 1, border: "1px solid var(--line-1)", borderRadius: 8, display: "flex", flexDirection: "column", overflow: "hidden", maxHeight: 400 } },
-        h("div", { style: { padding: "8px 12px", borderBottom: "1px solid var(--line-1)", background: "var(--bg-2)", fontSize: 12, color: "var(--fg-2)", display: "flex", justifyContent: "space-between" } },
-          h("span", null, "Transações Encontradas"),
-          h("span", null, "Desmarque para ignorar")
-        ),
-        h("div", { style: { flex: 1, overflowY: "auto", background: "var(--bg-0)" } },
-          h("table", { style: { width: "100%", borderCollapse: "collapse" } },
-            h("tbody", null,
-              preview.rows.map(r => {
-                const isNew = r.status === "new";
-                const checked = isNew && !excluded.has(r.id);
-                
-                const isSelf = r.counterpart === "SELF";
-                const isInvest = !isSelf && r && (r.method === "transfer" || (r.flow === "income" && !r.is_revenue));
-                const amtColor = isSelf ? "var(--info)" : isInvest ? "var(--reserve)" : (r.flow === "expense" ? "var(--neg)" : "var(--pos)");
-                const sign = r.flow === "expense" ? "−" : "+";
-
-                return h("tr", { key: r.id, style: { borderBottom: "1px solid var(--line-0)", opacity: (!isNew || !checked) ? 0.4 : 1, fontSize: 13 } },
-                  h("td", { style: { padding: "8px 12px", width: 32, textAlign: "center" } },
-                    isNew ? h("input", { type: "checkbox", checked, onChange: () => toggle(r.id), style: { cursor: "pointer" } }) : h("span", { style: { color: "var(--fg-3)" } }, "−")
-                  ),
-                  h("td", { style: { padding: "8px 12px", color: "var(--fg-2)", whiteSpace: "nowrap", fontSize: 11 } }, r.date),
-                  h("td", { style: { padding: "8px 12px", color: isNew ? "var(--fg-1)" : "var(--fg-3)", width: "100%", fontWeight: 500 } }, r.description),
-                  h("td", { style: { padding: "8px 12px", textAlign: "right", whiteSpace: "nowrap", color: amtColor, fontWeight: 600 } }, `${sign}${window.BS.fmtBRL(r.amount)}`)
-                );
-              })
-            )
-          )
-        )
-      )
+    fileList,
+    err && h("div", { style: { color: "var(--neg)", fontSize: 12, padding: "8px 12px", background: "color-mix(in oklch, var(--neg) 10%, transparent)", borderRadius: 6 } }, err),
+    h("div", { style: { display: "flex", justifyContent: "flex-end", marginTop: 4 } },
+      h("button", { className: "btn btn-primary", disabled: !canAnalyze, onClick: analyze },
+        busy ? "Analisando…" : "Analisar ›")
     )
   );
 
-  const b3View = b3Preview && h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 24 } },
-    h("div", { style: { display: "flex", gap: 24 } },
-      h("div", { style: { width: 240, flexShrink: 0, display: "flex", flexDirection: "column", gap: 16 } },
-        h("div", { style: { padding: 16, background: "var(--bg-1)", borderRadius: 8, border: "1px solid var(--line-1)" } },
-          Stat("Novas Posições", b3Preview.created, "var(--pos)"),
-          Stat("Atualizadas", b3Preview.updated, "var(--info)")
+  /* ── Step 2: grouped, editable review ── */
+  const amtMeta = r => {
+    const isSelf = r.counterpart === "SELF";
+    const isInvest = !isSelf && (r.method === "transfer" || (r.flow === "income" && !r.is_revenue));
+    return {
+      color: isSelf ? "var(--info)" : isInvest ? "var(--reserve)" : (r.flow === "expense" ? "var(--neg)" : "var(--pos)"),
+      sign: r.flow === "expense" ? "−" : "+",
+    };
+  };
+
+  const renderTxGroup = (g) => {
+    const rows = rowsByGroup[g.account] || g.rows || [];
+    const newRows = groupNew(g.account);
+    const subtotal = newRows.reduce((s, r) => s + (r.flow === "expense" ? -r.amount : r.amount), 0);
+    const div = g.amount_divergence || 0;
+    return h("div", { key: g.account, style: { border: "1px solid var(--line-1)", borderRadius: 8, overflow: "hidden" } },
+      h("div", { style: { padding: "9px 14px", background: "var(--bg-1)", borderBottom: "1px solid var(--line-1)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 } },
+        h("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
+          h(BankChip, { accountId: g.account }),
+          h("span", { style: { fontWeight: 600, fontSize: 13 } }, accLabel(g.account))
         ),
-        h("div", { style: { display: "flex", flexDirection: "column", gap: 8, marginTop: "auto" } },
-          h("button", { className: "btn btn-primary", disabled: busy || b3Preview.total <= 0, onClick: confirm, style: { background: "var(--info)", borderColor: "var(--info)", color: "#000" } }, busy ? "Importando..." : "Confirmar B3"),
-          h("button", { className: "btn btn-ghost", onClick: () => { setB3Preview(null); setFile(null); setCurrentStep(2); } }, "Cancelar")
+        h("div", { style: { display: "flex", alignItems: "center", gap: 14, fontSize: 12, color: "var(--fg-2)" } },
+          h("span", null, `${newRows.length} ${newRows.length === 1 ? "nova" : "novas"}`),
+          g.counts.duplicate > 0 && h("span", { style: { color: "var(--fg-3)" } }, `${g.counts.duplicate} já existem`),
+          h("span", { style: { fontFamily: "var(--ff-mono)", fontWeight: 700, color: subtotal < 0 ? "var(--neg)" : "var(--pos)" } }, `${subtotal < 0 ? "−" : "+"}${fmtBRL(subtotal)}`)
         )
       ),
-      h("div", { style: { flex: 1, border: "1px solid var(--line-1)", borderRadius: 8, display: "flex", flexDirection: "column", overflow: "hidden", maxHeight: 400 } },
-        h("div", { style: { padding: "8px 12px", borderBottom: "1px solid var(--line-1)", background: "var(--bg-2)", fontSize: 12, color: "var(--fg-2)" } }, "Posições B3"),
-        h("div", { style: { flex: 1, overflowY: "auto", background: "var(--bg-0)" } },
-          h("table", { style: { width: "100%", borderCollapse: "collapse" } },
-            h("tbody", null,
-              b3Preview.positions.map((p, i) => h("tr", { key: i, style: { borderBottom: "1px solid var(--line-0)", fontSize: 13 } },
-                h("td", { style: { padding: "8px 12px", color: p.status === "new" ? "var(--pos)" : "var(--info)", fontWeight: 600, fontSize: 11 } }, p.status === "new" ? "NOVA" : "ATUALIZA"),
-                h("td", { style: { padding: "8px 12px", color: "var(--fg-1)", width: "100%", fontWeight: 500 } }, p.name),
-                h("td", { style: { padding: "8px 12px", textAlign: "right", fontWeight: 600 } }, window.BS.fmtBRL(p.balance))
-              ))
-            )
-          )
+      g.err && h("div", { style: { padding: "10px 14px", fontSize: 12, color: "var(--neg)", background: "color-mix(in oklch, var(--neg) 10%, transparent)" } }, g.err),
+      Math.abs(div) >= 0.01 && h("div", { style: { padding: "7px 14px", fontSize: 12, color: "var(--reserve)", background: "color-mix(in oklch, var(--reserve) 12%, transparent)", borderBottom: "1px solid var(--line-1)" } },
+        `Valores ajustados: ${div > 0 ? "+" : "−"}${fmtBRL(Math.abs(div))} vs extrato`),
+      !g.err && h("div", { style: { maxHeight: 280, overflowY: "auto", background: "var(--bg-0)" } },
+        h("table", { style: { width: "100%", borderCollapse: "collapse" } },
+          h("tbody", null, rows.map(r => {
+            const isNew = r.status === "new";
+            const checked = isNew && !excluded.has(r.id);
+            const { color, sign } = amtMeta(r);
+            return h("tr", { key: r.id, style: { borderBottom: "1px solid var(--line-0)", opacity: (!isNew || !checked) ? 0.45 : 1, fontSize: 13 } },
+              h("td", { style: { padding: "7px 10px", width: 30, textAlign: "center" } },
+                isNew ? h("input", { type: "checkbox", checked, onChange: () => toggle(r.id), "aria-label": "Incluir", style: { cursor: "pointer" } })
+                      : h("span", { style: { color: "var(--fg-3)" } }, "−")),
+              h("td", { style: { padding: "7px 10px", color: "var(--fg-3)", whiteSpace: "nowrap", fontSize: 11 } }, fmtDateBR(r.date)),
+              h("td", { style: { padding: "7px 10px", width: "100%" } },
+                // raw bank description stays visible as context (never a placeholder-as-label)
+                h("div", { style: { color: isNew ? "var(--fg-1)" : "var(--fg-3)", fontWeight: 500 } }, r.description),
+                isNew && h("div", { style: { fontSize: 11, color: "var(--fg-3)", marginTop: 1 } },
+                  "apelido: ", h(EditableCell, {
+                    value: r.display_name || "", kind: "text", color: "var(--fg-2)",
+                    render: v => v || "—",
+                    onCommit: v => editRow(g.account, g.batch_id, r.id, { display_name: v }),
+                    onError: m => toast(m),
+                  }))
+              ),
+              h("td", { style: { padding: "7px 10px", textAlign: "right", whiteSpace: "nowrap" } },
+                isNew ? h(EditableCell, {
+                  value: r.amount, kind: "amount", align: "right", color,
+                  render: v => `${sign}${fmtBRL(v)}`,
+                  onCommit: v => {
+                    const n = _parseAmountInput(v);
+                    if (n == null) throw new Error("Valor inválido");
+                    return editRow(g.account, g.batch_id, r.id, { amount: n });
+                  },
+                  onError: m => toast(m),
+                }) : h("span", { style: { color, fontWeight: 600, fontFamily: "var(--ff-mono)" } }, `${sign}${fmtBRL(r.amount)}`))
+            );
+          }))
         )
       )
+    );
+  };
+
+  const renderB3 = (b) => h("div", { key: b.key, style: { border: "1px solid var(--line-1)", borderRadius: 8, overflow: "hidden" } },
+    h("div", { style: { padding: "9px 14px", background: "var(--bg-1)", borderBottom: "1px solid var(--line-1)", display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--fg-2)" } },
+      h("span", { style: { fontWeight: 600, fontSize: 13, color: "var(--fg-1)" } }, "Relatório B3 — posições"),
+      b.preview && h("span", null, `${b.preview.created} novas · ${b.preview.updated} atualizadas`)),
+    b.err && h("div", { style: { padding: "10px 14px", fontSize: 12, color: "var(--neg)", background: "color-mix(in oklch, var(--neg) 10%, transparent)" } }, b.err),
+    b.preview && h("div", { style: { maxHeight: 240, overflowY: "auto", background: "var(--bg-0)" } },
+      h("table", { style: { width: "100%", borderCollapse: "collapse" } },
+        h("tbody", null, b.preview.positions.map((p, i) => h("tr", { key: i, style: { borderBottom: "1px solid var(--line-0)", fontSize: 13 } },
+          h("td", { style: { padding: "7px 10px", color: p.status === "new" ? "var(--pos)" : "var(--info)", fontWeight: 600, fontSize: 11 } }, p.status === "new" ? "NOVA" : "ATUALIZA"),
+          h("td", { style: { padding: "7px 10px", color: "var(--fg-1)", width: "100%", fontWeight: 500 } }, p.name),
+          h("td", { style: { padding: "7px 10px", textAlign: "right", fontWeight: 600, fontFamily: "var(--ff-mono)" } }, fmtBRL(p.balance))
+        ))))
+    )
+  );
+
+  const resultsView = results && h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 12 } },
+    h("div", { style: { fontSize: 13, color: "var(--fg-1)" } }, "Resultado da importação (algumas contas falharam):"),
+    results.map((s, i) => h("div", { key: i, style: { display: "flex", justifyContent: "space-between", padding: "8px 12px", borderRadius: 6, background: "var(--bg-1)", border: "1px solid var(--line-1)", fontSize: 13 } },
+      h("span", null, s.account === "b3" ? "Relatório B3" : accLabel(s.account)),
+      h("span", { style: { color: s.ok ? "var(--pos)" : "var(--neg)", fontWeight: 600 } },
+        s.ok ? `${s.inserted} importadas` : (s.msg || "falhou")))),
+    h("div", { style: { display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 4 } },
+      h("button", { className: "btn btn-primary", onClick: () => onDone({ inserted: results.filter(s => s.ok).reduce((a, s) => a + (s.inserted || 0), 0), kind: "tx" }) }, "Fechar"))
+  );
+
+  const step2View = h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 16 } },
+    h("div", { style: { display: "flex", flexDirection: "column", gap: 12, maxHeight: "62vh", overflowY: "auto", paddingRight: 4 } },
+      (groups || []).map(renderTxGroup),
+      b3s.map(renderB3)
+    ),
+    err && h("div", { style: { color: "var(--neg)", fontSize: 12, padding: "8px 12px", background: "color-mix(in oklch, var(--neg) 10%, transparent)", borderRadius: 6 } }, err),
+    h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, borderTop: "1px solid var(--line-1)", paddingTop: 14 } },
+      h("div", { style: { fontSize: 13, color: "var(--fg-2)" } },
+        h("strong", { style: { color: "var(--pos)" } }, txWillImport),
+        ` ${txWillImport === 1 ? "transação pronta" : "transações prontas"}`,
+        b3Count > 0 && h("span", { style: { color: "var(--fg-3)" } }, ` · ${b3Count} B3`)),
+      h("div", { style: { display: "flex", gap: 8 } },
+        h("button", { className: "btn btn-ghost", disabled: busy, onClick: () => { setGroups(null); setB3s([]); setRowsByGroup({}); setResults(null); } }, "‹ Voltar"),
+        h("button", { className: "btn btn-primary", disabled: busy || (txWillImport <= 0 && b3Count <= 0), onClick: confirm },
+          busy ? "Importando…" : "Confirmar importação"))
     )
   );
 
   return h(Modal, {
-    open: true,
-    onClose,
-    title: `Importar Dados ${step === 3 ? "— Revisão" : ""}`,
-    width: step === 3 ? 900 : 540
-  },
-    step === 1 ? step1View : step === 2 ? step2View : (preview ? reviewView : b3View)
-  );
+    open: true, onClose,
+    title: `Importar Dados${step === 2 ? " — Revisão" : ""}`,
+    width: step === 2 ? 820 : 560,
+  }, results ? resultsView : (step === 1 ? step1View : step2View));
 }
 
 /* ── ConfirmDeleteModal — confirmação explícita antes de excluir ─────────── */
@@ -617,7 +798,7 @@ function ConfirmDeleteModal({ tx, onCancel, onConfirm }) {
         h("button", {
           className: "btn btn-sm",
           onClick: onConfirm,
-          style: { background: "var(--neg)", color: "#fff", border: "1px solid var(--neg)", minWidth: 90 }
+          style: { background: "var(--neg)", color: "var(--fg-0)", border: "1px solid var(--neg)", minWidth: 90 }
         }, "Excluir")
       )
     )
@@ -743,17 +924,6 @@ function App() {
       // Right: Actions
       h("div", { style: { display: "flex", alignItems: "center", gap: 12 } },
         
-        // Search Trigger
-        h("div", { 
-          onClick: () => setSearchModalOpen(true),
-          style: { display: "flex", alignItems: "center", gap: 10, padding: "0 12px", height: 32, borderRadius: 6, background: "var(--bg-1)", border: "1px solid var(--line-1)", color: "var(--fg-3)", fontSize: 13, cursor: "text", width: 200, transition: "border-color 0.15s" },
-          onMouseEnter: e => e.currentTarget.style.borderColor = "var(--line-2)",
-          onMouseLeave: e => e.currentTarget.style.borderColor = "var(--line-1)"
-        },
-          h(IconSearch, { size: 14 }),
-          h("span", { style: { flex: 1, fontWeight: 500 } }, "Buscar..."),
-          h("kbd", { style: { fontFamily: "var(--ff-mono)", fontSize: 10, background: "var(--bg-2)", padding: "2px 6px", borderRadius: 4, color: "var(--fg-3)" } }, "/")
-        ),
 
         // Categories Toggle
         h("button", { 
@@ -762,16 +932,16 @@ function App() {
           style: { width: 32, height: 32, borderRadius: 6, background: "var(--bg-1)", border: "1px solid var(--line-1)", color: "var(--fg-1)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, transition: "background 0.1s" },
           onMouseEnter: e => e.currentTarget.style.background = "var(--bg-2)",
           onMouseLeave: e => e.currentTarget.style.background = "var(--bg-1)"
-        }, "⚙️"),
+        }, h(IconSettings, { size: 15 })),
 
         // Theme Toggle
-        h("button", { 
+        h("button", {
           onClick: () => setTw("theme", tw.theme === "Dark" ? "Light" : "Dark"),
           title: "Alternar Tema",
-          style: { width: 32, height: 32, borderRadius: 6, background: "var(--bg-1)", border: "1px solid var(--line-1)", color: "var(--fg-1)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, transition: "background 0.1s" },
+          style: { width: 32, height: 32, borderRadius: 6, background: "var(--bg-1)", border: "1px solid var(--line-1)", color: "var(--fg-1)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.1s" },
           onMouseEnter: e => e.currentTarget.style.background = "var(--bg-2)",
           onMouseLeave: e => e.currentTarget.style.background = "var(--bg-1)"
-        }, tw.theme === "Dark" ? "☀️" : "🌙"),
+        }, h(IconTheme, { size: 15 })),
         
         // Prominent Import Button
         h("button", { 
@@ -817,7 +987,23 @@ function App() {
         const msg = res?.kind === "b3"
           ? (n > 0 ? `${n} ${n === 1 ? "posição importada" : "posições importadas"}` : "Nenhuma posição encontrada")
           : (n > 0 ? `${n} ${n === 1 ? "lançamento importado" : "lançamentos importados"}` : "Nada novo para importar");
-        push(msg, n > 0 ? "success" : "info");
+        // Reversível enquanto o toast vive: "Desfazer" remove o lote inteiro
+        // (compras + total da fatura, que o delete por linha protege) via delete_batch.
+        const undo = (res?.kind === "tx" && res?.importBatchId && n > 0)
+          ? {
+              label: "Desfazer",
+              onClick: async () => {
+                try {
+                  const r = await deleteImportBatch(res.importBatchId);
+                  push(`Importação revertida (${r.deleted} ${r.deleted === 1 ? "lançamento" : "lançamentos"})`, "info");
+                } catch (e) {
+                  push(e.message || "Não foi possível reverter.", "error");
+                }
+                setRefreshKey(k => k + 1);
+              },
+            }
+          : null;
+        push(msg, n > 0 ? "success" : "info", undo);
         setRefreshKey(k => k + 1);
       },
     }),
@@ -830,7 +1016,7 @@ function App() {
 
     categoriesOpen && h(window.BS.Drawer, {
       open: categoriesOpen, onClose: () => setCategoriesOpen(false), width: 680
-    }, h(window.BS.CategoriesPanel, { refreshKey, onRefresh: () => setRefreshKey(k => k + 1) })),
+    }, h(window.BS.CategoriesPanel, { refreshKey, onRefresh: () => setRefreshKey(k => k + 1), onClose: () => setCategoriesOpen(false) })),
 
     h(CategoryEditor, {
       tx: editTx, onClose: () => setEditTx(null),

@@ -201,15 +201,20 @@ function Modal({ open, onClose, title, children, width = 480 }) {
   },
     React.createElement("div", {
       ref: dialogRef,
-      onClick: e => e.stopPropagation(), className: "pane fade-in",
+      onClick: e => e.stopPropagation(), className: "fade-in",
       role: "dialog", "aria-modal": "true", "aria-labelledby": titleId,
-      style: { width, maxWidth: "92vw", maxHeight: "88vh", display: "flex", flexDirection: "column", boxShadow: "0 8px 32px oklch(0% 0 0 / 0.5)", borderRadius: "var(--r-2)" }
+      style: { width, maxWidth: "92vw", maxHeight: "88vh", display: "flex", flexDirection: "column", background: "var(--bg-1)", border: "1px solid var(--line-2)", boxShadow: "0 24px 48px oklch(0% 0 0 / 0.6)", borderRadius: 16 }
     },
-      React.createElement("div", { style: { padding: "14px 18px", borderBottom: "1px solid var(--line-1)", display: "flex", alignItems: "center", justifyContent: "space-between" } },
-        React.createElement("div", { id: titleId, style: { fontWeight: 600, fontSize: "var(--fz-5)" } }, title),
-        React.createElement("button", { onClick: onClose, className: "btn btn-ghost btn-sm", "aria-label": "Fechar" }, "✕")
+      React.createElement("div", { style: { padding: "24px 32px 16px 32px", display: "flex", alignItems: "center", justifyContent: "space-between" } },
+        React.createElement("div", { id: titleId, style: { fontWeight: 700, fontSize: "var(--fz-4)", letterSpacing: "-0.01em" } }, title),
+        React.createElement("button", { 
+          onClick: onClose, "aria-label": "Fechar", title: "Fechar",
+          style: { width: 32, height: 32, borderRadius: "50%", background: "transparent", border: "none", color: "var(--fg-3)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.1s" },
+          onMouseEnter: e => { e.currentTarget.style.color = "var(--fg-0)"; e.currentTarget.style.background = "var(--bg-2)"; },
+          onMouseLeave: e => { e.currentTarget.style.color = "var(--fg-3)"; e.currentTarget.style.background = "transparent"; }
+        }, "✕")
       ),
-      React.createElement("div", { style: { padding: 18, overflow: "auto" } }, children)
+      React.createElement("div", { style: { padding: "0 32px 32px 32px", overflow: "auto" } }, children)
     )
   );
 }

@@ -356,26 +356,16 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
           )
         ),
         h("div", { style: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 16 } },
-          h("div", { style: { display: "flex", gap: 2, padding: 2, background: "var(--bg-1)", borderRadius: 6, border: "1px solid var(--line-1)" } },
+          h("div", { className: "filter-pills" },
             [["all", "Tudo"], ["expense", "Despesas"], ["income", "Receitas"]].map(([k, l]) =>
-              h("button", { key: k, onClick: () => { setFilterFlow(k); if (k === "income") setFilterMethod("all"); }, style: {
-                padding: "4px 12px", fontSize: 11, borderRadius: 4,
-                background: filterFlow === k ? "var(--bg-3)" : "transparent",
-                color: filterFlow === k ? "var(--fg-0)" : "var(--fg-2)",
-                fontWeight: filterFlow === k ? 600 : 500,
-                transition: "all 0.1s", border: "none", cursor: "pointer"
-              } }, l)
+              h("button", { key: k, className: `filter-pill${filterFlow === k ? " active" : ""}`,
+                onClick: () => { setFilterFlow(k); if (k === "income") setFilterMethod("all"); } }, l)
             )
           ),
-          h("div", { style: { display: "flex", gap: 2, padding: 2, background: "var(--bg-1)", borderRadius: 6, border: "1px solid var(--line-1)" } },
-            [["all", "Pagtos"], ["pix", "PIX"], ["credit", "Crédito"], ["ted", "TED"]].map(([k, l]) =>
-              h("button", { key: k, onClick: () => setFilterMethod(k), style: {
-                padding: "4px 12px", fontSize: 11, borderRadius: 4,
-                background: filterMethod === k ? "var(--bg-3)" : "transparent",
-                color: filterMethod === k ? "var(--fg-0)" : "var(--fg-2)",
-                fontWeight: filterMethod === k ? 600 : 500,
-                transition: "all 0.1s", border: "none", cursor: "pointer"
-              } }, l)
+          h("div", { className: "filter-pills" },
+            [["all", "Todos"], ["pix", "PIX"], ["credit", "Crédito"], ["ted", "TED"]].map(([k, l]) =>
+              h("button", { key: k, className: `filter-pill${filterMethod === k ? " active" : ""}`,
+                onClick: () => setFilterMethod(k) }, l)
             )
           ),
           h("select", {
@@ -383,7 +373,7 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
             className: "select", style: { height: 26, fontSize: 11, padding: "0 24px 0 10px", width: "auto", borderRadius: 6, background: "var(--bg-1)", border: "1px solid var(--line-1)", color: "var(--fg-1)", fontWeight: 500, cursor: "pointer" }
           },
             h("option", { value: "all" }, "Categoria ▾"),
-            h("option", { value: "__none__" }, "⚠ Sem categoria"),
+            h("option", { value: "__none__" }, "Sem categoria"),
             cats.map(c => h("option", { key: c, value: c }, c))
           ),
           h("select", {

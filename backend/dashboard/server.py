@@ -421,8 +421,12 @@ def api_patch_transaction(transaction_id: int) -> Response:
     data = request.get_json(silent=True) or {}
     fields: dict = {}
     if "category_id" in data:
-        if not isinstance(data["category_id"], int):
+        if not isinstance(data["category_id"], int) or isinstance(data["category_id"], bool):
             return jsonify({"error": "category_id must be an integer"}), 400
+        # Validate FK up front: with foreign_keys=ON an unknown id would raise an
+        # unhandled IntegrityError (500). Mirrors the staging-edit endpoint.
+        if database.get_category(data["category_id"]) is None:
+            return jsonify({"error": "category_id not found"}), 400
         fields["category_id"] = data["category_id"]
     if "display_name" in data:
         v = data["display_name"]
@@ -962,12 +966,17 @@ def api_import_confirm() -> Response:
     """Promote a staged batch's 'new' rows to transactions.
 
     Request body (JSON):
-        batch_id:    str        — token from the preview step.
-        exclude_ids: list[int]  — staging-row ids the user unchecked (optional).
+        batch_id:        str        — token from the preview step.
+        exclude_ids:     list[int]  — staging-row ids the user unchecked (optional).
+        import_batch_id: str        — shared session token so a multi-account drop
+                                       (several confirms) reverses as one unit. The
+                                       client generates it once per drop and sends it
+                                       with every confirm; generated server-side if
+                                       omitted. Echoed back in the response.
 
     Returns:
-        ``{"ok": true, "inserted": int, "skipped": int}``. 404 if the batch is
-        gone (expired or already confirmed).
+        ``{"ok": true, "inserted": int, "skipped": int, "import_batch_id": str}``.
+        404 if the batch is gone (expired or already confirmed).
     """
     body = request.get_json(silent=True) or {}
     batch_id = (body.get("batch_id") or "").strip()
@@ -976,8 +985,9 @@ def api_import_confirm() -> Response:
     exclude_ids = body.get("exclude_ids") or []
     if not isinstance(exclude_ids, list):
         return jsonify({"error": "exclude_ids must be a list"}), 400
+    import_batch_id = (body.get("import_batch_id") or "").strip() or None
 
-    result = ingestion.confirm_import(batch_id, exclude_ids)
+    result = ingestion.confirm_import(batch_id, exclude_ids, import_batch_id)
     if result.get("missing"):
         return jsonify({"error": "Importação expirada, refaça o upload."}), 404
     return jsonify({"ok": True, **result})
@@ -1074,6 +1084,30 @@ def api_restore_transactions() -> Response:
         _logger.exception("Erro ao restaurar transações")
         return jsonify({"error": "Falha ao restaurar."}), 500
     return jsonify({"ok": True, "restored": restored})
+
+
+@app.route("/api/import/batch/<import_batch_id>", methods=["DELETE"])
+def api_delete_import_batch(import_batch_id: str) -> Response:
+    """Reverse a whole import: delete every transaction sharing ``import_batch_id``.
+
+    Unlike per-row delete, this deliberately removes fatura-total rows too (the
+    per-row 409 guard is for accidental single deletes, not a whole-import undo).
+    The response carries a ``restore`` payload the client can post back to
+    ``/api/transactions/restore``.
+
+    Returns ``{"ok": true, "deleted": N, "restore": {...}}``; 404 if nothing matched.
+    """
+    result = database.delete_batch(import_batch_id)
+    if not result["deleted"]:
+        return jsonify({"error": "Importação não encontrada."}), 404
+    return jsonify({
+        "ok": True,
+        "deleted": result["deleted"],
+        "restore": {
+            "transactions": result["transactions"],
+            "investment_deltas": result["investment_deltas"],
+        },
+    })
 
 
 

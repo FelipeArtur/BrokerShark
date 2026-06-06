@@ -1,31 +1,31 @@
 /* BrokerShark v2 — design tokens */
 
 :root {
-  --bg-0: oklch(16% 0.008 250);
-  --bg-1: oklch(19% 0.008 250);
-  --bg-2: oklch(22% 0.01 250);
-  --bg-3: oklch(26% 0.012 250);
+  --bg-0: oklch(14% 0.008 250);
+  --bg-1: oklch(18% 0.008 250);
+  --bg-2: oklch(22% 0.010 250);
+  --bg-3: oklch(26% 0.010 250);
   --line-1: oklch(28% 0.012 250);
-  --line-2: oklch(34% 0.014 250);
+  --line-2: oklch(34% 0.012 250);
 
-  --fg-0: oklch(96% 0.005 250);
-  --fg-1: oklch(78% 0.008 250);
-  --fg-2: oklch(58% 0.01 250);
-  --fg-3: oklch(42% 0.012 250);
+  --fg-0: oklch(98% 0.005 250);
+  --fg-1: oklch(86% 0.008 250);
+  --fg-2: oklch(68% 0.010 250);
+  --fg-3: oklch(52% 0.012 250);
 
-  --pos: oklch(72% 0.14 155);
-  --pos-bg: oklch(72% 0.14 155 / 0.12);
-  --neg: oklch(68% 0.16 25);
-  --neg-bg: oklch(68% 0.16 25 / 0.12);
-  --warn: oklch(78% 0.13 75);
-  --warn-bg: oklch(78% 0.13 75 / 0.12);
-  --info: oklch(72% 0.13 230);
-  --info-bg: oklch(72% 0.13 230 / 0.12);
-  --reserve: oklch(72% 0.12 290);
-  --reserve-bg: oklch(72% 0.12 290 / 0.12);
+  --pos: oklch(72% 0.14 150);
+  --pos-bg: oklch(72% 0.14 150 / 0.12);
+  --neg: oklch(70% 0.16 20);
+  --neg-bg: oklch(70% 0.16 20 / 0.12);
+  --warn: oklch(75% 0.15 70);
+  --warn-bg: oklch(75% 0.15 70 / 0.12);
+  --info: oklch(74% 0.13 250);
+  --info-bg: oklch(74% 0.13 250 / 0.12);
+  --reserve: oklch(74% 0.14 290);
+  --reserve-bg: oklch(74% 0.14 290 / 0.12);
 
-  --nubank: oklch(50% 0.21 305);
-  --inter:  oklch(72% 0.18 55);
+  --nubank: oklch(65% 0.18 305);
+  --inter:  oklch(75% 0.16 55);
 
   --ff-sans: "Inter", system-ui, -apple-system, sans-serif;
   --ff-mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, monospace;
@@ -47,14 +47,37 @@
 :root[data-density="comfortable"] { --fz-6: 14px; --fz-5: 15px; --topbar-h: 60px; }
 
 :root[data-theme="Light"] {
-  --bg-0: oklch(99% 0.003 250); --bg-1: oklch(97% 0.004 250);
-  --bg-2: oklch(94% 0.005 250); --bg-3: oklch(90% 0.006 250);
-  --line-1: oklch(89% 0.008 250); --line-2: oklch(82% 0.01 250);
-  --fg-0: oklch(20% 0.01 250); --fg-1: oklch(38% 0.012 250);
-  --fg-2: oklch(54% 0.012 250); --fg-3: oklch(70% 0.01 250);
+  --bg-0: oklch(99% 0.004 80); 
+  --bg-1: oklch(97% 0.006 80);
+  --bg-2: oklch(94% 0.008 80); 
+  --bg-3: oklch(90% 0.010 80);
+  --line-1: oklch(89% 0.010 80); 
+  --line-2: oklch(82% 0.012 80);
+  
+  --fg-0: oklch(14% 0.01 80); 
+  --fg-1: oklch(32% 0.01 80);
+  --fg-2: oklch(50% 0.01 80); 
+  --fg-3: oklch(68% 0.01 80);
+
+  --pos: oklch(60% 0.18 150);
+  --pos-bg: oklch(60% 0.18 150 / 0.12);
+  --neg: oklch(58% 0.20 20);
+  --neg-bg: oklch(58% 0.20 20 / 0.12);
+  --warn: oklch(65% 0.18 70);
+  --warn-bg: oklch(65% 0.18 70 / 0.12);
+  --info: oklch(60% 0.18 250);
+  --info-bg: oklch(60% 0.18 250 / 0.12);
+  --reserve: oklch(60% 0.20 290);
+  --reserve-bg: oklch(60% 0.20 290 / 0.12);
+
+  --nubank: oklch(50% 0.24 305);
+  --inter:  oklch(65% 0.22 55);
 }
 
-*, *::before, *::after { box-sizing: border-box; }
+*, *::before, *::after { 
+  box-sizing: border-box;
+  transition: background-color 0.15s ease, background 0.15s ease, color 0.15s ease, border-color 0.15s ease, fill 0.15s ease, stroke 0.15s ease;
+}
 html, body { margin: 0; padding: 0; height: 100%; }
 body {
   background: var(--bg-0); color: var(--fg-0);
@@ -147,12 +170,6 @@ select.select {
 .btn-sm { height: 24px; padding: 0 8px; font-size: var(--fz-8); }
 .btn-lg { height: 36px; padding: 0 16px; font-size: var(--fz-6); }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; pointer-events: none; }
-
-.fatura-btn {
-  background: var(--fatura-bg); transition: background 0.12s;
-  width: 100%; text-align: left;
-}
-.fatura-btn:hover { background: var(--fatura-bg-hover); }
 
 /* Ledger row — investment position: name on the left, editable value on the right */
 .ledger-row {
@@ -310,6 +327,23 @@ button.data-tag:hover { border-color: var(--fg-2); color: var(--fg-0); backgroun
   border-radius: 5px; transition: all 0.12s;
 }
 .seg-btn.active { font-weight: 600; color: var(--fg-0); background: var(--bg-2); border-color: var(--line-2); }
+
+/* Filter pills — compact inline segmented filter, shared across Histórico + Investimentos */
+.filter-pills {
+  display: inline-flex; gap: 2px; padding: 2px;
+  background: var(--bg-1); border: 1px solid var(--line-1); border-radius: var(--r-2);
+}
+.filter-pill {
+  padding: 4px 12px; font-size: var(--fz-8); font-weight: 500;
+  color: var(--fg-2); background: transparent; border: none; border-radius: var(--r-1);
+  cursor: pointer; white-space: nowrap; transition: background 0.12s, color 0.12s;
+}
+.filter-pill:hover { color: var(--fg-0); }
+.filter-pill.active { background: var(--bg-3); color: var(--fg-0); font-weight: 600; }
+
+/* Generic clickable row hover (layout-neutral) — for list rows that aren't .ledger-row */
+.row-hover { transition: background 0.12s; }
+.row-hover:hover { background: var(--bg-2); }
 
 /* Tweaks panel — positioned dropdown from topbar */
 .tweaks-overlay {

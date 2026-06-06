@@ -91,16 +91,32 @@ async function deleteTransaction(id) {
 async function restoreTransactions(restore) { return _post("/api/transactions/restore", { restore }); }
 
 /* ── File import (multipart upload + staged confirm) ─────────────────────── */
-async function importPreview(file, accountId) {
+async function importPreview(files, accountId) {
+  // `files` is one File or an array — all belonging to `accountId`. Sending them
+  // in ONE multipart POST lets the backend dedup across the combined set
+  // (preview_import_multi); one POST per file would reintroduce cross-file dupes.
   const form = new FormData();
-  form.append("file", file);
+  (Array.isArray(files) ? files : [files]).forEach(f => form.append("file", f));
   form.append("account_id", accountId);
   const r = await fetch("/api/import/preview", { method: "POST", body: form });
   if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || "falha ao analisar arquivo"); }
   return r.json();
 }
-async function importConfirm(batchId, excludeIds = []) {
-  return _post("/api/import/confirm", { batch_id: batchId, exclude_ids: excludeIds });
+async function patchStagingRow(batchId, rowId, fields) {
+  // Edit one preview row (amount/category_id/display_name) → {ok, row, amount_divergence}.
+  return _patch(`/api/import/staging/${batchId}/${rowId}`, fields);
+}
+async function importConfirm(batchId, excludeIds = [], importBatchId = null) {
+  const body = { batch_id: batchId, exclude_ids: excludeIds };
+  // One session id shared across every confirm of a multi-account drop, so the
+  // whole import reverses as one unit in the Histórico.
+  if (importBatchId) body.import_batch_id = importBatchId;
+  return _post("/api/import/confirm", body);
+}
+async function deleteImportBatch(importBatchId) {
+  const r = await fetch(`/api/import/batch/${encodeURIComponent(importBatchId)}`, { method: "DELETE" });
+  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || "falha ao reverter importação"); }
+  return r.json();  // { ok, deleted, restore }
 }
 
 /* ── B3 investment-position import (XLSX): preview parses, confirm upserts ── */

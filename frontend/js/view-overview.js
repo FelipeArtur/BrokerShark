@@ -21,6 +21,7 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
   const [cashflow, setCashflow]     = _ovSt(null);
   const [investments, setInvestments] = _ovSt([]);
   const [patrimonioHistory, setPatrimonioHistory] = _ovSt([]);
+  const [liquidityHistory, setLiquidityHistory] = _ovSt([]);
 
   const [faturaReceipt, setFaturaReceipt] = _ovSt(null);
   const [faturaTxs, setFaturaTxs] = _ovSt(null);
@@ -49,12 +50,14 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
       fetchMonthTransactions((month && year) ? { month, year } : {}),
       fetchCashflowStatement((month && year) ? { month, year } : {}),
       fetchInvestments(),
-      fetchPatrimonioHistory()
-    ]).then(([s, f, ac, a, cf, invs, ph]) => {
+      fetchPatrimonioHistory(),
+      fetchLiquidityHistory()
+    ]).then(([s, f, ac, a, cf, invs, ph, lh]) => {
       setSummary(s); setFaturas(f);
       setAccounts(ac); setActivity(a); setCashflow(cf);
       setInvestments(invs);
       setPatrimonioHistory(ph || []);
+      setLiquidityHistory(lh || []);
     }).catch(() => setLoadErr(true));
   }, [refreshKey, filterMonth, retryTick]);
 
@@ -85,9 +88,17 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
     ? (cashflow.income_total - displayExpense - cashflow.investment_net)
     : 0;
 
-  const lastMonthPatrimonio = patrimonioHistory.length > 1 ? patrimonioHistory[patrimonioHistory.length - 2].value : null;
-  const deltaPatrimonio = lastMonthPatrimonio !== null ? patrimonioLiquido - lastMonthPatrimonio : null;
-  const deltaPercent = lastMonthPatrimonio ? (deltaPatrimonio / Math.abs(lastMonthPatrimonio)) * 100 : null;
+  // Trend deltas are computed WITHIN each history series (last − previous), comparing
+  // like with like. (Previously the patrimônio delta mixed the live full number —
+  // caixa + investimentos − faturas — with the cash-based history series, which
+  // excludes investments, yielding a misleading delta. A true historical net worth
+  // can't be reconstructed: investments only carry a current snapshot, no monthly
+  // history. So the trend reflects the reconstructable monthly series; the headline
+  // number stays the precise current patrimônio.)
+  const _seriesDelta = (hist) => hist.length > 1
+    ? hist[hist.length - 1].value - hist[hist.length - 2].value : null;
+  const deltaPatrimonio = _seriesDelta(patrimonioHistory);
+  const deltaLiquidez = _seriesDelta(liquidityHistory);
 
   function Sparkline({ data, width = 120, height = 40, color = "var(--reserve)" }) {
     if (!data || data.length < 2) return null;
@@ -101,6 +112,21 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
     }).join(" ");
     return h("svg", { width, height, viewBox: `0 0 ${width} ${height}`, style: { overflow: "visible" } },
       h("polyline", { fill: "none", stroke: color, strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", points })
+    );
+  }
+
+  // Sparkline of a 12-month series + a signed month-over-month delta caption.
+  // No axis labels: it conveys direction (the actual question), not absolute values.
+  function TrendLine({ history, delta, color, width = 132 }) {
+    if (!history || history.length < 2) return null;
+    const up = (delta || 0) >= 0;
+    return h("div", { style: { display: "flex", alignItems: "center", gap: 14, marginTop: 14 } },
+      h(Sparkline, { data: history.map(p => p.value), width, height: 34, color: color || "var(--info)" }),
+      delta !== null && h("div", { style: { display: "flex", flexDirection: "column", lineHeight: 1.25 } },
+        h("span", { className: "num", style: { fontSize: 13, fontWeight: 700, color: up ? "var(--pos)" : "var(--neg)" } },
+          (up ? "+" : "−") + fmtBRL(Math.abs(delta))),
+        h("span", { style: { fontSize: 10, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.04em", fontWeight: 600 } }, "vs mês passado")
+      )
     );
   }
 
@@ -121,14 +147,20 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
   }
 
   function BreakdownPopover({ children, items, totalLabel, totalValue, position = "bottom" }) {
-    const [isHovered, setIsHovered] = _ovSt(false);
+    const [open, setOpen] = _ovSt(false);
+    // Reveals on hover AND keyboard focus (Esc closes), so the breakdown — which IS
+    // the answer on a data tool — is reachable without a mouse and selectable.
     return h("div", {
       style: { position: "relative", display: "inline-block" },
-      onMouseEnter: () => setIsHovered(true),
-      onMouseLeave: () => setIsHovered(false)
+      tabIndex: 0,
+      onMouseEnter: () => setOpen(true),
+      onMouseLeave: () => setOpen(false),
+      onFocus: () => setOpen(true),
+      onBlur: () => setOpen(false),
+      onKeyDown: e => { if (e.key === "Escape") { setOpen(false); e.currentTarget.blur(); } }
     },
       children,
-      isHovered && h("div", {
+      open && h("div", {
         className: "fade-in",
         style: {
           position: "absolute",
@@ -137,12 +169,11 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
           transform: `translateX(-50%) translateY(${position === "bottom" ? "12px" : "-12px"})`,
           background: "var(--bg-0)",
           border: "1px solid var(--line-1)",
-          boxShadow: "0 12px 24px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.05)",
+          boxShadow: "0 12px 24px oklch(0% 0 0 / 0.4)",
           borderRadius: 12,
           padding: "16px",
           minWidth: 260,
           zIndex: 100,
-          pointerEvents: "none",
           display: "flex",
           flexDirection: "column",
           gap: 8,
@@ -211,10 +242,10 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
     );
   }
 
-  return h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 32, flex: 1, height: "100%" } },
+  return h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 20, flex: 1, height: "100%" } },
 
     // ── 1. THE MONTH AT A GLANCE (Hero Panel) ──
-    h("div", { style: { display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 32, background: "var(--bg-1)", padding: 40, borderRadius: 16, border: "1px solid var(--line-1)" } },
+    h("div", { style: { display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 24, background: "var(--bg-1)", padding: 32, borderRadius: 16, border: "1px solid var(--line-1)" } },
       
       // Left: Disponível
       h("div", { style: { display: "flex", flexDirection: "column", justifyContent: "center" } },
@@ -222,7 +253,7 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
         availErr
           ? h("div", { style: { color: "var(--neg)", background: "color-mix(in oklch, var(--neg) 10%, transparent)", padding: "12px 16px", borderRadius: 8, border: "1px dashed color-mix(in oklch, var(--neg) 30%, transparent)", fontSize: 13, fontWeight: 600 } }, "Falha ao carregar liquidez")
           : !available
-            ? h("div", { className: "num", style: { fontSize: 48, fontWeight: 800, color: "var(--fg-0)" } }, "R$ 0,00")
+            ? h("div", { style: { height: 56, width: 240, borderRadius: 8, background: "var(--bg-2)", opacity: 0.5 } })
             : h("div", null,
                 h(BreakdownPopover, {
                   position: "bottom",
@@ -233,21 +264,13 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
                     { label: "Faturas Acumuladas", value: available.faturas_total, negative: true }
                   ]
                 },
-                  h("div", { className: "num", style: { fontSize: 56, fontWeight: 800, letterSpacing: "-0.04em", lineHeight: 1, color: availNeg ? "var(--neg)" : "var(--pos)", marginBottom: 24, cursor: "help", display: "inline-block" } },
+                  h("div", { className: "num", style: { fontSize: 56, fontWeight: 800, letterSpacing: "-0.04em", lineHeight: 1, color: availNeg ? "var(--neg)" : "var(--pos)", marginBottom: 12, cursor: "help", display: "inline-block" } },
                     (availNeg ? "−" : "") + fmtBRL(Math.abs(availValue))
                   )
                 ),
-                h("div", { style: { display: "flex", gap: 24 } },
-                  h(HeroStat, { 
-                    label: "Saldo nas Contas", value: available.checking_total, color: "var(--fg-1)",
-                    items: checkingAccounts.map(a => ({ label: a.name, value: a.balance })), totalLabel: "Total Caixa", position: "bottom"
-                  }),
-                  h("div", { style: { width: 1, background: "var(--line-2)" } }),
-                  h(HeroStat, { 
-                    label: "Faturas Acumuladas", value: available.faturas_total, color: available.faturas_total > 0 ? "var(--neg)" : "var(--fg-2)", negative: available.faturas_total > 0,
-                    items: faturas.map(f => ({ label: f.label, value: f.total, negative: true })), totalLabel: "Total Dívida", position: "bottom"
-                  })
-                )
+                // Contas / Faturas detail lives in the number's popover and the
+                // "Posição Atual" panel below — here we show the trend instead.
+                h(TrendLine, { history: liquidityHistory, delta: deltaLiquidez, color: availNeg ? "var(--neg)" : "var(--info)" })
               )
       ),
 
@@ -257,9 +280,7 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
         h("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, flex: 1, alignContent: "center" } },
           h("div", null,
             h("div", { style: { fontSize: 11, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700, marginBottom: 8 } }, "Receitas"),
-            h(BreakdownPopover, { items: [{ label: "Total Receitas", value: cashflow.income_total }] },
-              h("div", { className: "num", style: { fontSize: 24, fontWeight: 800, color: "var(--pos)", letterSpacing: "-0.02em", lineHeight: 1, cursor: "help", display: "inline-block" } }, "+" + fmtBRL(cashflow.income_total))
-            )
+            h("div", { className: "num", style: { fontSize: 24, fontWeight: 800, color: "var(--pos)", letterSpacing: "-0.02em", lineHeight: 1 } }, "+" + fmtBRL(cashflow.income_total))
           ),
           h("div", null,
             h("div", { style: { fontSize: 11, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700, marginBottom: 8 } }, "Despesas"),
@@ -276,9 +297,7 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
           ),
           h("div", null,
             h("div", { style: { fontSize: 11, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700, marginBottom: 8 } }, "Investimentos"),
-            h(BreakdownPopover, { items: [{ label: "Movimento Líquido", value: cashflow.investment_net, negative: cashflow.investment_net < 0 }] },
-              h("div", { className: "num", style: { fontSize: 24, fontWeight: 800, color: cashflow.investment_net === 0 ? "var(--fg-3)" : (cashflow.investment_net > 0 ? "var(--reserve)" : "var(--info)"), letterSpacing: "-0.02em", lineHeight: 1, cursor: "help", display: "inline-block" } }, fmtBRL(Math.abs(cashflow.investment_net)))
-            )
+            h("div", { className: "num", style: { fontSize: 24, fontWeight: 800, color: cashflow.investment_net === 0 ? "var(--fg-3)" : (cashflow.investment_net > 0 ? "var(--reserve)" : "var(--info)"), letterSpacing: "-0.02em", lineHeight: 1 } }, fmtBRL(Math.abs(cashflow.investment_net)))
           ),
           h("div", null,
             h("div", { style: { fontSize: 11, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700, marginBottom: 8 } }, "Saldo livre"),
@@ -298,139 +317,121 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
       )
     ),
 
-    // ── 2. PATRIMÔNIO (Vault Card) ──
-    h("div", { style: { position: "relative", display: "flex", justifyContent: "space-between", alignItems: "center", background: "linear-gradient(135deg, var(--bg-1) 0%, color-mix(in oklch, var(--bg-1) 90%, var(--reserve)) 100%)", padding: "32px 40px", borderRadius: 16, border: "1px solid var(--line-1)", flexShrink: 0, boxShadow: "0 8px 32px rgba(0,0,0,0.12)" } },
-      h("div", { style: { display: "flex", flexDirection: "column", gap: 16, position: "relative", zIndex: 1, width: "100%" } },
-        h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
-          h("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
-            h("div", { style: { display: "flex", alignItems: "center", gap: 12 } },
-              h("div", { style: { fontSize: 13, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700 } }, "Patrimônio líquido global"),
-              deltaPatrimonio !== null && h("div", { title: "Diferença do patrimônio global vs. mês passado", style: { cursor: "help", display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: "var(--fg-2)", padding: "4px 10px", background: "color-mix(in oklch, var(--fg-0) 4%, transparent)", borderRadius: 100 } },
-                h("span", { style: { color: deltaPatrimonio >= 0 ? "var(--pos)" : "var(--neg)", fontSize: 14 } }, deltaPatrimonio >= 0 ? "▲" : "▼"),
-                h("span", null, `${fmtBRL(Math.abs(deltaPatrimonio))} este mês`)
-              )
-            ),
-            h(BreakdownPopover, {
-              position: "top",
-              items: [
-                { label: "Caixa (Contas Correntes)", value: checkingTotal },
-                { label: "Investimentos", value: totalReservas },
-                { label: "Faturas Acumuladas", value: totalFaturas, negative: true }
-              ],
-              totalLabel: "Patrimônio",
-              totalValue: patrimonioLiquido
-            },
-              h("div", { className: "num", style: { fontSize: 36, fontWeight: 800, color: patrimonioLiquido < 0 ? "var(--neg)" : "var(--fg-0)", cursor: "help", display: "inline-block", letterSpacing: "-0.02em", lineHeight: 1 } },
-                 (patrimonioLiquido < 0 ? "−" : "") + fmtBRL(Math.abs(patrimonioLiquido))
-              )
-            )
-          ),
-          h("div", { style: { display: "flex", flexDirection: "column", gap: 12, minWidth: 280 } },
-            (() => {
-              const assets = checkingTotal + totalReservas;
-              const liabilities = totalFaturas;
-              const total = assets + liabilities || 1;
-              const pctAssets = (assets / total) * 100;
-              const pctLiabs = (liabilities / total) * 100;
-              return h("div", { style: { display: "flex", height: 6, borderRadius: 3, overflow: "hidden", background: "var(--line-1)" } },
-                h("div", { style: { width: `${pctAssets}%`, background: "var(--reserve)" } }),
-                h("div", { style: { width: `${pctLiabs}%`, background: "var(--neg)" } })
-              );
-            })(),
-            h("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 12 } },
-              h("div", { style: { display: "flex", alignItems: "center", gap: 6 } },
-                h("div", { style: { width: 8, height: 8, borderRadius: "50%", background: "var(--reserve)" } }),
-                h("span", { style: { color: "var(--fg-2)" } }, "Seu Dinheiro "),
-                h("strong", { style: { color: "var(--fg-1)" } }, fmtBRL(checkingTotal + totalReservas))
-              ),
-              h("div", { style: { display: "flex", alignItems: "center", gap: 6 } },
-                h("div", { style: { width: 8, height: 8, borderRadius: "50%", background: "var(--neg)" } }),
-                h("span", { style: { color: "var(--fg-2)" } }, "Dívidas "),
-                h("strong", { style: { color: "var(--fg-1)" } }, fmtBRL(totalFaturas))
-              )
-            )
+    // ── 2. PATRIMÔNIO ──
+    // Headline = precise current patrimônio (caixa + investimentos − faturas), with its
+    // real breakdown in the popover. The trend is the reconstructable 12-month series
+    // (investments have no monthly history, so the sparkline conveys direction, and the
+    // delta is within-series — honest month-over-month, not the old mixed comparison).
+    h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 24, background: "var(--bg-1)", padding: "20px 28px", borderRadius: 16, border: "1px solid var(--line-1)", flexShrink: 0 } },
+      h("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
+        h("div", { style: { fontSize: 13, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700 } }, "Patrimônio líquido global"),
+        h(BreakdownPopover, {
+          position: "top",
+          items: [
+            { label: "Caixa (Contas Correntes)", value: checkingTotal },
+            { label: "Investimentos", value: totalReservas },
+            { label: "Faturas Acumuladas", value: totalFaturas, negative: true }
+          ],
+          totalLabel: "Patrimônio",
+          totalValue: patrimonioLiquido
+        },
+          h("div", { className: "num", style: { fontSize: 36, fontWeight: 800, color: patrimonioLiquido < 0 ? "var(--neg)" : "var(--fg-0)", cursor: "help", display: "inline-block", letterSpacing: "-0.02em", lineHeight: 1 } },
+             (patrimonioLiquido < 0 ? "−" : "") + fmtBRL(Math.abs(patrimonioLiquido))
           )
         )
-      )
+      ),
+      h(TrendLine, { history: patrimonioHistory, delta: deltaPatrimonio, color: "var(--reserve)", width: 160 })
     ),
 
-    // ── 3. FATURAS & CONTAS (2 columns) ──
-    h("div", { style: { display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 32, flex: 1, minHeight: 0 } },
-      
-      // Faturas em Aberto
-      h("div", { style: { background: "var(--bg-1)", padding: 24, borderRadius: 16, border: "1px solid var(--line-1)", display: "flex", flexDirection: "column", minHeight: 0 } },
-        h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 24 } },
-          h("div", { style: { fontSize: 13, fontWeight: 700, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em" } }, "Faturas em aberto"),
-          h("span", { className: "num", style: { fontSize: 16, fontWeight: 700, color: "var(--fg-0)" } }, fmtBRL(totalFaturas))
-        ),
-        faturas.length === 0
-          ? h("div", { style: { padding: "16px 0", color: "var(--fg-3)", fontSize: 13, fontStyle: "italic", flex: 1 } }, "Nenhuma fatura em aberto.")
-          : h("div", { className: "custom-scrollbar", style: { display: "flex", flexDirection: "column", gap: 16, overflowY: "auto", flex: 1, paddingRight: 8, marginRight: -8 } },
-              faturas.map((f, i) => {
-                const tone = f.days_until_due <= 3 ? "neg" : f.days_until_due <= 7 ? "warn" : "ok";
-                const color = tone === "neg" ? "var(--neg)" : tone === "warn" ? "var(--warn)" : "var(--pos)";
-                const due = f.days_until_due > 0 ? `em ${f.days_until_due}d` : f.days_until_due === 0 ? "hoje" : `há ${Math.abs(f.days_until_due)}d`;
-                const trend = (f.last_total > 0) ? ((f.total - f.last_total) / f.last_total) * 100 : null;
-                const _bg0 = `color-mix(in oklch, ${color} 10%, transparent)`;
-                
-                const isNu = f.label.toLowerCase().includes("nu");
-                const bankColor = isNu ? "var(--nubank, #8a05be)" : "var(--inter, #ff7a00)";
-                
-                return h("button", {
-                  key: i, onClick: () => setFaturaReceipt({ accountId: f.accountId, label: f.label, start: f.cycle_start, end: f.cycle_end, total: f.total, bankColor }),
-                  className: "fatura-btn",
-                  style: { position: "relative", background: "var(--bg-0)", display: "block", textAlign: "left", padding: "16px 20px", borderRadius: 12, border: "1px solid var(--line-1)", cursor: "pointer", transition: "transform 0.1s, box-shadow 0.1s", boxShadow: "0 2px 8px rgba(0,0,0,0.05)" },
-                },
-                  h("div", { style: { position: "absolute", top: -1, left: -1, bottom: -1, width: 4, background: bankColor, borderRadius: "12px 0 0 12px" } }),
-                  h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 } },
-                    h("span", { style: { fontSize: 13, fontWeight: 700, color: "var(--fg-1)", display: "flex", alignItems: "center", gap: 8 } }, 
-                      h("div", { style: { width: 12, height: 12, borderRadius: 3, background: bankColor } }), 
-                      f.label
-                    ),
-                    h("span", { style: { fontSize: 11, color, fontWeight: 700, background: _bg0, padding: "4px 8px", borderRadius: 100, textTransform: "uppercase", letterSpacing: "0.04em" } }, `vence ${due}`)
-                  ),
-                  h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline" } },
-                    h("span", { className: "num", style: { fontSize: 24, fontWeight: 800, color: "var(--fg-0)", letterSpacing: "-0.02em" } }, fmtBRL(f.total)),
-                    trend !== null && h("span", { title: "Crescimento vs Mês Passado", style: { cursor: "help", fontSize: 12, fontWeight: 700, color: trend >= 0 ? "var(--neg)" : "var(--pos)", display: "flex", gap: 4, alignItems: "center" } },
-                      trend >= 0 ? "↗" : "↘", `${Math.abs(trend).toFixed(1)}%`)
-                  )
-                );
-              })
-            )
+    // ── 3. POSIÇÃO DE CAIXA E FATURAS (Unified Panel) ──
+    h("div", { style: { background: "var(--bg-1)", padding: 24, borderRadius: 16, border: "1px solid var(--line-1)", display: "flex", flexDirection: "column", minHeight: 0 } },
+      h("div", { style: { display: "flex", alignItems: "center", gap: 16, marginBottom: 20 } },
+        h("div", { style: { fontSize: 13, fontWeight: 700, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em" } }, "Posição Atual (Disponível)"),
+        h("div", { style: { height: 1, flex: 1, background: "var(--line-1)" } })
       ),
-
-      // Contas Correntes
-      h("div", { style: { background: "var(--bg-1)", padding: 24, borderRadius: 16, border: "1px solid var(--line-1)", display: "flex", flexDirection: "column", minHeight: 0 } },
-        h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 24 } },
-          h("div", { style: { fontSize: 13, fontWeight: 700, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em" } }, "Contas correntes"),
-          h("span", { className: "num", style: { fontSize: 16, fontWeight: 700, color: "var(--fg-0)" } }, fmtBRL(checkingTotal))
-        ),
-        h("div", { className: "custom-scrollbar", style: { display: "flex", flexDirection: "column", gap: 12, overflowY: "auto", flex: 1, paddingRight: 8, marginRight: -8 } },
-          checkingAccounts.length === 0
-            ? h("div", { style: { padding: "16px 0", color: "var(--fg-3)", fontSize: 13, fontStyle: "italic" } }, "Nenhuma conta corrente.")
-            : checkingAccounts.map(a => {
-                const isNu = a.name.toLowerCase().includes("nu");
-                const bankColor = isNu ? "var(--nubank, #8a05be)" : "var(--inter, #ff7a00)";
-                const pct = checkingTotal > 0 ? ((a.balance || 0) / checkingTotal) * 100 : 0;
-                
-                return h("button", {
-                  key: a.id, onClick: () => onJumpToAccount && onJumpToAccount(a.id),
-                  className: "fatura-btn",
-                  style: { position: "relative", background: "var(--bg-0)", border: "1px solid var(--line-1)", display: "flex", flexDirection: "column", gap: 16, padding: "16px 20px", borderRadius: 12, cursor: "pointer", transition: "transform 0.1s, box-shadow 0.1s", textAlign: "left", boxShadow: "0 2px 8px rgba(0,0,0,0.05)" },
-                },
-                  h("div", { style: { position: "absolute", top: -1, left: -1, bottom: -1, width: 4, background: bankColor, borderRadius: "12px 0 0 12px" } }),
-                  h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" } },
-                    h("span", { style: { fontSize: 13, fontWeight: 700, color: "var(--fg-1)", display: "flex", alignItems: "center", gap: 8 } }, 
-                      h("div", { style: { width: 12, height: 12, borderRadius: 3, background: bankColor } }), 
-                      a.name
+      h("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 32, flex: 1, minHeight: 0 } },
+        
+        // Faturas Column
+        h("div", { style: { display: "flex", flexDirection: "column", minHeight: 0 } },
+          h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 } },
+            h("span", { style: { fontSize: 12, fontWeight: 700, color: "var(--fg-2)", textTransform: "uppercase", letterSpacing: "0.04em" } }, "Faturas Acumuladas"),
+            h("span", { className: "num", style: { fontSize: 15, fontWeight: 700, color: totalFaturas > 0 ? "var(--neg)" : "var(--fg-2)" } }, fmtBRL(totalFaturas))
+          ),
+          h("div", { className: "custom-scrollbar", style: { display: "flex", flexDirection: "column", overflowY: "auto", flex: 1, paddingRight: 8, marginRight: -8 } },
+            faturas.length === 0
+              ? h("div", { style: { padding: "16px 0", color: "var(--fg-3)", fontSize: 13, fontStyle: "italic" } }, "Nenhuma fatura em aberto.")
+              : [...faturas].sort((a,b) => (a.label.toLowerCase().includes("nu") ? 1 : 2) - (b.label.toLowerCase().includes("nu") ? 1 : 2)).map((f, i, arr) => {
+                  const tone = f.days_until_due <= 3 ? "neg" : f.days_until_due <= 7 ? "warn" : "ok";
+                  const color = tone === "neg" ? "var(--neg)" : tone === "warn" ? "var(--warn)" : "var(--pos)";
+                  const due = f.days_until_due > 0 ? `em ${f.days_until_due}d` : f.days_until_due === 0 ? "hoje" : `há ${Math.abs(f.days_until_due)}d`;
+                  const trend = (f.last_total > 0) ? ((f.total - f.last_total) / f.last_total) * 100 : null;
+                  const isNu = f.label.toLowerCase().includes("nu");
+                  const bankColor = isNu ? "var(--nubank)" : "var(--inter)";
+                  
+                  return h("button", {
+                    key: i, onClick: () => setFaturaReceipt({ accountId: f.accountId, label: f.label, start: f.cycle_start, end: f.cycle_end, total: f.total, bankColor }),
+                    style: { 
+                      display: "flex", justifyContent: "space-between", alignItems: "center", 
+                      height: 60, padding: "0 16px", background: "transparent", border: "none",
+                      borderBottom: i < arr.length - 1 ? "1px dashed var(--line-1)" : "none",
+                      cursor: "pointer", textAlign: "left", borderRadius: 8, transition: "background 0.1s"
+                    },
+                    onMouseEnter: (e) => e.currentTarget.style.background = "var(--bg-2)",
+                    onMouseLeave: (e) => e.currentTarget.style.background = "transparent",
+                  },
+                    h("div", { style: { display: "flex", flexDirection: "column", justifyContent: "center", gap: 4 } },
+                      h("span", { style: { fontSize: 13, fontWeight: 700, color: "var(--fg-1)", display: "flex", alignItems: "center", gap: 10 } }, 
+                        h("div", { style: { width: 8, height: 8, borderRadius: "50%", background: bankColor } }), 
+                        f.label
+                      ),
+                      h("span", { style: { fontSize: 11, color, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", paddingLeft: 18 } }, `vence ${due}`)
                     ),
-                    h("span", { className: "num", style: { fontSize: 20, fontWeight: 800, color: (a.balance || 0) < 0 ? "var(--neg)" : "var(--fg-0)", letterSpacing: "-0.02em" } }, fmtBRL(a.balance || 0))
-                  ),
-                  h("div", { title: `Representa ${pct.toFixed(1)}% do seu Caixa`, style: { width: "100%", height: 4, background: "var(--line-1)", borderRadius: 2, overflow: "hidden" } },
-                    h("div", { style: { width: `${pct}%`, height: "100%", background: bankColor } })
-                  )
-                );
-              })
+                    h("div", { style: { display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "flex-end", gap: 4 } },
+                      h("span", { className: "num", style: { fontSize: 16, fontWeight: 800, color: "var(--fg-0)", letterSpacing: "-0.02em" } }, fmtBRL(f.total)),
+                      trend !== null && h("span", { title: "Crescimento vs Mês Passado", style: { cursor: "help", fontSize: 11, fontWeight: 700, color: trend >= 0 ? "var(--neg)" : "var(--pos)", display: "flex", gap: 4, alignItems: "center", height: 13 } },
+                        trend >= 0 ? "↗" : "↘", `${Math.abs(trend).toFixed(1)}%`)
+                    )
+                  );
+                })
+          )
+        ),
+
+        // Contas Column
+        h("div", { style: { display: "flex", flexDirection: "column", minHeight: 0 } },
+          h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 } },
+            h("span", { style: { fontSize: 12, fontWeight: 700, color: "var(--fg-2)", textTransform: "uppercase", letterSpacing: "0.04em" } }, "Saldo em Conta"),
+            h("span", { className: "num", style: { fontSize: 15, fontWeight: 700, color: "var(--fg-1)" } }, fmtBRL(checkingTotal))
+          ),
+          h("div", { className: "custom-scrollbar", style: { display: "flex", flexDirection: "column", overflowY: "auto", flex: 1, paddingRight: 8, marginRight: -8 } },
+            checkingAccounts.length === 0
+              ? h("div", { style: { padding: "16px 0", color: "var(--fg-3)", fontSize: 13, fontStyle: "italic" } }, "Nenhuma conta corrente.")
+              : [...checkingAccounts].sort((a,b) => (a.name.toLowerCase().includes("nu") ? 1 : 2) - (b.name.toLowerCase().includes("nu") ? 1 : 2)).map((a, i, arr) => {
+                  const isNu = a.name.toLowerCase().includes("nu");
+                  const bankColor = isNu ? "var(--nubank)" : "var(--inter)";
+                  const pct = checkingTotal > 0 ? ((a.balance || 0) / checkingTotal) * 100 : 0;
+                  
+                  return h("button", {
+                    key: a.id, onClick: () => onJumpToAccount && onJumpToAccount(a.id),
+                    style: { 
+                      display: "flex", justifyContent: "space-between", alignItems: "center", 
+                      height: 60, padding: "0 16px", background: "transparent", border: "none",
+                      borderBottom: i < arr.length - 1 ? "1px dashed var(--line-1)" : "none",
+                      cursor: "pointer", textAlign: "left", borderRadius: 8, transition: "background 0.1s"
+                    },
+                    onMouseEnter: (e) => e.currentTarget.style.background = "var(--bg-2)",
+                    onMouseLeave: (e) => e.currentTarget.style.background = "transparent",
+                  },
+                    h("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
+                      h("div", { style: { width: 8, height: 8, borderRadius: "50%", background: bankColor } }),
+                      h("span", { style: { fontSize: 13, fontWeight: 600, color: "var(--fg-1)" } }, a.name)
+                    ),
+                    h("div", { style: { display: "flex", alignItems: "baseline", gap: 16 } },
+                      h("span", { title: "Representação no Caixa", style: { fontSize: 12, color: "var(--fg-3)", fontFamily: "var(--ff-mono)" } }, `${pct.toFixed(1)}%`),
+                      h("span", { className: "num", style: { fontSize: 15, fontWeight: 700, color: (a.balance || 0) < 0 ? "var(--neg)" : "var(--fg-0)", minWidth: 90, textAlign: "right" } }, fmtBRL(a.balance || 0))
+                    )
+                  );
+                })
+          )
         )
       )
     ),
@@ -477,7 +478,7 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
 
 // ── CategoriesPanel ───────────────────────────────────────────────────────────
 
-function CategoriesPanel({ refreshKey, onRefresh }) {
+function CategoriesPanel({ refreshKey, onRefresh, onClose }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   const [flow, setFlow] = _ovSt("expense");
   const [cats, setCats] = _ovSt([]);
@@ -528,54 +529,64 @@ function CategoriesPanel({ refreshKey, onRefresh }) {
 
   return h("div", { className: "fade-in", style: { padding: "20px 0", maxWidth: 640, margin: "0 auto" } },
     h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 } },
-      h("span", { style: { fontWeight: 700, fontSize: "var(--fz-4)" } }, "Gerenciar Categorias"),
+      h("div", { style: { display: "flex", alignItems: "center", gap: 16 } },
+        onClose && h("button", {
+          onClick: onClose, title: "Voltar",
+          style: { width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "50%", background: "var(--bg-1)", border: "1px solid var(--line-1)", color: "var(--fg-2)", cursor: "pointer", transition: "all 0.1s" },
+          onMouseEnter: e => { e.currentTarget.style.color = "var(--fg-0)"; e.currentTarget.style.background = "var(--bg-2)"; },
+          onMouseLeave: e => { e.currentTarget.style.color = "var(--fg-2)"; e.currentTarget.style.background = "var(--bg-1)"; }
+        }, "←"),
+        h("span", { style: { fontWeight: 700, fontSize: "var(--fz-4)", textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--fg-2)" } }, "Gerenciar Categorias")
+      ),
       h(window.BS.SegmentControl, {
         options: [{ value: "expense", label: "Despesas" }, { value: "income", label: "Receitas" }],
         value: flow, onChange: setFlow, columns: 2,
       })
     ),
 
-    // Add new category
-    h("div", { style: { background: "var(--bg-1)", padding: 24, borderRadius: 16, border: "1px solid var(--line-1)", marginBottom: 24 } },
-      h("form", { onSubmit: handleAdd, style: { display: "flex", gap: 12, alignItems: "center" } },
+    h("div", { style: { background: "var(--bg-1)", borderRadius: 16, border: "1px solid var(--line-1)", display: "flex", flexDirection: "column", overflow: "hidden" } },
+      
+      // Inline Add Form (First Row)
+      h("form", { onSubmit: handleAdd, style: { display: "flex", alignItems: "center", padding: "16px 24px", borderBottom: "1px solid var(--line-1)", background: "var(--bg-0)" } },
+        h("div", { style: { width: 8, height: 8, borderRadius: "50%", background: "transparent", border: "1px dashed var(--fg-3)", marginRight: 12 } }),
         h("input", {
-          type: "text", placeholder: `Nova categoria de ${flow === 'expense' ? 'despesa' : 'receita'}…`, value: newName,
+          type: "text", placeholder: `Adicionar nova categoria de ${flow === 'expense' ? 'despesa' : 'receita'}...`, value: newName,
           onChange: e => setNewName(e.target.value),
-          className: "input",
-          style: { flex: 1, padding: "8px 12px", border: "1px solid var(--line-1)", borderRadius: 6, background: "var(--bg-0)" }
+          style: { flex: 1, background: "transparent", border: "none", outline: "none", color: "var(--fg-1)", fontSize: 14, fontWeight: 500, padding: 0 }
         }),
         h("button", {
-          type: "submit", className: "btn btn-primary", disabled: adding || !newName.trim(),
-          style: { padding: "8px 16px", borderRadius: 6 }
-        }, adding ? "Processando…" : "Adicionar")
+          type: "submit", disabled: adding || !newName.trim(),
+          style: { fontSize: 11, fontWeight: 700, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.04em", padding: "4px 8px", background: "var(--bg-2)", borderRadius: 4, cursor: newName.trim() ? "pointer" : "default", opacity: newName.trim() ? 1 : 0.5 }
+        }, adding ? "..." : "ENTER ↵")
       ),
-      err && h("div", { style: { marginTop: 12, color: "var(--neg)", fontSize: 12, padding: "8px 12px", background: "color-mix(in oklch, var(--neg) 10%, transparent)", borderRadius: 6 } }, err)
-    ),
+      err && h("div", { style: { padding: "12px 24px", color: "var(--neg)", fontSize: 12, background: "color-mix(in oklch, var(--neg) 10%, transparent)", borderBottom: "1px solid var(--line-1)" } }, err),
 
-    // Category list
-    h("div", { style: { background: "var(--bg-1)", borderRadius: 16, border: "1px solid var(--line-1)", display: "flex", flexDirection: "column", overflow: "hidden" } },
-      h("div", { style: { display: "grid", gridTemplateColumns: "1fr 100px 80px", padding: "16px 24px", borderBottom: "1px solid var(--line-1)", background: "var(--bg-1)", fontSize: 12, color: "var(--fg-2)" } },
-        h("span", null, "Nome"),
-        h("span", { style: { textAlign: "right" } }, "Lançamentos"),
-        h("span", null)
-      ),
+      // Categories List
       h("div", { style: { display: "flex", flexDirection: "column" } },
-        cats.map(cat => h("div", { key: cat.id, style: { display: "grid", gridTemplateColumns: "1fr 100px 80px", padding: "16px 24px", borderBottom: "1px solid var(--line-0)", alignItems: "center", fontSize: 13 } },
-          h("div", { style: { fontWeight: 500, color: "var(--fg-1)", display: "flex", alignItems: "center", gap: 8 } }, 
-            h("span", { style: { width: 8, height: 8, borderRadius: "50%", background: flow === 'expense' ? "var(--neg)" : "var(--pos)" } }),
-            cat.name
-          ),
-          h("div", { className: "num", style: { textAlign: "right", color: "var(--fg-2)" } }, cat.transaction_count),
-          h("div", { style: { textAlign: "right" } },
-            h("button", {
-              className: "btn btn-ghost btn-sm",
-              style: { color: "var(--neg)", fontSize: 11, padding: "4px 8px" },
-              onClick: () => { setDeleteModal(cat); setReassignTo(cat.transaction_count > 0 ? "" : "0"); setErr(""); }
-            }, "Excluir")
-          )
-        ))
-      ),
-      cats.length === 0 && h("div", { style: { padding: 32, textAlign: "center", color: "var(--fg-3)", fontSize: 13 } }, "Nenhuma categoria cadastrada.")
+        cats.length === 0 
+          ? h("div", { style: { padding: 32, textAlign: "center", color: "var(--fg-3)", fontSize: 13, fontStyle: "italic" } }, "Nenhuma categoria cadastrada.")
+          : cats.map((cat, i) => h("div", { 
+              key: cat.id, 
+              style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 24px", borderBottom: i < cats.length - 1 ? "1px dashed var(--line-1)" : "none", transition: "background 0.1s" },
+              onMouseEnter: (e) => e.currentTarget.style.background = "var(--bg-2)",
+              onMouseLeave: (e) => e.currentTarget.style.background = "transparent",
+            },
+              h("div", { style: { fontWeight: 500, color: "var(--fg-1)", display: "flex", alignItems: "center", gap: 12, fontSize: 14 } }, 
+                h("span", { style: { width: 8, height: 8, borderRadius: "50%", background: flow === 'expense' ? "var(--neg)" : "var(--pos)" } }),
+                cat.name
+              ),
+              h("div", { style: { display: "flex", alignItems: "center", gap: 16 } },
+                h("div", { className: "num", style: { color: "var(--fg-3)", fontSize: 13 } }, `${cat.transaction_count} lançamentos`),
+                h("button", {
+                  title: "Excluir",
+                  style: { color: "var(--fg-3)", fontSize: 16, width: 24, height: 24, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "50%", cursor: "pointer", transition: "color 0.1s, background 0.1s" },
+                  onMouseEnter: (e) => { e.currentTarget.style.color = "var(--neg)"; e.currentTarget.style.background = "color-mix(in oklch, var(--neg) 10%, transparent)"; },
+                  onMouseLeave: (e) => { e.currentTarget.style.color = "var(--fg-3)"; e.currentTarget.style.background = "transparent"; },
+                  onClick: () => { setDeleteModal(cat); setReassignTo(cat.transaction_count > 0 ? "" : "0"); setErr(""); }
+                }, "×")
+              )
+            ))
+      )
     ),
 
     // Delete confirmation modal

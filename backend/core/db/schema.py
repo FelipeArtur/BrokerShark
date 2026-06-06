@@ -77,6 +77,7 @@ def init_db() -> None:
                 display_name    TEXT,
                 is_third_party  INTEGER NOT NULL DEFAULT 0,
                 original_amount REAL,
+                import_batch_id TEXT,
                 FOREIGN KEY (account_id)      REFERENCES accounts(id),
                 FOREIGN KEY (dest_account_id) REFERENCES accounts(id),
                 FOREIGN KEY (category_id)     REFERENCES categories(id)
@@ -220,6 +221,25 @@ def _apply_column_migrations(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE import_staging ADD COLUMN category_id INTEGER")
         conn.execute("ALTER TABLE import_staging ADD COLUMN display_name TEXT")
         conn.commit()
+
+    # Reversible imports: every transaction promoted from a single import (the whole
+    # multi-file/multi-account drop shares one id) carries import_batch_id, so the
+    # batch is filterable in the Histórico and reversible in one shot via
+    # crud.delete_batch. Most rows (manual entries, pre-existing data) stay NULL by
+    # design → a PARTIAL index keeps it lean.
+    try:
+        conn.execute("SELECT import_batch_id FROM transactions LIMIT 1")
+    except sqlite3.OperationalError:
+        conn.execute("ALTER TABLE transactions ADD COLUMN import_batch_id TEXT")
+        conn.commit()
+    try:
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tx_import_batch "
+            "ON transactions(import_batch_id) WHERE import_batch_id IS NOT NULL"
+        )
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
 
     # Partial UNIQUE index on external_id: enforces dedup for sources that
     # carry a stable id (Nubank's Identificador), while allowing the many NULLs

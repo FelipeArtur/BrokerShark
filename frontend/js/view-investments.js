@@ -83,8 +83,6 @@ function InvestmentsView({ refreshKey, filterMonth }) {
   const [investments, setInvestments] = _s3St([]);
   const [periodMovements, setPeriodMovements] = _s3St([]);
   const [evolution, setEvolution] = _s3St([]);
-  const [toast, setToast] = _s3St("");
-  
   const [bankFilter, setBankFilter] = _s3St("all");
   const [categoryFilter, setCategoryFilter] = _s3St(null);
   const [historyMode, setHistoryMode] = _s3St("month");
@@ -143,7 +141,6 @@ function InvestmentsView({ refreshKey, filterMonth }) {
 
   if (investments.length === 0) {
     return h("div", { className: "fade-in pane", style: { padding: 40, textAlign: "center", color: "var(--fg-3)" } },
-      h("div", { style: { fontSize: 32, marginBottom: 10, opacity: 0.3 } }, "◈"),
       h("div", { style: { fontSize: 13, fontWeight: 600, color: "var(--fg-2)", marginBottom: 6 } }, "Nenhum investimento cadastrado"),
       h("div", { style: { fontSize: 11 } }, "Importe um Relatório B3 (.xlsx) pelo botão Importar.")
     );
@@ -152,11 +149,10 @@ function InvestmentsView({ refreshKey, filterMonth }) {
   return h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 32, paddingBottom: 40 } },
     
     h("div", { style: { display: "flex", justifyContent: "flex-end" } },
-      h("div", { style: { display: "flex", background: "var(--bg-1)", padding: 4, borderRadius: 8, gap: 4, border: "1px solid var(--line-1)" } },
+      h("div", { className: "filter-pills" },
         [{ id: "all", label: "Todas Instituições" }, { id: "nubank", label: "Nubank" }, { id: "inter", label: "Banco Inter" }, { id: "b3", label: "B3 / Outras" }].map(b => h("button", {
           key: b.id, onClick: () => { setBankFilter(b.id); setCategoryFilter(null); },
-          className: "fatura-btn",
-          style: { padding: "6px 16px", borderRadius: 6, fontWeight: 700, fontSize: 13, color: bankFilter === b.id ? "var(--fg-0)" : "var(--fg-3)", background: bankFilter === b.id ? "var(--bg-3)" : "transparent" }
+          className: `filter-pill${bankFilter === b.id ? " active" : ""}`
         }, b.label))
       )
     ),
@@ -178,7 +174,7 @@ function InvestmentsView({ refreshKey, filterMonth }) {
         h("div", { style: { display: "flex", flexDirection: "column", gap: 12, width: "100%" } },
           summaryByCategory.map((cat, i) => {
             const pct = total ? (cat.balance / total) * 100 : 0;
-            return h("div", { key: i, onClick: () => setCategoryFilter(categoryFilter === cat.name ? null : cat.name), className: "fatura-btn", style: { display: "flex", alignItems: "center", gap: 12, fontSize: 13, padding: "8px 12px", margin: "0 -12px", borderRadius: 8, cursor: "pointer", background: categoryFilter === cat.name ? "var(--bg-2)" : "transparent" } },
+            return h("div", { key: i, onClick: () => setCategoryFilter(categoryFilter === cat.name ? null : cat.name), className: "row-hover", style: { display: "flex", alignItems: "center", gap: 12, fontSize: 13, padding: "8px 12px", margin: "0 -12px", borderRadius: 8, cursor: "pointer", background: categoryFilter === cat.name ? "var(--bg-2)" : undefined } },
               h("span", { style: { width: 12, height: 12, borderRadius: 4, background: cat.color, display: "inline-block", flexShrink: 0 } }),
               h("span", { style: { flex: 1, color: "var(--fg-1)", fontWeight: 600 } }, cat.name),
               h("span", { className: "num", style: { color: "var(--fg-3)", width: 44, textAlign: "right", fontWeight: 500 } }, pct.toFixed(1), "%"),
@@ -203,7 +199,7 @@ function InvestmentsView({ refreshKey, filterMonth }) {
                 const bal = inv.balance || 0;
                 const pct = total ? (bal / total) * 100 : 0;
                 const color = summaryByCategory[gIdx].color;
-                return h("div", { key: inv.id, onClick: () => setDetailsAsset(inv), className: "fatura-btn", style: { display: "flex", alignItems: "center", padding: "10px 12px", margin: "0 -12px", borderRadius: 8, transition: "background 0.1s", cursor: "pointer" } },
+                return h("div", { key: inv.id, onClick: () => setDetailsAsset(inv), className: "row-hover", style: { display: "flex", alignItems: "center", padding: "10px 12px", margin: "0 -12px", borderRadius: 8, cursor: "pointer" } },
                   h("div", { style: { display: "flex", alignItems: "center", gap: 16, flex: 1, minWidth: 0 } },
                     h("span", { style: { width: 8, height: 8, borderRadius: "50%", background: color, flexShrink: 0 } }),
                     h("div", { style: { fontWeight: 600, fontSize: 14, color: "var(--fg-1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, inv.name),
@@ -228,11 +224,10 @@ function InvestmentsView({ refreshKey, filterMonth }) {
       displayedMovements.length > 0 && h("div", { style: { background: "var(--bg-1)", padding: 32, borderRadius: 16, border: "1px solid var(--line-1)", overflowX: "auto" } },
         h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", borderBottom: "1px solid var(--line-1)", paddingBottom: 16, marginBottom: 24 } },
           h("div", { style: { fontSize: 18, fontWeight: 700, color: "var(--fg-1)" } }, "Histórico de Movimentos"),
-          h("div", { style: { display: "flex", background: "var(--bg-2)", padding: 4, borderRadius: 8, gap: 4 } },
+          h("div", { className: "filter-pills" },
             [{ id: "month", label: "Neste Mês" }, { id: "all", label: "Histórico Completo" }].map(hm => h("button", {
               key: hm.id, onClick: () => setHistoryMode(hm.id),
-              className: "fatura-btn",
-              style: { padding: "4px 12px", borderRadius: 6, fontWeight: 700, fontSize: 12, color: historyMode === hm.id ? "var(--fg-0)" : "var(--fg-3)", background: historyMode === hm.id ? "var(--bg-3)" : "transparent" }
+              className: `filter-pill${historyMode === hm.id ? " active" : ""}`
             }, hm.label))
           )
         ),
@@ -280,12 +275,7 @@ function InvestmentsView({ refreshKey, filterMonth }) {
     detailsAsset && h(AssetDetailsModal, {
       asset: detailsAsset,
       onClose: () => setDetailsAsset(null)
-    }),
-    toast && h("div", {
-      style: { position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)",
-        background: "var(--pos)", color: "#fff", padding: "10px 20px", borderRadius: 8,
-        fontSize: 13, fontWeight: 600, zIndex: 100, boxShadow: "0 8px 24px rgba(0,0,0,0.3)" }
-    }, toast)
+    })
   );
 }
 

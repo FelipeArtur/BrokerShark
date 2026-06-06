@@ -17,6 +17,7 @@ from core.db.crud import (  # noqa: F401
     get_transaction,
     delete_transaction,
     restore_transactions,
+    delete_batch,
     get_transactions_by_period,
     update_transaction_category,
     update_transaction_fields,
