@@ -92,6 +92,32 @@ Telegram (read-only): ai_chat / comandos → SELECT → resposta
 
 ---
 
+## IA conversacional (Telegram) — diagnóstico + proposta Hermes
+
+> ⚠️ **Proposta em avaliação — NÃO implementada.** Esta seção registra o estado atual da IA e uma opção de arquitetura para retomar depois. Runtime do bot permanece **on-demand** (launcher) por ora; nada abaixo está no código.
+
+### Estado atual — por que a IA é frágil/pouco usada (load-bearing)
+
+- **Tool-calling emulado por prompt:** `integrations/ollama.py` **não envia o campo `tools`** ao `/api/chat` — o modelo precisa cuspir JSON puro `{"tool":...}` e `bot/handlers/ai_chat.py` decide "tool vs. texto" por `accumulated.startswith("{")`. Num modelo 7B isso quebra com prosa antes do JSON, code-fence ` ```json ` ou JSON malformado → a tool não dispara. **Conserto de maior alavancagem (independe de Hermes):** migrar para **tool-calling nativo do Ollama** (campo `tools`, suportado por modelos tool-capable, incluindo o `qwen2.5` atual) — elimina o parser de JSON-no-texto, a heurística `startswith` e o round-trip via mensagem "user" fake.
+- **Sem `keep_alive`:** o Ollama descarrega o modelo após ~5 min ociosos → a 1ª mensagem paga cold-load (lento na RX 6600M/ROCm). Passar `keep_alive` no payload mantém o modelo quente.
+- **Runtime on-demand:** o bot só responde com `main.py` aberto (notificações agendadas saem por systemd timers, independentes). Conversa exige o processo no ar.
+
+### Proposta "Hermes" — dois sentidos (ambos da Nous Research)
+
+O termo é ambíguo: a busca por "hermes agent" devolve o **framework**, mas a nota original em `GEMINI.md` mirava o **modelo**. São coisas distintas:
+
+**Opção A — modelo Hermes + tool-calling nativo (mudança mínima, recomendada).** Trocar `qwen2.5:7b` por um modelo Hermes (ex.: `Hermes-3-Llama-3.1-8B`, treinado p/ function-calling; ~5 GB em q4, cabe nos 8 GB da RX 6600M) **e** migrar o `ai_chat.py` para o `tools` nativo do Ollama. Mantém o bot artesanal e o read-only-por-construção; só fica confiável e rápido. Resolve a fragilidade real (o tool-calling) sem mexer nos invariantes.
+
+**Opção B — adotar o framework Hermes Agent (MIT).** Agente open-source com **gateway único** (Telegram/Discord/Slack/WhatsApp/Signal), **memória persistente** (FTS5 + modelagem de usuário entre sessões), **model-agnostic** (Ollama/vLLM/llama.cpp), tools via **MCP**, instalado como **serviço systemd de usuário** com `loginctl enable-linger` (mesmo modelo de runtime dos timers do BrokerShark).
+- **Encaixe:** BrokerShark exporia suas 7 consultas read-only como um **servidor MCP**; o Hermes seria a camada LLM + Telegram + memória, substituindo o `ai_chat.py`.
+- ⚠️ **Tensão com a regra de ouro:** o Hermes **não é read-only por padrão** (executa código/terminal/arquivos/browser). Honrar "o Telegram nunca escreve" exige expor SOMENTE o MCP read-only, sandbox (`TERMINAL_BACKEND=docker`), allowlist de `chat_id` e `SOUL.md`/`AGENTS.md` (que **não** são restrições rígidas). Mal configurado, quebra o invariante.
+- ⚠️ **Tensão de runtime:** o gateway é **persistente** (always-on), contrariando o on-demand atual — adotar = mover o bot para sempre-no-ar.
+- **Refs:** [github.com/nousresearch/hermes-agent](https://github.com/nousresearch/hermes-agent) · [docs](https://hermes-agent.nousresearch.com/docs/) · [guia Telegram](https://hermes-agent.nousresearch.com/docs/guides/team-telegram-assistant)
+
+**Recomendação:** começar pela **Opção A** (resolve o tool-calling sem abrir mão dos invariantes nem do on-demand); avaliar a Opção B só se memória persistente / multi-canal virarem requisitos.
+
+---
+
 ## Tech Stack
 
 | Component | Technology |

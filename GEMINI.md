@@ -112,7 +112,7 @@ budgets (id, category_id, amount_limit)
 
 `backend/bot/handlers/ai_chat.py` — **Telegram only, somente consulta** (sem IA na web): tool calling via prompt (não native API — qwen2.5:7b). MAX_ROUNDS=3, persona "BrokerShark". Tools (7, leitura): `get_monthly_summary`, `get_monthly_comparison`, `get_expenses_by_category`, `get_account_balances`, `get_investments`, `get_recent_transactions`, `get_budgets`. Tools de escrita removidas.
 
-> **ROADMAP (Hermes Agent):** O uso atual de `qwen2.5:7b` via parsing manual de JSON provou-se ineficiente e propenso a quebras de loop. Há um plano de refatoração (`T-C`) para acoplar um **Agente Hermes** (ex: `Hermes-3-Llama-3.1-8B`) focado nativamente em Tool Calling, substituindo a lógica manual por uma comunicação mais fluida, efetiva e rápida com o banco de dados via Telegram.
+> **ROADMAP — IA conversacional (proposta, NÃO implementada):** o `qwen2.5:7b` via parsing manual de JSON (`ai_chat.py` decide tool vs. texto por `startswith("{")`, sem campo `tools`) é frágil e propenso a quebra de loop; falta `keep_alive` (cold-load). "Hermes" tem **dois sentidos** (ambos Nous Research): **(A) modelo** `Hermes-3-Llama-3.1-8B` + **tool-calling nativo do Ollama** — mudança mínima, mantém o bot read-only-por-construção, **recomendada**; **(B) framework Hermes Agent** (MIT) — gateway multi-canal + memória persistente + tools via MCP, mas **não é read-only por padrão** (exige sandbox/allowlist) e roda **always-on** (contraria o on-demand). Diagnóstico + trade-offs completos em [`CLAUDE.md`](./CLAUDE.md#ia-conversacional-telegram--diagnóstico--proposta-hermes).
 
 ---
 
