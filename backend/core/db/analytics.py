@@ -275,12 +275,16 @@ def get_credit_card_billing_info(account_id: str) -> dict:
         next_billing = prev_billing.replace(month=prev_billing.month + 1, day=billing_day)
     cycle_end = next_billing
 
-    if next_billing.month == 12:
+    # Due date = the first occurrence of due_day AFTER the cycle closes (next_billing).
+    # If due_day > billing_day, that lands in the SAME month as the close (closes day 18,
+    # due day 25 → same month); otherwise it's the FOLLOWING month (closes day 24, due
+    # day 1 → next month).
+    if due_day > billing_day:
+        due_date = next_billing.replace(day=min(due_day, 28))
+    elif next_billing.month == 12:
         due_date = next_billing.replace(year=next_billing.year + 1, month=1, day=min(due_day, 28))
     else:
         due_date = next_billing.replace(month=next_billing.month + 1, day=min(due_day, 28))
-    if due_day < billing_day:
-        due_date = next_billing.replace(day=min(due_day, 28))
 
     days_until_due = (due_date - today).days
     total = get_credit_card_statement(
