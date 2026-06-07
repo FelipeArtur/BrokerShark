@@ -81,6 +81,7 @@ Telegram (read-only): ai_chat / comandos → SELECT → resposta
 
 - **Consumption-expense rule (canônica):** totais de despesa filtram `dest_account_id IS NULL AND method != 'transfer'` — uma transferência (leg de investimento ou pagamento de fatura) **nunca** é despesa. Aplicada por `get_monthly_summary`, `get_cashflow_statement`, `get_monthly_history_present`, `get_expenses_by_category`, `get_account_monthly_summary` e replicada no front (Histórico recebe `is_revenue` em `/api/month-transactions`). Garante que Despesas/Receitas batem em todas as telas.
 - **CC anti-duplicação:** o **total da fatura** mora em `nu-db`/`inter-db` com `dest_account_id IN ('nu-cc','inter-cc')` (conta no patrimônio como saída real); as **compras individuais** moram em `nu-cc`/`inter-cc` com `dest_account_id IS NULL` (contam nos resumos de despesa). Nunca se sobrepõem. Linhas `amount <= 0` da fatura são excluídas no import. Simétrico p/ Nubank e Inter.
+- **Fatura aberta = agrupamento do banco, não janela por data** (`get_credit_card_billing_info`): uma janela por `billing_day` não reproduz a fatura real (recorrentes/parcelas; compras do mesmo dia caem em faturas diferentes; o vencimento muda no tempo). O import de fatura captura o **vencimento** (modal) e marca as compras com `fatura_due`; a fatura ABERTA = soma das compras do **próximo vencimento** (= total do banco), `last_total` = vencimento anterior. Sem `fatura_due` (entradas manuais, histórico não-marcado) → **fallback** para a janela por `billing_day`. Faturas fechadas continuam sendo as linhas-total reais importadas. Bug corrigido à parte: `due_date` no mês do fechamento quando `due_day > billing_day`.
 - **Patrimônio:** `get_patrimonio_history()` = só saldo de conta corrente (`initial_balances + income − expenses`). Movimentos de investimento são excluídos; o saldo de investimento entra no display via `investments.current_balance`. **Patrimônio NÃO filtra por method** (precisa contar o pagamento de fatura via `dest IN ('nu-cc','inter-cc')`).
 - **`is_revenue`** (Integer em `transactions`): `1` p/ receita real, `0` p/ self-transfer. Controla totais de receita, resumos de conta e patrimônio. **Sempre passar explícito** em `insert_transaction()` — nunca confiar em default de migração.
 - **`counterpart='SELF'`** (auto-Pix/TED entre contas próprias): nem despesa, nem receita, nem investimento. Saída → `flow='expense', method='transfer', counterpart='SELF'`; entrada → `flow='income', is_revenue=0, counterpart='SELF'`. Ambas visíveis (tag "transferência"), saldos preservados, fora de Despesas/Receitas e de `investment_net`. Classificado no import por `adapters._is_self_transfer` (allow-list `config.OWNER_SELF_KEYWORDS`).
@@ -143,13 +144,16 @@ categories (id, name, flow)        -- flow: expense | income
 transactions (id, date, flow, method, account_id, amount, installments,
               description, category_id, dest_account_id, counterpart,
               is_revenue, external_id, display_name, is_third_party, original_amount,
-              import_batch_id)
+              import_batch_id, fatura_due)
               -- external_id: UUID Nubank, dedup | display_name: nome editável (UI)
               -- is_third_party: 1 = fora de todos os cálculos pessoais
               -- original_amount: valor parseado do extrato (auditoria de edição no preview)
               -- import_batch_id: tag de sessão de import (1 por "drop", pode abranger
               --   vários staging batches/contas) → import reversível em bloco via
               --   crud.delete_batch. NULL p/ entradas manuais (índice PARCIAL enxuto).
+              -- fatura_due: vencimento da fatura de cartão, capturado no import (modal),
+              --   marca cada compra → fatura ABERTA = soma das compras do próximo
+              --   vencimento (agrupamento do banco, não janela por data). NULL = sem tag.
 investments (id, name, type, bank, current_balance)
 investment_movements (id, date, investment_id, operation, amount, description)
 budgets (id, category_id, amount_limit)

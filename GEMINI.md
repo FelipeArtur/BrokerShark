@@ -84,8 +84,9 @@ accounts (id: nu-cc | nu-db | inter-cc | inter-db, bank, type, name, billing_day
 categories (id, name, flow: expense|income)
 transactions (id, date, flow, method, account_id, amount, installments, description,
               category_id, dest_account_id, counterpart, is_revenue, external_id,
-              display_name, is_third_party, original_amount, import_batch_id)
+              display_name, is_third_party, original_amount, import_batch_id, fatura_due)
               -- import_batch_id: tag de sessão de import (1 por drop) → reversível via crud.delete_batch
+              -- fatura_due: vencimento da fatura (capturado no import) → fatura aberta = agrupamento do banco
 investments (id, name, type, bank, current_balance)
 investment_movements (id, date, investment_id, operation, amount, description)
 budgets (id, category_id, amount_limit)
@@ -97,6 +98,7 @@ budgets (id, category_id, amount_limit)
 
 - **Consumption-expense rule:** despesa filtra `dest_account_id IS NULL AND method != 'transfer'` — transferência (leg de investimento / pagamento de fatura) nunca é despesa. Aplicada no backend e replicada no front (Histórico recebe `is_revenue`). Despesas/Receitas batem em todas as telas.
 - **CC anti-duplicação:** total da fatura em `nu-db`/`inter-db` com `dest_account_id='nu-cc'/'inter-cc'` (patrimônio); compras individuais em `nu-cc`/`inter-cc` com `dest_account_id IS NULL` (resumos). Nunca se sobrepõem; simétrico Nubank/Inter.
+- **Fatura aberta = agrupamento do banco** (`get_credit_card_billing_info`): import de fatura captura o vencimento → compras marcadas com `fatura_due` → fatura aberta = soma do próximo vencimento (total do banco; recorrentes/parcelas/compras do mesmo dia caem certo). Sem tag → fallback p/ janela por `billing_day`. Faturas fechadas = linhas-total reais importadas.
 - **Patrimônio:** `get_patrimonio_history()` = só conta corrente (`initial_balances + income − expenses`); investimentos entram no display via `current_balance`. **Não filtra por method** (precisa contar pagamento de fatura via `dest IN ('nu-cc','inter-cc')`).
 - **`is_revenue`:** `1` receita real, `0` self-transfer. **Sempre explícito** em `insert_transaction()`.
 - **`counterpart='SELF'`** (auto-Pix/TED entre contas próprias): nem despesa/receita/investimento. Saída `method='transfer'`, entrada `is_revenue=0`, ambas `SELF`. Saldos preservados, fora de Despesas/Receitas e `investment_net`. Via `adapters._is_self_transfer` (`config.OWNER_SELF_KEYWORDS`).
