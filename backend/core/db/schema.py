@@ -78,6 +78,7 @@ def init_db() -> None:
                 is_third_party  INTEGER NOT NULL DEFAULT 0,
                 original_amount REAL,
                 import_batch_id TEXT,
+                fatura_due      TEXT,
                 FOREIGN KEY (account_id)      REFERENCES accounts(id),
                 FOREIGN KEY (dest_account_id) REFERENCES accounts(id),
                 FOREIGN KEY (category_id)     REFERENCES categories(id)
@@ -236,6 +237,24 @@ def _apply_column_migrations(conn: sqlite3.Connection) -> None:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_tx_import_batch "
             "ON transactions(import_batch_id) WHERE import_batch_id IS NOT NULL"
+        )
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+
+    # Fatura membership from import: a CC purchase carries fatura_due (the bill's
+    # vencimento, captured at import) so the OPEN fatura = sum of the next due's
+    # tagged purchases — the bank's own grouping, not a fragile date-window cutoff
+    # (which can't split same-date purchases across bills, e.g. a recurring charge).
+    try:
+        conn.execute("SELECT fatura_due FROM transactions LIMIT 1")
+    except sqlite3.OperationalError:
+        conn.execute("ALTER TABLE transactions ADD COLUMN fatura_due TEXT")
+        conn.commit()
+    try:
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tx_fatura_due "
+            "ON transactions(account_id, fatura_due) WHERE fatura_due IS NOT NULL"
         )
         conn.commit()
     except sqlite3.OperationalError:

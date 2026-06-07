@@ -987,7 +987,16 @@ def api_import_confirm() -> Response:
         return jsonify({"error": "exclude_ids must be a list"}), 400
     import_batch_id = (body.get("import_batch_id") or "").strip() or None
 
-    result = ingestion.confirm_import(batch_id, exclude_ids, import_batch_id)
+    # fatura_due (ISO yyyy-mm-dd): the bill's vencimento for a credit-card fatura
+    # import. Tags the purchases so the open fatura uses the bank's grouping.
+    fatura_due = (body.get("fatura_due") or "").strip() or None
+    if fatura_due:
+        try:
+            datetime.strptime(fatura_due, "%Y-%m-%d")
+        except ValueError:
+            return jsonify({"error": "fatura_due must be YYYY-MM-DD"}), 400
+
+    result = ingestion.confirm_import(batch_id, exclude_ids, import_batch_id, fatura_due)
     if result.get("missing"):
         return jsonify({"error": "Importação expirada, refaça o upload."}), 404
     return jsonify({"ok": True, **result})

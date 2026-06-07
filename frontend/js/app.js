@@ -515,6 +515,8 @@ function ImportModal({ onClose, onDone }) {
   const [busy, setBusy]           = useState(false);
   const [err, setErr]             = useState(null);
   const [results, setResults]     = useState(null); // per-account confirm status
+  const [faturaDue, setFaturaDue] = useState({});   // account -> "YYYY-MM-DD" (vencimento da fatura)
+  const isFatura = id => (id || "").endsWith("-cc");
 
   const step = (groups || b3s.length) ? 2 : 1;
 
@@ -532,7 +534,9 @@ function ImportModal({ onClose, onDone }) {
   const setFileAccount = (key, account) =>
     setFiles(prev => prev.map(f => f.key === key ? { ...f, account } : f));
 
-  const canAnalyze = files.length > 0 && files.every(f => f.b3 || f.account) && !busy;
+  // CC fatura files need a vencimento (so purchases are tagged → correct open fatura).
+  const canAnalyze = files.length > 0 && !busy &&
+    files.every(f => f.b3 || (f.account && (!isFatura(f.account) || faturaDue[f.account])));
 
   async function analyze() {
     setBusy(true); setErr(null);
@@ -599,7 +603,7 @@ function ImportModal({ onClose, onDone }) {
         if (!g.batch_id || g.err) continue;
         const excl = (rowsByGroup[g.account] || []).filter(r => excluded.has(r.id)).map(r => r.id);
         try {
-          const res = await importConfirm(g.batch_id, excl, sessionId);  // shared session id
+          const res = await importConfirm(g.batch_id, excl, sessionId, faturaDue[g.account] || null);
           totalInserted += res.inserted || 0;
           status.push({ account: g.account, ok: true, inserted: res.inserted || 0 });
         } catch (e) {
@@ -656,6 +660,18 @@ function ImportModal({ onClose, onDone }) {
             h("option", { value: "" }, "Atribuir Conta…"),
             BANKS.map(b => h("option", { key: b.id, value: b.id }, b.label))
           ),
+      // Vencimento — só p/ fatura de cartão (-cc). Tag a fatura no banco, não por data.
+      f.account && isFatura(f.account) && h("div", { style: { display: "flex", alignItems: "center", gap: 6 } },
+        h("span", { style: { fontSize: 11, color: "var(--fg-3)", whiteSpace: "nowrap" } }, "Vence"),
+        h("input", {
+          type: "date", value: faturaDue[f.account] || "",
+          onChange: e => setFaturaDue(prev => ({ ...prev, [f.account]: e.target.value || undefined })),
+          title: "Vencimento desta fatura", "aria-label": "Vencimento da fatura",
+          style: { fontSize: 12, padding: "7px 8px", borderRadius: 6, background: "var(--bg-0)", colorScheme: "dark",
+                   color: faturaDue[f.account] ? "var(--fg-0)" : "var(--fg-3)",
+                   border: `1px solid ${faturaDue[f.account] ? "var(--line-2)" : "var(--reserve)"}`, outline: "none" },
+        })
+      ),
       h("button", { onClick: () => removeFile(f.key), title: "Remover arquivo", style: { width: 32, height: 32, borderRadius: "50%", background: "transparent", border: "none", color: "var(--fg-3)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.1s" }, onMouseEnter: e => { e.currentTarget.style.color = "var(--neg)"; e.currentTarget.style.background = "var(--bg-2)"; }, onMouseLeave: e => { e.currentTarget.style.color = "var(--fg-3)"; e.currentTarget.style.background = "transparent"; } }, "✕")
     ))
   );

@@ -152,7 +152,7 @@ _TX_COLUMNS = (
     "id", "date", "flow", "method", "account_id", "amount", "installments",
     "description", "category_id", "dest_account_id", "counterpart", "is_revenue",
     "external_id", "display_name", "is_third_party", "original_amount",
-    "import_batch_id",
+    "import_batch_id", "fatura_due",
 )
 
 _INSTALLMENT_RE = re.compile(r"^(?P<base>.+) \((?P<k>\d+)/(?P<n>\d+)\)$")
@@ -697,6 +697,7 @@ def confirm_staging_batch(
     batch_id: str,
     exclude_ids: Optional[set[int]] = None,
     import_batch_id: Optional[str] = None,
+    fatura_due: Optional[str] = None,
 ) -> dict:
     """Atomically promote a batch's 'new' rows to transactions and drop the batch.
 
@@ -735,17 +736,22 @@ def confirm_staging_batch(
             # store original_amount only when the user actually overrode the value,
             # so it stays a clean audit flag (NULL = untouched bank value)
             audit_amount = orig if (orig is not None and round(orig, 2) != round(r["amount"], 2)) else None
+            # fatura_due tags credit-card purchases with the bill's vencimento so the
+            # open fatura is the bank's grouping, not a date-window. Only the card-leg
+            # rows (dest IS NULL on a CC account) carry it; a fatura-total/payment row
+            # (dest set) never does.
+            row_fatura_due = fatura_due if (fatura_due and r["dest_account_id"] is None) else None
             cur = conn.execute(
                 """INSERT OR IGNORE INTO transactions
                    (date, flow, method, account_id, amount, installments,
                     description, category_id, dest_account_id, counterpart,
                     is_revenue, external_id, display_name, original_amount,
-                    import_batch_id)
-                   VALUES (?,?,?,?,?,1,?,?,?,?,?,?,?,?,?)""",
+                    import_batch_id, fatura_due)
+                   VALUES (?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,?)""",
                 (r["date"], r["flow"], r["method"], r["account_id"], r["amount"],
                  r["description"], _sget(r, "category_id"), r["dest_account_id"],
                  _staging_counterpart(r), r["is_revenue"] or 0, r["external_id"],
-                 _sget(r, "display_name"), audit_amount, import_batch_id),
+                 _sget(r, "display_name"), audit_amount, import_batch_id, row_fatura_due),
             )
             if cur.rowcount:
                 inserted += 1

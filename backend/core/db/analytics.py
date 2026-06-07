@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import calendar
 import sqlite3
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 from core.db.schema import _connect
@@ -250,15 +250,55 @@ def get_credit_card_statement(account_id: str, start_date: str, end_date: str) -
 
 
 def get_credit_card_billing_info(account_id: str) -> dict:
-    """Return billing cycle details and days until due for a credit card."""
+    """Return billing cycle details and days until due for a credit card.
+
+    Prefers fatura membership captured at import (``fatura_due`` tags): the open
+    fatura is the next un-past vencimento and its total is the SUM of that bill's
+    tagged purchases — the bank's own grouping, exact at the boundaries. Falls
+    back to a ``billing_day`` date-window when no tagged faturas exist (manual
+    entries, un-tagged history).
+    """
+    today    = date.today()
+    today_iso = today.strftime("%Y-%m-%d")
     with _connect() as conn:
         acc = conn.execute(
             "SELECT billing_day, due_day FROM accounts WHERE id=?", (account_id,)
         ).fetchone()
 
+        open_due = conn.execute(
+            """SELECT MIN(fatura_due) FROM transactions
+               WHERE account_id=? AND fatura_due IS NOT NULL AND fatura_due >= ?""",
+            (account_id, today_iso),
+        ).fetchone()[0]
+        if open_due is not None:
+            def _fatura_sum(due: str) -> float:
+                return float(conn.execute(
+                    """SELECT COALESCE(SUM(amount),0) FROM transactions
+                       WHERE account_id=? AND flow='expense' AND dest_account_id IS NULL
+                         AND fatura_due=?""", (account_id, due)).fetchone()[0])
+            prev_due = conn.execute(
+                """SELECT MAX(fatura_due) FROM transactions
+                   WHERE account_id=? AND fatura_due IS NOT NULL AND fatura_due < ?""",
+                (account_id, open_due)).fetchone()[0]
+            rng = conn.execute(
+                """SELECT MIN(date), MAX(date) FROM transactions
+                   WHERE account_id=? AND dest_account_id IS NULL AND fatura_due=?""",
+                (account_id, open_due)).fetchone()
+            due = datetime.strptime(open_due, "%Y-%m-%d").date()
+            cs = datetime.strptime(rng[0], "%Y-%m-%d").date() if rng[0] else today
+            ce = datetime.strptime(rng[1], "%Y-%m-%d").date() if rng[1] else today
+            return {
+                "total": _fatura_sum(open_due),
+                "last_total": _fatura_sum(prev_due) if prev_due else 0.0,
+                "cycle_start": cs.strftime("%d/%m/%Y"),
+                "cycle_end":   ce.strftime("%d/%m/%Y"),
+                "due_date":    due.strftime("%d/%m/%Y"),
+                "days_until_due": (due - today).days,
+                "source": "import",
+            }
+
     billing_day: int = acc["billing_day"] or 1
     due_day: int     = acc["due_day"] or (billing_day + 7)
-    today            = date.today()
 
     if today.day >= billing_day:
         prev_billing = today.replace(day=billing_day)
@@ -310,6 +350,7 @@ def get_credit_card_billing_info(account_id: str) -> dict:
         "cycle_end":   cycle_end.strftime("%d/%m/%Y"),
         "due_date":    due_date.strftime("%d/%m/%Y"),
         "days_until_due": days_until_due,
+        "source": "window",
     }
 
 

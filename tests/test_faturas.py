@@ -43,6 +43,62 @@ def test_due_date_next_month_when_due_before_close(db):
     assert due.month == close.month % 12 + 1  # month after close (Dec→Jan wraps)
 
 
+def test_open_fatura_from_import_tag_beats_date_window(db):
+    """[REGRESSION] open fatura = sum of the next-due tagged purchases (bank grouping).
+
+    The killer case a date-window can't handle: two purchases on the SAME day that
+    belong to DIFFERENT bills (e.g. a recurring charge billed to the next cycle).
+    """
+    import sqlite3
+    from datetime import date, timedelta
+
+    due = (date.today() + timedelta(days=10)).strftime("%Y-%m-%d")
+    prev_due = (date.today() - timedelta(days=20)).strftime("%Y-%m-%d")
+    with sqlite3.connect(db) as raw:
+        for amt, fd in [(100.0, due), (313.48, prev_due), (129.0, due)]:
+            raw.execute(
+                """INSERT INTO transactions
+                   (date, flow, method, account_id, amount, installments,
+                    description, dest_account_id, is_revenue, fatura_due)
+                   VALUES (?,?,?,?,?,1,?,NULL,0,?)""",
+                ("2026-05-16", "expense", "credit", "inter-cc", amt, "compra", fd),
+            )
+    info = analytics.get_credit_card_billing_info("inter-cc")
+    assert info["source"] == "import"
+    assert info["total"] == 229.0       # 100 + 129 (next due) — NOT the same-date 313.48
+    assert info["last_total"] == 313.48  # previous bill
+    assert _d(info["due_date"]) == datetime.strptime(due, "%Y-%m-%d")
+
+
+INTER_FATURA = (
+    '"Data","Lançamento","Categoria","Tipo","Valor"\n'
+    '"16/05/2026","COMPRA A SALVADOR","OUTROS","Compra à vista","R$ 100,00"\n'
+    '"02/06/2026","COMPRA B SALVADOR","OUTROS","Compra à vista","R$ 50,00"\n'
+).encode("utf-8")
+
+
+def test_confirm_import_tags_fatura_due_end_to_end(db):
+    """Importing a fatura with a vencimento tags its purchases → bank-grouped total."""
+    from datetime import date, timedelta
+
+    from core import ingestion
+
+    due_iso = (date.today() + timedelta(days=15)).strftime("%Y-%m-%d")
+    preview = ingestion.preview_import("inter-cc", INTER_FATURA)
+    res = ingestion.confirm_import(preview["batch_id"], fatura_due=due_iso)
+    assert res["inserted"] == 2
+
+    with sqlite3.connect(db) as raw:
+        tags = [r[0] for r in raw.execute(
+            "SELECT fatura_due FROM transactions WHERE account_id='inter-cc'")]
+        assert tags == [due_iso, due_iso]
+
+    info = analytics.get_credit_card_billing_info("inter-cc")
+    assert info["source"] == "import"
+    assert info["total"] == 150.0
+    assert _d(info["due_date"]) == datetime.strptime(due_iso, "%Y-%m-%d")
+
+
 def test_cycle_window_anchored_on_billing_day(db):
     """cycle_start is the day after a billing_day; cycle_end is a billing_day."""
     _set_billing(db, "inter-cc", 18, 25)

@@ -106,11 +106,14 @@ async function patchStagingRow(batchId, rowId, fields) {
   // Edit one preview row (amount/category_id/display_name) → {ok, row, amount_divergence}.
   return _patch(`/api/import/staging/${batchId}/${rowId}`, fields);
 }
-async function importConfirm(batchId, excludeIds = [], importBatchId = null) {
+async function importConfirm(batchId, excludeIds = [], importBatchId = null, faturaDue = null) {
   const body = { batch_id: batchId, exclude_ids: excludeIds };
   // One session id shared across every confirm of a multi-account drop, so the
   // whole import reverses as one unit in the Histórico.
   if (importBatchId) body.import_batch_id = importBatchId;
+  // Vencimento (YYYY-MM-DD) of a credit-card fatura import — tags the purchases
+  // so the open fatura uses the bank's grouping, not a date-window.
+  if (faturaDue) body.fatura_due = faturaDue;
   return _post("/api/import/confirm", body);
 }
 async function deleteImportBatch(importBatchId) {
