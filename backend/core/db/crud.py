@@ -755,6 +755,19 @@ def confirm_staging_batch(
             )
             if cur.rowcount:
                 inserted += 1
+        # A fatura re-import dedups purchases already in the table, so stamp fatura_due
+        # onto the matching existing rows too — not just the newly inserted ones. This
+        # makes the weekly re-import tag bill membership idempotently (the imported
+        # bill is the source of truth for which purchases belong to which vencimento).
+        if fatura_due:
+            conn.execute(
+                """UPDATE transactions SET fatura_due = ?
+                   WHERE dest_account_id IS NULL AND flow = 'expense'
+                     AND (account_id, date, description, amount) IN (
+                         SELECT account_id, date, description, amount
+                         FROM import_staging WHERE batch_id = ? AND status != 'skipped')""",
+                (fatura_due, batch_id),
+            )
         conn.execute("DELETE FROM import_staging WHERE batch_id = ?", (batch_id,))
     # Rows enter with category_id from the preview edit if set, else NULL — then
     # categorized by hand in the Histórico (filter "Sem categoria" + inline edit).

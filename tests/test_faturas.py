@@ -99,6 +99,28 @@ def test_confirm_import_tags_fatura_due_end_to_end(db):
     assert _d(info["due_date"]) == datetime.strptime(due_iso, "%Y-%m-%d")
 
 
+def test_reimport_retags_existing_purchases(db):
+    """[REGRESSION] re-importing a fatura dedups but still stamps fatura_due on
+    the already-imported purchases — so membership follows the bill on re-import."""
+    from datetime import date, timedelta
+
+    from core import ingestion
+
+    due = (date.today() + timedelta(days=15)).strftime("%Y-%m-%d")
+    ingestion.confirm_import(ingestion.preview_import("inter-cc", INTER_FATURA)["batch_id"])  # untagged
+    with sqlite3.connect(db) as raw:
+        assert all(r[0] is None for r in
+                   raw.execute("SELECT fatura_due FROM transactions WHERE account_id='inter-cc'"))
+
+    res = ingestion.confirm_import(
+        ingestion.preview_import("inter-cc", INTER_FATURA)["batch_id"], fatura_due=due)
+    assert res["inserted"] == 0  # all duplicates — nothing new inserted
+    with sqlite3.connect(db) as raw:
+        assert [r[0] for r in
+                raw.execute("SELECT fatura_due FROM transactions WHERE account_id='inter-cc'")] == [due, due]
+    assert analytics.get_credit_card_billing_info("inter-cc")["total"] == 150.0
+
+
 def test_cycle_window_anchored_on_billing_day(db):
     """cycle_start is the day after a billing_day; cycle_end is a billing_day."""
     _set_billing(db, "inter-cc", 18, 25)
