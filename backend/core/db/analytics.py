@@ -273,6 +273,7 @@ def get_credit_card_billing_info(account_id: str) -> dict:
         ).fetchone()[0]
         if open_due is not None:
             def _fatura_sum(due: str) -> float:
+                """Sum the card's purchase legs tagged with the bill due ``due``."""
                 return float(conn.execute(
                     """SELECT COALESCE(SUM(amount),0) FROM transactions
                        WHERE account_id=? AND flow='expense' AND dest_account_id IS NULL

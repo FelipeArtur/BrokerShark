@@ -18,6 +18,7 @@ from core.ingestion.adapters import Record
 
 
 def _content_key(rec: Record) -> tuple:
+    """Dedup key for sources without external_id: (date, amount±0.01, description)."""
     return (rec.date, round(rec.amount, 2), rec.description)
 
 

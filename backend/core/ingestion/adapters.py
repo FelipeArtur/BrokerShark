@@ -110,11 +110,13 @@ def _norm_desc(raw: str) -> str:
 
 
 def _is_investment(desc: str) -> bool:
+    """True if the statement line is an investment leg (Caixinha/RDB/CDB/etc.)."""
     low = desc.lower()
     return any(k in low for k in _INVESTMENT_KEYWORDS)
 
 
 def _is_fatura(desc: str) -> bool:
+    """True if the statement line is a credit-card bill payment (fatura total)."""
     low = desc.lower()
     return any(k in low for k in _FATURA_KEYWORDS)
 
@@ -306,6 +308,7 @@ def _parse_inter_fatura(text: str) -> list[Record]:
 
 
 def _checking_expense_method(desc: str) -> str:
+    """Infer the payment method of a checking-account outflow from its description."""
     low = desc.lower()
     if "pix" in low:
         return "pix"

@@ -16,6 +16,7 @@ from core.ingestion.adapters import Record, SourceMismatch  # noqa: F401  (re-ex
 
 
 def _to_staging_dict(rec: Record) -> dict:
+    """Project a parsed Record onto the import_staging column set."""
     return {f: getattr(rec, f) for f in STAGING_COLS}
 
 
@@ -24,6 +25,7 @@ def _row_view(row) -> dict:
     keys = row.keys()
 
     def g(k):
+        """Row value at key ``k``, or None for columns missing in older rows."""
         return row[k] if k in keys else None
 
     return {

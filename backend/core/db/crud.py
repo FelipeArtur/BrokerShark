@@ -160,6 +160,11 @@ _INSTALLMENT_RE = re.compile(r"^(?P<base>.+) \((?P<k>\d+)/(?P<n>\d+)\)$")
 
 
 def _is_fatura_payment(row: sqlite3.Row) -> bool:
+    """True for a fatura-total/payment leg (transfer into a credit-card account).
+
+    These rows are what the patrimônio counts as the real cash outflow, so they
+    are protected: never deletable row-by-row and never taggable with ``fatura_due``.
+    """
     return row["method"] == "transfer" and row["dest_account_id"] in ("nu-cc", "inter-cc")
 
 
@@ -735,6 +740,13 @@ def confirm_staging_batch(
         _billing: dict[str, Optional[tuple[int, int]]] = {}
 
         def _due_for(row: sqlite3.Row) -> Optional[str]:
+            """Resolve the ``fatura_due`` ISO date for one staged row (None = no tag).
+
+            Explicit ``fatura_due`` (import modal) overrides everything; otherwise the
+            due date is derived from the purchase date via the card's closing cycle.
+            Non-card legs (``dest_account_id`` set, or account without ``billing_day``)
+            never receive a tag.
+            """
             if row["dest_account_id"] is not None:
                 return None
             if fatura_due:

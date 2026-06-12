@@ -58,24 +58,20 @@ source .venv/bin/activate
 .venv/pyvenv.cfg           exists
 .venv/bin/python           executable
 .venv/bin/pip              executable
-python-telegram-bot        21.x
 flask                      3.1.x
 waitress                   3.0.x
-APScheduler                3.x
-google-api-python-client   2.x
-httpx                      0.x
+python-dotenv              1.1.x
+openpyxl                   3.1.x
+pytest / ruff / mypy       (dev — Health Stack)
 ```
 
 Run this to verify:
 ```bash
 .venv/bin/python -c "
-import telegram, flask, waitress, apscheduler, googleapiclient, httpx
-print('python-telegram-bot:', telegram.__version__)
+import flask, waitress, dotenv, openpyxl
 print('flask:', flask.__version__)
 print('waitress:', waitress.__version__)
-print('apscheduler:', apscheduler.__version__)
-print('google-api-python-client:', googleapiclient.__version__)
-print('httpx:', httpx.__version__)
+print('openpyxl:', openpyxl.__version__)
 print('All OK')
 "
 ```

@@ -300,6 +300,7 @@ def _run_pending_migrations(conn: sqlite3.Connection) -> None:
 
 
 def _seed_accounts(conn: sqlite3.Connection) -> None:
+    """Insert the 4 fixed accounts (Nubank/Inter × credit/checking) if absent."""
     accounts = [
         ("nu-cc",    "nubank", "credit",   "Nubank Crédito", 18, 25),
         ("nu-db",    "nubank", "checking", "Nubank Conta",   None, None),
@@ -313,6 +314,7 @@ def _seed_accounts(conn: sqlite3.Connection) -> None:
 
 
 def _seed_categories(conn: sqlite3.Connection) -> None:
+    """Insert the default expense/income categories that don't exist yet (by name)."""
     expense_categories = [
         "Alimentação", "Carro", "Jogos", "Lazer", "Atividade física",
         "Eletrônicos", "Educação", "Igreja", "Dízimo", "Outro",
@@ -330,6 +332,7 @@ def _seed_categories(conn: sqlite3.Connection) -> None:
 
 
 def _seed_budgets(conn: sqlite3.Connection) -> None:
+    """Insert a default monthly limit per seeded expense category (skip existing)."""
     defaults = {
         "Alimentação": 1500.0, "Carro": 500.0, "Jogos": 200.0,
         "Lazer": 400.0, "Atividade física": 300.0, "Eletrônicos": 300.0,

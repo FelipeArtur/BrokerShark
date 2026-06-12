@@ -220,6 +220,7 @@ def request_post_import_snapshot() -> None:
         _post_import_pending = True
 
     def _worker() -> None:
+        """Run the snapshot off-thread; always release the single-flight latch."""
         global _post_import_pending
         try:
             refresh_daily_snapshot()

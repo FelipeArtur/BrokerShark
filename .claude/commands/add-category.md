@@ -30,11 +30,11 @@ with sqlite3.connect(config.DB_PATH) as conn:
 print(f"Category '{name}' ({flow}) added.")
 ```
 
-3. If the category is for expenses, also update `backend/bot/handlers/expense.py`'s category keyboard so the new category appears in the Telegram UI. The keyboard is built dynamically from `database.get_categories("expense")`, so no code change is needed.
-
-4. Update `CLAUDE.md` **and** `GEMINI.md` if this is a permanent category being added to the standard seed.
+3. Update `CLAUDE.md` **and** `GEMINI.md` if this is a permanent category being added to the standard seed (`core/db/schema._seed_categories`).
 
 ## Notes
 
 - Category names must be unique per flow.
-- The Telegram bot reads categories from the DB at runtime — no restart required.
+- The dashboard reads categories from the DB at runtime — no restart required
+  (the web UI can also do this via Configurações → Categorias, which calls
+  `POST /api/categories`).

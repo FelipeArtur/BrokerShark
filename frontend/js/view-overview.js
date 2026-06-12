@@ -7,6 +7,10 @@
 const { useState: _ovSt, useEffect: _ovEf, useMemo: _ovMemo } = React;
 const { fmtBRL, fmtBRLCompact, fmtDateBR, BankChip, DualLine, Modal, PT_MONTHS, PT_SHORT, fmtCycleDate } = window.BS;
 
+/* ── OverviewView — tela "Dinheiro" ──────────────────────────────────────────
+   "Como estou agora": herói Disponível pra gastar (/api/available = contas −
+   faturas abertas), ledger Patrimônio líquido, faturas (modal de pertença
+   editável), contas, atividade recente e projeções advisory. Sempre mês atual. */
 function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey, filterMonth, onImport }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
 

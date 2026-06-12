@@ -103,6 +103,7 @@ def _col(headers: dict[str, int], *candidates: str) -> Optional[int]:
 
 
 def _cell(row: tuple, idx: Optional[int]) -> object:
+    """Cell value at ``idx``, or None when the column is absent or the row is short."""
     return row[idx] if idx is not None and idx < len(row) else None
 
 
@@ -146,6 +147,7 @@ def parse_b3(data: bytes) -> list[B3Position]:
 
 
 def _parse_renda_fixa(rows: list[tuple], h: dict[str, int], sheet: str) -> list[B3Position]:
+    """Parse a "Renda Fixa" sheet — position value = CURVA, falling back to MTM."""
     i_prod = _col(h, "Produto")
     i_inst = _col(h, "Instituição", "Emissor")
     i_code = _col(h, "Código")
@@ -177,6 +179,7 @@ def _parse_renda_fixa(rows: list[tuple], h: dict[str, int], sheet: str) -> list[
 
 
 def _parse_tesouro(rows: list[tuple], h: dict[str, int], sheet: str) -> list[B3Position]:
+    """Parse a "Tesouro Direto" sheet — position value = Valor líquido, else gross."""
     i_prod = _col(h, "Produto")
     i_inst = _col(h, "Instituição")
     i_venc = _col(h, "Vencimento")

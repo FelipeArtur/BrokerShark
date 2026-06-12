@@ -29,6 +29,7 @@ function IconSearch({ size = 17 }) {
   );
 }
 
+/* Ícone "sliders" (configurações) — SVG inline, herda currentColor. */
 function IconSettings({ size = 17 }) {
   return React.createElement("svg", {
     width: size, height: size, viewBox: "0 0 16 16", fill: "none",
@@ -42,6 +43,7 @@ function IconSettings({ size = 17 }) {
   );
 }
 
+/* Ícone cadeado (fechado/aberto via `open`) — usado no toggle de privacidade. */
 function IconLock({ size = 16, open = false }) {
   return React.createElement("svg", {
     width: size, height: size, viewBox: "0 0 16 16", fill: "none",
@@ -405,6 +407,7 @@ function SearchModal({ onClose, onSelect }) {
   );
 }
 
+/* Ícone de import (seta entrando na bandeja) — botão "+ Importar" da topbar. */
 function IconImport({ size = 17 }) {
   return React.createElement("svg", {
     width: size, height: size, viewBox: "0 0 16 16", fill: "none",
@@ -851,6 +854,11 @@ function ConfirmDeleteModal({ tx, onCancel, onConfirm }) {
   );
 }
 
+/* ── App — shell raiz ─────────────────────────────────────────────────────────
+   Dona da navegação (SECTIONS + atalhos 1/2/3), do refreshKey global (SSE em
+   api.js → re-render) e dos modais transversais: TransactionPanel (edição),
+   ConfirmDeleteModal, ImportModal e TweaksPanel. As telas (Overview/History/
+   Investments) recebem callbacks e nunca falam entre si diretamente. */
 function App() {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   const [tw, setTw] = useTweaks();

@@ -50,6 +50,11 @@ _ALLOWED_HOSTS = {
 
 @app.before_request
 def _guard_host_origin():
+    """Reject DNS-rebinding (foreign Host) and cross-site writes (foreign Origin).
+
+    The API has no auth — this guard plus the 127.0.0.1 bind IS the security
+    boundary for browser-reachable attacks. Returns None to let the request pass.
+    """
     from urllib.parse import urlparse
     if request.host not in _ALLOWED_HOSTS:
         return jsonify({"error": "invalid host"}), 403
@@ -68,6 +73,7 @@ def _too_large(_exc) -> Response:
 
 @app.after_request
 def _add_security_headers(response: Response) -> Response:
+    """Attach CSP/no-sniff/no-frame headers; ``/api/*`` responses are never cached."""
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "no-referrer"
@@ -103,12 +109,13 @@ def sse_stream() -> Response:
     - ``data: heartbeat`` — every 30 s to keep the connection alive
 
     Each connected client holds one thread from the Waitress pool, which is
-    why the server is configured with 8 threads.
+    why the server is configured with 32 threads.
 
     Returns:
         A streaming :class:`flask.Response` with MIME type ``text/event-stream``.
     """
     def generate():
+        """Yield SSE frames forever; unsubscribe from the event bus on disconnect."""
         q = _events.subscribe()
         try:
             yield "data: connected\n\n"
