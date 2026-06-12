@@ -103,12 +103,6 @@ def init_db() -> None:
                 FOREIGN KEY (investment_id) REFERENCES investments(id)
             );
 
-            CREATE TABLE IF NOT EXISTS unrecognized_log (
-                id      INTEGER PRIMARY KEY AUTOINCREMENT,
-                date    TEXT NOT NULL,
-                message TEXT NOT NULL
-            );
-
             CREATE TABLE IF NOT EXISTS budgets (
                 id           INTEGER PRIMARY KEY AUTOINCREMENT,
                 category_id  INTEGER NOT NULL UNIQUE,

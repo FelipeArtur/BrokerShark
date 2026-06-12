@@ -1,4 +1,4 @@
 """Dashboard package — Flask/Waitress API server and SSE stream."""
-from dashboard.server import start_dashboard
+from dashboard.server import run_dashboard
 
-__all__ = ["start_dashboard"]
+__all__ = ["run_dashboard"]

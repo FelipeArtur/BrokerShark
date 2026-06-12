@@ -1,19 +1,18 @@
-"""Flask dashboard server — analytics API + quick-entry writes, served on a daemon thread.
+"""Flask dashboard server — analytics API + quick-entry writes.
 
 Read endpoints query SQLite via :mod:`core.database` and return JSON.
 Write endpoints (POST /api/transactions, POST /api/incomes, POST /api/investment-movements)
-insert records using the same database functions as the Telegram bot, triggering
-SSE notifications.
+insert records via :mod:`core.database`, triggering SSE notifications.
 
 A real-time SSE endpoint (``/api/events``) notifies connected browsers whenever
 the database is written to.
 
-The server is started via :func:`start_dashboard`, which launches Waitress
-(production WSGI) in a daemon thread on the configured port.
+The server is started via :func:`run_dashboard`, which blocks on Waitress
+(production WSGI) in the foreground — the process is meant to live under a
+systemd user service (``Restart=on-failure``).
 """
 import logging
 import queue
-import threading
 from datetime import date, datetime
 
 from flask import Flask, Response, jsonify, request, send_from_directory, stream_with_context
@@ -1187,18 +1186,14 @@ def api_delete_import_batch(import_batch_id: str) -> Response:
 
 
 
-def start_dashboard() -> None:
-    """Start the Waitress WSGI server in a daemon thread.
+def run_dashboard() -> None:
+    """Serve the dashboard with Waitress in the foreground (blocks until killed).
 
-    The thread is named ``"dashboard"`` and runs until the process exits.
     Uses 32 threads: each open SSE connection holds one thread permanently,
     and a full page load fires ~10 API requests in parallel — 32 threads
-    keeps the queue empty under normal single-user load.
+    keeps the queue empty under normal single-user load. SIGTERM (systemd
+    stop) terminates the process with the default handler, which systemd
+    treats as a clean exit.
     """
-    thread = threading.Thread(
-        target=lambda: serve(app, host="127.0.0.1", port=DASHBOARD_PORT, threads=32),
-        daemon=True,
-        name="dashboard",
-    )
-    thread.start()
     _logger.info("Dashboard available at http://127.0.0.1:%d", DASHBOARD_PORT)
+    serve(app, host="127.0.0.1", port=DASHBOARD_PORT, threads=32)

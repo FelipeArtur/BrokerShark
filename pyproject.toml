@@ -22,7 +22,7 @@ ignore = ["E501"]  # linhas longas são pervasivas e de baixo risco — não val
 python_version = "3.12"
 mypy_path = "backend"
 files = ["backend"]
-ignore_missing_imports = true      # sem stubs p/ telegram/httpx/flask/openpyxl/waitress/dotenv
+ignore_missing_imports = true      # sem stubs p/ flask/openpyxl/waitress/dotenv
 explicit_package_bases = true
 namespace_packages = true
 warn_redundant_casts = true
@@ -32,8 +32,6 @@ warn_unused_ignores = true
 # (lógica de dinheiro em core/) sob checagem estrita:
 #   - Flask: rotas retornam (Response, status) que o Flask aceita, mas a annotation
 #     `-> Response` não cobre a tupla → [return-value].
-#   - python-telegram-bot: `effective_chat`/`message` são `... | None`, mas os
-#     handlers só rodam com eles presentes (gate de auth) → [union-attr].
 [[tool.mypy.overrides]]
-module = ["dashboard.server", "bot.handlers.*"]
-disable_error_code = ["return-value", "union-attr"]
+module = ["dashboard.server"]
+disable_error_code = ["return-value"]

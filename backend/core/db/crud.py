@@ -577,15 +577,6 @@ def upsert_budget(category_id: int, amount_limit: float) -> None:
         )
 
 
-def log_unrecognized(message: str) -> None:
-    """Persist an unrecognised Telegram message to the audit log."""
-    with _connect() as conn:
-        conn.execute(
-            "INSERT INTO unrecognized_log (date, message) VALUES (?,?)",
-            (datetime.now().isoformat(), message),
-        )
-
-
 # ── Import staging ──────────────────────────────────────────────────────────
 # Rows parsed from an uploaded file land in import_staging with a classification
 # status ('new' | 'duplicate' | 'skipped'). The preview modal reads them; on

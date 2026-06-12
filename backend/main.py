@@ -1,30 +1,21 @@
-"""Entry point — on-demand launcher: bootstrap, start the dashboard, run the bot.
+"""Entry point — boots the web dashboard and serves it in the foreground.
 
-The 3 periodic jobs (backup, weekly report, monthly closing) are NOT started here
-anymore — they run as **systemd user timers** (see ``backend/jobs/`` + ``deploy/``).
-This process is the on-demand UI: it boots the dashboard + the Telegram bot and exits
-when closed. ``bootstrap`` is imported first so ``.env`` loads before ``config`` is read.
+Designed to run as a systemd **user** service (``deploy/systemd/
+brokershark-dashboard.service``): the process blocks on the WSGI server, logs to
+stdout (journald), and exits non-zero on a bad environment so ``Restart=on-failure``
+can act. The periodic backup runs separately as a systemd user timer
+(``backend/jobs/backup.py``). ``bootstrap`` is imported first so ``.env`` loads
+before ``config`` is read.
 """
-import asyncio
-import logging
-
 from bootstrap import bootstrap
 
-from bot import build_application
-from dashboard import start_dashboard
+from dashboard import run_dashboard
 
 
 def main() -> None:
-    # Python 3.12+ no longer creates a default event loop automatically.
-    # PTB's run_polling calls asyncio.get_event_loop(), so we set one first.
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
+    """Bootstrap the process and serve the dashboard until terminated."""
     bootstrap()  # load_dotenv + config.validate + logging + database.init_db
-    start_dashboard()
-    app = build_application()
-    logging.getLogger(__name__).info("BrokerShark is running...")
-    app.run_polling(drop_pending_updates=True)
+    run_dashboard()
 
 
 if __name__ == "__main__":
