@@ -12,7 +12,6 @@ DB_PATH: str = os.getenv("DB_PATH", "data/brokershark.db")
 
 # ── Backup — local (HDD) ──────────────────────────────────────────────────────
 LOCAL_BACKUP_DIR: str = "/mnt/HDD_Arquivos/Backups/brokershark"
-DAILY_BACKUPS_KEPT: int = 14
 MONTHLY_BACKUPS_KEPT: int = 12
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────

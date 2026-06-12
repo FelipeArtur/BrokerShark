@@ -1,9 +1,9 @@
-"""Tests for the two-tier WAL-safe SQLite backup/restore.
+"""Tests for the monthly WAL-safe SQLite backup/restore.
 
 run_backup() snapshots via the SQLite backup API (not shutil.copy2) so the copy is
 consistent even when another process holds uncheckpointed WAL frames. It is
 tri-state ("created" / "skipped" / "failed") so the job entrypoint can exit
-non-zero on real failures without flagging same-day skips. Snapshots are written
+non-zero on real failures without flagging same-month skips. Snapshots are written
 tmp → verify → os.replace, so a failure never destroys the last good snapshot.
 restore_backup verifies integrity, keeps a .pre-restore sidecar, and clears stale
 WAL sidecars.
@@ -28,10 +28,6 @@ def _make_wal_db(path: Path) -> sqlite3.Connection:
     return conn
 
 
-def _daily(bdir: Path, d: date = TODAY) -> Path:
-    return bdir / f"brokershark_{d:%Y-%m-%d}.db"
-
-
 def _monthly(bdir: Path, d: date = TODAY) -> Path:
     return bdir / f"brokershark_{d:%Y-%m}.db"
 
@@ -45,12 +41,11 @@ def backup_env(tmp_path, monkeypatch):
     bdir = tmp_path / "backups"
     monkeypatch.setattr(backup, "DB_PATH", str(db_file))
     monkeypatch.setattr(backup, "BACKUP_DIR", str(bdir))
-    monkeypatch.setattr(backup, "DAILY_BACKUPS_KEPT", 14)
     monkeypatch.setattr(backup, "MONTHLY_BACKUPS_KEPT", 12)
     return backup, db_file, bdir
 
 
-def test_run_backup_creates_both_tiers_verified(backup_env):
+def test_run_backup_creates_monthly_verified(backup_env):
     backup, db_file, bdir = backup_env
     conn = _make_wal_db(db_file)
     conn.execute("INSERT INTO t (v) VALUES ('a')")
@@ -58,16 +53,14 @@ def test_run_backup_creates_both_tiers_verified(backup_env):
     conn.close()
 
     assert backup.run_backup(TODAY) == "created"
-    # snapshots are single clean files — no -wal/-shm clutter, no leftover .tmp
-    assert sorted(p.name for p in bdir.iterdir()) == [
-        f"brokershark_{TODAY:%Y-%m-%d}.db", f"brokershark_{TODAY:%Y-%m}.db",
-    ]
-    for snap in (_daily(bdir), _monthly(bdir)):
-        assert backup.verify_backup(str(snap)) is True
-        conn = sqlite3.connect(str(snap))
-        rows = conn.execute("SELECT v FROM t").fetchall()
-        conn.close()
-        assert [r[0] for r in rows] == ["a"]
+    # the snapshot is a single clean file — no -wal/-shm clutter, no leftover .tmp
+    assert sorted(p.name for p in bdir.iterdir()) == [f"brokershark_{TODAY:%Y-%m}.db"]
+    snap = _monthly(bdir)
+    assert backup.verify_backup(str(snap)) is True
+    conn = sqlite3.connect(str(snap))
+    rows = conn.execute("SELECT v FROM t").fetchall()
+    conn.close()
+    assert [r[0] for r in rows] == ["a"]
 
 
 def test_backup_captures_uncheckpointed_wal(backup_env):
@@ -85,18 +78,20 @@ def test_backup_captures_uncheckpointed_wal(backup_env):
     assert backup.run_backup(TODAY) == "created"     # backup while writer is still open
     conn.close()
 
-    rows = sqlite3.connect(str(_daily(bdir))).execute("SELECT v FROM t ORDER BY id").fetchall()
+    rows = sqlite3.connect(str(_monthly(bdir))).execute("SELECT v FROM t ORDER BY id").fetchall()
     assert [r[0] for r in rows] == ["a", "b"]         # copy2 of just .db would miss 'b'
 
 
-def test_run_backup_skips_same_day_and_failed_on_missing_db(backup_env):
+def test_run_backup_skips_same_month_and_failed_on_missing_db(backup_env):
     backup, db_file, bdir = backup_env
     assert backup.run_backup(TODAY) == "failed"       # no source DB yet
 
     conn = _make_wal_db(db_file)
     conn.close()
     assert backup.run_backup(TODAY) == "created"
-    assert backup.run_backup(TODAY) == "skipped"      # both tiers already exist
+    assert backup.run_backup(TODAY) == "skipped"                 # same month
+    assert backup.run_backup(date(2026, 6, 30)) == "skipped"     # still same month
+    assert backup.run_backup(date(2026, 7, 1)) == "created"      # month rolled
 
 
 def test_monthly_created_on_late_catchup(backup_env):
@@ -109,15 +104,12 @@ def test_monthly_created_on_late_catchup(backup_env):
     assert backup.run_backup(day3) == "created"
     assert _monthly(bdir, day3).exists()
 
-    # next day: daily is new, monthly already covered → still "created" (daily only)
-    day4 = date(2026, 7, 4)
-    assert backup.run_backup(day4) == "created"
-    assert _daily(bdir, day4).exists()
-    monthlies = list(bdir.glob("brokershark_????-??.db"))
-    assert len(monthlies) == 1
+    # next day, same month → nothing new to write
+    assert backup.run_backup(date(2026, 7, 4)) == "skipped"
+    assert len(list(bdir.glob("brokershark_????-??.db"))) == 1
 
 
-def test_refresh_overwrites_daily_and_failure_preserves_previous(backup_env, monkeypatch):
+def test_refresh_overwrites_monthly_and_failure_preserves_previous(backup_env, monkeypatch):
     backup, db_file, bdir = backup_env
     conn = _make_wal_db(db_file)
     conn.execute("INSERT INTO t (v) VALUES ('first')")
@@ -128,38 +120,36 @@ def test_refresh_overwrites_daily_and_failure_preserves_previous(backup_env, mon
     conn.execute("INSERT INTO t (v) VALUES ('second')")
     conn.commit()
     conn.close()
-    assert backup.refresh_daily_snapshot(TODAY) is True
-    rows = sqlite3.connect(str(_daily(bdir))).execute("SELECT v FROM t ORDER BY id").fetchall()
+    assert backup.refresh_monthly_snapshot(TODAY) is True
+    rows = sqlite3.connect(str(_monthly(bdir))).execute("SELECT v FROM t ORDER BY id").fetchall()
     assert [r[0] for r in rows] == ["first", "second"]
 
     # a refresh whose snapshot fails verification must NOT clobber the good file
-    good_bytes = _daily(bdir).read_bytes()
+    good_bytes = _monthly(bdir).read_bytes()
     monkeypatch.setattr(backup, "verify_backup", lambda path: False)
-    assert backup.refresh_daily_snapshot(TODAY) is False
-    assert _daily(bdir).read_bytes() == good_bytes
+    assert backup.refresh_monthly_snapshot(TODAY) is False
+    assert _monthly(bdir).read_bytes() == good_bytes
     assert not list(bdir.glob("*.tmp"))               # tmp sidecar cleaned up
 
 
-def test_prune_is_per_tier_and_ignores_foreign_files(backup_env, monkeypatch):
+def test_prune_keeps_newest_and_ignores_foreign_files(backup_env, monkeypatch):
     backup, db_file, bdir = backup_env
-    monkeypatch.setattr(backup, "DAILY_BACKUPS_KEPT", 3)
     monkeypatch.setattr(backup, "MONTHLY_BACKUPS_KEPT", 2)
     conn = _make_wal_db(db_file)
     conn.close()
 
     bdir.mkdir(parents=True, exist_ok=True)
-    for d in range(1, 6):                              # 5 old dailies
-        (bdir / f"brokershark_2026-05-{d:02d}.db").write_bytes(b"old daily")
     for m in range(1, 4):                              # 3 old monthlies
         (bdir / f"brokershark_2026-{m:02d}.db").write_bytes(b"old monthly")
+    legacy_daily = bdir / "brokershark_2026-05-01.db"  # legacy daily-tier file
+    legacy_daily.write_bytes(b"legacy daily")
     foreign = bdir / "garbage.db"
     foreign.write_bytes(b"not ours")
 
     assert backup.run_backup(TODAY) == "created"
-    dailies = sorted(p.name for p in bdir.glob("brokershark_????-??-??.db"))
     monthlies = sorted(p.name for p in bdir.glob("brokershark_????-??.db"))
-    assert len(dailies) == 3 and dailies[-1] == f"brokershark_{TODAY:%Y-%m-%d}.db"
     assert len(monthlies) == 2 and monthlies[-1] == f"brokershark_{TODAY:%Y-%m}.db"
+    assert legacy_daily.exists()                       # other pattern: never pruned
     assert foreign.exists()                            # never counted, never deleted
 
 
@@ -183,7 +173,7 @@ def test_post_import_snapshot_is_single_flight(backup_env, monkeypatch):
             time.sleep(0.01)
         raise AssertionError("snapshot worker never finished")
 
-    monkeypatch.setattr(backup, "refresh_daily_snapshot", slow_refresh)
+    monkeypatch.setattr(backup, "refresh_monthly_snapshot", slow_refresh)
     backup.request_post_import_snapshot()
     assert started.wait(timeout=5)
     backup.request_post_import_snapshot()              # dropped: one already in flight
@@ -205,7 +195,7 @@ def test_restore_round_trip(backup_env):
     conn.commit()
     conn.close()
     assert backup.run_backup(TODAY) == "created"
-    snap = _daily(bdir)
+    snap = _monthly(bdir)
 
     # mutate the live db after the backup was taken
     conn = sqlite3.connect(str(db_file))

@@ -43,7 +43,7 @@ backend/
     db/              # schema.py, crud.py, analytics.py, categories.py
     ingestion/       # adapters.py (parse), dedup.py (classify), service.py, b3.py
     events.py        # SSE pub/sub — notify() após escrita
-    backup.py        # snapshots diário+mensal (conn.backup WAL-safe, run_backup tri-state/restore)
+    backup.py        # snapshot mensal (conn.backup WAL-safe, run_backup tri-state/restore)
   jobs/backup.py     # entrypoint do timer (python -m, exit≠0 só em falha REAL)
   dashboard/server.py      # Flask + Waitress (32 threads, SSE)
 frontend/
@@ -72,7 +72,7 @@ core/events.notify() — SSE push ao browser (< 1s)
 
 - **SQLite é a fonte única.** Sem write-back externo. Toda escrita pela web.
 - **A análise é o produto.** Import é apoio.
-- **Runtime: always-on** — dashboard como **serviço systemd de usuário** (`brokershark-dashboard.service`, `Restart=on-failure`, `main.py` bloqueia no `waitress.serve`, loga em stdout/journald) + backup como **timer** (`brokershark-backup.timer`, 07/13/19h, `Persistent=true`). Exige `loginctl enable-linger joao` (sem linger, units de usuário não sobem no boot nem sobrevivem ao logout). `deploy/brokershark.sh` é só atalho de browser; restore via `deploy/restore.sh` (para o serviço antes — restore com o app escrevendo corrompe). Detalhes em `deploy/README.md`.
+- **Runtime: always-on** — dashboard como **serviço systemd de usuário** (`brokershark-dashboard.service`, `Restart=on-failure`, `main.py` bloqueia no `waitress.serve`, loga em stdout/journald) + backup como **timer** (`brokershark-backup.timer`, checagem diária 07h, `Persistent=true`). Exige `loginctl enable-linger joao` (sem linger, units de usuário não sobem no boot nem sobrevivem ao logout). `deploy/brokershark.sh` é só atalho de browser; restore via `deploy/restore.sh` (para o serviço antes — restore com o app escrevendo corrompe). Detalhes em `deploy/README.md`.
 - **Segurança de rede:** bind em `127.0.0.1` + guard de Host/Origin em `server.py` (DNS-rebinding/CSRF) — a API não tem auth, então isso é load-bearing.
 
 ### Invariantes financeiras (load-bearing — não quebrar)
@@ -97,7 +97,7 @@ core/events.notify() — SSE push ao browser (< 1s)
 |---|---|
 | Language | Python 3.14 (venv) — código usa 3.12+ |
 | Database | SQLite (WAL mode) |
-| Backup | snapshots locais no HDD — diário (retém 14) + mensal (retém 12), `conn.backup()` WAL-safe |
+| Backup | snapshot local mensal no HDD (retém 12), `conn.backup()` WAL-safe, refresh pós-import |
 | Scheduler | **systemd user units** (`Persistent=true`) — dashboard.service + backup.timer |
 | Dashboard API | Flask 3.1 + Waitress 3.0 (32 threads, foreground/systemd) |
 | Frontend | React 18 + Babel standalone (no build step), Chart.js |
@@ -171,13 +171,13 @@ Navegação (`app.js` `SECTIONS`): **Visão do Mês** (`OverviewView`), **Histó
 
 ## Automated Jobs
 
-Um único job: **backup local two-tier** (`core/backup.py`, entrypoint `jobs/backup.py`, timer 07/13/19h `Persistent=true`).
+Um único job: **backup local mensal** (`core/backup.py`, entrypoint `jobs/backup.py`, timer diário 07h `Persistent=true`). Tier diário removido em 2026-06-12 por decisão do dono — **mensal-apenas**.
 
-- **Tiers disjuntos** no mesmo dir (`/mnt/HDD_Arquivos/Backups/brokershark`): diário `brokershark_YYYY-MM-DD.db` (retém 14) + mensal `brokershark_YYYY-MM.db` (retém 12). Globs estritos por tier — prune de um nunca conta/apaga o outro. Mensal keyed em **ausência do arquivo** (não em "hoje é dia 1º") → catch-up tardio ainda gera o snapshot do mês.
-- **`run_backup` é tri-state** (`created|skipped|failed`): o entrypoint sai ≠0 só em falha REAL (visível em `systemctl --user --failed` + alerta de desktop via `OnFailure=brokershark-backup-alert.service`); skip do mesmo dia não alarma. Booleano não distingue os dois — foi assim que falhas ficaram silenciosas no passado.
-- **3 janelas/dia = retry de HDD desmontado:** `Persistent=true` repõe execuções **perdidas** (PC desligado), nunca execuções **falhadas** — 13h/19h cobrem o HDD fora do ar às 07h. Idempotente (1 snapshot/dia).
+- **1 arquivo por mês** em `/mnt/HDD_Arquivos/Backups/brokershark` (`brokershark_YYYY-MM.db`, retém 12). Glob estrito — prune nunca conta/apaga arquivos estranhos (incl. snapshots diários legados `YYYY-MM-DD.db`). Keyed em **ausência do arquivo** (não em "hoje é dia 1º") → catch-up tardio ainda gera o snapshot do mês.
+- **`run_backup` é tri-state** (`created|skipped|failed`): o entrypoint sai ≠0 só em falha REAL (visível em `systemctl --user --failed` + alerta de desktop via `OnFailure=brokershark-backup-alert.service`); skip do mesmo mês não alarma. Booleano não distingue os dois — foi assim que falhas ficaram silenciosas no passado.
+- **Checagem diária = retry:** `Persistent=true` repõe execuções **perdidas** (PC desligado), nunca execuções **falhadas** — HDD desmontado na virada do mês é coberto na manhã seguinte.
 - **Escrita atômica:** `.tmp` + integrity-check + `os.replace` — snapshot falho nunca destrói o último bom.
-- **Pós-import:** confirmar/desfazer um import refresca o snapshot do dia em background (`request_post_import_snapshot`, single-flight) — o trabalho de categorização do dia fica no máximo um import atrás.
+- **Pós-import:** confirmar/desfazer um import refresca o **snapshot do mês** em background (`request_post_import_snapshot` → `refresh_monthly_snapshot`, single-flight) — o arquivo do mês corrente nunca fica mais de um import atrás e termina o mês como fechamento.
 - **Restore:** `deploy/restore.sh` (para o serviço, restaura com verificação + sidecar `.pre-restore`, religa). Nunca chamar `restore_backup` com o dashboard no ar.
 
 ---
@@ -200,7 +200,7 @@ DASHBOARD_PORT=8080
 OWNER_SELF_KEYWORDS=seu nome completo,fragmento-cpf         # detecta auto-Pix/TED (SELF)
 ```
 
-> `LOCAL_BACKUP_DIR` (`/mnt/HDD_Arquivos/Backups/brokershark`) e as retenções (14 diários / 12 mensais) são hardcoded em `config.py`. `validate()` fail-fasta em `DB_PATH` inutilizável (resolvido p/ absoluto e logado).
+> `LOCAL_BACKUP_DIR` (`/mnt/HDD_Arquivos/Backups/brokershark`) e a retenção (12 mensais) são hardcoded em `config.py`. `validate()` fail-fasta em `DB_PATH` inutilizável (resolvido p/ absoluto e logado).
 
 ---
 

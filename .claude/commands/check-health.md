@@ -57,7 +57,7 @@ Then check the always-on runtime and the backup freshness:
 systemctl --user is-active brokershark-dashboard.service   # active
 systemctl --user list-timers 'brokershark-*'               # backup timer scheduled
 systemctl --user --failed                                  # empty = no failed backup
-ls -t /mnt/HDD_Arquivos/Backups/brokershark/ | head -3     # today's daily snapshot
+ls -t /mnt/HDD_Arquivos/Backups/brokershark/ | head -3     # current month's snapshot
 ```
 
 ## Expected output (healthy system)

@@ -1,30 +1,30 @@
-"""Two-tier WAL-safe SQLite backup — local (HDD) snapshots via the SQLite backup API.
+"""Monthly WAL-safe SQLite backup — local (HDD) snapshots via the SQLite backup API.
 
-Tiers (same directory, disjoint name patterns):
+Single tier: ``brokershark_YYYY-MM.db`` — one file per month, keeps the last
+``MONTHLY_BACKUPS_KEPT``. (The daily tier was removed 2026-06-12 by owner decision:
+monthly-only.)
 
-- daily   ``brokershark_YYYY-MM-DD.db`` — keeps the last ``DAILY_BACKUPS_KEPT``
-- monthly ``brokershark_YYYY-MM.db``    — keeps the last ``MONTHLY_BACKUPS_KEPT``
-
-Runs via a systemd user timer 3×/day (07/13/19) — ``Persistent=true`` only replays
-*missed* runs, never *failed* ones, so the extra daily slots are the retry mechanism
-for an HDD that wasn't mounted at 07:00. Each run is idempotent: a tier is only
-written when its file for the current day/month is absent. The monthly snapshot is
-keyed on file ABSENCE (never on "today is the 1st"), so a late ``Persistent``
-catch-up on the 3rd still produces the month's snapshot.
+Runs via a systemd user timer (daily 07:00) — ``Persistent=true`` only replays
+*missed* runs, never *failed* ones, so the daily schedule is the retry mechanism:
+an HDD that wasn't mounted when the month rolled over is covered on the next
+morning the run succeeds. The run is idempotent and keyed on file ABSENCE (never
+on "today is the 1st"), so a late catch-up on the 3rd still produces the month's
+snapshot.
 
 ``run_backup`` is tri-state (``"created" | "skipped" | "failed"``) so the job
 entrypoint can exit non-zero on real failures (visible in ``systemctl --user
---failed`` and the OnFailure alert unit) without flagging legitimate same-day
+--failed`` and the OnFailure alert unit) without flagging legitimate same-month
 skips — a boolean cannot distinguish the two, which is how backup failures stayed
 silent historically.
 
 Every snapshot is written to a ``.tmp`` sidecar, integrity-checked, then moved into
 place with ``os.replace`` — a failed snapshot can never destroy the last good one.
 
-``request_post_import_snapshot`` refreshes today's daily snapshot from a background
-thread (single-flight) right after an import is confirmed/undone, so the day's
-manual categorization work is never more than one import behind. The snapshot uses
-the SQLite online backup API and is WAL-safe against the live dashboard.
+``request_post_import_snapshot`` refreshes the CURRENT month's snapshot from a
+background thread (single-flight) right after an import is confirmed/undone, so the
+month's file is never more than one import behind (and ends the month as the
+month-end close). The snapshot uses the SQLite online backup API and is WAL-safe
+against the live dashboard.
 
 ``restore_backup`` is the recovery path — run it with the app STOPPED (see
 ``deploy/restore.sh``, which enforces that). Backup/restore failures never
@@ -42,21 +42,14 @@ import config
 
 DB_PATH = config.DB_PATH
 BACKUP_DIR = config.LOCAL_BACKUP_DIR
-DAILY_BACKUPS_KEPT = config.DAILY_BACKUPS_KEPT
 MONTHLY_BACKUPS_KEPT = config.MONTHLY_BACKUPS_KEPT
 
-# Strict per-tier globs: the backup dir may hold foreign files and the OTHER tier —
-# pruning one tier must never count or delete the other ("brokershark_2026-06-11.db"
-# does not match the monthly pattern, "brokershark_2026-06.db" not the daily one).
-_DAILY_GLOB = "brokershark_????-??-??.db"
+# Strict glob: the backup dir may hold foreign files (and legacy daily snapshots
+# ``brokershark_YYYY-MM-DD.db``) — pruning must never count or delete them
+# ("brokershark_2026-06-11.db" does not match the monthly pattern).
 _MONTHLY_GLOB = "brokershark_????-??.db"
 
 _logger = logging.getLogger(__name__)
-
-
-def _daily_path(day: date) -> Path:
-    """Path of the daily snapshot for ``day``."""
-    return Path(BACKUP_DIR) / f"brokershark_{day:%Y-%m-%d}.db"
 
 
 def _monthly_path(day: date) -> Path:
@@ -129,16 +122,16 @@ def _write_snapshot(dest: Path) -> bool:
 
 
 def run_backup(today: date | None = None) -> str:
-    """Create the daily and/or monthly snapshot if absent; prune each tier.
+    """Create the month's snapshot if absent; prune old months.
 
     Args:
         today: Anchor date (defaults to ``date.today()``) — injectable for tests.
 
     Returns:
-        ``"created"`` if at least one tier was written, ``"skipped"`` if both
-        snapshots for the period already exist, ``"failed"`` on any real failure
-        (missing source DB, unwritable backup dir, snapshot/integrity error).
-        Failures are logged, never raised.
+        ``"created"`` if the month's snapshot was written, ``"skipped"`` if it
+        already exists, ``"failed"`` on any real failure (missing source DB,
+        unwritable backup dir, snapshot/integrity error). Failures are logged,
+        never raised.
     """
     day = today or date.today()
     if not Path(DB_PATH).exists():
@@ -152,40 +145,26 @@ def run_backup(today: date | None = None) -> str:
         _logger.warning("Cannot create backup directory %s: %s", backup_dir, exc)
         return "failed"
 
-    daily = _daily_path(day)
-    created = False
-    if not daily.exists():
-        if not _write_snapshot(daily):
-            return "failed"
-        _logger.info("Daily backup created: %s", daily)
-        _prune(backup_dir, _DAILY_GLOB, DAILY_BACKUPS_KEPT)
-        created = True
-
     monthly = _monthly_path(day)
-    if not monthly.exists():
-        # Reuse today's verified daily snapshot — same bytes, no second backup pass.
-        try:
-            shutil.copy2(daily, monthly)
-        except OSError as exc:
-            _logger.warning("Failed to write monthly backup %s: %s", monthly, exc)
-            return "failed"
-        _logger.info("Monthly backup created: %s", monthly)
-        _prune(backup_dir, _MONTHLY_GLOB, MONTHLY_BACKUPS_KEPT)
-        created = True
-
-    if not created:
-        _logger.info("Backups for %s already exist — skipping.", day)
+    if monthly.exists():
+        _logger.info("Backup for %s already exists — skipping.", f"{day:%Y-%m}")
         return "skipped"
+
+    if not _write_snapshot(monthly):
+        return "failed"
+    _logger.info("Monthly backup created: %s", monthly)
+    _prune(backup_dir, _MONTHLY_GLOB, MONTHLY_BACKUPS_KEPT)
     return "created"
 
 
-def refresh_daily_snapshot(today: date | None = None) -> bool:
-    """Force-refresh today's daily snapshot (post-import hook), overwrite-safe.
+def refresh_monthly_snapshot(today: date | None = None) -> bool:
+    """Force-refresh the current month's snapshot (post-import hook), overwrite-safe.
 
-    Unlike :func:`run_backup`, this OVERWRITES today's daily snapshot so the
-    freshest import/categorization work is captured. The atomic tmp+verify+replace
-    in :func:`_write_snapshot` guarantees a failure leaves the previous good
-    snapshot untouched. Returns True on success, False (logged) on failure.
+    Unlike :func:`run_backup`, this OVERWRITES the month's snapshot so the
+    freshest import/categorization work is captured (the file ends the month as
+    the month-end close). The atomic tmp+verify+replace in :func:`_write_snapshot`
+    guarantees a failure leaves the previous good snapshot untouched. Returns True
+    on success, False (logged) on failure.
     """
     day = today or date.today()
     if not Path(DB_PATH).exists():
@@ -196,7 +175,7 @@ def refresh_daily_snapshot(today: date | None = None) -> bool:
     except OSError as exc:
         _logger.warning("Cannot create backup directory %s: %s", BACKUP_DIR, exc)
         return False
-    return _write_snapshot(_daily_path(day))
+    return _write_snapshot(_monthly_path(day))
 
 
 _post_import_lock = threading.Lock()
@@ -204,7 +183,7 @@ _post_import_pending = False
 
 
 def request_post_import_snapshot() -> None:
-    """Fire-and-forget refresh of today's daily snapshot (single-flight).
+    """Fire-and-forget refresh of the month's snapshot (single-flight).
 
     Called from request handlers right after an import is confirmed or undone.
     Runs in a background thread so the HTTP response never waits on the HDD
@@ -223,7 +202,7 @@ def request_post_import_snapshot() -> None:
         """Run the snapshot off-thread; always release the single-flight latch."""
         global _post_import_pending
         try:
-            refresh_daily_snapshot()
+            refresh_monthly_snapshot()
         except Exception:  # thread boundary: nothing above can catch — log, never crash
             _logger.exception("Post-import snapshot failed unexpectedly")
         finally:
@@ -280,8 +259,8 @@ def _prune(backup_dir: Path, pattern: str, keep: int) -> None:
     """Delete the oldest files matching ``pattern``, keeping the newest ``keep``.
 
     ISO date stamps in the names sort lexicographically = chronologically. The
-    strict per-tier ``pattern`` guarantees foreign files and the other tier are
-    never counted nor deleted.
+    strict ``pattern`` guarantees foreign files (incl. legacy daily snapshots)
+    are never counted nor deleted.
     """
     backups = sorted(backup_dir.glob(pattern))
     for old in backups[:-keep]:

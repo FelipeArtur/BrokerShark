@@ -15,7 +15,7 @@ Ferramenta pessoal de análise de dinheiro, 100% local (Linux, 1 usuário). Perg
 - **Histórico / Análise** — meses com dados, métricas, fluxo 6m, investimentos, categorias, Top PIX, tabela filtrável.
 - **Investimentos** — donut + posições editáveis + "+ Movimento".
 
-**Apoio:** import mensal de extratos/faturas (CSV) e posições B3 (xlsx) pela web. SQLite = fonte única; backup local diário+mensal (HDD).
+**Apoio:** import mensal de extratos/faturas (CSV) e posições B3 (xlsx) pela web. SQLite = fonte única; backup local mensal (HDD).
 
 > **Regra de ouro:** toda escrita é pela web — não existe outro caminho (Telegram bot e IA local removidos em 2026-06-11; produto é web-only).
 
@@ -37,7 +37,7 @@ core/events.notify() — SSE push ao browser (< 1s)
 
 - **SQLite = fonte única.** Sem write-back externo. Toda escrita pela web.
 - **CSV import via web** ("+ Importar" → preview/staging → confirm; dedup UUID/hash). Pipeline `backend/core/ingestion/`. Fontes: `nu-db`, `inter-db`, `inter-cc`. Importados entram com `category_id=NULL`; **categorização manual no Histórico** (filtro "Sem categoria" + inline → `PATCH /api/transactions/<id>`).
-- **Runtime: always-on** — dashboard como serviço systemd de usuário (`brokershark-dashboard.service`, `Restart=on-failure`, `main.py` bloqueia em foreground) + backup como timer (`brokershark-backup.timer`, 07/13/19h, `Persistent=true`). Exige `loginctl enable-linger`. Backup via **API SQLite** (`conn.backup()`, WAL-safe). `deploy/brokershark.sh` = atalho de browser; restore via `deploy/restore.sh` (para o serviço antes). Ver `deploy/README.md`.
+- **Runtime: always-on** — dashboard como serviço systemd de usuário (`brokershark-dashboard.service`, `Restart=on-failure`, `main.py` bloqueia em foreground) + backup como timer (`brokershark-backup.timer`, checagem diária 07h, `Persistent=true`). Exige `loginctl enable-linger`. Backup **mensal-apenas** (1 arquivo/mês, retém 12) via **API SQLite** (`conn.backup()`, WAL-safe), refrescado a cada import confirmado. `deploy/brokershark.sh` = atalho de browser; restore via `deploy/restore.sh` (para o serviço antes). Ver `deploy/README.md`.
 - **Segurança de rede:** bind `127.0.0.1` + guard Host/Origin em `server.py` (DNS-rebinding/CSRF) — API sem auth, guard é load-bearing.
 
 ---
@@ -47,7 +47,7 @@ core/events.notify() — SSE push ao browser (< 1s)
 ```
 backend/
   main.py, config.py, bootstrap.py
-  core/  database.py (shim), events.py, backup.py (snapshots diário+mensal, tri-state),
+  core/  database.py (shim), events.py, backup.py (snapshot mensal, tri-state),
          db/ (schema, crud, analytics, categories), ingestion/ (adapters, dedup, service, b3)
   jobs/backup.py  (python -m, entrypoint do timer)
   dashboard/server.py
@@ -66,7 +66,7 @@ tests/   test_database, test_ingestion, test_b3, test_backup, test_jobs, test_de
 |---|---|
 | Language | Python 3.14 (venv); código 3.12+ |
 | Database | SQLite (WAL mode) |
-| Backup | snapshots locais HDD — diário (retém 14) + mensal (retém 12), WAL-safe |
+| Backup | snapshot local mensal no HDD (retém 12), WAL-safe, refresh pós-import |
 | Scheduler | **systemd user units** (`Persistent`) — dashboard.service + backup.timer |
 | Dashboard API | Flask 3.1 + Waitress 3.0 (32 threads, foreground/systemd) |
 | Frontend | React 18 + Babel standalone, Chart.js |
@@ -143,7 +143,7 @@ DB_PATH=/home/SEU_USUARIO/brokershark/data/brokershark.db   # ABSOLUTO
 DASHBOARD_PORT=8080
 OWNER_SELF_KEYWORDS=seu nome completo,fragmento-cpf
 ```
-> `LOCAL_BACKUP_DIR` e retenções (14/12) hardcoded em `config.py`. `validate()` fail-fasta em `DB_PATH` inutilizável.
+> `LOCAL_BACKUP_DIR` e retenção (12 mensais) hardcoded em `config.py`. `validate()` fail-fasta em `DB_PATH` inutilizável.
 
 ---
 

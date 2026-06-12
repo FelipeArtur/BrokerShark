@@ -13,7 +13,7 @@ A local tool to **understand and analyze my money**. Runs 100% on Linux, account
 Supporting roles (not the center):
 
 - **Monthly import** — bank statements and credit-card bills (CSV) plus B3 positions (xlsx), imported exclusively via the web. Multi-file drop, editable staging preview, deduplication against existing records, and a 5-second "Desfazer" that reverts the whole batch.
-- **Local-first** — SQLite is the single source of truth, SSE pushes live updates (< 1s), and a two-tier backup (daily ×14 + monthly ×12 snapshots) lands on a local HDD three times a day.
+- **Local-first** — SQLite is the single source of truth, SSE pushes live updates (< 1s), and a monthly backup (one snapshot per month, 12 kept, refreshed on every confirmed import) lands on a local HDD.
 
 ## Accounts
 
@@ -37,7 +37,7 @@ Supporting roles (not the center):
 | Dashboard frontend | React 18 + Babel standalone, Chart.js (no build step) |
 | Real-time | SSE via `core/events.py` |
 | Runtime | systemd **user** units — always-on service + backup timer (`Persistent=true`) |
-| Backup | Two-tier local HDD snapshots via the SQLite backup API (WAL-safe) |
+| Backup | Monthly local HDD snapshot via the SQLite backup API (WAL-safe) |
 
 ## Getting started
 

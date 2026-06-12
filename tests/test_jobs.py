@@ -3,7 +3,7 @@
 The backup job is the only scheduled job left (weekly/monthly Telegram reports were
 removed with the bot). The entrypoint must call bootstrap() then run_backup(), and
 map the tri-state result to an exit code: only a real "failed" exits non-zero —
-"skipped" (same-day catch-up) must NOT mark the unit failed, and "created" is the
+"skipped" (same-month catch-up) must NOT mark the unit failed, and "created" is the
 happy path.
 """
 import pytest
@@ -23,7 +23,7 @@ def test_backup_entrypoint_calls_bootstrap_then_run_backup(monkeypatch):
 
 
 def test_backup_entrypoint_exits_zero_on_skip(monkeypatch):
-    # Persistent catch-up on the same day is legitimate — no false alarm.
+    # Daily run within an already-backed-up month is legitimate — no false alarm.
     assert _run(monkeypatch, "skipped") == ["bootstrap", "run_backup"]
 
 

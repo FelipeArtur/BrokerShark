@@ -1073,8 +1073,8 @@ def api_import_confirm() -> Response:
     result = ingestion.confirm_import(batch_id, exclude_ids, import_batch_id, fatura_due)
     if result.get("missing"):
         return jsonify({"error": "Importação expirada, refaça o upload."}), 404
-    # Refresh today's daily snapshot in the background (single-flight) — the day's
-    # import + categorization work lands on the HDD without the response waiting.
+    # Refresh the month's snapshot in the background (single-flight) — the import
+    # + categorization work lands on the HDD without the response waiting.
     backup.request_post_import_snapshot()
     return jsonify({"ok": True, **result})
 
