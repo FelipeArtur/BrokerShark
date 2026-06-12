@@ -1,8 +1,131 @@
 /* view-history.js — HistoryView (tela Histórico/Análise) */
-/* global React, fetchMonthlyFull, fetchMonthTransactions, fetchPixTop, deleteTransaction, fetchCategoriesFull, patchTransactionCategory */
+/* global React, fetchMonthlyFull, fetchMonthTransactions, fetchPixTop, deleteTransaction, fetchCategoriesFull, patchTransactionCategory, fetchAccountFaturas, fetchFatura */
 
 const { useState: _s2St, useEffect: _s2Ef, useMemo: _s2Memo } = React;
 const { fmtBRL, fmtBRLCompact, fmtDateBR, BankChip, DualLine, PT_MONTHS, PT_SHORT, fmtCycleDate } = window.BS;
+
+/* ── FaturaHistoryView — modo-fatura (Histórico do cartão por vencimento) ──── */
+/* Coeso com a tela Dinheiro: agrupa por fatura_due (a fatura do banco), não pelo
+   mês-calendário. Seletor por vencimento + métricas e compras da fatura selecionada. */
+function FaturaHistoryView({ card, onExit, onEditCategory, refreshKey }) {
+  const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
+  const [list, setList] = _s2St([]);          // [{due,label,due_date,total,count}] (mais nova primeiro)
+  const [idx, setIdx] = _s2St(0);
+  const [detail, setDetail] = _s2St(null);    // { total, members, candidates }
+
+  const bankLabel = card.startsWith("nu") ? "Nubank Crédito" : "Inter Crédito";
+  const bankColor = card.startsWith("nu") ? "var(--nubank)" : "var(--inter)";
+
+  const sel = list[idx] || null;
+  const selDueRef = React.useRef(null);
+  _s2Ef(() => { if (sel) selDueRef.current = sel.due; }, [sel]);
+
+  _s2Ef(() => {
+    fetchAccountFaturas(card).then(l => {
+      const arr = l || [];
+      setList(arr);
+      const keep = arr.findIndex(f => f.due === selDueRef.current);
+      setIdx(keep >= 0 ? keep : 0);
+    });
+  }, [card, refreshKey]);
+
+  const selDue = sel ? sel.due : null;
+  _s2Ef(() => {
+    if (selDue) { setDetail(null); fetchFatura(card, selDue).then(setDetail).catch(() => setDetail({ members: [], candidates: [], total: 0 })); }
+  }, [card, selDue, refreshKey]);
+
+  // Compras do ciclo = membros (tagueados) + candidatas (sem tag, datadas no ciclo) —
+  // juntos formam o gasto real do ciclo da fatura (= total de get_account_faturas).
+  const byDate = (a, b) => (a.date > b.date ? 1 : a.date < b.date ? -1 : a.id - b.id);
+  const cyclePurchases = detail ? [...detail.members, ...detail.candidates].sort(byDate) : [];
+  const total = sel ? sel.total : 0;
+  const older = list[idx + 1] || null;        // lista é mais-nova-primeiro → próxima é a anterior
+  const trend = older && older.total > 0 ? ((total - older.total) / older.total) * 100 : null;
+
+  const byCat = (() => {
+    const g = {};
+    cyclePurchases.forEach(t => { const k = t.category || "Outro"; if (!g[k]) g[k] = { name: k, total: 0 }; g[k].total += t.amount; });
+    return Object.values(g).sort((a, b) => b.total - a.total);
+  })();
+  const topCat = byCat[0] || null;
+
+  const metrics = [
+    { l: "Total da fatura", v: fmtBRL(total), c: "var(--neg)" },
+    { l: "vs. anterior", v: trend === null ? "—" : `${trend >= 0 ? "+" : "−"}${Math.abs(trend).toFixed(0)}%`,
+      c: trend === null ? "var(--fg-3)" : trend >= 0 ? "var(--neg)" : "var(--pos)" },
+    { l: "Compras", v: String(detail ? cyclePurchases.length : (sel ? sel.count : 0)), c: "var(--fg-1)" },
+    { l: "Maior categoria", v: topCat ? topCat.name : "—", c: "var(--fg-1)", sub: topCat ? fmtBRL(topCat.total) : null },
+  ];
+
+  return h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 24, paddingBottom: 40 } },
+    // Header: cartão + voltar ao mês
+    h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: -1, background: "var(--bg-0)", zIndex: 10, padding: "16px 0", marginBottom: 8, borderBottom: "1px solid var(--line-1)", boxShadow: "0 0 0 32px var(--bg-0)", clipPath: "inset(0 -32px)" } },
+      h("div", { style: { display: "flex", alignItems: "center", gap: 12 } },
+        h("div", { style: { width: 10, height: 10, borderRadius: "50%", background: bankColor } }),
+        h("div", { style: { fontSize: 16, fontWeight: 700, color: "var(--fg-1)" } }, bankLabel),
+        h("span", { className: "chip info", style: { fontSize: 10, fontWeight: 700 } }, "por fatura")
+      ),
+      h("button", { onClick: onExit, className: "btn btn-ghost btn-sm",
+        style: { fontSize: 12, fontWeight: 700, color: "var(--info)", padding: "4px 12px", borderRadius: 999, border: "1px solid color-mix(in oklch, var(--info) 30%, transparent)", background: "color-mix(in oklch, var(--info) 10%, transparent)" } }, "‹ Ver por mês")
+    ),
+
+    list.length === 0
+      ? h("div", { style: { padding: "40px 0", color: "var(--fg-3)", fontSize: 14, textAlign: "center" } }, "Nenhuma fatura marcada neste cartão. Importe uma fatura ou marque compras na tela Dinheiro.")
+      : h(React.Fragment, null,
+        // Seletor de fatura (prev/next por vencimento)
+        h("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 16 } },
+          h("button", { onClick: () => setIdx(Math.max(0, idx - 1)), className: "btn btn-ghost", disabled: idx === 0, style: { padding: "0 8px", fontSize: 18 }, title: "Fatura mais recente" }, "‹"),
+          h("div", { style: { fontSize: 16, fontWeight: 700, color: "var(--fg-0)", minWidth: 240, textAlign: "center" } }, sel ? `Fatura · vence ${sel.due_date}` : "—"),
+          h("button", { onClick: () => setIdx(Math.min(list.length - 1, idx + 1)), className: "btn btn-ghost", disabled: idx === list.length - 1, style: { padding: "0 8px", fontSize: 18 }, title: "Fatura anterior" }, "›")
+        ),
+        // Strip de faturas (chips clicáveis)
+        h("div", { className: "custom-scrollbar", style: { display: "flex", gap: 8, overflowX: "auto", paddingBottom: 8 } },
+          list.map((f, i) => h("button", {
+            key: f.due, onClick: () => setIdx(i),
+            style: { flexShrink: 0, padding: "8px 14px", borderRadius: 8, cursor: "pointer",
+                     background: i === idx ? "color-mix(in oklch, var(--info) 10%, transparent)" : "var(--bg-1)",
+                     border: i === idx ? "1px solid color-mix(in oklch, var(--info) 40%, transparent)" : "1px solid var(--line-1)",
+                     display: "flex", flexDirection: "column", gap: 2, alignItems: "flex-start" } },
+            h("span", { style: { fontSize: 11, color: i === idx ? "var(--info)" : "var(--fg-3)", fontWeight: 700, fontFamily: "var(--ff-mono)" } }, f.label),
+            h("span", { className: "num", style: { fontSize: 13, fontWeight: 700, color: i === idx ? "var(--fg-0)" : "var(--fg-2)" } }, fmtBRL(f.total))
+          ))
+        ),
+
+        // Faixa de métricas
+        h("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 24, background: "var(--bg-1)", padding: 24, borderRadius: 12, border: "1px solid var(--line-1)" } },
+          metrics.map((s, i) => h("div", { key: i, style: { minWidth: 0 } },
+            h("div", { style: { fontSize: 11, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700, marginBottom: 8 } }, s.l),
+            h("div", { className: "num", style: { fontSize: 24, fontWeight: 800, color: s.c, letterSpacing: "-0.02em", lineHeight: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, s.v),
+            s.sub && h("div", { className: "num", style: { fontSize: 12, color: "var(--fg-3)", marginTop: 4 } }, s.sub)
+          ))
+        ),
+
+        // Tabela de compras da fatura (categoria inline, igual ao resto do Histórico)
+        h("div", { style: { display: "flex", flexDirection: "column" } },
+          h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--line-1)", paddingBottom: 16, marginBottom: 16 } },
+            h("div", { style: { fontSize: 18, fontWeight: 700, color: "var(--fg-1)" } }, "Compras da fatura"),
+            h("div", { style: { fontSize: 12, color: "var(--fg-3)", fontFamily: "var(--ff-mono)" } }, `${cyclePurchases.length} itens`)
+          ),
+          !detail ? h("div", { style: { padding: 32, textAlign: "center", color: "var(--fg-3)" } }, "Carregando…") :
+          h("table", { className: "grid-table" },
+            h("thead", null, h("tr", null,
+              h("th", { style: { width: 80 } }, "Data"),
+              h("th", null, "Descrição"),
+              h("th", { style: { width: 140 } }, "Categoria"),
+              h("th", { style: { width: 120 } }, "Conta"),
+              h("th", { style: { textAlign: "right", width: 120 } }, "Valor")
+            )),
+            h("tbody", null,
+              cyclePurchases.length === 0 && h("tr", null, h("td", { colSpan: 5, style: { textAlign: "center", padding: 40, color: "var(--fg-3)", fontSize: 13 } }, "Nenhuma compra nesta fatura.")),
+              ...cyclePurchases.map(t => h(window.BS.TxRow, {
+                key: t.id, t, cols: ["date", "desc", "cat", "account", "amount"], onEditCategory,
+              }))
+            )
+          )
+        )
+      )
+  );
+}
 
 /* ── HistoryView — Lupa do mês ───────────────────────────────────────────── */
 
@@ -16,6 +139,7 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
   const [filterMethod, setFilterMethod] = _s2St("all");
   const [filterCat, setFilterCat] = _s2St("all");
   const [filterAccount, setFilterAccount] = _s2St("all");
+  const [faturaCard, setFaturaCard] = _s2St(null);   // "-cc" id → pivota p/ modo-fatura
   const [search, setSearch] = _s2St("");
   const [pixTop, setPixTop] = _s2St([]);
   // Categorias por flow — a edição inline mostra a lista certa pra despesa/receita.
@@ -66,10 +190,16 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
   }, [pickedIdx, monthly, refreshKey]);
 
   // Drill-down: a fatura/conta click on the Dinheiro screen lands here pre-filtered.
+  // A credit-card id (…-cc) pivots to fatura mode (browse by vencimento, totals = the
+  // bank's bill); a checking account just pre-filters the month table by bank.
   _s2Ef(() => {
     if (initialAccount) {
-      const bankName = initialAccount.startsWith("nu") ? "Nubank" : (initialAccount.startsWith("inter") ? "Inter" : initialAccount);
-      setFilterAccount(bankName);
+      if (typeof initialAccount === "string" && initialAccount.endsWith("-cc")) {
+        setFaturaCard(initialAccount);
+      } else {
+        const bankName = initialAccount.startsWith("nu") ? "Nubank" : (initialAccount.startsWith("inter") ? "Inter" : initialAccount);
+        setFilterAccount(bankName);
+      }
       onAccountConsumed && onAccountConsumed();
     }
   }, [initialAccount]);
@@ -120,6 +250,13 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
     const idx = monthly.findIndex(x => x.year === y && x.month === m);
     return idx !== -1 ? idx : Math.max(0, monthly.length - 1);
   }, [monthly, now]);
+
+  // Modo-fatura: ao clicar num cartão de crédito, o Histórico troca o seletor de meses
+  // por um seletor de faturas (por vencimento) — coeso com a tela Dinheiro. Retorno após
+  // todos os hooks acima (as buscas de mês rodam em segundo plano p/ o "voltar ao mês").
+  if (faturaCard) return h(FaturaHistoryView, {
+    card: faturaCard, onExit: () => setFaturaCard(null), onEditCategory, refreshKey,
+  });
 
   const byCat = (() => {
     const g = {};
@@ -377,11 +514,17 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
             cats.map(c => h("option", { key: c, value: c }, c))
           ),
           h("select", {
-            value: filterAccount, onChange: e => setFilterAccount(e.target.value),
+            value: filterAccount,
+            // "card:<id>" pivota p/ modo-fatura (gastos do ciclo); o resto filtra o mês por banco.
+            onChange: e => { const v = e.target.value; if (v.startsWith("card:")) setFaturaCard(v.slice(5)); else setFilterAccount(v); },
             className: "select", style: { height: 26, fontSize: 11, padding: "0 24px 0 10px", width: "auto", borderRadius: 6, background: "var(--bg-1)", border: "1px solid var(--line-1)", color: "var(--fg-1)", fontWeight: 500, cursor: "pointer" }
           },
             h("option", { value: "all" }, "Banco ▾"),
-            bankNames.map(b => h("option", { key: b, value: b }, b))
+            bankNames.length > 0 && h("optgroup", { label: "Filtrar mês por banco" }, bankNames.map(b => h("option", { key: b, value: b }, b))),
+            h("optgroup", { label: "Ver fatura do cartão" },
+              h("option", { value: "card:nu-cc" }, "Fatura Nubank"),
+              h("option", { value: "card:inter-cc" }, "Fatura Inter")
+            )
           ),
           h("div", { style: { flex: 1, minWidth: 16 } }),
           h("div", { style: { display: "flex", alignItems: "center", gap: 8 } },

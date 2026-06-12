@@ -6,6 +6,7 @@ import sqlite3
 from datetime import date, datetime, timedelta
 from typing import Optional
 
+from core.db.billing import billing_cycle_for_due, vencimento_for_date
 from core.db.schema import _connect
 
 _PT_SHORT = ["", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
@@ -293,6 +294,7 @@ def get_credit_card_billing_info(account_id: str) -> dict:
                 "cycle_start": cs.strftime("%d/%m/%Y"),
                 "cycle_end":   ce.strftime("%d/%m/%Y"),
                 "due_date":    due.strftime("%d/%m/%Y"),
+                "due_iso":     due.strftime("%Y-%m-%d"),
                 "days_until_due": (due - today).days,
                 "source": "import",
             }
@@ -349,8 +351,122 @@ def get_credit_card_billing_info(account_id: str) -> dict:
         "cycle_start": cycle_start.strftime("%d/%m/%Y"),
         "cycle_end":   cycle_end.strftime("%d/%m/%Y"),
         "due_date":    due_date.strftime("%d/%m/%Y"),
+        "due_iso":     due_date.strftime("%Y-%m-%d"),
         "days_until_due": days_until_due,
         "source": "window",
+    }
+
+
+# Columns returned for fatura purchase rows — same shape the Histórico table and the
+# Dinheiro fatura modal already consume (TxRow + client-side byCat).
+_FATURA_TX_COLS = """
+    t.id, t.date, t.description, t.display_name, t.amount, t.flow, t.method,
+    t.account_id, a.bank, COALESCE(c.name, '') AS category, t.category_id,
+    COALESCE(t.is_revenue, 0) AS is_revenue,
+    COALESCE(t.counterpart, '') AS counterpart,
+    COALESCE(t.installments, 1) AS installments,
+    COALESCE(t.is_third_party, 0) AS is_third_party,
+    t.fatura_due
+"""
+
+
+def get_account_faturas(account_id: str) -> list[dict]:
+    """Return one entry per fatura (vencimento) of a credit card, newest first.
+
+    Powers the Histórico "modo-fatura" picker: the user browses by vencimento instead of
+    by calendar month, so the spending lines up with the real billing cycle. Each purchase
+    leg (``dest IS NULL``) is bucketed by its **effective vencimento** — its ``fatura_due``
+    tag when present (the bank's exact grouping), else computed from its date via the
+    closing day (:func:`vencimento_for_date`). So the open/not-yet-imported bill shows up
+    too, and the cycle totals match the home's window fallback.
+    """
+    with _connect() as conn:
+        acc = conn.execute(
+            "SELECT billing_day, due_day FROM accounts WHERE id=?", (account_id,)
+        ).fetchone()
+        rows = conn.execute(
+            """SELECT date, amount, fatura_due FROM transactions
+               WHERE account_id=? AND flow='expense' AND dest_account_id IS NULL""",
+            (account_id,),
+        ).fetchall()
+    billing_day = acc["billing_day"] if acc else None
+    due_day = acc["due_day"] if acc else None
+    buckets: dict[str, dict] = {}
+    for r in rows:
+        due = r["fatura_due"]
+        if due is None:
+            if not billing_day:
+                continue  # untagged + no billing day → cannot place it in a cycle
+            dd = due_day or (billing_day + 7)
+            d = datetime.strptime(r["date"], "%Y-%m-%d").date()
+            due = vencimento_for_date(d, billing_day, dd).strftime("%Y-%m-%d")
+        b = buckets.setdefault(due, {"total": 0.0, "count": 0})
+        b["total"] += float(r["amount"])
+        b["count"] += 1
+    result: list[dict] = []
+    for due in sorted(buckets, reverse=True):
+        d = datetime.strptime(due, "%Y-%m-%d").date()
+        result.append({
+            "due":      due,
+            "label":    f"{_PT_SHORT[d.month]}/{str(d.year)[-2:]}",
+            "due_date": d.strftime("%d/%m/%Y"),
+            "total":    buckets[due]["total"],
+            "count":    buckets[due]["count"],
+        })
+    return result
+
+
+def get_fatura_detail(account_id: str, due: str) -> dict:
+    """Return the editable view of one fatura: its purchases plus addable candidates.
+
+    ``members``    = the purchase legs tagged with this ``fatura_due`` (the bill).
+    ``candidates`` = untagged purchase legs on the same card within the fatura's REAL
+    billing cycle (day after the previous close → this close, derived from the account's
+    ``billing_day``). These are the "loose" charges the user can add — e.g. a recurring
+    debit (CLUBE) that was not in the imported fatura file. Anchoring on the closing day
+    (not a coarse N-day window) keeps a purchase in the right bill: a charge dated before
+    the close belongs here, one dated after belongs to the next fatura.
+    """
+    with _connect() as conn:
+        members = conn.execute(
+            f"""SELECT {_FATURA_TX_COLS} FROM transactions t
+                JOIN accounts a ON a.id = t.account_id
+                LEFT JOIN categories c ON c.id = t.category_id
+                WHERE t.account_id=? AND t.flow='expense' AND t.dest_account_id IS NULL
+                  AND t.fatura_due=?
+                ORDER BY t.date ASC, t.id ASC""",
+            (account_id, due),
+        ).fetchall()
+        due_d = datetime.strptime(due, "%Y-%m-%d").date()
+        acc = conn.execute(
+            "SELECT billing_day, due_day FROM accounts WHERE id=?", (account_id,)
+        ).fetchone()
+        billing_day = acc["billing_day"] if acc else None
+        if billing_day:
+            due_day = acc["due_day"] or (billing_day + 7)
+            win_start, win_end = billing_cycle_for_due(due_d, billing_day, due_day)
+        else:
+            # No billing-day config → generous one-cycle fallback up to the vencimento.
+            win_start, win_end = due_d - timedelta(days=45), due_d
+        candidates = conn.execute(
+            f"""SELECT {_FATURA_TX_COLS} FROM transactions t
+                JOIN accounts a ON a.id = t.account_id
+                LEFT JOIN categories c ON c.id = t.category_id
+                WHERE t.account_id=? AND t.flow='expense' AND t.dest_account_id IS NULL
+                  AND t.fatura_due IS NULL
+                  AND t.date BETWEEN ? AND ?
+                ORDER BY t.date ASC, t.id ASC""",
+            (account_id, win_start.strftime("%Y-%m-%d"), win_end.strftime("%Y-%m-%d")),
+        ).fetchall()
+    total = sum(float(m["amount"]) for m in members)
+    return {
+        "account":    account_id,
+        "due":        due,
+        "due_date":   due_d.strftime("%d/%m/%Y"),
+        "total":      total,
+        "count":      len(members),
+        "members":    [dict(r) for r in members],
+        "candidates": [dict(r) for r in candidates],
     }
 
 

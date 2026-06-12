@@ -99,26 +99,30 @@ def test_confirm_import_tags_fatura_due_end_to_end(db):
     assert _d(info["due_date"]) == datetime.strptime(due_iso, "%Y-%m-%d")
 
 
-def test_reimport_retags_existing_purchases(db):
-    """[REGRESSION] re-importing a fatura dedups but still stamps fatura_due on
-    the already-imported purchases — so membership follows the bill on re-import."""
+def test_import_autosplits_then_reimport_override_retags(db):
+    """First import auto-assigns each purchase to its monthly fatura by cycle (16/05 →
+    25/05, 02/06 → 25/06). Re-importing with an explicit override dedups (inserted=0) but
+    still re-stamps every matching purchase onto the forced vencimento — membership
+    follows the re-imported bill (the original re-tag regression, now on the auto base)."""
     from datetime import date, timedelta
 
     from core import ingestion
 
-    due = (date.today() + timedelta(days=15)).strftime("%Y-%m-%d")
-    ingestion.confirm_import(ingestion.preview_import("inter-cc", INTER_FATURA)["batch_id"])  # untagged
+    # 1) sem override → auto-split por ciclo (fechamento 18, vence 25)
+    ingestion.confirm_import(ingestion.preview_import("inter-cc", INTER_FATURA)["batch_id"])
     with sqlite3.connect(db) as raw:
-        assert all(r[0] is None for r in
-                   raw.execute("SELECT fatura_due FROM transactions WHERE account_id='inter-cc'"))
+        tags = sorted(r[0] for r in
+                      raw.execute("SELECT fatura_due FROM transactions WHERE account_id='inter-cc'"))
+        assert tags == ["2026-05-25", "2026-06-25"]
 
+    # 2) re-import com override → dedup (nada novo) mas re-carimba todas p/ o due forçado
+    due = (date.today() + timedelta(days=15)).strftime("%Y-%m-%d")
     res = ingestion.confirm_import(
         ingestion.preview_import("inter-cc", INTER_FATURA)["batch_id"], fatura_due=due)
     assert res["inserted"] == 0  # all duplicates — nothing new inserted
     with sqlite3.connect(db) as raw:
         assert [r[0] for r in
                 raw.execute("SELECT fatura_due FROM transactions WHERE account_id='inter-cc'")] == [due, due]
-    assert analytics.get_credit_card_billing_info("inter-cc")["total"] == 150.0
 
 
 def test_cycle_window_anchored_on_billing_day(db):

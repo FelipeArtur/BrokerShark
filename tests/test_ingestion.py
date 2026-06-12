@@ -328,3 +328,51 @@ def test_staging_edit_category_and_name_flow_to_confirm(db):
         ).fetchone()
         assert tx["category_id"] == cat_id
         assert tx["display_name"] == "Padaria do Bairro"
+
+
+def test_inter_fatura_autosplits_multimonth_by_cycle(db):
+    """A multi-month Inter fatura import (no manual vencimento) auto-assigns each purchase
+    to its monthly bill by the closing cycle (billing_day=18, due 25 on inter-cc), so it
+    splits into the right faturas instead of one giant bill. Payments stay skipped."""
+    from core import ingestion
+    from core.db import analytics
+
+    csv = (
+        '"Data","Lançamento","Categoria","Tipo","Valor"\n'
+        '"16/05/2026","LOJA MAIO SALVADOR","COMPRAS","Compra à vista","R$ 20,00"\n'   # ≤18/05 → venc 25/05
+        '"19/05/2026","LOJA JUN SALVADOR","COMPRAS","Compra à vista","R$ 30,00"\n'    # >18/05 → venc 25/06
+        '"02/06/2026","LOJA JUN2 SALVADOR","COMPRAS","Compra à vista","R$ 40,00"\n'   # → venc 25/06
+        '"25/05/2026","PAGAMENTO ON LINE","OUTROS","Compra à vista","R$ 100,00"\n'    # pagamento → pulado
+    ).encode("utf-8")
+
+    preview = ingestion.preview_import("inter-cc", csv)
+    res = ingestion.confirm_import(preview["batch_id"])  # sem fatura_due → auto-split por data
+    assert res["inserted"] == 3
+
+    faturas = {f["due"]: f for f in analytics.get_account_faturas("inter-cc")}
+    assert faturas["2026-05-25"]["total"] == pytest.approx(20.0)
+    assert faturas["2026-06-25"]["total"] == pytest.approx(70.0)
+    assert faturas["2026-06-25"]["count"] == 2
+
+    # o pagamento nunca virou compra/membro de fatura
+    members = analytics.get_fatura_detail("inter-cc", "2026-05-25")["members"]
+    assert [m["description"] for m in members] == ["LOJA MAIO SALVADOR"]
+
+
+def test_inter_fatura_explicit_due_override_single_bill(db):
+    """An explicit fatura_due override forces every purchase into one bill (single-month
+    use), regardless of date — back-compat with the old single-vencimento behavior."""
+    from core import ingestion
+    from core.db import analytics
+
+    csv = (
+        '"Data","Lançamento","Categoria","Tipo","Valor"\n'
+        '"16/05/2026","LOJA A","COMPRAS","Compra à vista","R$ 20,00"\n'
+        '"02/06/2026","LOJA B","COMPRAS","Compra à vista","R$ 40,00"\n'
+    ).encode("utf-8")
+    preview = ingestion.preview_import("inter-cc", csv)
+    ingestion.confirm_import(preview["batch_id"], fatura_due="2026-06-25")
+
+    faturas = {f["due"]: f for f in analytics.get_account_faturas("inter-cc")}
+    assert set(faturas) == {"2026-06-25"}
+    assert faturas["2026-06-25"]["total"] == pytest.approx(60.0)

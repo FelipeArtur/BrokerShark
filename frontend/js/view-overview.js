@@ -2,7 +2,7 @@
 /* global React, fetchSummary, fetchFaturas, fetchAvailable, fetchAccounts,
           fetchMonthTransactions, fetchCashflowStatement, fetchInvestments,
           fetchPatrimonioHistory, fetchExpenseCategoriesFull, postCategory, deleteCategory,
-          fetchRecentTransactions */
+          fetchRecentTransactions, fetchFatura, patchTransaction */
 
 const { useState: _ovSt, useEffect: _ovEf, useMemo: _ovMemo } = React;
 const { fmtBRL, fmtBRLCompact, fmtDateBR, BankChip, DualLine, Modal, PT_MONTHS, PT_SHORT, fmtCycleDate } = window.BS;
@@ -23,20 +23,49 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
   const [patrimonioHistory, setPatrimonioHistory] = _ovSt([]);
   const [liquidityHistory, setLiquidityHistory] = _ovSt([]);
 
-  const [faturaReceipt, setFaturaReceipt] = _ovSt(null);
-  const [faturaTxs, setFaturaTxs] = _ovSt(null);
+  // Fatura modal: editable membership. Loads members (tagged) + candidates (untagged
+  // card purchases in a window) by fatura_due — the bank's grouping, not a date window.
+  const [faturaReceipt, setFaturaReceipt] = _ovSt(null);  // { accountId, label, due_iso, due_date }
+  const [faturaData, setFaturaData] = _ovSt(null);        // { total, count, members, candidates }
+  const [faturaBusy, setFaturaBusy] = _ovSt(null);        // tx id mid-toggle (disables its row)
 
   _ovEf(() => {
-    if (faturaReceipt) {
-      setFaturaTxs(null);
-      fetchRecentTransactions(faturaReceipt.accountId, { limit: 200 }).then(txs => {
-        const s = faturaReceipt.start.split("/").reverse().join("-");
-        const e = faturaReceipt.end.split("/").reverse().join("-");
-        const filtered = txs.filter(t => t.date >= s && t.date <= e).sort((a,b) => a.date > b.date ? -1 : 1);
-        setFaturaTxs(filtered);
-      });
+    if (faturaReceipt && faturaReceipt.due_iso) {
+      setFaturaData(null);
+      fetchFatura(faturaReceipt.accountId, faturaReceipt.due_iso)
+        .then(setFaturaData)
+        .catch(() => setFaturaData({ members: [], candidates: [], total: 0, count: 0 }));
     }
   }, [faturaReceipt]);
+
+  // Toggle a purchase in/out of the open fatura → PATCH fatura_due. Optimistic: move the
+  // row between members/candidates and adjust the total; SSE refreshes the home numbers.
+  const toggleFaturaMember = async (tx, include) => {
+    if (!faturaReceipt || faturaBusy) return;
+    setFaturaBusy(tx.id);
+    try {
+      await patchTransaction(tx.id, { fatura_due: include ? faturaReceipt.due_iso : null });
+      setFaturaData(d => {
+        if (!d) return d;
+        const byDate = (a, b) => (a.date > b.date ? 1 : a.date < b.date ? -1 : a.id - b.id);
+        if (include) {
+          return { ...d,
+            members: [...d.members, { ...tx, fatura_due: faturaReceipt.due_iso }].sort(byDate),
+            candidates: d.candidates.filter(c => c.id !== tx.id),
+            total: d.total + tx.amount, count: d.count + 1 };
+        }
+        return { ...d,
+          members: d.members.filter(m => m.id !== tx.id),
+          candidates: [...d.candidates, { ...tx, fatura_due: null }].sort(byDate),
+          total: d.total - tx.amount, count: d.count - 1 };
+      });
+      window.dispatchEvent(new CustomEvent('bs-toast', { detail: { msg: include ? "Adicionado à fatura" : "Removido da fatura", kind: "success" } }));
+    } catch (e) {
+      window.dispatchEvent(new CustomEvent('bs-toast', { detail: { msg: "Erro ao atualizar fatura", kind: "error" } }));
+    } finally {
+      setFaturaBusy(null);
+    }
+  };
 
   _ovEf(() => {
     const parts = filterMonth ? filterMonth.split("-").map(Number) : [];
@@ -358,7 +387,7 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
 
                   return h("button", {
                     key: i, className: "row-hover",
-                    onClick: () => setFaturaReceipt({ accountId: f.accountId, label: f.label, start: f.cycle_start, end: f.cycle_end, total: f.total }),
+                    onClick: () => setFaturaReceipt({ accountId: f.accountId, label: f.label, due_iso: f.due_iso, due_date: f.due_date, total: f.total }),
                     style: {
                       display: "flex", justifyContent: "space-between", alignItems: "center",
                       height: 60, padding: "0 16px", background: "transparent", border: "none",
@@ -421,39 +450,72 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
     faturaReceipt && h(Modal, {
       open: true,
       title: `Fatura ${faturaReceipt.label}`,
-      onClose: () => setFaturaReceipt(null),
-      width: 500
+      onClose: () => { setFaturaReceipt(null); setFaturaData(null); },
+      width: 520
     },
-      h("div", { style: { padding: "0 24px 24px", display: "flex", flexDirection: "column", gap: 24 } },
-        h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", background: "var(--bg-1)", padding: 16, borderRadius: 12, border: "1px solid var(--line-1)" } },
-          h("div", { style: { display: "flex", flexDirection: "column", gap: 4 } },
-            h("div", { style: { fontSize: 12, color: "var(--fg-3)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" } }, "Total da fatura"),
-            h("div", { className: "num", style: { fontSize: 28, fontWeight: 800, color: "var(--fg-0)", letterSpacing: "-0.02em" } }, fmtBRL(faturaReceipt.total))
+      (() => {
+        // One purchase row with a membership checkbox. Checked = in the fatura; toggling
+        // moves it between members/candidates and writes fatura_due via PATCH.
+        const faturaRow = (t, isMember, last) => h("button", {
+          key: t.id,
+          onClick: () => toggleFaturaMember(t, !isMember),
+          disabled: faturaBusy === t.id,
+          className: "row-hover",
+          style: { display: "flex", alignItems: "center", gap: 12, width: "100%", textAlign: "left",
+                   background: "transparent", border: "none", cursor: faturaBusy === t.id ? "wait" : "pointer",
+                   opacity: faturaBusy === t.id ? 0.5 : 1,
+                   padding: "11px 8px", borderBottom: last ? "none" : "1px dashed var(--line-1)", borderRadius: 6 }
+        },
+          h("div", { style: { width: 18, height: 18, flexShrink: 0, borderRadius: 5,
+                   border: `1.5px solid ${isMember ? "var(--info)" : "var(--line-2)"}`,
+                   background: isMember ? "var(--info)" : "transparent",
+                   display: "flex", alignItems: "center", justifyContent: "center",
+                   color: "var(--bg-0)", fontSize: 12, fontWeight: 800 } }, isMember ? "✓" : ""),
+          h("div", { style: { display: "flex", flexDirection: "column", gap: 3, flex: 1, minWidth: 0 } },
+            h("div", { style: { fontSize: 14, fontWeight: 600, color: "var(--fg-1)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, t.display_name || t.description),
+            h("div", { style: { fontSize: 11, color: "var(--fg-3)", display: "flex", gap: 8, fontFamily: "var(--ff-mono)" } },
+              h("span", null, fmtDateBR(t.date)),
+              t.category && h("span", { style: { background: "var(--bg-2)", padding: "2px 6px", borderRadius: 4, textTransform: "uppercase", letterSpacing: "0.04em" } }, t.category)
+            )
           ),
-          h("div", { style: { textAlign: "right" } },
-             h("div", { style: { fontSize: 12, color: "var(--fg-3)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 } }, "Período"),
-             h("div", { style: { fontSize: 13, color: "var(--fg-1)", fontFamily: "var(--ff-mono)" } }, `${fmtCycleDate(faturaReceipt.start)} – ${fmtCycleDate(faturaReceipt.end)}`)
-          )
-        ),
+          h("div", { className: "num", style: { fontSize: 15, fontWeight: 700, color: isMember ? "var(--fg-0)" : "var(--fg-3)" } }, fmtBRL(t.amount))
+        );
+        const sectionLabel = (txt) => h("div", { style: { fontSize: 11, color: "var(--fg-3)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", margin: "4px 0 8px" } }, txt);
 
-        !faturaTxs ? h("div", { style: { padding: 32, textAlign: "center", color: "var(--fg-3)" } }, "Carregando lançamentos…") :
-        faturaTxs.length === 0 ? h("div", { style: { padding: 32, textAlign: "center", color: "var(--fg-3)" } }, "Nenhum lançamento neste período.") :
-        h("div", { className: "custom-scrollbar", style: { display: "flex", flexDirection: "column", maxHeight: 400, overflowY: "auto", paddingRight: 8, marginRight: -8 } },
-          faturaTxs.map((t, i) => h("div", {
-            key: t.id,
-            style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0", borderBottom: i < faturaTxs.length - 1 ? "1px dashed var(--line-1)" : "none" }
-          },
+        return h("div", { style: { padding: "0 24px 24px", display: "flex", flexDirection: "column", gap: 20 } },
+          h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", background: "var(--bg-1)", padding: 16, borderRadius: 12, border: "1px solid var(--line-1)" } },
             h("div", { style: { display: "flex", flexDirection: "column", gap: 4 } },
-              h("div", { style: { fontSize: 14, fontWeight: 600, color: "var(--fg-1)" } }, t.description),
-              h("div", { style: { fontSize: 11, color: "var(--fg-3)", display: "flex", gap: 8, fontFamily: "var(--ff-mono)" } },
-                h("span", null, fmtDateBR(t.date)),
-                t.category && h("span", { style: { background: "var(--bg-2)", padding: "2px 6px", borderRadius: 4, textTransform: "uppercase", letterSpacing: "0.04em" } }, t.category)
-              )
+              h("div", { style: { fontSize: 12, color: "var(--fg-3)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" } }, "Total da fatura"),
+              h("div", { className: "num", style: { fontSize: 28, fontWeight: 800, color: "var(--fg-0)", letterSpacing: "-0.02em" } }, fmtBRL(faturaData ? faturaData.total : (faturaReceipt.total || 0)))
             ),
-            h("div", { className: "num", style: { fontSize: 15, fontWeight: 700, color: "var(--fg-0)" } }, fmtBRL(t.amount))
-          ))
-        )
-      )
+            h("div", { style: { textAlign: "right", display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" } },
+              h("div", null,
+                h("div", { style: { fontSize: 12, color: "var(--fg-3)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 } }, "Vence"),
+                h("div", { style: { fontSize: 13, color: "var(--fg-1)", fontFamily: "var(--ff-mono)" } }, faturaReceipt.due_date || "—")
+              ),
+              onJumpToAccount && h("button", {
+                className: "btn btn-ghost",
+                onClick: () => { const acc = faturaReceipt.accountId; setFaturaReceipt(null); setFaturaData(null); onJumpToAccount(acc); },
+                style: { fontSize: 11, fontWeight: 700, color: "var(--info)", padding: "2px 4px" }
+              }, "Ver no histórico →")
+            )
+          ),
+
+          !faturaData ? h("div", { style: { padding: 32, textAlign: "center", color: "var(--fg-3)" } }, "Carregando lançamentos…") :
+          h("div", { className: "custom-scrollbar", style: { display: "flex", flexDirection: "column", maxHeight: 420, overflowY: "auto", paddingRight: 8, marginRight: -8 } },
+            sectionLabel(`Nesta fatura · ${faturaData.members.length}`),
+            faturaData.members.length === 0
+              ? h("div", { style: { padding: "8px 8px 16px", color: "var(--fg-3)", fontSize: 13 } }, "Nenhuma compra marcada nesta fatura.")
+              : faturaData.members.map((t, i) => faturaRow(t, true, i === faturaData.members.length - 1)),
+
+            faturaData.candidates.length > 0 && h("div", { style: { marginTop: 16, paddingTop: 8, borderTop: "1px solid var(--line-1)" } },
+              sectionLabel("Adicionar à fatura"),
+              h("div", { style: { fontSize: 11, color: "var(--fg-3)", margin: "-4px 8px 8px" } }, "Compras do cartão sem fatura, no período."),
+              faturaData.candidates.map((t, i) => faturaRow(t, false, i === faturaData.candidates.length - 1))
+            )
+          )
+        );
+      })()
     )
   );
 }

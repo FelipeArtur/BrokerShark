@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from typing import Any, Iterable, Optional
 from uuid import uuid4
 
+from core.db.billing import vencimento_for_date
 from core.db.schema import _connect
 from core import events
 
@@ -401,9 +402,10 @@ def update_transaction_fields(tx_id: int, **fields: Any) -> None:
     """Update one or more editable fields on a transaction.
 
     Accepts keyword arguments: ``display_name`` (str | None),
-    ``category_id`` (int), ``is_third_party`` (int 0/1).
+    ``category_id`` (int), ``is_third_party`` (int 0/1),
+    ``fatura_due`` (str ``YYYY-MM-DD`` | None — credit-card fatura membership).
     """
-    allowed = {"display_name", "category_id", "is_third_party"}
+    allowed = {"display_name", "category_id", "is_third_party", "fatura_due"}
     cols = {k: v for k, v in fields.items() if k in allowed}
     if not cols:
         return
@@ -714,6 +716,11 @@ def confirm_staging_batch(
             reversible as one unit via :func:`delete_batch`. Generated when omitted.
             Only rows actually inserted carry it — ``INSERT OR IGNORE`` collisions and
             excluded rows are not tagged (so the tag = the exact undo set).
+        fatura_due: Optional override that forces every card purchase in the batch into a
+            single bill (``YYYY-MM-DD`` vencimento). When omitted (the default), each card
+            purchase leg is auto-assigned to its fatura by date via the account's closing
+            day (:func:`vencimento_for_date`) — so a multi-month fatura export splits into
+            the correct monthly bills instead of one giant fatura.
 
     Returns:
         ``{"inserted": int, "skipped": int, "import_batch_id": str}``, or
@@ -728,6 +735,32 @@ def confirm_staging_batch(
         ).fetchall()
         if not rows:
             return {"inserted": 0, "skipped": 0, "missing": True}
+
+        # Resolve each card purchase's fatura: an explicit `fatura_due` override forces a
+        # single bill; otherwise auto-assign by date via the card's closing cycle (so a
+        # multi-month fatura export splits into the right monthly bills). Only card-leg
+        # rows (dest IS NULL, with a billing_day) carry it; a fatura-total/payment row
+        # (dest set) or a checking row never does. billing_day cached per account.
+        _billing: dict[str, Optional[tuple[int, int]]] = {}
+
+        def _due_for(row: sqlite3.Row) -> Optional[str]:
+            if row["dest_account_id"] is not None:
+                return None
+            if fatura_due:
+                return fatura_due
+            acct = row["account_id"]
+            if acct not in _billing:
+                a = conn.execute(
+                    "SELECT billing_day, due_day FROM accounts WHERE id=?", (acct,)
+                ).fetchone()
+                _billing[acct] = (a["billing_day"], a["due_day"]) if (a and a["billing_day"]) else None
+            cfg = _billing[acct]
+            if cfg is None:
+                return None
+            bday, dday = cfg
+            d = datetime.strptime(row["date"], "%Y-%m-%d").date()
+            return vencimento_for_date(d, bday, dday or (bday + 7)).strftime("%Y-%m-%d")
+
         inserted = 0
         for r in rows:
             if r["status"] != "new" or r["id"] in excluded:
@@ -736,11 +769,7 @@ def confirm_staging_batch(
             # store original_amount only when the user actually overrode the value,
             # so it stays a clean audit flag (NULL = untouched bank value)
             audit_amount = orig if (orig is not None and round(orig, 2) != round(r["amount"], 2)) else None
-            # fatura_due tags credit-card purchases with the bill's vencimento so the
-            # open fatura is the bank's grouping, not a date-window. Only the card-leg
-            # rows (dest IS NULL on a CC account) carry it; a fatura-total/payment row
-            # (dest set) never does.
-            row_fatura_due = fatura_due if (fatura_due and r["dest_account_id"] is None) else None
+            row_fatura_due = _due_for(r)
             cur = conn.execute(
                 """INSERT OR IGNORE INTO transactions
                    (date, flow, method, account_id, amount, installments,
@@ -755,10 +784,11 @@ def confirm_staging_batch(
             )
             if cur.rowcount:
                 inserted += 1
-        # A fatura re-import dedups purchases already in the table, so stamp fatura_due
-        # onto the matching existing rows too — not just the newly inserted ones. This
-        # makes the weekly re-import tag bill membership idempotently (the imported
-        # bill is the source of truth for which purchases belong to which vencimento).
+        # Override path only: when a single `fatura_due` is forced, a re-import dedups
+        # purchases already in the table, so stamp that vencimento onto the matching
+        # existing rows too — not just the newly inserted ones (idempotent re-tag). The
+        # auto path needs no re-tag: vencimento_for_date is deterministic from the date,
+        # so existing rows already carry the right fatura.
         if fatura_due:
             conn.execute(
                 """UPDATE transactions SET fatura_due = ?

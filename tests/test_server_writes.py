@@ -121,3 +121,50 @@ def test_import_staging_edit_rejects_unknown_category(client):
         json={"category_id": 999999},
     )
     assert resp.status_code == 400
+
+
+# ── fatura_due membership via PATCH ────────────────────────────────────────────
+
+def test_patch_fatura_due_on_card_purchase(client):
+    """Tag/untag a card purchase into the open fatura (add the CLUBE use case)."""
+    from core.db import crud, analytics
+
+    tx = crud.insert_transaction(date="2026-06-02", flow="expense", method="credit",
+                                 account_id="nu-cc", amount=90.0, description="CLUBE", category_id=1)
+    resp = client.patch(f"/api/transactions/{tx}", json={"fatura_due": "2026-06-25"})
+    assert resp.status_code == 200
+    assert tx in [r["id"] for r in analytics.get_fatura_detail("nu-cc", "2026-06-25")["members"]]
+
+    resp = client.patch(f"/api/transactions/{tx}", json={"fatura_due": None})
+    assert resp.status_code == 200
+    assert tx not in [r["id"] for r in analytics.get_fatura_detail("nu-cc", "2026-06-25")["members"]]
+
+
+def test_patch_fatura_due_rejects_checking_row(client):
+    """fatura_due is only valid on a credit-card purchase, never on a checking row."""
+    from core.db import crud
+
+    tx = crud.insert_transaction(date="2026-06-02", flow="expense", method="pix",
+                                 account_id="nu-db", amount=20.0, description="x", category_id=1)
+    resp = client.patch(f"/api/transactions/{tx}", json={"fatura_due": "2026-06-25"})
+    assert resp.status_code == 400
+
+
+def test_patch_fatura_due_rejects_payment_leg(client):
+    """A leg with a dest account (fatura payment) can never carry fatura_due."""
+    from core.db import crud
+
+    tx = crud.insert_transaction(date="2026-06-05", flow="expense", method="transfer",
+                                 account_id="nu-cc", amount=500.0, description="pay",
+                                 dest_account_id="nu-cc", is_revenue=0)
+    resp = client.patch(f"/api/transactions/{tx}", json={"fatura_due": "2026-06-25"})
+    assert resp.status_code == 400
+
+
+def test_patch_fatura_due_invalid_date(client):
+    from core.db import crud
+
+    tx = crud.insert_transaction(date="2026-06-02", flow="expense", method="credit",
+                                 account_id="nu-cc", amount=90.0, description="x", category_id=1)
+    resp = client.patch(f"/api/transactions/{tx}", json={"fatura_due": "10/06/2026"})
+    assert resp.status_code == 400

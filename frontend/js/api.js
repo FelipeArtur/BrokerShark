@@ -26,6 +26,8 @@ async function fetchCategories({ bank, month, year, period } = {}) { return _get
 async function fetchExpensesByMethod(bank) { return _get(`/api/expenses-by-method${_qs(bank)}`); }
 async function fetchInvestments(bank)      { return _get(`/api/investments${_qs(bank)}`); }
 async function fetchFaturas(bank)          { return _get(`/api/faturas${_qs(bank)}`); }
+async function fetchAccountFaturas(account){ return _get(`/api/account-faturas${_params({ account })}`); }
+async function fetchFatura(account, due)   { return _get(`/api/fatura${_params({ account, due })}`); }
 async function fetchAccounts(bank)         { return _get(`/api/accounts${_qs(bank)}`); }
 
 async function fetchAccountDetail(id)      { return _get(`/api/account/${encodeURIComponent(id)}`); }

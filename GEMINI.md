@@ -86,7 +86,7 @@ transactions (id, date, flow, method, account_id, amount, installments, descript
               category_id, dest_account_id, counterpart, is_revenue, external_id,
               display_name, is_third_party, original_amount, import_batch_id, fatura_due)
               -- import_batch_id: tag de sessão de import (1 por drop) → reversível via crud.delete_batch
-              -- fatura_due: vencimento da fatura (capturado no import) → fatura aberta = agrupamento do banco
+              -- fatura_due: vencimento da fatura (informado no import mensal → marca todo o arquivo; ou estimado pela data via billing.vencimento_for_date) → fatura aberta = agrupamento do banco
 investments (id, name, type, bank, current_balance)
 investment_movements (id, date, investment_id, operation, amount, description)
 budgets (id, category_id, amount_limit)
@@ -98,7 +98,7 @@ budgets (id, category_id, amount_limit)
 
 - **Consumption-expense rule:** despesa filtra `dest_account_id IS NULL AND method != 'transfer'` — transferência (leg de investimento / pagamento de fatura) nunca é despesa. Aplicada no backend e replicada no front (Histórico recebe `is_revenue`). Despesas/Receitas batem em todas as telas.
 - **CC anti-duplicação:** total da fatura em `nu-db`/`inter-db` com `dest_account_id='nu-cc'/'inter-cc'` (patrimônio); compras individuais em `nu-cc`/`inter-cc` com `dest_account_id IS NULL` (resumos). Nunca se sobrepõem; simétrico Nubank/Inter.
-- **Fatura aberta = agrupamento do banco** (`get_credit_card_billing_info`): import de fatura captura o vencimento → compras marcadas com `fatura_due` → fatura aberta = soma do próximo vencimento (total do banco; recorrentes/parcelas/compras do mesmo dia caem certo). Sem tag → fallback p/ janela por `billing_day`. Faturas fechadas = linhas-total reais importadas.
+- **Fatura aberta = agrupamento do banco** (`get_credit_card_billing_info`): import correto = fatura mensal (1 arquivo = 1 fatura) → vencimento no modal marca TODAS as linhas com aquele `fatura_due` (parcelas do mês inclusas) via override em `confirm_staging_batch`. ⚠️ relatório unificado NÃO serve (colapsa parcelas em valor cheio na data). Sem vencimento → fallback estima `fatura_due` pela data (`billing.vencimento_for_date`, aproximado). Fatura aberta = soma do próximo vencimento (total do banco). Sem tag → fallback p/ janela por `billing_day`. **Pertença editável** (não janela por data): modal de fatura (Dinheiro) lista members + candidates (`get_fatura_detail`; candidates = ciclo real da fatura via `billing.billing_cycle_for_due`) → checkbox grava `fatura_due` via `PATCH /api/transactions/<id>` (só perna de compra de cartão; despesa/receita ignoram `fatura_due` → sem dupla contagem). Histórico pivota p/ **modo-fatura** (`FaturaHistoryView`) ao clicar num cartão (faturas por vencimento efetivo: tag ou ciclo da data via `billing.vencimento_for_date` → fatura aberta/sem-tag também aparece, total bate com o fallback da home).
 - **Patrimônio:** `get_patrimonio_history()` = só conta corrente (`initial_balances + income − expenses`); investimentos entram no display via `current_balance`. **Não filtra por method** (precisa contar pagamento de fatura via `dest IN ('nu-cc','inter-cc')`).
 - **`is_revenue`:** `1` receita real, `0` self-transfer. **Sempre explícito** em `insert_transaction()`.
 - **`counterpart='SELF'`** (auto-Pix/TED entre contas próprias): nem despesa/receita/investimento. Saída `method='transfer'`, entrada `is_revenue=0`, ambas `SELF`. Saldos preservados, fora de Despesas/Receitas e `investment_net`. Via `adapters._is_self_transfer` (`config.OWNER_SELF_KEYWORDS`).
@@ -120,9 +120,9 @@ budgets (id, category_id, amount_limit)
 
 ## Dashboard API (resumo)
 
-Escrita (validada no servidor): `POST /api/transactions` (despesa), `POST /api/incomes` (receita/transferência), `POST /api/investment-movements`, `PATCH /api/transactions/<id>`, `PATCH /api/budgets/<id>`, `DELETE /api/transactions/<id>` (409 fatura), `POST /api/transactions/restore`. Import: `POST /api/import/preview` (múltiplos `file` da mesma conta), `GET /api/import/staging/<batch_id>`, `PATCH /api/import/staging/<batch_id>/<row_id>` (edita preview → `amount_divergence`), `POST /api/import/confirm` (recebe/ecoa `import_batch_id`), `DELETE /api/import/batch/<id>` (reverte o lote).
+Escrita (validada no servidor): `POST /api/transactions` (despesa), `POST /api/incomes` (receita/transferência), `POST /api/investment-movements`, `PATCH /api/transactions/<id>` (category_id/display_name/is_third_party/fatura_due), `PATCH /api/budgets/<id>`, `DELETE /api/transactions/<id>` (409 fatura), `POST /api/transactions/restore`. Import: `POST /api/import/preview` (múltiplos `file` da mesma conta), `GET /api/import/staging/<batch_id>`, `PATCH /api/import/staging/<batch_id>/<row_id>` (edita preview → `amount_divergence`), `POST /api/import/confirm` (recebe/ecoa `import_batch_id`), `DELETE /api/import/batch/<id>` (reverte o lote).
 
-Leitura: `/api/available` (herói), `/api/summary`, `/api/accounts`, `/api/investments`, `/api/monthly` (`?present=1` = só meses com dados), `/api/categories`, `/api/faturas` (inclui `last_total`), `/api/transactions`, `/api/recent-activity`, `/api/patrimonio-history`, `/api/daily-spend` (mês zero-filled), `/api/month-transactions` (inclui `is_revenue`), `/api/budgets`, `/api/categories-full`, `/api/pix-top`, `/api/expenses-by-method`, `/api/events` (SSE).
+Leitura: `/api/available` (herói), `/api/summary`, `/api/accounts`, `/api/investments`, `/api/monthly` (`?present=1` = só meses com dados), `/api/categories`, `/api/faturas` (inclui `last_total`, `due_iso`), `/api/account-faturas`, `/api/fatura` (members+candidates), `/api/transactions`, `/api/recent-activity`, `/api/patrimonio-history`, `/api/daily-spend` (mês zero-filled), `/api/month-transactions` (inclui `is_revenue`), `/api/budgets`, `/api/categories-full`, `/api/pix-top`, `/api/expenses-by-method`, `/api/events` (SSE).
 
 ---
 
@@ -131,7 +131,7 @@ Leitura: `/api/available` (herói), `/api/summary`, `/api/accounts`, `/api/inves
 Navegação: **Visão do Mês** (`OverviewView`), **Histórico** (`HistoryView`), **Investimentos** (`InvestmentsView`). Atalhos `1`/`2`/`3`. Categorias vive em Configurações.
 
 - **Dinheiro** (agora): herói **Disponível pra gastar** (`/api/available`); direita = ledger Patrimônio líquido. Sempre mês atual. Projeções advisory. Clicar fatura/conta → Histórico filtrado.
-- **Histórico** (análise): meses com dados (`/api/monthly?present=1`), 4 métricas (Δ vs média), fluxo 6m (`DualLine`), por categoria, Top PIX, tabela filtrável (flow · método · categoria · conta · busca) + categorização inline.
+- **Histórico** (análise): meses com dados (`/api/monthly?present=1`), 4 métricas (Δ vs média), fluxo 6m (`DualLine`), por categoria, Top PIX, tabela filtrável (flow · método · categoria · conta · busca) + categorização inline. Clicar num cartão → **modo-fatura** (`FaturaHistoryView`): seletor por vencimento + totais/compras da fatura.
 - **Investimentos:** donut (`Donut`) + Σ `current_balance` + lista editável + "+ Movimento".
 
 ---

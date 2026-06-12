@@ -340,6 +340,48 @@ def api_faturas() -> Response:
     return jsonify(result)
 
 
+_VALID_CARDS = {"nu-cc", "inter-cc"}
+
+
+@app.route("/api/account-faturas")
+def api_account_faturas() -> Response:
+    """Return the list of faturas (one per vencimento) for a credit card, newest first.
+
+    Query params:
+        account: a credit-card id (``nu-cc`` | ``inter-cc``).
+
+    Powers the Histórico "modo-fatura" picker (browse by vencimento, not calendar month).
+    """
+    account = request.args.get("account") or ""
+    if account not in _VALID_CARDS:
+        return jsonify({"error": "account must be a credit card"}), 400
+    return jsonify(database.get_account_faturas(account))
+
+
+@app.route("/api/fatura")
+def api_fatura() -> Response:
+    """Return the editable view of one fatura: its purchases plus addable candidates.
+
+    Query params:
+        account: a credit-card id (``nu-cc`` | ``inter-cc``).
+        due:     the fatura vencimento, ``YYYY-MM-DD``.
+
+    Returns ``{account, due, total, count, members, candidates}``. ``members`` are the
+    purchases tagged with this ``fatura_due``; ``candidates`` are untagged card purchases
+    in a window around the bill that the user may add (toggling writes ``fatura_due`` via
+    ``PATCH /api/transactions/<id>``).
+    """
+    account = request.args.get("account") or ""
+    due = request.args.get("due") or ""
+    if account not in _VALID_CARDS:
+        return jsonify({"error": "account must be a credit card"}), 400
+    try:
+        datetime.strptime(due, "%Y-%m-%d")
+    except ValueError:
+        return jsonify({"error": "due must be YYYY-MM-DD"}), 400
+    return jsonify(database.get_fatura_detail(account, due))
+
+
 _VALID_ACCOUNTS = {"nu-cc", "nu-db", "inter-cc", "inter-db"}
 # Payment methods accepted by the expense quick-entry form.
 _VALID_EXPENSE_METHODS = {"credit", "pix", "ted", "debit"}
@@ -414,6 +456,11 @@ def api_patch_transaction(transaction_id: int) -> Response:
         category_id:    int    — primary key of the target category.
         display_name:   str|null — friendly display name (null clears it).
         is_third_party: 0|1   — exclude from personal finance summaries.
+        fatura_due:     str ``YYYY-MM-DD`` | null — credit-card fatura membership.
+                        Only valid on a card purchase leg (``*-cc`` account,
+                        ``dest_account_id IS NULL``, ``flow='expense'``); null removes
+                        the purchase from its fatura. Never tag a fatura-total/payment
+                        row — that would double-count.
 
     Returns:
         ``{"ok": true}`` on success, error JSON on failure.
@@ -437,6 +484,26 @@ def api_patch_transaction(transaction_id: int) -> Response:
         if data["is_third_party"] not in (0, 1, True, False):
             return jsonify({"error": "is_third_party must be 0 or 1"}), 400
         fields["is_third_party"] = int(bool(data["is_third_party"]))
+    if "fatura_due" in data:
+        v = data["fatura_due"]
+        if v is not None:
+            if not isinstance(v, str):
+                return jsonify({"error": "fatura_due must be YYYY-MM-DD or null"}), 400
+            try:
+                datetime.strptime(v, "%Y-%m-%d")
+            except ValueError:
+                return jsonify({"error": "fatura_due must be YYYY-MM-DD or null"}), 400
+        # Guard the invariant: fatura_due lives only on a card *purchase* leg. A
+        # checking row, a fatura-total/payment row (dest set), or a non-expense can
+        # never carry it — otherwise the bill total would double-count.
+        tx = database.get_transaction(transaction_id)
+        if tx is None:
+            return jsonify({"error": "transaction not found"}), 404
+        if not (str(tx["account_id"]).endswith("-cc")
+                and tx["dest_account_id"] is None
+                and tx["flow"] == "expense"):
+            return jsonify({"error": "fatura_due only valid on a credit-card purchase"}), 400
+        fields["fatura_due"] = v
     if not fields:
         return jsonify({"error": "no valid fields provided"}), 400
     database.update_transaction_fields(transaction_id, **fields)

@@ -515,7 +515,7 @@ function ImportModal({ onClose, onDone }) {
   const [busy, setBusy]           = useState(false);
   const [err, setErr]             = useState(null);
   const [results, setResults]     = useState(null); // per-account confirm status
-  const [faturaDue, setFaturaDue] = useState({});   // account -> "YYYY-MM-DD" (vencimento da fatura)
+  const [faturaDue, setFaturaDue] = useState({});   // account -> "YYYY-MM-DD" (vencimento da fatura do mês)
   const isFatura = id => (id || "").endsWith("-cc");
 
   const step = (groups || b3s.length) ? 2 : 1;
@@ -534,9 +534,11 @@ function ImportModal({ onClose, onDone }) {
   const setFileAccount = (key, account) =>
     setFiles(prev => prev.map(f => f.key === key ? { ...f, account } : f));
 
-  // CC fatura files need a vencimento (so purchases are tagged → correct open fatura).
+  // Each file just needs an account assigned (B3 files self-type). For a card fatura the
+  // vencimento is optional but recommended: set it and the whole monthly file lands in that
+  // bill (parcelas included, matches the bank); blank → auto-split by date (approximate).
   const canAnalyze = files.length > 0 && !busy &&
-    files.every(f => f.b3 || (f.account && (!isFatura(f.account) || faturaDue[f.account])));
+    files.every(f => f.b3 || f.account);
 
   async function analyze() {
     setBusy(true); setErr(null);
@@ -660,13 +662,16 @@ function ImportModal({ onClose, onDone }) {
             h("option", { value: "" }, "Atribuir Conta…"),
             BANKS.map(b => h("option", { key: b.id, value: b.id }, b.label))
           ),
-      // Vencimento — só p/ fatura de cartão (-cc). Tag a fatura no banco, não por data.
+      // Vencimento — fatura de cartão (-cc). UM arquivo = UMA fatura do mês: marca TODAS
+      // as linhas com este vencimento (= a fatura do banco, parcelas inclusas). Em branco
+      // → divide por data (aproximado; só p/ arquivos sem parcelamento).
       f.account && isFatura(f.account) && h("div", { style: { display: "flex", alignItems: "center", gap: 6 } },
         h("span", { style: { fontSize: 11, color: "var(--fg-3)", whiteSpace: "nowrap" } }, "Vence"),
         h("input", {
           type: "date", value: faturaDue[f.account] || "",
           onChange: e => setFaturaDue(prev => ({ ...prev, [f.account]: e.target.value || undefined })),
-          title: "Vencimento desta fatura", "aria-label": "Vencimento da fatura",
+          title: "Vencimento da fatura do mês — todas as compras do arquivo entram nesta fatura (casa com a fatura do banco, parcelas inclusas). Deixe vazio só para arquivos longos/sem parcelamento.",
+          "aria-label": "Vencimento da fatura do mês",
           style: { fontSize: 12, padding: "7px 8px", borderRadius: 6, background: "var(--bg-0)", colorScheme: "dark",
                    color: faturaDue[f.account] ? "var(--fg-0)" : "var(--fg-3)",
                    border: `1px solid ${faturaDue[f.account] ? "var(--line-2)" : "var(--reserve)"}`, outline: "none" },
