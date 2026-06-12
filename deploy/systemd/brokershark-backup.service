@@ -1,7 +1,9 @@
 [Unit]
-Description=BrokerShark — backup mensal local
+Description=BrokerShark — backup local diário+mensal
 After=network-online.target
 Wants=network-online.target
+# Falha real (exit 1) dispara o alerta de desktop — skip do mesmo dia sai 0.
+OnFailure=brokershark-backup-alert.service
 
 [Service]
 Type=oneshot

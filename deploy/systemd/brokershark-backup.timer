@@ -1,8 +1,11 @@
 [Unit]
-Description=BrokerShark — backup mensal (timer)
+Description=BrokerShark — backup local diário+mensal (timer)
 
 [Timer]
-OnCalendar=*-*-01 07:00:00
+# 3 janelas por dia: Persistent=true só repõe execuções PERDIDAS (PC desligado),
+# nunca execuções que rodaram e FALHARAM (ex.: HDD desmontado às 07:00) — as
+# janelas de 13h/19h são o retry. run_backup é idempotente (1 snapshot por dia).
+OnCalendar=*-*-* 07,13,19:00:00
 Persistent=true
 
 [Install]

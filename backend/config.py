@@ -12,7 +12,8 @@ DB_PATH: str = os.getenv("DB_PATH", "data/brokershark.db")
 
 # ── Backup — local (HDD) ──────────────────────────────────────────────────────
 LOCAL_BACKUP_DIR: str = "/mnt/HDD_Arquivos/Backups/brokershark"
-MAX_BACKUPS: int = 12  # TODO(E3): substituído por DAILY/MONTHLY_BACKUPS_KEPT no backup 2 camadas
+DAILY_BACKUPS_KEPT: int = 14
+MONTHLY_BACKUPS_KEPT: int = 12
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 DASHBOARD_PORT: int = int(os.getenv("DASHBOARD_PORT", "8080"))

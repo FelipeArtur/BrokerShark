@@ -19,6 +19,7 @@ from flask import Flask, Response, jsonify, request, send_from_directory, stream
 from waitress import serve
 
 import config
+from core import backup
 from core import database
 from core import ingestion
 from core.ingestion import b3
@@ -1065,6 +1066,9 @@ def api_import_confirm() -> Response:
     result = ingestion.confirm_import(batch_id, exclude_ids, import_batch_id, fatura_due)
     if result.get("missing"):
         return jsonify({"error": "Importação expirada, refaça o upload."}), 404
+    # Refresh today's daily snapshot in the background (single-flight) — the day's
+    # import + categorization work lands on the HDD without the response waiting.
+    backup.request_post_import_snapshot()
     return jsonify({"ok": True, **result})
 
 
@@ -1175,6 +1179,7 @@ def api_delete_import_batch(import_batch_id: str) -> Response:
     result = database.delete_batch(import_batch_id)
     if not result["deleted"]:
         return jsonify({"error": "Importação não encontrada."}), 404
+    backup.request_post_import_snapshot()
     return jsonify({
         "ok": True,
         "deleted": result["deleted"],
