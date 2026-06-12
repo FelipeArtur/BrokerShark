@@ -21,9 +21,9 @@ BrokerShark é uma **ferramenta pessoal de análise de dinheiro**, 100% local (L
 - **Histórico / Análise** — timeline dos meses com lançamentos, métricas mensais, fluxo 6m, investimentos, por categoria, Top PIX, tabela filtrável.
 - **Investimentos** — donut + posições editáveis + "+ Movimento".
 
-**Apoio (não são o centro):** Telegram bot (**somente consulta + notificações** — nunca registra/edita), importação mensal de CSV pela web, chat de IA local (Ollama).
+**Apoio (não é o centro):** importação mensal de extratos/faturas (CSV) e posições B3 (xlsx) pela web.
 
-> **Regra de ouro:** todo registro e edição acontece **exclusivamente na web**. O Telegram lê e notifica — nunca escreve.
+> **Regra de ouro:** todo registro e edição acontece **exclusivamente na web**. Não existe outro caminho de escrita (Telegram bot e IA local foram removidos em 2026-06-11 — produto é web-only; diagnóstico/proposta Hermes arquivados no `git log`).
 
 > **North star:** fácil de alimentar + extremamente confiável. Registro = **import de extratos/faturas em lote** (resumo editável antes de confirmar); correções na web = **alinhamento de valores**, não digitação manual. Re-import semanal do mês corrente só acrescenta a cauda nova (dedup).
 
@@ -35,7 +35,7 @@ BrokerShark é uma **ferramenta pessoal de análise de dinheiro**, 100% local (L
 
 ```
 backend/
-  main.py            # launcher — sobe bot + dashboard
+  main.py            # entrypoint — bootstrap + serve do dashboard em foreground (systemd)
   config.py          # único arquivo que chama os.getenv()
   bootstrap.py       # load_dotenv + config.validate + logging + DB path (reusado por jobs)
   core/
@@ -43,15 +43,15 @@ backend/
     db/              # schema.py, crud.py, analytics.py, categories.py
     ingestion/       # adapters.py (parse), dedup.py (classify), service.py, b3.py
     events.py        # SSE pub/sub — notify() após escrita
-    backup.py        # backup mensal (conn.backup WAL-safe, should_backup/run_backup/verify/restore)
-  jobs/              # backup, weekly_report, monthly_closing (python -m, p/ systemd timers)
-  integrations/ollama.py   # cliente HTTP puro (chat, chat_stream)
+    backup.py        # snapshots diário+mensal (conn.backup WAL-safe, run_backup tri-state/restore)
+  jobs/backup.py     # entrypoint do timer (python -m, exit≠0 só em falha REAL)
   dashboard/server.py      # Flask + Waitress (32 threads, SSE)
-  bot/      application.py, constants.py, utils.py, reports.py, handlers/{commands,ai_chat}.py
 frontend/
   js/  api.js, primitives.js, view-overview.js, view-history.js, view-investments.js, app.js
-deploy/  systemd/*, brokershark.sh, README.md
-tests/   test_database, test_ingestion, test_ai_chat, test_b3, test_backup, test_server_writes
+deploy/  systemd/* (dashboard.service, backup.{service,timer}, backup-alert.service),
+         brokershark.sh (atalho de browser), restore.sh, README.md
+tests/   test_database, test_ingestion, test_b3, test_backup, test_jobs, test_delete,
+         test_faturas, test_import_batch, test_investments, test_server_writes
 ```
 
 ---
@@ -66,16 +66,14 @@ User (web form / CSV import — ÚNICO caminho de escrita)
 core/database.py — INSERT (SQLite)
       ↓
 core/events.notify() — SSE push ao browser (< 1s)
-
-Telegram (read-only): ai_chat / comandos → SELECT → resposta
 ```
 
 ### Key principles
 
-- **SQLite é a fonte única.** Sem write-back externo. Toda escrita pela web; Telegram é read-only.
-- **A análise é o produto.** Telegram/import/IA são apoio.
-- **AI Pierre-inspired:** tool calling, nunca fabrica dado (busca via tools antes de responder), Telegram only. **Todas as 7 tools são de leitura** — não existe `register_*`/`confirm`/`cancel`. Se pedirem registro, o prompt redireciona pra web.
-- **Runtime (alvo):** **híbrido** — dashboard+bot **sob demanda** (launcher), jobs (backup/semanal/fechamento) como **systemd user timers** (`Persistent=true`, catch-up no boot). Sem daemon eterno; APScheduler aposentado. Notificações agendadas saem sempre (oneshot `bot.send_message`); Telegram só responde com o launcher aberto. Ativação pendente exige `loginctl enable-linger joao` (senão o catch-up de boot não dispara). Hoje: `main.py` ainda sobe tudo num processo.
+- **SQLite é a fonte única.** Sem write-back externo. Toda escrita pela web.
+- **A análise é o produto.** Import é apoio.
+- **Runtime: always-on** — dashboard como **serviço systemd de usuário** (`brokershark-dashboard.service`, `Restart=on-failure`, `main.py` bloqueia no `waitress.serve`, loga em stdout/journald) + backup como **timer** (`brokershark-backup.timer`, 07/13/19h, `Persistent=true`). Exige `loginctl enable-linger joao` (sem linger, units de usuário não sobem no boot nem sobrevivem ao logout). `deploy/brokershark.sh` é só atalho de browser; restore via `deploy/restore.sh` (para o serviço antes — restore com o app escrevendo corrompe). Detalhes em `deploy/README.md`.
+- **Segurança de rede:** bind em `127.0.0.1` + guard de Host/Origin em `server.py` (DNS-rebinding/CSRF) — a API não tem auth, então isso é load-bearing.
 
 ### Invariantes financeiras (load-bearing — não quebrar)
 
@@ -93,46 +91,17 @@ Telegram (read-only): ai_chat / comandos → SELECT → resposta
 
 ---
 
-## IA conversacional (Telegram) — diagnóstico + proposta Hermes
-
-> ⚠️ **Proposta em avaliação — NÃO implementada.** Esta seção registra o estado atual da IA e uma opção de arquitetura para retomar depois. Runtime do bot permanece **on-demand** (launcher) por ora; nada abaixo está no código.
-
-### Estado atual — por que a IA é frágil/pouco usada (load-bearing)
-
-- **Tool-calling emulado por prompt:** `integrations/ollama.py` **não envia o campo `tools`** ao `/api/chat` — o modelo precisa cuspir JSON puro `{"tool":...}` e `bot/handlers/ai_chat.py` decide "tool vs. texto" por `accumulated.startswith("{")`. Num modelo 7B isso quebra com prosa antes do JSON, code-fence ` ```json ` ou JSON malformado → a tool não dispara. **Conserto de maior alavancagem (independe de Hermes):** migrar para **tool-calling nativo do Ollama** (campo `tools`, suportado por modelos tool-capable, incluindo o `qwen2.5` atual) — elimina o parser de JSON-no-texto, a heurística `startswith` e o round-trip via mensagem "user" fake.
-- **Sem `keep_alive`:** o Ollama descarrega o modelo após ~5 min ociosos → a 1ª mensagem paga cold-load (lento na RX 6600M/ROCm). Passar `keep_alive` no payload mantém o modelo quente.
-- **Runtime on-demand:** o bot só responde com `main.py` aberto (notificações agendadas saem por systemd timers, independentes). Conversa exige o processo no ar.
-
-### Proposta "Hermes" — dois sentidos (ambos da Nous Research)
-
-O termo é ambíguo: a busca por "hermes agent" devolve o **framework**, mas a nota original em `GEMINI.md` mirava o **modelo**. São coisas distintas:
-
-**Opção A — modelo Hermes + tool-calling nativo (mudança mínima, recomendada).** Trocar `qwen2.5:7b` por um modelo Hermes (ex.: `Hermes-3-Llama-3.1-8B`, treinado p/ function-calling; ~5 GB em q4, cabe nos 8 GB da RX 6600M) **e** migrar o `ai_chat.py` para o `tools` nativo do Ollama. Mantém o bot artesanal e o read-only-por-construção; só fica confiável e rápido. Resolve a fragilidade real (o tool-calling) sem mexer nos invariantes.
-
-**Opção B — adotar o framework Hermes Agent (MIT).** Agente open-source com **gateway único** (Telegram/Discord/Slack/WhatsApp/Signal), **memória persistente** (FTS5 + modelagem de usuário entre sessões), **model-agnostic** (Ollama/vLLM/llama.cpp), tools via **MCP**, instalado como **serviço systemd de usuário** com `loginctl enable-linger` (mesmo modelo de runtime dos timers do BrokerShark).
-- **Encaixe:** BrokerShark exporia suas 7 consultas read-only como um **servidor MCP**; o Hermes seria a camada LLM + Telegram + memória, substituindo o `ai_chat.py`.
-- ⚠️ **Tensão com a regra de ouro:** o Hermes **não é read-only por padrão** (executa código/terminal/arquivos/browser). Honrar "o Telegram nunca escreve" exige expor SOMENTE o MCP read-only, sandbox (`TERMINAL_BACKEND=docker`), allowlist de `chat_id` e `SOUL.md`/`AGENTS.md` (que **não** são restrições rígidas). Mal configurado, quebra o invariante.
-- ⚠️ **Tensão de runtime:** o gateway é **persistente** (always-on), contrariando o on-demand atual — adotar = mover o bot para sempre-no-ar.
-- **Refs:** [github.com/nousresearch/hermes-agent](https://github.com/nousresearch/hermes-agent) · [docs](https://hermes-agent.nousresearch.com/docs/) · [guia Telegram](https://hermes-agent.nousresearch.com/docs/guides/team-telegram-assistant)
-
-**Recomendação:** começar pela **Opção A** (resolve o tool-calling sem abrir mão dos invariantes nem do on-demand); avaliar a Opção B só se memória persistente / multi-canal virarem requisitos.
-
----
-
 ## Tech Stack
 
 | Component | Technology |
 |---|---|
 | Language | Python 3.14 (venv) — código usa 3.12+ |
-| Bot | python-telegram-bot v21 |
 | Database | SQLite (WAL mode) |
-| Backup | local HDD copy (mensal) |
-| Scheduler | **systemd user timers** (`Persistent=true`) via `backend/jobs/*` — APScheduler aposentado |
-| Dashboard API | Flask 3.1 + Waitress 3.0 (32 threads, daemon thread) |
+| Backup | snapshots locais no HDD — diário (retém 14) + mensal (retém 12), `conn.backup()` WAL-safe |
+| Scheduler | **systemd user units** (`Persistent=true`) — dashboard.service + backup.timer |
+| Dashboard API | Flask 3.1 + Waitress 3.0 (32 threads, foreground/systemd) |
 | Frontend | React 18 + Babel standalone (no build step), Chart.js |
 | Real-time | SSE via `events.py` (no polling, < 1s) |
-| HTTP client | httpx |
-| Local LLM | Ollama `qwen2.5:7b` (ROCm, RX 6600M) |
 
 ---
 
@@ -202,11 +171,14 @@ Navegação (`app.js` `SECTIONS`): **Visão do Mês** (`OverviewView`), **Histó
 
 ## Automated Jobs
 
-Migrando p/ systemd user timers (`Persistent=true`). O período do relatório/fechamento deve ancorar na **data agendada** (não `datetime.now()`) p/ catch-up tardio não rotular a janela errada.
+Um único job: **backup local two-tier** (`core/backup.py`, entrypoint `jobs/backup.py`, timer 07/13/19h `Persistent=true`).
 
-- **Backup mensal** (1º, 07:00): cópia WAL-safe (`conn.backup()`) p/ `/mnt/HDD_Arquivos/Backups/brokershark` se ainda não houve este mês (`should_backup`, mantém 12 arquivos). Falhas nunca propagam — `PermissionError`/`OSError` → `False` silencioso (HDD desmontado).
-- **Relatório semanal** (seg, 08:00): despesas, receita, top categoria, reservas, vencimento de faturas.
-- **Fechamento mensal** (1º, 08:00): breakdown completo do mês anterior.
+- **Tiers disjuntos** no mesmo dir (`/mnt/HDD_Arquivos/Backups/brokershark`): diário `brokershark_YYYY-MM-DD.db` (retém 14) + mensal `brokershark_YYYY-MM.db` (retém 12). Globs estritos por tier — prune de um nunca conta/apaga o outro. Mensal keyed em **ausência do arquivo** (não em "hoje é dia 1º") → catch-up tardio ainda gera o snapshot do mês.
+- **`run_backup` é tri-state** (`created|skipped|failed`): o entrypoint sai ≠0 só em falha REAL (visível em `systemctl --user --failed` + alerta de desktop via `OnFailure=brokershark-backup-alert.service`); skip do mesmo dia não alarma. Booleano não distingue os dois — foi assim que falhas ficaram silenciosas no passado.
+- **3 janelas/dia = retry de HDD desmontado:** `Persistent=true` repõe execuções **perdidas** (PC desligado), nunca execuções **falhadas** — 13h/19h cobrem o HDD fora do ar às 07h. Idempotente (1 snapshot/dia).
+- **Escrita atômica:** `.tmp` + integrity-check + `os.replace` — snapshot falho nunca destrói o último bom.
+- **Pós-import:** confirmar/desfazer um import refresca o snapshot do dia em background (`request_post_import_snapshot`, single-flight) — o trabalho de categorização do dia fica no máximo um import atrás.
+- **Restore:** `deploy/restore.sh` (para o serviço, restaura com verificação + sidecar `.pre-restore`, religa). Nunca chamar `restore_backup` com o dashboard no ar.
 
 ---
 
@@ -214,38 +186,34 @@ Migrando p/ systemd user timers (`Persistent=true`). O período do relatório/fe
 
 - **Type hints obrigatórias** em toda assinatura (verificadas por mypy).
 - **Todo SQL via `core/database.py`** — sem SQL inline em outro lugar.
-- **Bot nunca escreve direto no DB** — dado validado antes do INSERT.
 - `PRAGMA journal_mode=WAL` + `PRAGMA foreign_keys=ON` no connect.
-- Dashboard roda em daemon thread — nunca bloquear o event loop.
-- **Auth check primeiro** em todo handler do Telegram (chat_id, fail-closed).
-- **Health Stack (antes de commitar):** `ruff check backend tests` + `mypy` + `pytest` verdes. Config em `pyproject.toml` (ruff = E/F/B; mypy estrito em `core/`, relaxado nas bordas de framework em `dashboard.server`/`bot.handlers.*`).
+- `main.py` **bloqueia em foreground** (`waitress.serve`) e sai ≠0 em ambiente inválido — é o systemd (`Restart=on-failure`) que reage, não o processo.
+- **Health Stack (antes de commitar):** `ruff check backend tests` + `mypy` + `pytest` verdes. Config em `pyproject.toml` (ruff = E/F/B; mypy estrito em `core/`, relaxado na borda de framework em `dashboard.server`).
 
 ---
 
 ## Configuration (`.env`)
 
 ```env
-TELEGRAM_TOKEN=seu_token_aqui
-TELEGRAM_CHAT_ID=seu_chat_id_aqui
-DB_PATH=/home/SEU_USUARIO/brokershark/data/brokershark.db
+DB_PATH=/home/SEU_USUARIO/brokershark/data/brokershark.db   # ABSOLUTO — relativo depende do cwd
 DASHBOARD_PORT=8080
-OLLAMA_URL=http://localhost:11434
-OLLAMA_MODEL=qwen2.5:7b
-OLLAMA_TIMEOUT=60
+OWNER_SELF_KEYWORDS=seu nome completo,fragmento-cpf         # detecta auto-Pix/TED (SELF)
 ```
 
-> `LOCAL_BACKUP_DIR` é hardcoded em `config.py` (`/mnt/HDD_Arquivos/Backups/brokershark`).
+> `LOCAL_BACKUP_DIR` (`/mnt/HDD_Arquivos/Backups/brokershark`) e as retenções (14 diários / 12 mensais) são hardcoded em `config.py`. `validate()` fail-fasta em `DB_PATH` inutilizável (resolvido p/ absoluto e logado).
 
 ---
 
 ## Running Locally
 
+Produção local = systemd (ver `deploy/README.md`): `brokershark-dashboard.service` sempre ativo + `brokershark-backup.timer`. Para desenvolvimento, rodar em foreground:
+
 ```bash
-cp .env.example .env   # preencher credenciais
+cp .env.example .env   # preencher DB_PATH (absoluto)
 source .venv/bin/activate.fish
 pip install -r requirements.txt
 python backend/main.py
-# Dashboard at http://localhost:8080
+# Dashboard at http://localhost:8080  (parar o serviço antes, ou usar outra DASHBOARD_PORT)
 ```
 
 ---

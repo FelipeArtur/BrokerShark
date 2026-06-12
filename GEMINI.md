@@ -15,9 +15,9 @@ Ferramenta pessoal de análise de dinheiro, 100% local (Linux, 1 usuário). Perg
 - **Histórico / Análise** — meses com dados, métricas, fluxo 6m, investimentos, categorias, Top PIX, tabela filtrável.
 - **Investimentos** — donut + posições editáveis + "+ Movimento".
 
-**Apoio:** Telegram (**somente consulta + notificações**; não escreve), import CSV mensal pela web, chat de IA local. SQLite = fonte única; backup mensal local (HDD).
+**Apoio:** import mensal de extratos/faturas (CSV) e posições B3 (xlsx) pela web. SQLite = fonte única; backup local diário+mensal (HDD).
 
-> **Regra de ouro:** toda escrita é pela web. Telegram lê e notifica — nunca escreve.
+> **Regra de ouro:** toda escrita é pela web — não existe outro caminho (Telegram bot e IA local removidos em 2026-06-11; produto é web-only).
 
 > **North star:** fácil de alimentar + extremamente confiável. Registro = **import de extratos/faturas em lote** com resumo editável antes de confirmar; correções na web = alinhamento de valores. Re-import semanal só acrescenta a cauda nova (dedup).
 
@@ -33,14 +33,12 @@ User (web form / CSV import — único caminho de escrita)
 core/database.py — INSERT (SQLite)
       ↓
 core/events.notify() — SSE push ao browser (< 1s)
-
-Telegram = somente leitura (consulta + notificações)
 ```
 
-- **SQLite = fonte única.** Sem write-back externo. Toda escrita pela web; Telegram read-only.
-- **AI Pierre-inspired** (Telegram only): tool calling, nunca fabrica dado. **7 tools, todas de leitura** — sem `register_*`/`confirm`/`cancel`. Pedido de registro → prompt redireciona pra web.
+- **SQLite = fonte única.** Sem write-back externo. Toda escrita pela web.
 - **CSV import via web** ("+ Importar" → preview/staging → confirm; dedup UUID/hash). Pipeline `backend/core/ingestion/`. Fontes: `nu-db`, `inter-db`, `inter-cc`. Importados entram com `category_id=NULL`; **categorização manual no Histórico** (filtro "Sem categoria" + inline → `PATCH /api/transactions/<id>`).
-- **Runtime (alvo):** híbrido — dashboard+bot sob demanda (launcher); jobs (backup/semanal/fechamento) como **systemd user timers** (`Persistent=true`, catch-up no boot, exige `loginctl enable-linger`). APScheduler aposentado. Backup via **API SQLite** (`conn.backup()`, WAL-safe), não `shutil.copy2`. Hoje: processo único.
+- **Runtime: always-on** — dashboard como serviço systemd de usuário (`brokershark-dashboard.service`, `Restart=on-failure`, `main.py` bloqueia em foreground) + backup como timer (`brokershark-backup.timer`, 07/13/19h, `Persistent=true`). Exige `loginctl enable-linger`. Backup via **API SQLite** (`conn.backup()`, WAL-safe). `deploy/brokershark.sh` = atalho de browser; restore via `deploy/restore.sh` (para o serviço antes). Ver `deploy/README.md`.
+- **Segurança de rede:** bind `127.0.0.1` + guard Host/Origin em `server.py` (DNS-rebinding/CSRF) — API sem auth, guard é load-bearing.
 
 ---
 
@@ -49,14 +47,15 @@ Telegram = somente leitura (consulta + notificações)
 ```
 backend/
   main.py, config.py, bootstrap.py
-  core/  database.py (shim), events.py, backup.py,
+  core/  database.py (shim), events.py, backup.py (snapshots diário+mensal, tri-state),
          db/ (schema, crud, analytics, categories), ingestion/ (adapters, dedup, service, b3)
-  jobs/  backup, weekly_report, monthly_closing (python -m)
-  integrations/ollama.py | dashboard/server.py
-  bot/   application.py, constants.py, utils.py, reports.py, handlers/ (commands, ai_chat)
+  jobs/backup.py  (python -m, entrypoint do timer)
+  dashboard/server.py
 frontend/js/  api.js, primitives.js, view-overview.js, view-history.js, view-investments.js, app.js
-deploy/  systemd/*, brokershark.sh, README.md
-tests/   test_database, test_ingestion, test_ai_chat, test_b3, test_backup, test_server_writes
+deploy/  systemd/* (dashboard.service, backup.{service,timer}, backup-alert.service),
+         brokershark.sh, restore.sh, README.md
+tests/   test_database, test_ingestion, test_b3, test_backup, test_jobs, test_delete,
+         test_faturas, test_import_batch, test_investments, test_server_writes
 ```
 
 ---
@@ -66,14 +65,12 @@ tests/   test_database, test_ingestion, test_ai_chat, test_b3, test_backup, test
 | Component | Technology |
 |---|---|
 | Language | Python 3.14 (venv); código 3.12+ |
-| Bot | python-telegram-bot v21 |
 | Database | SQLite (WAL mode) |
-| Backup | local HDD copy (mensal) |
-| Scheduler | **systemd user timers** (`Persistent`) via `backend/jobs/*`; APScheduler aposentado |
-| Dashboard API | Flask 3.1 + Waitress 3.0 (32 threads) |
+| Backup | snapshots locais HDD — diário (retém 14) + mensal (retém 12), WAL-safe |
+| Scheduler | **systemd user units** (`Persistent`) — dashboard.service + backup.timer |
+| Dashboard API | Flask 3.1 + Waitress 3.0 (32 threads, foreground/systemd) |
 | Frontend | React 18 + Babel standalone, Chart.js |
 | Real-time | SSE via `events.py` |
-| AI | Ollama `qwen2.5:7b` (ROCm, RX 6600M) |
 
 ---
 
@@ -110,14 +107,6 @@ budgets (id, category_id, amount_limit)
 
 ---
 
-## AI Architecture (Pierre-inspired)
-
-`backend/bot/handlers/ai_chat.py` — **Telegram only, somente consulta** (sem IA na web): tool calling via prompt (não native API — qwen2.5:7b). MAX_ROUNDS=3, persona "BrokerShark". Tools (7, leitura): `get_monthly_summary`, `get_monthly_comparison`, `get_expenses_by_category`, `get_account_balances`, `get_investments`, `get_recent_transactions`, `get_budgets`. Tools de escrita removidas.
-
-> **ROADMAP — IA conversacional (proposta, NÃO implementada):** o `qwen2.5:7b` via parsing manual de JSON (`ai_chat.py` decide tool vs. texto por `startswith("{")`, sem campo `tools`) é frágil e propenso a quebra de loop; falta `keep_alive` (cold-load). "Hermes" tem **dois sentidos** (ambos Nous Research): **(A) modelo** `Hermes-3-Llama-3.1-8B` + **tool-calling nativo do Ollama** — mudança mínima, mantém o bot read-only-por-construção, **recomendada**; **(B) framework Hermes Agent** (MIT) — gateway multi-canal + memória persistente + tools via MCP, mas **não é read-only por padrão** (exige sandbox/allowlist) e roda **always-on** (contraria o on-demand). Diagnóstico + trade-offs completos em [`CLAUDE.md`](./CLAUDE.md#ia-conversacional-telegram--diagnóstico--proposta-hermes).
-
----
-
 ## Dashboard API (resumo)
 
 Escrita (validada no servidor): `POST /api/transactions` (despesa), `POST /api/incomes` (receita/transferência), `POST /api/investment-movements`, `PATCH /api/transactions/<id>` (category_id/display_name/is_third_party/fatura_due), `PATCH /api/budgets/<id>`, `DELETE /api/transactions/<id>` (409 fatura), `POST /api/transactions/restore`. Import: `POST /api/import/preview` (múltiplos `file` da mesma conta), `GET /api/import/staging/<batch_id>`, `PATCH /api/import/staging/<batch_id>/<row_id>` (edita preview → `amount_divergence`), `POST /api/import/confirm` (recebe/ecoa `import_batch_id`), `DELETE /api/import/batch/<id>` (reverte o lote).
@@ -141,9 +130,8 @@ Navegação: **Visão do Mês** (`OverviewView`), **Histórico** (`HistoryView`)
 - **Todo SQL via `core/database.py`** — sem SQL inline.
 - **Type hints obrigatórias** — verificadas por mypy. Health Stack: `ruff` + `mypy` + `pytest` verdes antes de commitar (`pyproject.toml`, mypy estrito em `core/`).
 - `PRAGMA journal_mode=WAL` + `PRAGMA foreign_keys=ON` no connect.
-- **Bot nunca escreve direto no DB**; dado validado antes do INSERT. **Auth check primeiro** em todo handler (chat_id).
-- Backup failures silent (logged, never raised). Dashboard em daemon thread, nunca bloqueia event loop.
-- `ollama.py` = cliente HTTP puro (sem lógica de negócio/prompt).
+- Backup/restore nunca propagam exceção (logado + valor de retorno). `run_backup` é **tri-state** (`created|skipped|failed`) — o job sai ≠0 só em falha REAL (→ alerta via `OnFailure`).
+- `main.py` bloqueia em foreground (`waitress.serve`) e sai ≠0 em ambiente inválido — systemd (`Restart=on-failure`) reage.
 - **B3 ingestion:** `core/ingestion/b3.py` → `investments` (snapshot, upsert por nome; Renda Fixa = valor CURVA, Tesouro = Valor líquido). Memória (sem zip-slip), cap de tamanho, sem XXE.
 
 ---
@@ -151,22 +139,20 @@ Navegação: **Visão do Mês** (`OverviewView`), **Histórico** (`HistoryView`)
 ## Configuration (`.env`)
 
 ```env
-TELEGRAM_TOKEN=seu_token_aqui
-TELEGRAM_CHAT_ID=seu_chat_id_aqui
-DB_PATH=/home/SEU_USUARIO/brokershark/data/brokershark.db
+DB_PATH=/home/SEU_USUARIO/brokershark/data/brokershark.db   # ABSOLUTO
 DASHBOARD_PORT=8080
-OLLAMA_URL=http://localhost:11434
-OLLAMA_MODEL=qwen2.5:7b
-OLLAMA_TIMEOUT=60
+OWNER_SELF_KEYWORDS=seu nome completo,fragmento-cpf
 ```
-> `LOCAL_BACKUP_DIR` é hardcoded em `config.py`.
+> `LOCAL_BACKUP_DIR` e retenções (14/12) hardcoded em `config.py`. `validate()` fail-fasta em `DB_PATH` inutilizável.
 
 ---
 
 ## Running
 
+Produção local = systemd (ver `deploy/README.md`). Dev em foreground:
+
 ```bash
 source .venv/bin/activate.fish
 python backend/main.py
-# Dashboard at http://localhost:8080
+# Dashboard at http://localhost:8080  (parar o serviço antes, ou outra DASHBOARD_PORT)
 ```
