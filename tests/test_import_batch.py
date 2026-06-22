@@ -2,8 +2,7 @@
 
 confirm_staging_batch tags every inserted row with a shared import_batch_id so a
 whole import (possibly several per-account staging batches) is reversible in one
-shot via delete_batch — which, unlike per-row delete, deliberately removes the
-fatura-total rows that the per-row 409 guard protects and that the Histórico hides.
+shot via delete_batch.
 """
 import sqlite3
 

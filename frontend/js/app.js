@@ -501,7 +501,6 @@ function ImportModal({ onClose, onDone }) {
   const BANKS = [
     { id: "nu-db",    label: names["nu-db"]    || "Nubank" },
     { id: "inter-db", label: names["inter-db"] || "Inter" },
-    { id: "inter-cc", label: names["inter-cc"] || "Inter CC" },
   ];
   const accLabel = id => (BANKS.find(b => b.id === id) || {}).label || id;
   const uuid = () => (window.crypto && crypto.randomUUID)
@@ -799,13 +798,9 @@ function ImportModal({ onClose, onDone }) {
 function ConfirmDeleteModal({ tx, onCancel, onConfirm }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   const desc = tx.display_name || tx.description || "";
-  const m = /\((\d+)\/(\d+)\)\s*$/.exec(tx.description || "");
-  const isParcela = !!m;
-  const nParcelas = isParcela ? Number(m[2]) : 0;
   const isSelf = tx.counterpart === "SELF";
 
   const warnings = [];
-  if (isParcela) warnings.push(`Faz parte de uma compra parcelada — todas as ${nParcelas} parcelas serão excluídas.`);
   if (isSelf) warnings.push("É uma transferência entre suas contas — os dois lançamentos do par serão excluídos.");
 
   return h(Modal, { open: true, onClose: onCancel, title: "Excluir lançamento?", width: 440 },
@@ -897,9 +892,9 @@ function App() {
   }, []);
 
   // Delete path: gated by an explicit confirmation (setConfirmDelete) — no undo.
-  // The server still cascades installment groups / auto-transfer pairs and reverts
-  // investment balances; here we just notify the result. Used by the editor modal
-  // and the row actions, both routed through the confirmation dialog.
+  // The server still cascades auto-transfer (SELF) pairs and reverts investment
+  // balances; here we just notify the result. Used by the editor modal and the
+  // row actions, both routed through the confirmation dialog.
   async function handleDeleteTx(id) {
     try {
       const res = await deleteTransaction(id);

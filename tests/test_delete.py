@@ -1,8 +1,8 @@
 """Tests for safe transaction deletion: integrity-linked groups + reliable restore.
 
 delete_transaction returns an opaque restore payload; restore_transactions replays
-it. Deletion cascades to installment groups, auto-transfer pairs, and reverts
-investment current_balance; fatura payments stay protected.
+it. Deletion cascades to auto-transfer (SELF) pairs and reverts investment
+current_balance.
 """
 import pytest
 
@@ -34,11 +34,27 @@ def test_restore_empty_payload_noop(db):
     assert crud.restore_transactions({"transactions": []}) == 0
 
 
-# ── fatura payment stays protected ──────────────────────────────────────────
+# ── auto-transfer (SELF) pair: deleting one leg removes both ─────────────────
 
-# ── installment group cascades ──────────────────────────────────────────────
+def test_self_transfer_pair_cascade_delete_and_restore(db):
+    """Load-bearing invariant (CLAUDE.md): deleting one leg of a SELF auto-transfer
+    removes both legs together, and restore replays the pair. The checking-only
+    pivot left this implementation (`_self_transfer_partner`) without a test."""
+    from core.db import crud
+    out_id = _add(flow="expense", method="transfer", counterpart="SELF",
+                  amount=100.0, date="2026-05-01", description="Pix enviado: Joao")
+    in_id = _add(flow="income", method="pix", counterpart="SELF",
+                 amount=100.0, date="2026-05-01", description="Pix recebido: Joao")
+    assert _count(db) == 2
 
-# ── auto-transfer pair cascades ─────────────────────────────────────────────
+    payload = crud.delete_transaction(out_id)
+    assert payload is not None
+    assert {t["id"] for t in payload["transactions"]} == {out_id, in_id}
+    assert _count(db) == 0  # both legs gone, not just the one targeted
+
+    assert crud.restore_transactions(payload) == 2
+    assert _count(db) == 2
+
 
 # ── investment leg reverts + restores current_balance ───────────────────────
 

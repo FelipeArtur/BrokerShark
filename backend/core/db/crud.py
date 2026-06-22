@@ -1,8 +1,6 @@
 """Insert, update, and delete operations for all tables."""
 from __future__ import annotations
 
-import calendar
-import re
 import sqlite3
 from datetime import datetime, timedelta
 from typing import Any, Iterable, Optional
@@ -237,10 +235,8 @@ def delete_batch(import_batch_id: str) -> dict:
     This is the deliberate counterpart to :func:`delete_transaction`'s per-row guard.
     delete_batch removes the entire tagged set.
 
-    Installment groups all share the tag (imported card rows are single rows anyway),
-    so they go together by definition. Any modal-style investment legs revert
-    ``current_balance`` (imported rows use a different description format and normally
-    have no delta — the check is defensive).
+    Any modal-style investment legs revert ``current_balance`` (imported rows use a
+    different description format and normally have no delta — the check is defensive).
 
     Returns ``{"deleted": int, "transactions": [...], "investment_deltas": [...]}``;
     the last two form a restore payload :func:`restore_transactions` can replay.

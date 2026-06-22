@@ -537,7 +537,7 @@ def api_cashflow_statement() -> Response:
 
     Returns:
         JSON with ``month``, ``year``, ``label``, ``income_total``, ``expense_total``,
-        ``expense_by_source``, ``investment_net``, ``free_balance``, ``cc_by_category``.
+        ``investment_net``, ``free_balance``.
         Always returns 200 — zeros when no data exist for the requested period.
     """
     now   = datetime.now()
@@ -612,7 +612,7 @@ def api_post_transaction() -> Response:
     """Insert an expense transaction from the web quick-entry form.
 
     Request body (JSON):
-        account_id:    str   — e.g. "nu-cc"
+        account_id:    str   — "nu-db" | "inter-db"
         method:        str   — "credit" | "pix" | "ted"
         amount:        float — positive value
         description:   str
@@ -641,8 +641,9 @@ def api_post_transaction() -> Response:
     if not date_str:
         return jsonify({"error": "date required"}), 400
 
-    tx_id = database.insert_expense(
+    tx_id = database.insert_transaction(
         date=date_str,
+        flow="expense",
         method=method,
         account_id=account_id,
         amount=float(amount),
@@ -857,7 +858,7 @@ def api_import_preview() -> Response:
 
     Multipart form:
         file:       one or more uploaded CSVs (repeat the field for a multi-file batch).
-        account_id: target account (``nu-db`` | ``inter-db`` | ``inter-cc``).
+        account_id: target account (``nu-db`` | ``inter-db``).
 
     Returns:
         ``{batch_id, source, account_id, counts:{…}, amount_divergence, rows:[…]}``.

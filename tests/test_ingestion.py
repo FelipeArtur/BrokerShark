@@ -25,13 +25,6 @@ INTER_EXTRATO = (
     "31/10/2025;Pix enviado: Maria;-15,00;85,00\n"
 ).encode("utf-8")
 
-INTER_FATURA = (
-    '"Data","Lançamento","Categoria","Tipo","Valor"\n'
-    '"25/05/2026","GarfoDeOuro SALVADOR","SUPERMERCADO","Compra à vista","R$ 9,50"\n'
-    '"25/05/2026","PAGAMENTO ON LINE","OUTROS","Compra à vista","R$ 1.830,62"\n'
-).encode("utf-8")
-
-
 # ── parse_money ───────────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("raw,expected", [
@@ -130,7 +123,7 @@ def test_inter_porquinho_and_estorno_are_investment():
 def test_source_mismatch_rejected():
     from core.ingestion import adapters
     with pytest.raises(adapters.SourceMismatch):
-        adapters.parse("inter-cc", NUBANK_EXTRATO)  # wrong file for the account
+        adapters.parse("inter-db", NUBANK_EXTRATO)  # wrong file for the account
 
 
 # ── Dedup classification (pure) ───────────────────────────────────────────────

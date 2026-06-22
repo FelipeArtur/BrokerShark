@@ -45,9 +45,32 @@ def test_income_invalid_type_rejected(client):
     assert resp.status_code == 400
 
 
+def test_expense_post_creates_transaction(client):
+    """Regression: POST /api/transactions must persist an expense. The
+    checking-only pivot renamed crud.insert_expense → insert_transaction but left
+    the call site calling the old name, so this endpoint 500'd with no test to catch it."""
+    from core.db import analytics
+
+    resp = client.post("/api/transactions", json={
+        "account_id": "nu-db", "method": "pix",
+        "amount": 50.0, "date": "2026-05-01", "description": "Padaria", "category_id": 1,
+    })
+    assert resp.status_code == 200
+    assert resp.get_json()["id"] > 0
+    assert analytics.get_monthly_summary(2026, 5)["expenses"] == 50.0
+
+
 def test_expense_invalid_method_rejected(client):
     resp = client.post("/api/transactions", json={
-        "account_id": "nu-cc", "method": "bogus",
+        "account_id": "nu-db", "method": "bogus",
+        "amount": 50.0, "date": "2026-05-01", "description": "x", "category_id": 1,
+    })
+    assert resp.status_code == 400
+
+
+def test_expense_invalid_account_rejected(client):
+    resp = client.post("/api/transactions", json={
+        "account_id": "nu-cc", "method": "pix",
         "amount": 50.0, "date": "2026-05-01", "description": "x", "category_id": 1,
     })
     assert resp.status_code == 400
@@ -108,7 +131,4 @@ def test_import_staging_edit_rejects_unknown_category(client):
         json={"category_id": 999999},
     )
     assert resp.status_code == 400
-
-
-# ── fatura_due membership via PATCH ────────────────────────────────────────────
 

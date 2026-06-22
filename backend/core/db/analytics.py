@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import calendar
 import sqlite3
-from datetime import date, datetime, timedelta
+from datetime import date
 from typing import Optional
 
 
@@ -557,11 +557,10 @@ def get_patrimonio_history(months: int = 12) -> list[dict]:
     """Return approximate monthly net worth for the last N months, oldest first.
 
     Note: this computes a *different* point-in-time checking series than
-    ``_checking_balance_at`` (used by the liquidity sparkline). Here CC fatura
-    payments are counted as cash outflow (``dest IN ('nu-cc','inter-cc')``) and
-    third-party rows are excluded, because this is the net-worth view. The
-    liquidity series instead mirrors the live ``get_all_accounts_with_balance``
-    formula. The two are intentionally distinct; do not unify them.
+    ``_checking_balance_at`` (used by the liquidity sparkline). Here third-party
+    rows are excluded, because this is the net-worth view. The liquidity series
+    instead mirrors the live ``get_all_accounts_with_balance`` formula. The two
+    are intentionally distinct; do not unify them.
     """
     today_dt = date.today()
     result = []
@@ -591,8 +590,7 @@ def get_patrimonio_history(months: int = 12) -> list[dict]:
                          COALESCE(SUM(CASE WHEN flow='income' AND dest_account_id IS NULL AND COALESCE(is_third_party,0)=0 THEN amount ELSE 0 END), 0)
                        - COALESCE(SUM(CASE WHEN flow='expense'
                                           AND COALESCE(is_third_party,0)=0
-                                          AND (dest_account_id IS NULL
-                                               OR dest_account_id IN ('nu-cc','inter-cc'))
+                                          AND dest_account_id IS NULL
                                      THEN amount ELSE 0 END), 0)
                        AS net
                        FROM transactions WHERE account_id=? AND date <= ?""",
@@ -660,7 +658,6 @@ def get_liquidity_history(months: int = 12) -> list[dict]:
 
             last_day = calendar.monthrange(y, m)[1]
             cutoff = f"{y:04d}-{m:02d}-{last_day:02d}"
-            start  = f"{y:04d}-{m:02d}-01"
 
             checking_bal = sum(
                 _checking_balance_at(conn, acc["id"], acc["bank"], acc["initial_balance"], cutoff)
@@ -820,18 +817,14 @@ def get_cashflow_statement(month: int, year: int) -> dict:
     with _connect() as conn:
         row = conn.execute(
             """SELECT
-                 SUM(CASE WHEN flow='income' AND is_revenue=1 AND COALESCE(is_third_party,0)=0                                  THEN amount ELSE 0 END) AS income_total,
-                 SUM(CASE WHEN flow='expense' AND dest_account_id IS NULL AND method != 'transfer' AND COALESCE(is_third_party,0)=0
-                          AND account_id IN ('nu-cc','inter-cc')                                                                 THEN amount ELSE 0 END) AS cc_expenses,
-                 SUM(CASE WHEN flow='expense' AND dest_account_id IS NULL AND method != 'transfer' AND COALESCE(is_third_party,0)=0
-                          AND account_id IN ('nu-db','inter-db')                                                                 THEN amount ELSE 0 END) AS direct_expenses
+                 SUM(CASE WHEN flow='income' AND is_revenue=1 AND COALESCE(is_third_party,0)=0 THEN amount ELSE 0 END) AS income_total,
+                 SUM(CASE WHEN flow='expense' AND dest_account_id IS NULL AND method != 'transfer' AND COALESCE(is_third_party,0)=0 THEN amount ELSE 0 END) AS expense_total
                FROM transactions
                WHERE date BETWEEN ? AND ?""",
             (first_day, last_day),
         ).fetchone()
-        income_total    = float(row["income_total"] or 0)
-        cc_expenses     = float(row["cc_expenses"] or 0)
-        direct_expenses = float(row["direct_expenses"] or 0)
+        income_total  = float(row["income_total"] or 0)
+        expense_total = float(row["expense_total"] or 0)
 
         # Investment cash flow lives in the transactions ledger, not investment_movements:
         # "Aplicação RDB"/Caixinha/Porquinho apply legs are imported as flow='expense',
@@ -857,49 +850,14 @@ def get_cashflow_statement(month: int, year: int) -> dict:
         investment_withdrawals = float(inv_row["redeemed"] or 0)
         investment_net         = investment_deposits - investment_withdrawals
 
-        cat_rows = conn.execute(
-            """SELECT COALESCE(c.name, 'Sem categoria') AS category, SUM(t.amount) AS total
-               FROM transactions t
-               LEFT JOIN categories c ON t.category_id = c.id
-               WHERE t.flow = 'expense'
-                 AND t.dest_account_id IS NULL
-                 AND COALESCE(t.is_third_party,0)=0
-                 AND t.account_id IN ('nu-cc', 'inter-cc')
-                 AND t.date BETWEEN ? AND ?
-               GROUP BY c.id
-               ORDER BY total DESC""",
-            (first_day, last_day),
-        ).fetchall()
-
-    expense_total = cc_expenses + direct_expenses
-
-    cc_rows = [{"category": r["category"], "amount": float(r["total"])} for r in cat_rows]
-    cc_by_category: list[dict] = []
-    if cc_rows and cc_expenses > 0:
-        for r in cc_rows[:3]:
-            cc_by_category.append({
-                "category": r["category"],
-                "amount":   r["amount"],
-                "pct":      round(r["amount"] / cc_expenses * 100, 1),
-            })
-        outros = sum(r["amount"] for r in cc_rows[3:])
-        if outros > 0:
-            cc_by_category.append({
-                "category": "Outros",
-                "amount":   outros,
-                "pct":      round(outros / cc_expenses * 100, 1),
-            })
-
     return {
-        "month":             month,
-        "year":              year,
-        "label":             label,
-        "income_total":      income_total,
-        "expense_total":     expense_total,
-        "expense_by_source": {"cc": cc_expenses, "direct": direct_expenses},
-        "investment_net":    investment_net,
-        "free_balance":      income_total - expense_total - investment_net,
-        "cc_by_category":    cc_by_category,
+        "month":          month,
+        "year":           year,
+        "label":          label,
+        "income_total":   income_total,
+        "expense_total":  expense_total,
+        "investment_net": investment_net,
+        "free_balance":   income_total - expense_total - investment_net,
     }
 
 

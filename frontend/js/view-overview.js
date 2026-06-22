@@ -255,7 +255,7 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
             h("div", { style: { fontSize: 11, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700, marginBottom: 8 } }, "Despesas"),
             h(BreakdownPopover, {
               items: [
-                { label: "Gastos em Conta (Débito/PIX/TED)", value: cashflow.expense_by_source ? cashflow.expense_by_source.direct : cashflow.expense_total, negative: true }
+                { label: "Gastos em Conta (Débito/PIX/TED)", value: cashflow.expense_total, negative: true }
               ],
               totalLabel: "Total Despesas",
               totalValue: -displayExpense
