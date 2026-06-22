@@ -55,7 +55,7 @@ frontend/js/  api.js, primitives.js, view-overview.js, view-history.js, view-inv
 deploy/  systemd/* (dashboard.service, backup.{service,timer}, backup-alert.service),
          brokershark.sh, restore.sh, README.md
 tests/   test_database, test_ingestion, test_b3, test_backup, test_jobs, test_delete,
-         test_faturas, test_import_batch, test_investments, test_server_writes
+         test_import_batch, test_investments, test_server_writes
 ```
 
 ---

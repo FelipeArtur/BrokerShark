@@ -21,7 +21,7 @@ BrokerShark é uma **ferramenta pessoal de análise de dinheiro**, 100% local (L
 - **Histórico / Análise** — timeline dos meses com lançamentos, métricas mensais, fluxo 6m, investimentos, por categoria, Top PIX, tabela filtrável.
 - **Investimentos** — donut + posições editáveis + "+ Movimento".
 
-**Apoio (não é o centro):** importação mensal de extratos/faturas (CSV) e posições B3 (xlsx) pela web.
+**Apoio (não é o centro):** importação mensal de extratos (CSV) e posições B3 (xlsx) pela web.
 
 > **Regra de ouro:** todo registro e edição acontece **exclusivamente na web**. Não existe outro caminho de escrita (Telegram bot e IA local foram removidos em 2026-06-11 — produto é web-only; diagnóstico/proposta Hermes arquivados no `git log`).
 
@@ -51,7 +51,7 @@ frontend/
 deploy/  systemd/* (dashboard.service, backup.{service,timer}, backup-alert.service),
          brokershark.sh (atalho de browser), restore.sh, README.md
 tests/   test_database, test_ingestion, test_b3, test_backup, test_jobs, test_delete,
-         test_faturas, test_import_batch, test_investments, test_server_writes
+         test_import_batch, test_investments, test_server_writes
 ```
 
 ---
