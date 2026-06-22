@@ -82,3 +82,16 @@ Bind em `127.0.0.1` + guard de Host/Origin (DNS-rebinding/CSRF) em `server.py`.
 Always-on não muda a superfície de rede — só a janela temporal. Units com bloco de
 hardening (`NoNewPrivileges`, `ProtectSystem=full`, …). Sem segredos nas units; o
 `.env` (gitignored) só carrega `DB_PATH`/`DASHBOARD_PORT`.
+
+## 5. Git hook — Health Stack gate
+
+`deploy/hooks/pre-commit` roda `ruff` + `mypy` + `pytest` e **bloqueia o commit** se
+algo estiver vermelho (a regra "Health Stack antes de commitar" do `CLAUDE.md`,
+agora enforçada). Ativar numa nova clone:
+
+```bash
+git config core.hooksPath deploy/hooks
+```
+
+Bypass pontual (use com parcimônia): `git commit --no-verify`. O hook exige o
+`.venv` na raiz do repo.

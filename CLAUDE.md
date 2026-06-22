@@ -182,7 +182,7 @@ Um único job: **backup local mensal** (`core/backup.py`, entrypoint `jobs/backu
 - **Todo SQL via `core/database.py`** — sem SQL inline em outro lugar.
 - `PRAGMA journal_mode=WAL` + `PRAGMA foreign_keys=ON` no connect.
 - `main.py` **bloqueia em foreground** (`waitress.serve`) e sai ≠0 em ambiente inválido — é o systemd (`Restart=on-failure`) que reage, não o processo.
-- **Health Stack (antes de commitar):** `ruff check backend tests` + `mypy` + `pytest` verdes. Config em `pyproject.toml` (ruff = E/F/B; mypy estrito em `core/`, relaxado na borda de framework em `dashboard.server`).
+- **Health Stack (antes de commitar):** `ruff check backend tests` + `mypy` + `pytest` verdes. Config em `pyproject.toml` (ruff = E/F/B; mypy estrito em `core/`, relaxado na borda de framework em `dashboard.server`). **Enforçado** por hook versionado `deploy/hooks/pre-commit` (ligado via `git config core.hooksPath deploy/hooks`) — bloqueia o commit se algo estiver vermelho. Bypass pontual: `git commit --no-verify`. (Existe porque o pivot checking-only chegou a commitar um `POST /api/transactions` que dava 500 sem rodar o stack — `c2c467a`.)
 
 ---
 

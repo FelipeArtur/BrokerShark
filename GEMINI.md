@@ -124,7 +124,7 @@ Navegação: **Visão do Mês** (`OverviewView`), **Histórico** (`HistoryView`)
 ## Engineering Directives
 
 - **Todo SQL via `core/database.py`** — sem SQL inline.
-- **Type hints obrigatórias** — verificadas por mypy. Health Stack: `ruff` + `mypy` + `pytest` verdes antes de commitar (`pyproject.toml`, mypy estrito em `core/`).
+- **Type hints obrigatórias** — verificadas por mypy. Health Stack: `ruff` + `mypy` + `pytest` verdes antes de commitar (`pyproject.toml`, mypy estrito em `core/`). Enforçado pelo hook `deploy/hooks/pre-commit` (`git config core.hooksPath deploy/hooks`); bypass: `git commit --no-verify`.
 - `PRAGMA journal_mode=WAL` + `PRAGMA foreign_keys=ON` no connect.
 - Backup/restore nunca propagam exceção (logado + valor de retorno). `run_backup` é **tri-state** (`created|skipped|failed`) — o job sai ≠0 só em falha REAL (→ alerta via `OnFailure`).
 - `main.py` bloqueia em foreground (`waitress.serve`) e sai ≠0 em ambiente inválido — systemd (`Restart=on-failure`) reage.
