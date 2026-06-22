@@ -225,7 +225,7 @@ function CategoryEditor({ tx, onClose, onSave }) {
         h("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
           h("label", { style: { fontSize: 11, color: "var(--fg-2)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" } }, "Renomear Transação"),
           h("input", {
-            className: "input", type: "text",
+            className: "input", type: "text", maxLength: 100,
             placeholder: tx.description?.slice(0, 50) || "Ex: Almoço Padaria...",
             value: displayName,
             onChange: e => setDisplayName(e.target.value),
