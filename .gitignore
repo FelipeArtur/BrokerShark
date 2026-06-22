@@ -40,7 +40,8 @@ Thumbs.db
 
 # Agentes
 .agents/
-PRODUCT.md
+# docs/ = artefatos locais (PRODUCT.md tem dados pessoais) — fora do VCS
+docs/
 .gstack/
 .antigravitycli
 node_modules/
