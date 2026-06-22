@@ -12,9 +12,11 @@ const _INV_TYPE_LABEL = {
   lca:      "LCA / Renda fixa",
 };
 
+// Restrained cool ramp (blue → indigo → violet → teal), keyed to the brand's
+// cold-blue palette. Avoids the warm yellow/red rainbow that read "friendly".
 const _INV_COLORS = [
-  "oklch(72% 0.12 290)", "oklch(72% 0.13 230)", "oklch(72% 0.14 155)",
-  "oklch(74% 0.13 60)",  "oklch(70% 0.15 20)",  "oklch(72% 0.10 330)",
+  "oklch(72% 0.12 250)", "oklch(70% 0.13 290)", "oklch(74% 0.11 220)",
+  "oklch(68% 0.10 200)", "oklch(72% 0.12 312)", "oklch(66% 0.09 262)",
 ];
 
 /* Parse a BRL amount the way the backend parse_money does — so "1.000,50"
@@ -165,10 +167,10 @@ function InvestmentsView({ refreshKey, filterMonth }) {
     h("div", { style: { display: "grid", gridTemplateColumns: "1fr 1.5fr", gap: 32 } },
       
       // Left: Overview & Donut
-      h("div", { style: { background: "var(--bg-1)", padding: 32, borderRadius: 16, border: "1px solid var(--line-1)", display: "flex", flexDirection: "column", alignItems: "center", alignSelf: "start" } },
+      h("div", { className: "panel", style: { padding: 32, display: "flex", flexDirection: "column", alignItems: "center", alignSelf: "start" } },
         h("div", { style: { width: "100%", textAlign: "left" } },
           h("div", { style: { fontSize: 13, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700, marginBottom: 16 } }, "Total investido"),
-          h("div", { className: "num", style: { fontSize: 56, fontWeight: 800, letterSpacing: "-0.04em", color: "var(--fg-0)", lineHeight: 1 } }, fmtBRL(total))
+          h("div", { className: "num", style: { fontSize: 32, fontWeight: 800, letterSpacing: "-0.04em", color: "var(--fg-0)", lineHeight: 1 } }, fmtBRL(total))
         ),
         
         h("div", { style: { display: "flex", justifyContent: "center", marginTop: 40, marginBottom: 40 } },
@@ -189,7 +191,7 @@ function InvestmentsView({ refreshKey, filterMonth }) {
       ),
 
       // Right: Full Ledger
-      h("div", { style: { background: "var(--bg-1)", padding: 32, borderRadius: 16, border: "1px solid var(--line-1)", display: "flex", flexDirection: "column" } },
+      h("div", { className: "panel", style: { padding: 32, display: "flex", flexDirection: "column" } },
         h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", borderBottom: "1px solid var(--line-1)", paddingBottom: 16, marginBottom: 24 } },
           h("div", { style: { fontSize: 18, fontWeight: 700, color: "var(--fg-1)" } }, "Ativos em carteira")
         ),
@@ -225,7 +227,7 @@ function InvestmentsView({ refreshKey, filterMonth }) {
     h("div", { style: { display: "grid", gridTemplateColumns: displayedMovements.length > 0 ? "1fr 1.5fr" : "1fr", gap: 32, marginTop: 16 } },
       
       // Movimentos
-      displayedMovements.length > 0 && h("div", { style: { background: "var(--bg-1)", padding: 32, borderRadius: 16, border: "1px solid var(--line-1)", overflowX: "auto" } },
+      displayedMovements.length > 0 && h("div", { className: "panel", style: { padding: 32, overflowX: "auto" } },
         h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", borderBottom: "1px solid var(--line-1)", paddingBottom: 16, marginBottom: 24 } },
           h("div", { style: { fontSize: 18, fontWeight: 700, color: "var(--fg-1)" } }, "Histórico de Movimentos"),
           h("div", { className: "filter-pills" },
@@ -264,7 +266,7 @@ function InvestmentsView({ refreshKey, filterMonth }) {
       ),
 
       // Evolução chart
-      evolution.length > 0 && h("div", { style: { background: "var(--bg-1)", padding: 32, borderRadius: 16, border: "1px solid var(--line-1)" } },
+      evolution.length > 0 && h("div", { className: "panel", style: { padding: 32 } },
         h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", borderBottom: "1px solid var(--line-1)", paddingBottom: 16, marginBottom: 24 } },
           h("div", { style: { fontSize: 18, fontWeight: 700, color: "var(--fg-1)" } }, "Evolução do Patrimônio"),
           h("span", { style: { fontSize: 12, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700 } }, "12 meses")

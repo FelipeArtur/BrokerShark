@@ -128,7 +128,7 @@ function Donut({ data, size = 140, thickness = 18, valueKey = "balance", colors 
   _useEffect(() => {
     if (!canvasRef.current || !data || !data.length) return;
 
-    const COLORS = colors || ["oklch(72% 0.12 290)", "oklch(72% 0.13 230)", "oklch(72% 0.14 155)", "oklch(78% 0.13 75)", "oklch(68% 0.16 25)"];
+    const COLORS = colors || ["oklch(72% 0.12 250)", "oklch(70% 0.13 290)", "oklch(74% 0.11 220)", "oklch(68% 0.10 200)", "oklch(72% 0.12 312)"];
 
     if (chartRef.current) {
       if (chartRef.current.data.datasets[0].data.length === data.length) {

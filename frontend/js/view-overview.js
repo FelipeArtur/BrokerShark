@@ -217,8 +217,8 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
   return h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 20, flex: 1, height: "100%" } },
 
     // ── 1. THE MONTH AT A GLANCE (Hero Panel) ──
-    h("div", { style: { display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 24, background: "var(--bg-1)", padding: 32, borderRadius: 16, border: "1px solid var(--line-1)" } },
-      
+    h("div", { className: "panel", style: { display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 24, padding: 32 } },
+
       // Left: Disponível
       h("div", { style: { display: "flex", flexDirection: "column", justifyContent: "center" } },
         h("div", { style: { fontSize: 13, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700, marginBottom: 16 } }, "Disponível pra gastar"),
@@ -290,7 +290,7 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
     // real breakdown in the popover. The trend is the reconstructable 12-month series
     // (investments have no monthly history, so the sparkline conveys direction, and the
     // delta is within-series — honest month-over-month, not the old mixed comparison).
-    h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 24, background: "var(--bg-1)", padding: "20px 28px", borderRadius: 16, border: "1px solid var(--line-1)", flexShrink: 0 } },
+    h("div", { className: "panel", style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 24, padding: "20px 28px", flexShrink: 0 } },
       h("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
         h("div", { style: { fontSize: 13, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700 } }, "Patrimônio líquido global"),
         h(BreakdownPopover, {
@@ -311,7 +311,7 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
     ),
 
     // ── 3. POSIÇÃO DE CAIXA ──
-    h("div", { style: { background: "var(--bg-1)", padding: 24, borderRadius: 16, border: "1px solid var(--line-1)", display: "flex", flexDirection: "column", minHeight: 0 } },
+    h("div", { className: "panel", style: { padding: 24, display: "flex", flexDirection: "column", minHeight: 0 } },
       h("div", { style: { display: "flex", alignItems: "center", gap: 16, marginBottom: 20 } },
         h("div", { style: { fontSize: 13, fontWeight: 700, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em" } }, "Posição Atual (Disponível)"),
         h("div", { style: { height: 1, flex: 1, background: "var(--line-1)" } })
@@ -345,7 +345,7 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
       )
     ),
 
-    h("div", { style: { background: "var(--bg-1)", borderRadius: 16, border: "1px solid var(--line-1)", display: "flex", flexDirection: "column", overflow: "hidden" } },
+    h("div", { className: "panel", style: { display: "flex", flexDirection: "column", overflow: "hidden" } },
       
       // Inline Add Form (First Row)
       h("form", { onSubmit: handleAdd, style: { display: "flex", alignItems: "center", padding: "16px 24px", borderBottom: "1px solid var(--line-1)", background: "var(--bg-0)" } },

@@ -37,7 +37,7 @@
   --s-1: 2px; --s-2: 4px; --s-3: 6px; --s-4: 8px;
   --s-5: 12px; --s-6: 16px; --s-7: 20px; --s-8: 24px; --s-9: 32px;
 
-  --r-1: 4px; --r-2: 6px; --r-3: 8px; --r-4: 10px; --r-5: 14px;
+  --r-1: 4px; --r-2: 6px; --r-3: 8px; --r-4: 10px; --r-5: 14px; --r-6: 16px;
 
   --topbar-h: 52px;
   --sidebar-w: 320px;
@@ -138,6 +138,15 @@ select.select {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
 }
 .card-title { font-size: var(--fz-8); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-2); }
+
+/* Panel — the standard content container (de-facto card used across the views).
+   Single source of truth for the bg-1 + 1px line + 16px-radius surface; padding
+   and layout stay inline since they vary per block. */
+.panel {
+  background: var(--bg-1);
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-6);
+}
 
 .pane {
   background: var(--bg-0);
