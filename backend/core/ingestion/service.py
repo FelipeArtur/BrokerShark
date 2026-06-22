@@ -106,7 +106,6 @@ def confirm_import(
     batch_id: str,
     exclude_ids: Optional[Iterable[int]] = None,
     import_batch_id: Optional[str] = None,
-    fatura_due: Optional[str] = None,
 ) -> dict:
     """Promote a batch's 'new' rows to transactions and delete the batch.
 
@@ -125,4 +124,4 @@ def confirm_import(
     # All inserts + the batch delete happen atomically in one transaction
     # (crud.confirm_staging_batch), with a single SSE notify. Imports enter with
     # category_id=NULL — categorize later in the TransactionPanel.
-    return crud.confirm_staging_batch(batch_id, set(exclude_ids or ()), import_batch_id, fatura_due)
+    return crud.confirm_staging_batch(batch_id, set(exclude_ids or ()), import_batch_id)

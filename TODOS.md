@@ -34,5 +34,3 @@ from prior `(description → category_id)` pairs the user already set, or from
 - CP1 — inline category in import preview (revisit after living with editable preview).
 - CP4 — CSV source auto-detect (only if the per-file account picker proves annoying;
   carries a dedup-key risk note).
-- Fatura Nubank (`nu-cc`) import — format unknown; needs a sample export to write
-  the adapter (today only individual purchases imported historically).

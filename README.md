@@ -6,22 +6,20 @@ A local tool to **understand and analyze my money**. Runs 100% on Linux, account
 
 ## What it does
 
-- **Dinheiro** (home) — one honest hero number, **Disponível pra gastar** = checking balance − open credit-card bills. Around it: open faturas (with editable membership), a "this month" cash-flow summary, account balances, recent activity, and run-rate projections.
-- **Histórico** — monthly timeline, metrics with deltas, a 6-month cash-flow chart, spending by category, top PIX destinations, and a filterable transaction table with inline categorization. Clicking a credit card pivots to **fatura mode** (statements grouped by due date, the way the bank groups them).
+- **Dinheiro** (home) — one honest hero number, **Disponível pra gastar** = checking balance. Around it: a "this month" cash-flow summary, account balances, recent activity, and run-rate projections.
+- **Histórico** — monthly timeline, metrics with deltas, a 6-month cash-flow chart, spending by category, top PIX destinations, and a filterable transaction table with inline categorization.
 - **Investimentos** — donut chart, sum of current balances, editable positions, and movement tracking.
 
 Supporting roles (not the center):
 
-- **Monthly import** — bank statements and credit-card bills (CSV) plus B3 positions (xlsx), imported exclusively via the web. Multi-file drop, editable staging preview, deduplication against existing records, and a 5-second "Desfazer" that reverts the whole batch.
+- **Monthly import** — bank statements (CSV) plus B3 positions (xlsx), imported exclusively via the web. Multi-file drop, editable staging preview, deduplication against existing records, and a 5-second "Desfazer" that reverts the whole batch.
 - **Local-first** — SQLite is the single source of truth, SSE pushes live updates (< 1s), and a monthly backup (one snapshot per month, 12 kept, refreshed on every confirmed import) lands on a local HDD.
 
 ## Accounts
 
 | Account | Type | Bank |
 |---------|------|------|
-| `nu-cc` | Credit card | Nubank |
 | `nu-db` | Checking | Nubank |
-| `inter-cc` | Credit card | Inter |
 | `inter-db` | Checking | Inter |
 | Caixinha Nubank | Investment | Nubank |
 | Porquinho Inter | Investment | Inter |

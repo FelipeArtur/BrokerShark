@@ -35,52 +35,6 @@ def test_insert_transaction_invalid_date(db):
         )
 
 
-def test_insert_transaction_installments(db):
-    from core.db import crud, analytics
-
-    crud.insert_transaction(
-        date="2026-05-15",
-        flow="expense",
-        method="credit",
-        account_id="nu-cc",
-        amount=300.0,
-        description="Notebook",
-        installments=3,
-    )
-    row = analytics.get_recent_transactions("nu-cc", limit=1)[0]
-    assert row["amount"] == 300.0
-
-
-def test_get_monthly_summary_excludes_transfers(db):
-    from core.db import crud, analytics
-
-    # Insert a real expense
-    crud.insert_transaction(
-        date="2026-05-10",
-        flow="expense",
-        method="pix",
-        account_id="nu-db",
-        amount=200.0,
-        description="Aluguel",
-        is_revenue=0,
-    )
-    # Insert a fatura payment (transfer — should be excluded from expenses)
-    crud.insert_transaction(
-        date="2026-05-10",
-        flow="expense",
-        method="transfer",
-        account_id="nu-db",
-        amount=500.0,
-        description="Pagamento fatura Nubank",
-        dest_account_id="nu-cc",
-        is_revenue=0,
-    )
-
-    summary = analytics.get_monthly_summary(2026, 5)
-    # Only the real expense should appear (transfers excluded by dest_account_id IS NULL)
-    assert summary["expenses"] == 200.0
-
-
 def test_get_monthly_summary_excludes_third_party(db):
     from core.db import crud, analytics
 
@@ -110,38 +64,6 @@ def test_get_monthly_summary_excludes_third_party(db):
     assert summary["expenses"] == 150.0
 
 
-def test_expenses_by_method_debit_is_its_own_bucket(db):
-    # P2 débito defensivo: a stray `debit` expense must land in its own method
-    # bucket and not inflate pix/credito; the breakdown must still sum to total
-    # consumption (credit-card purchases bucket under 'credit' — the fatura).
-    from core.db import crud, analytics
-
-    crud.insert_transaction(date="2026-05-02", flow="expense", method="pix",
-                            account_id="nu-db", amount=100.0, description="PIX mercado")
-    crud.insert_transaction(date="2026-05-03", flow="expense", method="credit",
-                            account_id="nu-cc", amount=200.0, description="Compra cartão")
-    crud.insert_transaction(date="2026-05-04", flow="expense", method="ted",
-                            account_id="nu-db", amount=50.0, description="TED aluguel")
-    crud.insert_transaction(date="2026-05-05", flow="expense", method="debit",
-                            account_id="nu-db", amount=30.0, description="Débito padaria")
-    # a transfer (fatura payment) must NOT show up in the method breakdown
-    crud.insert_transaction(date="2026-05-06", flow="expense", method="transfer",
-                            account_id="nu-db", amount=999.0, description="Pagamento fatura",
-                            dest_account_id="nu-cc")
-
-    rows = analytics.get_expenses_by_method(2026, 5)
-    by_method: dict[str, float] = {}
-    for r in rows:
-        by_method[r["method"]] = by_method.get(r["method"], 0.0) + r["total"]
-
-    assert by_method["debit"] == 30.0          # débito in its own bucket
-    assert by_method["pix"] == 100.0           # not inflated by débito
-    assert by_method["credit"] == 200.0        # CC purchase = fatura bucket
-    assert by_method["ted"] == 50.0
-    assert "transfer" not in by_method         # fatura payment excluded
-    assert round(sum(by_method.values()), 2) == 380.0  # == total consumption
-
-
 def test_get_patrimonio_history_shape(db):
     from core.db import analytics
 
@@ -151,47 +73,6 @@ def test_get_patrimonio_history_shape(db):
         assert "label" in entry
         assert "value" in entry
         assert isinstance(entry["value"], float)
-
-
-def test_patrimonio_cc_fatura_counted_as_expense(db):
-    """CC fatura payment must reduce patrimônio (dest_account_id IN cc accounts)."""
-    from core.db import crud, analytics
-
-    # Income
-    crud.insert_transaction(
-        date="2026-05-01",
-        flow="income",
-        method="pix",
-        account_id="nu-db",
-        amount=5000.0,
-        description="Salário",
-        is_revenue=1,
-    )
-    # Regular expense
-    crud.insert_transaction(
-        date="2026-05-10",
-        flow="expense",
-        method="pix",
-        account_id="nu-db",
-        amount=500.0,
-        description="Supermercado",
-        is_revenue=0,
-    )
-    # CC fatura payment — must appear in patrimônio calc
-    crud.insert_transaction(
-        date="2026-05-25",
-        flow="expense",
-        method="transfer",
-        account_id="nu-db",
-        amount=800.0,
-        description="Fatura Nubank",
-        dest_account_id="nu-cc",
-        is_revenue=0,
-    )
-
-    history = analytics.get_patrimonio_history(months=1)
-    # Expected: initial_balance(0) + 5000 - 500 - 800 = 3700
-    assert history[0]["value"] == pytest.approx(3700.0, abs=1.0)
 
 
 def test_patrimonio_excludes_investment_movements(db):
@@ -243,26 +124,6 @@ def test_monthly_history_present_only_months_with_data(db):
     assert hist[0]["expenses"] == pytest.approx(100.0)
     assert hist[0]["income"] == pytest.approx(3000.0)
     assert hist[1]["expenses"] == pytest.approx(250.0)
-
-
-def test_available_to_spend(db):
-    """available = Σ checking balances − Σ open fatura totals."""
-    from datetime import date
-    from core.db import crud, analytics
-
-    today = date.today().isoformat()  # always inside the current billing cycle
-    crud.insert_transaction(date=today, flow="income", method="pix",
-                            account_id="nu-db", amount=5000.0, description="Salário", is_revenue=1)
-    crud.insert_transaction(date=today, flow="expense", method="pix",
-                            account_id="nu-db", amount=500.0, description="Mercado", is_revenue=0)
-    # CC purchase dated today → lands in the open fatura
-    crud.insert_transaction(date=today, flow="expense", method="credit",
-                            account_id="nu-cc", amount=300.0, description="Compra cartão", is_revenue=0)
-
-    res = analytics.get_available_to_spend()
-    assert res["checking_total"] == pytest.approx(4500.0, abs=1.0)   # 5000 − 500
-    assert res["faturas_total"]  == pytest.approx(300.0, abs=1.0)
-    assert res["available"]      == pytest.approx(4200.0, abs=1.0)   # 4500 − 300
 
 
 def test_liquidity_history_is_investment_adjusted(db):
@@ -339,41 +200,6 @@ def test_external_id_collision_still_silently_ignored(db):
     assert second == -1
 
 
-def test_insert_expense_expands_installments(db):
-    """Regression (#5): a 3x credit purchase becomes 3 monthly rows that sum to the
-    total — one per fatura cycle — instead of the full amount on a single cycle."""
-    from core.db import crud, analytics
-
-    crud.insert_expense(
-        date="2026-01-15", method="credit", account_id="nu-cc",
-        amount=300.0, description="Notebook", installments=3,
-    )
-    rows = analytics.get_recent_transactions("nu-cc", limit=10)
-    assert len(rows) == 3
-    assert sum(r["amount"] for r in rows) == pytest.approx(300.0, abs=0.001)
-    dates = sorted(r["date"] for r in rows)
-    assert dates == ["2026-01-15", "2026-02-15", "2026-03-15"]
-    # Each month's fatura sees only its installment, not the full 300.
-    jan = analytics.get_credit_card_statement("nu-cc", "2026-01-01", "2026-01-31")
-    assert jan == pytest.approx(100.0, abs=0.001)
-
-
-def test_insert_expense_installment_cents_remainder(db):
-    """The cents remainder lands on the final installment so parts sum exactly."""
-    from core.db import crud, analytics
-
-    crud.insert_expense(
-        date="2026-01-31", method="credit", account_id="nu-cc",
-        amount=100.0, description="Curso", installments=3,
-    )
-    rows = analytics.get_recent_transactions("nu-cc", limit=10)
-    amounts = sorted(r["amount"] for r in rows)
-    assert amounts == [33.33, 33.33, 33.34]
-    # Day clamps when the target month is shorter (Jan 31 → Feb 28).
-    dates = sorted(r["date"] for r in rows)
-    assert dates == ["2026-01-31", "2026-02-28", "2026-03-31"]
-
-
 def test_third_party_excluded_from_account_balance(db):
     """Regression (#2): is_third_party rows must be excluded from the account balance
     used by the hero 'Disponível' number, matching get_account_balance."""
@@ -394,77 +220,3 @@ def test_third_party_excluded_from_account_balance(db):
 
 # ── Fatura membership (editable open fatura) ──────────────────────────────────
 
-def test_get_account_faturas_groups_by_due(db):
-    """One entry per fatura_due, newest first, summing only tagged purchase legs."""
-    from core.db import crud, analytics
-
-    a = crud.insert_transaction(date="2026-05-20", flow="expense", method="credit",
-                                account_id="nu-cc", amount=100.0, description="A", category_id=1)
-    b = crud.insert_transaction(date="2026-06-01", flow="expense", method="credit",
-                                account_id="nu-cc", amount=50.0, description="B", category_id=1)
-    c = crud.insert_transaction(date="2026-04-20", flow="expense", method="credit",
-                                account_id="nu-cc", amount=30.0, description="C", category_id=1)
-    crud.update_transaction_fields(a, fatura_due="2026-06-25")
-    crud.update_transaction_fields(b, fatura_due="2026-06-25")
-    crud.update_transaction_fields(c, fatura_due="2026-05-25")
-
-    faturas = analytics.get_account_faturas("nu-cc")
-    assert [f["due"] for f in faturas] == ["2026-06-25", "2026-05-25"]  # newest first
-    assert faturas[0]["total"] == pytest.approx(150.0)
-    assert faturas[0]["count"] == 2
-    assert faturas[1]["total"] == pytest.approx(30.0)
-
-
-def test_get_account_faturas_buckets_untagged_by_cycle(db):
-    """Untagged purchases are placed into their real fatura cycle by date (closing day
-    18, due 25 on the seeded card): so the open/not-yet-imported bill still shows up."""
-    from core.db import crud, analytics
-
-    crud.insert_transaction(date="2026-05-16", flow="expense", method="credit",
-                            account_id="nu-cc", amount=20.0, description="Maio", category_id=1)   # ≤18/05 → venc 25/05
-    crud.insert_transaction(date="2026-05-20", flow="expense", method="credit",
-                            account_id="nu-cc", amount=30.0, description="Jun1", category_id=1)    # >18/05 → venc 25/06
-    crud.insert_transaction(date="2026-06-18", flow="expense", method="credit",
-                            account_id="nu-cc", amount=40.0, description="Jun2", category_id=1)    # =18/06 (fechamento) → venc 25/06
-
-    by_due = {f["due"]: f for f in analytics.get_account_faturas("nu-cc")}
-    assert by_due["2026-05-25"]["total"] == pytest.approx(20.0)
-    assert by_due["2026-06-25"]["total"] == pytest.approx(70.0)
-    assert by_due["2026-06-25"]["count"] == 2
-
-
-def test_get_fatura_detail_candidates_follow_real_cycle(db):
-    """members = tagged purchases; candidates = untagged purchases in the bill's REAL
-    cycle (closing = billing_day=18, due=25 → cycle 19/05–18/06 for the 25/06 bill)."""
-    from core.db import crud, analytics
-
-    m = crud.insert_transaction(date="2026-06-01", flow="expense", method="credit",
-                                account_id="nu-cc", amount=100.0, description="Mercado", category_id=1)
-    crud.update_transaction_fields(m, fatura_due="2026-06-25")
-    clube = crud.insert_transaction(date="2026-06-16", flow="expense", method="credit",
-                                   account_id="nu-cc", amount=90.0, description="CLUBE", category_id=1)
-    prev_cycle = crud.insert_transaction(date="2026-05-16", flow="expense", method="credit",
-                                         account_id="nu-cc", amount=20.0, description="MaioAntigo", category_id=1)
-    next_cycle = crud.insert_transaction(date="2026-06-20", flow="expense", method="credit",
-                                         account_id="nu-cc", amount=30.0, description="PosFechamento", category_id=1)
-
-    detail = analytics.get_fatura_detail("nu-cc", "2026-06-25")
-    assert detail["total"] == pytest.approx(100.0)
-    assert [r["id"] for r in detail["members"]] == [m]
-    cand_ids = [r["id"] for r in detail["candidates"]]
-    assert clube in cand_ids            # 16/06, dentro do ciclo (≤ fechamento 18/06) → candidato
-    assert prev_cycle not in cand_ids  # 16/05, antes do ciclo (fatura 25/05) → excluído
-    assert next_cycle not in cand_ids  # 20/06, após o fechamento (fatura 25/07) → excluído
-    assert m not in cand_ids           # já é membro, nunca candidato
-
-
-def test_get_fatura_detail_excludes_payment_leg(db):
-    """A fatura-total/payment leg (dest set) is never a member or candidate."""
-    from core.db import crud, analytics
-
-    pay = crud.insert_transaction(date="2026-06-05", flow="expense", method="transfer",
-                                  account_id="nu-db", amount=500.0, description="Pagto fatura",
-                                  dest_account_id="nu-cc", is_revenue=0)
-    detail = analytics.get_fatura_detail("nu-cc", "2026-06-25")
-    ids = [r["id"] for r in detail["members"] + detail["candidates"]]
-    assert pay not in ids

@@ -25,9 +25,6 @@ async function fetchMonthly(bank)                          { return _get(`/api/m
 async function fetchCategories({ bank, month, year, period } = {}) { return _get(`/api/categories${_params({ bank, month, year, period })}`); }
 async function fetchExpensesByMethod(bank) { return _get(`/api/expenses-by-method${_qs(bank)}`); }
 async function fetchInvestments(bank)      { return _get(`/api/investments${_qs(bank)}`); }
-async function fetchFaturas(bank)          { return _get(`/api/faturas${_qs(bank)}`); }
-async function fetchAccountFaturas(account){ return _get(`/api/account-faturas${_params({ account })}`); }
-async function fetchFatura(account, due)   { return _get(`/api/fatura${_params({ account, due })}`); }
 async function fetchAccounts(bank)         { return _get(`/api/accounts${_qs(bank)}`); }
 
 async function fetchAccountDetail(id)      { return _get(`/api/account/${encodeURIComponent(id)}`); }
@@ -108,14 +105,11 @@ async function patchStagingRow(batchId, rowId, fields) {
   // Edit one preview row (amount/category_id/display_name) → {ok, row, amount_divergence}.
   return _patch(`/api/import/staging/${batchId}/${rowId}`, fields);
 }
-async function importConfirm(batchId, excludeIds = [], importBatchId = null, faturaDue = null) {
+async function importConfirm(batchId, excludeIds = [], importBatchId = null) {
   const body = { batch_id: batchId, exclude_ids: excludeIds };
   // One session id shared across every confirm of a multi-account drop, so the
   // whole import reverses as one unit in the Histórico.
   if (importBatchId) body.import_batch_id = importBatchId;
-  // Vencimento (YYYY-MM-DD) of a credit-card fatura import — tags the purchases
-  // so the open fatura uses the bank's grouping, not a date-window.
-  if (faturaDue) body.fatura_due = faturaDue;
   return _post("/api/import/confirm", body);
 }
 async function deleteImportBatch(importBatchId) {

@@ -276,8 +276,7 @@ button.data-tag:hover { border-color: var(--fg-2); color: var(--fg-0); backgroun
     inset: 0;
     top: var(--topbar-h);
     z-index: 30;
-    background: oklch(0% 0 0 / 0.4);
-    backdrop-filter: blur(2px);
+    background: oklch(0% 0 0 / 0.7);
   }
 }
 

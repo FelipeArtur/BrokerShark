@@ -25,7 +25,6 @@ import config
 ACCOUNT_SOURCE = {
     "nu-db":    "nubank_extrato",
     "inter-db": "inter_extrato",
-    "inter-cc": "inter_fatura",
 }
 
 # Nubank checking rows that are investment movements, not real income/expense.
@@ -39,11 +38,6 @@ _INVESTMENT_KEYWORDS = (
     # "CDB PORQUINHO" quanto "CDB Porq Obj", inclusive os estornos dessas reservas.
     "caixinha", "porquinho", "cdb porq",
 )
-
-# Bank labels for credit-card bill payments — these are tracked on the checking
-# side as a transfer to the card account, never as a standalone expense.
-_FATURA_KEYWORDS = ("fatura",)
-
 
 @dataclass
 class Record:
@@ -115,12 +109,6 @@ def _is_investment(desc: str) -> bool:
     return any(k in low for k in _INVESTMENT_KEYWORDS)
 
 
-def _is_fatura(desc: str) -> bool:
-    """True if the statement line is a credit-card bill payment (fatura total)."""
-    low = desc.lower()
-    return any(k in low for k in _FATURA_KEYWORDS)
-
-
 def _is_self_transfer(desc: str) -> bool:
     """True if the counterparty is the account owner themselves (auto-Pix/TED).
 
@@ -156,7 +144,6 @@ def detect_source(account_id: str, data: bytes) -> str:
     signatures = {
         "nubank_extrato": "identificador" in head and "valor" in head,
         "inter_extrato":  "extrato conta corrente" in head or "data lançamento" in head,
-        "inter_fatura":   "lançamento" in head and "categoria" in head,
     }
     if not signatures.get(expected):
         raise SourceMismatch(
@@ -173,8 +160,6 @@ def parse(account_id: str, data: bytes) -> list[Record]:
         return _parse_nubank_extrato(text)
     if source == "inter_extrato":
         return _parse_inter_extrato(text)
-    if source == "inter_fatura":
-        return _parse_inter_fatura(text)
     raise SourceMismatch(f"Sem parser para a fonte '{source}'.")  # pragma: no cover
 
 
@@ -197,10 +182,7 @@ def _parse_nubank_extrato(text: str) -> list[Record]:
             date=iso, amount=abs(value), description=desc,
             account_id="nu-db", external_id=ext,
         )
-        if _is_fatura(desc) and value < 0:
-            rec.flow, rec.method, rec.dest_account_id = "expense", "transfer", "nu-cc"
-            rec.note = "pagamento de fatura"
-        elif _is_investment(desc):
+        if _is_investment(desc):
             rec.method = "transfer"
             rec.is_revenue = 0
             rec.flow = "income" if value >= 0 else "expense"
@@ -248,12 +230,7 @@ def _parse_inter_extrato(text: str) -> list[Record]:
                                note="linha não reconhecida"))
             continue
         rec = Record(date=iso, amount=abs(value), description=desc, account_id="inter-db")
-        if _is_fatura(desc) and value < 0:
-            # CC bill payment: tracked as a transfer to the card so it counts in
-            # patrimônio but is excluded from category expenses (dest filters).
-            rec.flow, rec.method, rec.dest_account_id = "expense", "transfer", "inter-cc"
-            rec.note = "pagamento de fatura"
-        elif _is_investment(desc):
+        if _is_investment(desc):
             # Porquinho Inter (aplicação/resgate/estorno): fluxo de investimento,
             # não consumo nem receita. Mantém o saldo, fica fora dos totais.
             rec.method = "transfer"
@@ -276,34 +253,6 @@ def _parse_inter_extrato(text: str) -> list[Record]:
             rec.flow = "expense"
             rec.method = "pix" if "pix" in desc.lower() else "ted"
         out.append(rec)
-    return out
-
-
-def _parse_inter_fatura(text: str) -> list[Record]:
-    """Parse Inter credit-card bill: quoted comma, ``R$`` values — all expenses."""
-    out: list[Record] = []
-    reader = csv.DictReader(io.StringIO(text))
-    for row in reader:
-        desc = _norm_desc(row.get("Lançamento") or row.get("Lancamento") or "")
-        try:
-            iso = parse_date_br(row["Data"])
-            value = parse_money(row["Valor"])
-        except (ValueError, KeyError, TypeError):
-            out.append(Record(date="", amount=0.0, description=desc,
-                               account_id="inter-cc", status="skipped",
-                               note="linha não reconhecida"))
-            continue
-        # Bill payments and refunds/credits reduce the bill — they are not
-        # purchases. Skip them at import time (CC anti-duplication invariant).
-        if "pagamento" in desc.lower() or value < 0:
-            out.append(Record(date=iso, amount=abs(value), description=desc,
-                               account_id="inter-cc", status="skipped",
-                               note="pagamento/estorno (não é compra)"))
-            continue
-        out.append(Record(
-            date=iso, amount=abs(value), description=desc,
-            account_id="inter-cc", flow="expense", method="credit", is_revenue=0,
-        ))
     return out
 
 

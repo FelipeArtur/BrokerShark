@@ -46,8 +46,6 @@ def init_db() -> None:
                 bank             TEXT NOT NULL,
                 type             TEXT NOT NULL,
                 name             TEXT NOT NULL,
-                billing_day      INTEGER,
-                due_day          INTEGER,
                 initial_balance  REAL DEFAULT 0
             );
 
@@ -67,7 +65,6 @@ def init_db() -> None:
                                       'salary', 'freelance', 'pix_received', 'other')),
                 account_id      TEXT NOT NULL,
                 amount          REAL NOT NULL,
-                installments    INTEGER DEFAULT 1,
                 description     TEXT NOT NULL,
                 category_id     INTEGER,
                 dest_account_id TEXT,
@@ -78,7 +75,6 @@ def init_db() -> None:
                 is_third_party  INTEGER NOT NULL DEFAULT 0,
                 original_amount REAL,
                 import_batch_id TEXT,
-                fatura_due      TEXT,
                 FOREIGN KEY (account_id)      REFERENCES accounts(id),
                 FOREIGN KEY (dest_account_id) REFERENCES accounts(id),
                 FOREIGN KEY (category_id)     REFERENCES categories(id)
@@ -236,23 +232,7 @@ def _apply_column_migrations(conn: sqlite3.Connection) -> None:
     except sqlite3.OperationalError:
         pass
 
-    # Fatura membership from import: a CC purchase carries fatura_due (the bill's
-    # vencimento, captured at import) so the OPEN fatura = sum of the next due's
-    # tagged purchases — the bank's own grouping, not a fragile date-window cutoff
-    # (which can't split same-date purchases across bills, e.g. a recurring charge).
-    try:
-        conn.execute("SELECT fatura_due FROM transactions LIMIT 1")
-    except sqlite3.OperationalError:
-        conn.execute("ALTER TABLE transactions ADD COLUMN fatura_due TEXT")
-        conn.commit()
-    try:
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_tx_fatura_due "
-            "ON transactions(account_id, fatura_due) WHERE fatura_due IS NOT NULL"
-        )
-        conn.commit()
-    except sqlite3.OperationalError:
-        pass
+
 
     # Partial UNIQUE index on external_id: enforces dedup for sources that
     # carry a stable id (Nubank's Identificador), while allowing the many NULLs
@@ -300,15 +280,13 @@ def _run_pending_migrations(conn: sqlite3.Connection) -> None:
 
 
 def _seed_accounts(conn: sqlite3.Connection) -> None:
-    """Insert the 4 fixed accounts (Nubank/Inter × credit/checking) if absent."""
+    """Insert the 2 fixed checking accounts (Nubank/Inter) if absent."""
     accounts = [
-        ("nu-cc",    "nubank", "credit",   "Nubank Crédito", 18, 25),
-        ("nu-db",    "nubank", "checking", "Nubank Conta",   None, None),
-        ("inter-cc", "inter",  "credit",   "Inter Crédito",  18, 25),
-        ("inter-db", "inter",  "checking", "Inter Conta",    None, None),
+        ("nu-db",    "nubank", "checking", "Nubank Conta"),
+        ("inter-db", "inter",  "checking", "Inter Conta"),
     ]
     conn.executemany(
-        "INSERT OR IGNORE INTO accounts (id, bank, type, name, billing_day, due_day) VALUES (?,?,?,?,?,?)",
+        "INSERT OR IGNORE INTO accounts (id, bank, type, name) VALUES (?,?,?,?)",
         accounts,
     )
 

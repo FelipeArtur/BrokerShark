@@ -322,74 +322,7 @@ def api_expenses_by_method() -> Response:
     return jsonify(database.get_expenses_by_method(now.year, now.month, bank=bank))
 
 
-@app.route("/api/faturas")
-def api_faturas() -> Response:
-    """Return credit card billing info for the current billing cycle.
-
-    Query params:
-        bank: ``nubank`` | ``inter`` (optional — omit for both cards)
-
-    Returns:
-        JSON array of billing objects, each with ``label``, ``total``,
-        ``due_date``, ``days_until_due``, ``cycle_start``, ``cycle_end``.
-    """
-    bank = request.args.get("bank") or None
-    if bank == "nubank":
-        cards = [("nu-cc", "Nubank Crédito")]
-    elif bank == "inter":
-        cards = [("inter-cc", "Inter Crédito")]
-    else:
-        cards = [("nu-cc", "Nubank Crédito"), ("inter-cc", "Inter Crédito")]
-    result = []
-    for account_id, label in cards:
-        info = database.get_credit_card_billing_info(account_id)
-        result.append({"accountId": account_id, "label": label, **info})
-    return jsonify(result)
-
-
-_VALID_CARDS = {"nu-cc", "inter-cc"}
-
-
-@app.route("/api/account-faturas")
-def api_account_faturas() -> Response:
-    """Return the list of faturas (one per vencimento) for a credit card, newest first.
-
-    Query params:
-        account: a credit-card id (``nu-cc`` | ``inter-cc``).
-
-    Powers the Histórico "modo-fatura" picker (browse by vencimento, not calendar month).
-    """
-    account = request.args.get("account") or ""
-    if account not in _VALID_CARDS:
-        return jsonify({"error": "account must be a credit card"}), 400
-    return jsonify(database.get_account_faturas(account))
-
-
-@app.route("/api/fatura")
-def api_fatura() -> Response:
-    """Return the editable view of one fatura: its purchases plus addable candidates.
-
-    Query params:
-        account: a credit-card id (``nu-cc`` | ``inter-cc``).
-        due:     the fatura vencimento, ``YYYY-MM-DD``.
-
-    Returns ``{account, due, total, count, members, candidates}``. ``members`` are the
-    purchases tagged with this ``fatura_due``; ``candidates`` are untagged card purchases
-    in a window around the bill that the user may add (toggling writes ``fatura_due`` via
-    ``PATCH /api/transactions/<id>``).
-    """
-    account = request.args.get("account") or ""
-    due = request.args.get("due") or ""
-    if account not in _VALID_CARDS:
-        return jsonify({"error": "account must be a credit card"}), 400
-    try:
-        datetime.strptime(due, "%Y-%m-%d")
-    except ValueError:
-        return jsonify({"error": "due must be YYYY-MM-DD"}), 400
-    return jsonify(database.get_fatura_detail(account, due))
-
-
-_VALID_ACCOUNTS = {"nu-cc", "nu-db", "inter-cc", "inter-db"}
+_VALID_ACCOUNTS = {"nu-db", "inter-db"}
 # Payment methods accepted by the expense quick-entry form.
 _VALID_EXPENSE_METHODS = {"credit", "pix", "ted", "debit"}
 # Income subtypes accepted by the income quick-entry form (mapped to a stored method).
@@ -423,8 +356,6 @@ def api_account_detail(account_id: str) -> Response:
         "balance":         acc["balance"],
         "monthly_summary": summary,
     }
-    if acc["type"] == "credit":
-        result["billing_info"] = database.get_credit_card_billing_info(account_id)
     return jsonify(result)
 
 
@@ -463,11 +394,6 @@ def api_patch_transaction(transaction_id: int) -> Response:
         category_id:    int    — primary key of the target category.
         display_name:   str|null — friendly display name (null clears it).
         is_third_party: 0|1   — exclude from personal finance summaries.
-        fatura_due:     str ``YYYY-MM-DD`` | null — credit-card fatura membership.
-                        Only valid on a card purchase leg (``*-cc`` account,
-                        ``dest_account_id IS NULL``, ``flow='expense'``); null removes
-                        the purchase from its fatura. Never tag a fatura-total/payment
-                        row — that would double-count.
 
     Returns:
         ``{"ok": true}`` on success, error JSON on failure.
@@ -491,26 +417,6 @@ def api_patch_transaction(transaction_id: int) -> Response:
         if data["is_third_party"] not in (0, 1, True, False):
             return jsonify({"error": "is_third_party must be 0 or 1"}), 400
         fields["is_third_party"] = int(bool(data["is_third_party"]))
-    if "fatura_due" in data:
-        v = data["fatura_due"]
-        if v is not None:
-            if not isinstance(v, str):
-                return jsonify({"error": "fatura_due must be YYYY-MM-DD or null"}), 400
-            try:
-                datetime.strptime(v, "%Y-%m-%d")
-            except ValueError:
-                return jsonify({"error": "fatura_due must be YYYY-MM-DD or null"}), 400
-        # Guard the invariant: fatura_due lives only on a card *purchase* leg. A
-        # checking row, a fatura-total/payment row (dest set), or a non-expense can
-        # never carry it — otherwise the bill total would double-count.
-        tx = database.get_transaction(transaction_id)
-        if tx is None:
-            return jsonify({"error": "transaction not found"}), 404
-        if not (str(tx["account_id"]).endswith("-cc")
-                and tx["dest_account_id"] is None
-                and tx["flow"] == "expense"):
-            return jsonify({"error": "fatura_due only valid on a credit-card purchase"}), 400
-        fields["fatura_due"] = v
     if not fields:
         return jsonify({"error": "no valid fields provided"}), 400
     database.update_transaction_fields(transaction_id, **fields)
@@ -713,7 +619,6 @@ def api_post_transaction() -> Response:
         description:   str
         date:          str   — "YYYY-MM-DD"
         category_id:   int
-        installments:  int   — default 1
 
     Returns:
         ``{"ok": true, "id": int}`` on success.
@@ -725,7 +630,6 @@ def api_post_transaction() -> Response:
     description = data.get("description", "").strip()
     date_str    = data.get("date", "")
     category_id = data.get("category_id")
-    installments = int(data.get("installments", 1))
 
     if account_id not in _VALID_ACCOUNTS:
         return jsonify({"error": "invalid account_id"}), 400
@@ -737,15 +641,12 @@ def api_post_transaction() -> Response:
         return jsonify({"error": "description required"}), 400
     if not date_str:
         return jsonify({"error": "date required"}), 400
-    if installments < 1 or installments > 99:
-        return jsonify({"error": "installments must be between 1 and 99"}), 400
 
     tx_id = database.insert_expense(
         date=date_str,
         method=method,
         account_id=account_id,
         amount=float(amount),
-        installments=installments,
         description=description,
         category_id=category_id,
     )
@@ -796,7 +697,7 @@ def api_post_income() -> Response:
         description = f"Transferência {from_acc} → {to_acc}"
         tx_id = database.insert_transaction(
             date=date_str, flow="expense", method="transfer",
-            account_id=from_acc, amount=float(amount), installments=1,
+            account_id=from_acc, amount=float(amount),
             description=description, category_id=None,
             dest_account_id=to_acc,
         )
@@ -817,7 +718,7 @@ def api_post_income() -> Response:
 
     tx_id = database.insert_transaction(
         date=date_str, flow="income", method=method,
-        account_id=account_id, amount=float(amount), installments=1,
+        account_id=account_id, amount=float(amount),
         description=description, category_id=None,
         is_revenue=is_revenue,
     )
@@ -1061,16 +962,7 @@ def api_import_confirm() -> Response:
         return jsonify({"error": "exclude_ids must be a list"}), 400
     import_batch_id = (body.get("import_batch_id") or "").strip() or None
 
-    # fatura_due (ISO yyyy-mm-dd): the bill's vencimento for a credit-card fatura
-    # import. Tags the purchases so the open fatura uses the bank's grouping.
-    fatura_due = (body.get("fatura_due") or "").strip() or None
-    if fatura_due:
-        try:
-            datetime.strptime(fatura_due, "%Y-%m-%d")
-        except ValueError:
-            return jsonify({"error": "fatura_due must be YYYY-MM-DD"}), 400
-
-    result = ingestion.confirm_import(batch_id, exclude_ids, import_batch_id, fatura_due)
+    result = ingestion.confirm_import(batch_id, exclude_ids, import_batch_id)
     if result.get("missing"):
         return jsonify({"error": "Importação expirada, refaça o upload."}), 404
     # Refresh the month's snapshot in the background (single-flight) — the import

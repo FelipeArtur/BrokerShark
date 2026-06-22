@@ -233,244 +233,6 @@ def get_expenses_by_method(year: int, month: int, bank: Optional[str] = None) ->
     return [{"bank": r[0], "method": r[1], "total": r[2]} for r in rows]
 
 
-def get_credit_card_statement(account_id: str, start_date: str, end_date: str) -> float:
-    """Sum all expenses on a credit card account within a date range.
-
-    Deliberately *not* filtered by ``is_third_party``: a third-party purchase made
-    on the card is still owed to the bank, so it belongs in the fatura total (and
-    therefore reduces "disponível pra gastar"). This is the one place that diverges
-    from the personal-spend summaries, on purpose.
-    """
-    with _connect() as conn:
-        row = conn.execute(
-            """SELECT COALESCE(SUM(amount),0) FROM transactions
-               WHERE account_id=? AND flow='expense' AND date BETWEEN ? AND ?""",
-            (account_id, start_date, end_date),
-        ).fetchone()
-        return float(row[0])
-
-
-def get_credit_card_billing_info(account_id: str) -> dict:
-    """Return billing cycle details and days until due for a credit card.
-
-    Prefers fatura membership captured at import (``fatura_due`` tags): the open
-    fatura is the next un-past vencimento and its total is the SUM of that bill's
-    tagged purchases — the bank's own grouping, exact at the boundaries. Falls
-    back to a ``billing_day`` date-window when no tagged faturas exist (manual
-    entries, un-tagged history).
-    """
-    today    = date.today()
-    today_iso = today.strftime("%Y-%m-%d")
-    with _connect() as conn:
-        acc = conn.execute(
-            "SELECT billing_day, due_day FROM accounts WHERE id=?", (account_id,)
-        ).fetchone()
-
-        open_due = conn.execute(
-            """SELECT MIN(fatura_due) FROM transactions
-               WHERE account_id=? AND fatura_due IS NOT NULL AND fatura_due >= ?""",
-            (account_id, today_iso),
-        ).fetchone()[0]
-        if open_due is not None:
-            def _fatura_sum(due: str) -> float:
-                """Sum the card's purchase legs tagged with the bill due ``due``."""
-                return float(conn.execute(
-                    """SELECT COALESCE(SUM(amount),0) FROM transactions
-                       WHERE account_id=? AND flow='expense' AND dest_account_id IS NULL
-                         AND fatura_due=?""", (account_id, due)).fetchone()[0])
-            prev_due = conn.execute(
-                """SELECT MAX(fatura_due) FROM transactions
-                   WHERE account_id=? AND fatura_due IS NOT NULL AND fatura_due < ?""",
-                (account_id, open_due)).fetchone()[0]
-            rng = conn.execute(
-                """SELECT MIN(date), MAX(date) FROM transactions
-                   WHERE account_id=? AND dest_account_id IS NULL AND fatura_due=?""",
-                (account_id, open_due)).fetchone()
-            due = datetime.strptime(open_due, "%Y-%m-%d").date()
-            cs = datetime.strptime(rng[0], "%Y-%m-%d").date() if rng[0] else today
-            ce = datetime.strptime(rng[1], "%Y-%m-%d").date() if rng[1] else today
-            return {
-                "total": _fatura_sum(open_due),
-                "last_total": _fatura_sum(prev_due) if prev_due else 0.0,
-                "cycle_start": cs.strftime("%d/%m/%Y"),
-                "cycle_end":   ce.strftime("%d/%m/%Y"),
-                "due_date":    due.strftime("%d/%m/%Y"),
-                "due_iso":     due.strftime("%Y-%m-%d"),
-                "days_until_due": (due - today).days,
-                "source": "import",
-            }
-
-    billing_day: int = acc["billing_day"] or 1
-    due_day: int     = acc["due_day"] or (billing_day + 7)
-
-    if today.day >= billing_day:
-        prev_billing = today.replace(day=billing_day)
-    else:
-        first_of_month  = today.replace(day=1)
-        prev_month_last = first_of_month - timedelta(days=1)
-        prev_billing    = prev_month_last.replace(day=min(billing_day, prev_month_last.day))
-
-    cycle_start = prev_billing + timedelta(days=1)
-
-    if prev_billing.month == 12:
-        next_billing = prev_billing.replace(year=prev_billing.year + 1, month=1, day=billing_day)
-    else:
-        next_billing = prev_billing.replace(month=prev_billing.month + 1, day=billing_day)
-    cycle_end = next_billing
-
-    # Due date = the first occurrence of due_day AFTER the cycle closes (next_billing).
-    # If due_day > billing_day, that lands in the SAME month as the close (closes day 18,
-    # due day 25 → same month); otherwise it's the FOLLOWING month (closes day 24, due
-    # day 1 → next month).
-    if due_day > billing_day:
-        due_date = next_billing.replace(day=min(due_day, 28))
-    elif next_billing.month == 12:
-        due_date = next_billing.replace(year=next_billing.year + 1, month=1, day=min(due_day, 28))
-    else:
-        due_date = next_billing.replace(month=next_billing.month + 1, day=min(due_day, 28))
-
-    days_until_due = (due_date - today).days
-    total = get_credit_card_statement(
-        account_id,
-        cycle_start.strftime("%Y-%m-%d"),
-        cycle_end.strftime("%Y-%m-%d"),
-    )
-    prev_cycle_end = prev_billing
-    if prev_billing.month == 1:
-        prev_prev_billing = prev_billing.replace(year=prev_billing.year - 1, month=12, day=billing_day)
-    else:
-        prev_prev_billing = prev_billing.replace(month=prev_billing.month - 1, day=min(billing_day, 28))
-    prev_cycle_start = prev_prev_billing + timedelta(days=1)
-    last_total = get_credit_card_statement(
-        account_id,
-        prev_cycle_start.strftime("%Y-%m-%d"),
-        prev_cycle_end.strftime("%Y-%m-%d"),
-    )
-    return {
-        "total": total,
-        "last_total": last_total,
-        "cycle_start": cycle_start.strftime("%d/%m/%Y"),
-        "cycle_end":   cycle_end.strftime("%d/%m/%Y"),
-        "due_date":    due_date.strftime("%d/%m/%Y"),
-        "due_iso":     due_date.strftime("%Y-%m-%d"),
-        "days_until_due": days_until_due,
-        "source": "window",
-    }
-
-
-# Columns returned for fatura purchase rows — same shape the Histórico table and the
-# Dinheiro fatura modal already consume (TxRow + client-side byCat).
-_FATURA_TX_COLS = """
-    t.id, t.date, t.description, t.display_name, t.amount, t.flow, t.method,
-    t.account_id, a.bank, COALESCE(c.name, '') AS category, t.category_id,
-    COALESCE(t.is_revenue, 0) AS is_revenue,
-    COALESCE(t.counterpart, '') AS counterpart,
-    COALESCE(t.installments, 1) AS installments,
-    COALESCE(t.is_third_party, 0) AS is_third_party,
-    t.fatura_due
-"""
-
-
-def get_account_faturas(account_id: str) -> list[dict]:
-    """Return one entry per fatura (vencimento) of a credit card, newest first.
-
-    Powers the Histórico "modo-fatura" picker: the user browses by vencimento instead of
-    by calendar month, so the spending lines up with the real billing cycle. Each purchase
-    leg (``dest IS NULL``) is bucketed by its **effective vencimento** — its ``fatura_due``
-    tag when present (the bank's exact grouping), else computed from its date via the
-    closing day (:func:`vencimento_for_date`). So the open/not-yet-imported bill shows up
-    too, and the cycle totals match the home's window fallback.
-    """
-    with _connect() as conn:
-        acc = conn.execute(
-            "SELECT billing_day, due_day FROM accounts WHERE id=?", (account_id,)
-        ).fetchone()
-        rows = conn.execute(
-            """SELECT date, amount, fatura_due FROM transactions
-               WHERE account_id=? AND flow='expense' AND dest_account_id IS NULL""",
-            (account_id,),
-        ).fetchall()
-    billing_day = acc["billing_day"] if acc else None
-    due_day = acc["due_day"] if acc else None
-    buckets: dict[str, dict] = {}
-    for r in rows:
-        due = r["fatura_due"]
-        if due is None:
-            if not billing_day:
-                continue  # untagged + no billing day → cannot place it in a cycle
-            dd = due_day or (billing_day + 7)
-            d = datetime.strptime(r["date"], "%Y-%m-%d").date()
-            due = vencimento_for_date(d, billing_day, dd).strftime("%Y-%m-%d")
-        b = buckets.setdefault(due, {"total": 0.0, "count": 0})
-        b["total"] += float(r["amount"])
-        b["count"] += 1
-    result: list[dict] = []
-    for due in sorted(buckets, reverse=True):
-        d = datetime.strptime(due, "%Y-%m-%d").date()
-        result.append({
-            "due":      due,
-            "label":    f"{_PT_SHORT[d.month]}/{str(d.year)[-2:]}",
-            "due_date": d.strftime("%d/%m/%Y"),
-            "total":    buckets[due]["total"],
-            "count":    buckets[due]["count"],
-        })
-    return result
-
-
-def get_fatura_detail(account_id: str, due: str) -> dict:
-    """Return the editable view of one fatura: its purchases plus addable candidates.
-
-    ``members``    = the purchase legs tagged with this ``fatura_due`` (the bill).
-    ``candidates`` = untagged purchase legs on the same card within the fatura's REAL
-    billing cycle (day after the previous close → this close, derived from the account's
-    ``billing_day``). These are the "loose" charges the user can add — e.g. a recurring
-    debit (CLUBE) that was not in the imported fatura file. Anchoring on the closing day
-    (not a coarse N-day window) keeps a purchase in the right bill: a charge dated before
-    the close belongs here, one dated after belongs to the next fatura.
-    """
-    with _connect() as conn:
-        members = conn.execute(
-            f"""SELECT {_FATURA_TX_COLS} FROM transactions t
-                JOIN accounts a ON a.id = t.account_id
-                LEFT JOIN categories c ON c.id = t.category_id
-                WHERE t.account_id=? AND t.flow='expense' AND t.dest_account_id IS NULL
-                  AND t.fatura_due=?
-                ORDER BY t.date ASC, t.id ASC""",
-            (account_id, due),
-        ).fetchall()
-        due_d = datetime.strptime(due, "%Y-%m-%d").date()
-        acc = conn.execute(
-            "SELECT billing_day, due_day FROM accounts WHERE id=?", (account_id,)
-        ).fetchone()
-        billing_day = acc["billing_day"] if acc else None
-        if billing_day:
-            due_day = acc["due_day"] or (billing_day + 7)
-            win_start, win_end = billing_cycle_for_due(due_d, billing_day, due_day)
-        else:
-            # No billing-day config → generous one-cycle fallback up to the vencimento.
-            win_start, win_end = due_d - timedelta(days=45), due_d
-        candidates = conn.execute(
-            f"""SELECT {_FATURA_TX_COLS} FROM transactions t
-                JOIN accounts a ON a.id = t.account_id
-                LEFT JOIN categories c ON c.id = t.category_id
-                WHERE t.account_id=? AND t.flow='expense' AND t.dest_account_id IS NULL
-                  AND t.fatura_due IS NULL
-                  AND t.date BETWEEN ? AND ?
-                ORDER BY t.date ASC, t.id ASC""",
-            (account_id, win_start.strftime("%Y-%m-%d"), win_end.strftime("%Y-%m-%d")),
-        ).fetchall()
-    total = sum(float(m["amount"]) for m in members)
-    return {
-        "account":    account_id,
-        "due":        due,
-        "due_date":   due_d.strftime("%d/%m/%Y"),
-        "total":      total,
-        "count":      len(members),
-        "members":    [dict(r) for r in members],
-        "candidates": [dict(r) for r in candidates],
-    }
-
-
 def get_monthly_history(months: int = 6, bank: Optional[str] = None) -> list[dict]:
     """Return income and expense totals for the last N months, zero-filled."""
     today   = date.today()
@@ -779,7 +541,6 @@ def get_month_transactions(month: int, year: int) -> list[dict]:
                       COALESCE(c.name, '') AS category, t.category_id,
                       COALESCE(t.is_revenue, 0) AS is_revenue,
                       COALESCE(t.counterpart, '') AS counterpart,
-                      COALESCE(t.installments, 1) AS installments,
                       COALESCE(t.is_third_party, 0) AS is_third_party
                FROM transactions t
                JOIN accounts a ON a.id = t.account_id
@@ -1155,24 +916,16 @@ def get_cashflow_statement(month: int, year: int) -> dict:
 
 
 def get_available_to_spend() -> dict:
-    """Return the real liquidity ("disponível pra gastar"): checking cash minus open card bills.
-
-    available = Σ checking balances (nu-db, inter-db) − Σ open fatura totals (nu-cc, inter-cc).
-    This is the balance-sheet truth — "if I paid every open bill right now, this is what's left."
-    Reuses get_all_accounts_with_balance() and get_credit_card_billing_info() so there is a
-    single source of truth shared with /api/accounts and /api/faturas.
+    """Return the real liquidity ("disponível pra gastar"): checking cash.
     """
     checking_total = 0.0
-    faturas_total  = 0.0
     for acc in get_all_accounts_with_balance():
         if acc["type"] == "checking":
             checking_total += float(acc["balance"] or 0)
-        elif acc["type"] == "credit":
-            faturas_total += float(get_credit_card_billing_info(acc["id"])["total"] or 0)
     return {
         "checking_total": checking_total,
-        "faturas_total":  faturas_total,
-        "available":      checking_total - faturas_total,
+        "faturas_total":  0.0,
+        "available":      checking_total,
     }
 
 

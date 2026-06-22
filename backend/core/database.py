@@ -13,7 +13,6 @@ from core.db.schema import init_db  # noqa: F401
 
 from core.db.crud import (  # noqa: F401
     insert_transaction,
-    insert_expense,
     get_transaction,
     delete_transaction,
     restore_transactions,
@@ -46,10 +45,6 @@ from core.db.analytics import (  # noqa: F401
     get_all_time_summary,
     get_all_time_categories,
     get_expenses_by_method,
-    get_credit_card_statement,
-    get_credit_card_billing_info,
-    get_account_faturas,
-    get_fatura_detail,
     get_monthly_history,
     get_monthly_history_present,
     get_expenses_by_category,

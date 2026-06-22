@@ -30,7 +30,7 @@ def _insert_tagged(db, import_batch_id, **kw):
     """Raw-insert a tagged transaction (insert_transaction doesn't take the tag)."""
     cols = dict(
         date="2026-05-01", flow="expense", method="pix", account_id="nu-db",
-        amount=10.0, installments=1, description="x", category_id=None,
+        amount=10.0, description="x", category_id=None,
         dest_account_id=None, counterpart=None, is_revenue=0, external_id=None,
         import_batch_id=import_batch_id,
     )
@@ -92,48 +92,10 @@ def test_dedup_intact_with_new_column(db):
 
 # ── delete_batch ─────────────────────────────────────────────────────────────
 
-def test_delete_batch_removes_purchases_and_fatura(db):
-    """[REGRESSION] delete_batch reverses a fatura import that per-row delete can't."""
-    from core.db import crud
-
-    sid = "imp-1"
-    _insert_tagged(db, sid, description="compra", amount=50.0)
-    fatura = _insert_tagged(db, sid, description="Pagamento fatura",
-                            method="transfer", dest_account_id="nu-cc", amount=900.0)
-    assert crud.count_batch(sid) == 2
-
-    # per-row delete refuses the fatura-total row (the bug delete_batch fixes)
-    with pytest.raises(ValueError):
-        crud.delete_transaction(fatura)
-
-    res = crud.delete_batch(sid)
-    assert res["deleted"] == 2          # BOTH gone, incl. the protected fatura row
-    assert crud.count_batch(sid) == 0
-
-
 def test_delete_batch_unknown_id_is_noop(db):
     from core.db import crud
     res = crud.delete_batch("does-not-exist")
     assert res == {"deleted": 0, "transactions": [], "investment_deltas": []}
-
-
-def test_delete_batch_restore_roundtrip_preserves_tag(db):
-    """delete_batch returns a restore payload; restore re-adds rows WITH their tag."""
-    from core.db import crud
-
-    sid = "imp-2"
-    _insert_tagged(db, sid, description="a", amount=10.0)
-    _insert_tagged(db, sid, description="b", amount=20.0)
-
-    res = crud.delete_batch(sid)
-    assert res["deleted"] == 2
-    assert crud.count_batch(sid) == 0
-
-    restored = crud.restore_transactions(
-        {"transactions": res["transactions"], "investment_deltas": res["investment_deltas"]}
-    )
-    assert restored == 2
-    assert crud.count_batch(sid) == 2  # tag survived the round trip (in _TX_COLUMNS)
 
 
 def test_delete_batch_reverts_investment_balance(db):

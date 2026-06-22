@@ -518,8 +518,6 @@ function ImportModal({ onClose, onDone }) {
   const [busy, setBusy]           = useState(false);
   const [err, setErr]             = useState(null);
   const [results, setResults]     = useState(null); // per-account confirm status
-  const [faturaDue, setFaturaDue] = useState({});   // account -> "YYYY-MM-DD" (vencimento da fatura do mês)
-  const isFatura = id => (id || "").endsWith("-cc");
 
   const step = (groups || b3s.length) ? 2 : 1;
 
@@ -537,9 +535,7 @@ function ImportModal({ onClose, onDone }) {
   const setFileAccount = (key, account) =>
     setFiles(prev => prev.map(f => f.key === key ? { ...f, account } : f));
 
-  // Each file just needs an account assigned (B3 files self-type). For a card fatura the
-  // vencimento is optional but recommended: set it and the whole monthly file lands in that
-  // bill (parcelas included, matches the bank); blank → auto-split by date (approximate).
+  // Each file just needs an account assigned (B3 files self-type).
   const canAnalyze = files.length > 0 && !busy &&
     files.every(f => f.b3 || f.account);
 
@@ -608,7 +604,7 @@ function ImportModal({ onClose, onDone }) {
         if (!g.batch_id || g.err) continue;
         const excl = (rowsByGroup[g.account] || []).filter(r => excluded.has(r.id)).map(r => r.id);
         try {
-          const res = await importConfirm(g.batch_id, excl, sessionId, faturaDue[g.account] || null);
+          const res = await importConfirm(g.batch_id, excl, sessionId);
           totalInserted += res.inserted || 0;
           status.push({ account: g.account, ok: true, inserted: res.inserted || 0 });
         } catch (e) {
@@ -644,7 +640,7 @@ function ImportModal({ onClose, onDone }) {
   },
     h("div", { style: { background: "var(--bg-2)", padding: 12, borderRadius: "50%", color: "var(--fg-1)", marginBottom: 4 } }, h(IconImport, { size: 24 })),
     h("div", { style: { fontSize: 15, fontWeight: 600, color: "var(--fg-0)" } }, "Arraste os arquivos bancários aqui"),
-    h("div", { style: { fontSize: 13, color: "var(--fg-3)" } }, "Múltiplos extratos/faturas (.csv) ou relatórios B3 (.xlsx)"),
+    h("div", { style: { fontSize: 13, color: "var(--fg-3)" } }, "Múltiplos extratos (.csv) ou relatórios B3 (.xlsx)"),
     h("input", { type: "file", accept: ".csv,.xlsx,text/csv", multiple: true, style: { display: "none" },
       onChange: e => { addFiles(e.target.files); e.target.value = null; } })
   );
@@ -665,21 +661,6 @@ function ImportModal({ onClose, onDone }) {
             h("option", { value: "" }, "Atribuir Conta…"),
             BANKS.map(b => h("option", { key: b.id, value: b.id }, b.label))
           ),
-      // Vencimento — fatura de cartão (-cc). UM arquivo = UMA fatura do mês: marca TODAS
-      // as linhas com este vencimento (= a fatura do banco, parcelas inclusas). Em branco
-      // → divide por data (aproximado; só p/ arquivos sem parcelamento).
-      f.account && isFatura(f.account) && h("div", { style: { display: "flex", alignItems: "center", gap: 6 } },
-        h("span", { style: { fontSize: 11, color: "var(--fg-3)", whiteSpace: "nowrap" } }, "Vence"),
-        h("input", {
-          type: "date", value: faturaDue[f.account] || "",
-          onChange: e => setFaturaDue(prev => ({ ...prev, [f.account]: e.target.value || undefined })),
-          title: "Vencimento da fatura do mês — todas as compras do arquivo entram nesta fatura (casa com a fatura do banco, parcelas inclusas). Deixe vazio só para arquivos longos/sem parcelamento.",
-          "aria-label": "Vencimento da fatura do mês",
-          style: { fontSize: 12, padding: "7px 8px", borderRadius: 6, background: "var(--bg-0)", colorScheme: "dark",
-                   color: faturaDue[f.account] ? "var(--fg-0)" : "var(--fg-3)",
-                   border: `1px solid ${faturaDue[f.account] ? "var(--line-2)" : "var(--reserve)"}`, outline: "none" },
-        })
-      ),
       h("button", { onClick: () => removeFile(f.key), title: "Remover arquivo", style: { width: 32, height: 32, borderRadius: "50%", background: "transparent", border: "none", color: "var(--fg-3)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.1s" }, onMouseEnter: e => { e.currentTarget.style.color = "var(--neg)"; e.currentTarget.style.background = "var(--bg-2)"; }, onMouseLeave: e => { e.currentTarget.style.color = "var(--fg-3)"; e.currentTarget.style.background = "transparent"; } }, "✕")
     ))
   );

@@ -1,8 +1,8 @@
 /* view-overview.js — OverviewView (tela "Dinheiro") + CategoriesPanel */
-/* global React, fetchSummary, fetchFaturas, fetchAvailable, fetchAccounts,
+/* global React, fetchSummary, fetchAvailable, fetchAccounts,
           fetchMonthTransactions, fetchCashflowStatement, fetchInvestments,
           fetchPatrimonioHistory, fetchExpenseCategoriesFull, postCategory, deleteCategory,
-          fetchRecentTransactions, fetchFatura, patchTransaction */
+          fetchRecentTransactions, patchTransaction */
 
 const { useState: _ovSt, useEffect: _ovEf, useMemo: _ovMemo } = React;
 const { fmtBRL, fmtBRLCompact, fmtDateBR, BankChip, DualLine, Modal, PT_MONTHS, PT_SHORT, fmtCycleDate } = window.BS;
@@ -19,57 +19,12 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
   const [availErr, setAvailErr]     = _ovSt(false);
   const [loadErr, setLoadErr]       = _ovSt(false);
   const [retryTick, setRetryTick]   = _ovSt(0);
-  const [faturas, setFaturas]       = _ovSt([]);
-  const [accounts, setAccounts]     = _ovSt([]);
+    const [accounts, setAccounts]     = _ovSt([]);
   const [activity, setActivity]     = _ovSt([]);
   const [cashflow, setCashflow]     = _ovSt(null);
   const [investments, setInvestments] = _ovSt([]);
   const [patrimonioHistory, setPatrimonioHistory] = _ovSt([]);
   const [liquidityHistory, setLiquidityHistory] = _ovSt([]);
-
-  // Fatura modal: editable membership. Loads members (tagged) + candidates (untagged
-  // card purchases in a window) by fatura_due — the bank's grouping, not a date window.
-  const [faturaReceipt, setFaturaReceipt] = _ovSt(null);  // { accountId, label, due_iso, due_date }
-  const [faturaData, setFaturaData] = _ovSt(null);        // { total, count, members, candidates }
-  const [faturaBusy, setFaturaBusy] = _ovSt(null);        // tx id mid-toggle (disables its row)
-
-  _ovEf(() => {
-    if (faturaReceipt && faturaReceipt.due_iso) {
-      setFaturaData(null);
-      fetchFatura(faturaReceipt.accountId, faturaReceipt.due_iso)
-        .then(setFaturaData)
-        .catch(() => setFaturaData({ members: [], candidates: [], total: 0, count: 0 }));
-    }
-  }, [faturaReceipt]);
-
-  // Toggle a purchase in/out of the open fatura → PATCH fatura_due. Optimistic: move the
-  // row between members/candidates and adjust the total; SSE refreshes the home numbers.
-  const toggleFaturaMember = async (tx, include) => {
-    if (!faturaReceipt || faturaBusy) return;
-    setFaturaBusy(tx.id);
-    try {
-      await patchTransaction(tx.id, { fatura_due: include ? faturaReceipt.due_iso : null });
-      setFaturaData(d => {
-        if (!d) return d;
-        const byDate = (a, b) => (a.date > b.date ? 1 : a.date < b.date ? -1 : a.id - b.id);
-        if (include) {
-          return { ...d,
-            members: [...d.members, { ...tx, fatura_due: faturaReceipt.due_iso }].sort(byDate),
-            candidates: d.candidates.filter(c => c.id !== tx.id),
-            total: d.total + tx.amount, count: d.count + 1 };
-        }
-        return { ...d,
-          members: d.members.filter(m => m.id !== tx.id),
-          candidates: [...d.candidates, { ...tx, fatura_due: null }].sort(byDate),
-          total: d.total - tx.amount, count: d.count - 1 };
-      });
-      window.dispatchEvent(new CustomEvent('bs-toast', { detail: { msg: include ? "Adicionado à fatura" : "Removido da fatura", kind: "success" } }));
-    } catch (e) {
-      window.dispatchEvent(new CustomEvent('bs-toast', { detail: { msg: "Erro ao atualizar fatura", kind: "error" } }));
-    } finally {
-      setFaturaBusy(null);
-    }
-  };
 
   _ovEf(() => {
     const parts = filterMonth ? filterMonth.split("-").map(Number) : [];
@@ -78,15 +33,14 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
     fetchAvailable().then(setAvailable).catch(() => setAvailErr(true));
     Promise.all([
       fetchSummary({ month, year }),
-      fetchFaturas(),
       fetchAccounts(),
       fetchMonthTransactions((month && year) ? { month, year } : {}),
       fetchCashflowStatement((month && year) ? { month, year } : {}),
       fetchInvestments(),
       fetchPatrimonioHistory(),
       fetchLiquidityHistory()
-    ]).then(([s, f, ac, a, cf, invs, ph, lh]) => {
-      setSummary(s); setFaturas(f);
+    ]).then(([s, ac, a, cf, invs, ph, lh]) => {
+      setSummary(s);
       setAccounts(ac); setActivity(a); setCashflow(cf);
       setInvestments(invs);
       setPatrimonioHistory(ph || []);
@@ -105,18 +59,15 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
   // Checking accounts only, for the "Contas correntes" card.
   const checkingAccounts = accounts.filter(a => a.type === "checking");
 
-  const totalFaturas    = faturas.reduce((s, f) => s + (f.total || 0), 0);
   const totalReservas   = investments.reduce((s, inv) => s + (inv.balance || 0), 0);
   // Use the same checking number as the hero (investment-adjusted) for consistency.
   const checkingTotal   = available ? available.checking_total : checkingAccounts.reduce((s, a) => s + (a.balance || 0), 0);
   // Patrimônio líquido = o que sobra se você quitar todas as faturas em aberto agora.
-  const patrimonioLiquido = checkingTotal + totalReservas - totalFaturas;
+  const patrimonioLiquido = checkingTotal + totalReservas;
 
   const now = new Date();
   const isCur = cashflow && cashflow.month === now.getMonth() + 1 && cashflow.year === now.getFullYear();
-  const displayExpense = cashflow 
-    ? (isCur && cashflow.expense_by_source ? (cashflow.expense_by_source.direct + totalFaturas) : cashflow.expense_total) 
-    : 0;
+  const displayExpense = cashflow ? cashflow.expense_total : 0;
   const displayFree = cashflow 
     ? (cashflow.income_total - displayExpense - cashflow.investment_net)
     : 0;
@@ -282,17 +233,14 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
                   totalLabel: "Disponível",
                   totalValue: availValue,
                   items: [
-                    { label: "Saldo nas Contas", value: available.checking_total },
-                    { label: "Faturas Acumuladas", value: available.faturas_total, negative: true }
+                    { label: "Saldo nas Contas", value: available.checking_total }
                   ]
                 },
-                  h("div", { className: "num", style: { fontSize: 56, fontWeight: 800, letterSpacing: "-0.04em", lineHeight: 1, color: availNeg ? "var(--neg)" : "var(--pos)", marginBottom: 12, cursor: "help", display: "inline-block" } },
+                  h("div", { className: "num", style: { fontSize: 32, fontWeight: 800, letterSpacing: "-0.04em", lineHeight: 1, color: availNeg ? "var(--neg)" : "var(--pos)", marginBottom: 12, cursor: "help", display: "inline-block" } },
                     (availNeg ? "−" : "") + fmtBRL(Math.abs(availValue))
                   )
                 ),
-                // Contas / Faturas detail lives in the number's popover and the
-                // "Posição Atual" panel below — here we show the trend instead.
-                h(TrendLine, { history: liquidityHistory, delta: deltaLiquidez, color: availNeg ? "var(--neg)" : "var(--info)" })
+                // Omitted TrendLine to adhere to "Tool, not Product" guidelines.
               )
       ),
 
@@ -308,8 +256,7 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
             h("div", { style: { fontSize: 11, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700, marginBottom: 8 } }, "Despesas"),
             h(BreakdownPopover, {
               items: [
-                { label: "Gastos em Conta (Débito/PIX/TED)", value: cashflow.expense_by_source ? cashflow.expense_by_source.direct : cashflow.expense_total, negative: true },
-                (isCur && totalFaturas > 0) ? { label: "Faturas Acumuladas (Crédito)", value: totalFaturas, negative: true } : (cashflow.expense_by_source && { label: "Faturas do Cartão (Crédito)", value: cashflow.expense_by_source.cc, negative: true })
+                { label: "Gastos em Conta (Débito/PIX/TED)", value: cashflow.expense_by_source ? cashflow.expense_by_source.direct : cashflow.expense_total, negative: true }
               ],
               totalLabel: "Total Despesas",
               totalValue: -displayExpense
@@ -351,13 +298,12 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
           position: "top",
           items: [
             { label: "Caixa (Contas Correntes)", value: checkingTotal },
-            { label: "Investimentos", value: totalReservas },
-            { label: "Faturas Acumuladas", value: totalFaturas, negative: true }
+            { label: "Investimentos", value: totalReservas }
           ],
           totalLabel: "Patrimônio",
           totalValue: patrimonioLiquido
         },
-          h("div", { className: "num", style: { fontSize: 36, fontWeight: 800, color: patrimonioLiquido < 0 ? "var(--neg)" : "var(--fg-0)", cursor: "help", display: "inline-block", letterSpacing: "-0.02em", lineHeight: 1 } },
+          h("div", { className: "num", style: { fontSize: 24, fontWeight: 800, color: patrimonioLiquido < 0 ? "var(--neg)" : "var(--fg-0)", cursor: "help", display: "inline-block", letterSpacing: "-0.02em", lineHeight: 1 } },
              (patrimonioLiquido < 0 ? "−" : "") + fmtBRL(Math.abs(patrimonioLiquido))
           )
         )
@@ -365,231 +311,39 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
       h(TrendLine, { history: patrimonioHistory, delta: deltaPatrimonio, color: "var(--reserve)", width: 160 })
     ),
 
-    // ── 3. POSIÇÃO DE CAIXA E FATURAS (Unified Panel) ──
+    // ── 3. POSIÇÃO DE CAIXA ──
     h("div", { style: { background: "var(--bg-1)", padding: 24, borderRadius: 16, border: "1px solid var(--line-1)", display: "flex", flexDirection: "column", minHeight: 0 } },
       h("div", { style: { display: "flex", alignItems: "center", gap: 16, marginBottom: 20 } },
         h("div", { style: { fontSize: 13, fontWeight: 700, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em" } }, "Posição Atual (Disponível)"),
         h("div", { style: { height: 1, flex: 1, background: "var(--line-1)" } })
       ),
-      h("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 32, flex: 1, minHeight: 0 } },
-        
-        // Faturas Column
-        h("div", { style: { display: "flex", flexDirection: "column", minHeight: 0 } },
-          h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 } },
-            h("span", { style: { fontSize: 12, fontWeight: 700, color: "var(--fg-2)", textTransform: "uppercase", letterSpacing: "0.04em" } }, "Faturas Acumuladas"),
-            h("span", { className: "num", style: { fontSize: 15, fontWeight: 700, color: totalFaturas > 0 ? "var(--neg)" : "var(--fg-2)" } }, fmtBRL(totalFaturas))
-          ),
-          h("div", { className: "custom-scrollbar", style: { display: "flex", flexDirection: "column", overflowY: "auto", flex: 1, paddingRight: 8, marginRight: -8 } },
-            faturas.length === 0
-              ? h("div", { style: { padding: "16px 0", color: "var(--fg-3)", fontSize: 13 } }, "Nenhuma fatura em aberto.")
-              : [...faturas].sort((a,b) => ((a.accountId||"").startsWith("nu") ? 1 : 2) - ((b.accountId||"").startsWith("nu") ? 1 : 2)).map((f, i, arr) => {
-                  const tone = f.days_until_due <= 3 ? "neg" : f.days_until_due <= 7 ? "warn" : "ok";
-                  const color = tone === "neg" ? "var(--neg)" : tone === "warn" ? "var(--warn)" : "var(--pos)";
-                  const due = f.days_until_due > 0 ? `em ${f.days_until_due}d` : f.days_until_due === 0 ? "hoje" : `há ${Math.abs(f.days_until_due)}d`;
-                  const trend = (f.last_total > 0) ? ((f.total - f.last_total) / f.last_total) * 100 : null;
-                  const bankColor = (f.accountId || "").startsWith("nu") ? "var(--nubank)" : "var(--inter)";
+      h("div", { style: { display: "flex", flexDirection: "column", minHeight: 0 } },
+        h("div", { className: "custom-scrollbar", style: { display: "flex", flexDirection: "column", overflowY: "auto", flex: 1, paddingRight: 8, marginRight: -8 } },
+          checkingAccounts.length === 0
+            ? h("div", { style: { padding: "16px 0", color: "var(--fg-3)", fontSize: 13 } }, "Nenhuma conta corrente.")
+            : [...checkingAccounts].sort((a,b) => ((a.id||"").startsWith("nu") ? 1 : 2) - ((b.id||"").startsWith("nu") ? 1 : 2)).map((a, i, arr) => {
+                const bankColor = (a.bank === "nubank" || (a.id||"").startsWith("nu")) ? "var(--nubank)" : "var(--inter)";
+                const pct = checkingTotal > 0 ? ((a.balance || 0) / checkingTotal) * 100 : 0;
 
-                  return h("button", {
-                    key: i, className: "row-hover",
-                    onClick: () => setFaturaReceipt({ accountId: f.accountId, label: f.label, due_iso: f.due_iso, due_date: f.due_date, total: f.total }),
-                    style: {
-                      display: "flex", justifyContent: "space-between", alignItems: "center",
-                      height: 60, padding: "0 16px", background: "transparent", border: "none",
-                      borderBottom: i < arr.length - 1 ? "1px dashed var(--line-1)" : "none",
-                      cursor: "pointer", textAlign: "left", borderRadius: 8
-                    },
+                return h("button", {
+                  key: a.id, className: "row-hover",
+                  onClick: () => onJumpToAccount && onJumpToAccount(a.id),
+                  style: {
+                    display: "flex", justifyContent: "space-between", alignItems: "center",
+                    height: 60, padding: "0 16px", background: "transparent", border: "none",
+                    borderBottom: i < arr.length - 1 ? "1px dashed var(--line-1)" : "none",
+                    cursor: "pointer", textAlign: "left", borderRadius: 8
                   },
-                    h("div", { style: { display: "flex", flexDirection: "column", justifyContent: "center", gap: 4 } },
-                      h("span", { style: { fontSize: 13, fontWeight: 700, color: "var(--fg-1)", display: "flex", alignItems: "center", gap: 10 } }, 
-                        h("div", { style: { width: 8, height: 8, borderRadius: "50%", background: bankColor } }), 
-                        f.label
-                      ),
-                      h("span", { style: { fontSize: 11, color, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", paddingLeft: 18 } }, `vence ${due}`)
-                    ),
-                    h("div", { style: { display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "flex-end", gap: 4 } },
-                      h("span", { className: "num", style: { fontSize: 16, fontWeight: 800, color: "var(--fg-0)", letterSpacing: "-0.02em" } }, fmtBRL(f.total)),
-                      trend !== null && h("span", { className: "num", title: "Variação vs. fatura anterior", style: { fontSize: 11, fontWeight: 700, color: trend >= 0 ? "var(--neg)" : "var(--pos)", height: 13 } },
-                        `${trend >= 0 ? "+" : "−"}${Math.abs(trend).toFixed(0)}% vs. anterior`)
-                    )
-                  );
-                })
-          )
-        ),
-
-        // Contas Column
-        h("div", { style: { display: "flex", flexDirection: "column", minHeight: 0 } },
-          h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 } },
-            h("span", { style: { fontSize: 12, fontWeight: 700, color: "var(--fg-2)", textTransform: "uppercase", letterSpacing: "0.04em" } }, "Saldo em Conta"),
-            h("span", { className: "num", style: { fontSize: 15, fontWeight: 700, color: "var(--fg-1)" } }, fmtBRL(checkingTotal))
-          ),
-          h("div", { className: "custom-scrollbar", style: { display: "flex", flexDirection: "column", overflowY: "auto", flex: 1, paddingRight: 8, marginRight: -8 } },
-            checkingAccounts.length === 0
-              ? h("div", { style: { padding: "16px 0", color: "var(--fg-3)", fontSize: 13 } }, "Nenhuma conta corrente.")
-              : [...checkingAccounts].sort((a,b) => ((a.id||"").startsWith("nu") ? 1 : 2) - ((b.id||"").startsWith("nu") ? 1 : 2)).map((a, i, arr) => {
-                  const bankColor = (a.bank === "nubank" || (a.id||"").startsWith("nu")) ? "var(--nubank)" : "var(--inter)";
-                  const pct = checkingTotal > 0 ? ((a.balance || 0) / checkingTotal) * 100 : 0;
-
-                  return h("button", {
-                    key: a.id, className: "row-hover",
-                    onClick: () => onJumpToAccount && onJumpToAccount(a.id),
-                    style: {
-                      display: "flex", justifyContent: "space-between", alignItems: "center",
-                      height: 60, padding: "0 16px", background: "transparent", border: "none",
-                      borderBottom: i < arr.length - 1 ? "1px dashed var(--line-1)" : "none",
-                      cursor: "pointer", textAlign: "left", borderRadius: 8
-                    },
-                  },
-                    h("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
-                      h("div", { style: { width: 8, height: 8, borderRadius: "50%", background: bankColor } }),
-                      h("span", { style: { fontSize: 13, fontWeight: 600, color: "var(--fg-1)" } }, a.name)
-                    ),
-                    h("span", { className: "num", title: `${pct.toFixed(1)}% do caixa`, style: { fontSize: 15, fontWeight: 700, color: (a.balance || 0) < 0 ? "var(--neg)" : "var(--fg-0)", minWidth: 90, textAlign: "right" } }, fmtBRL(a.balance || 0))
-                  );
-                })
-          )
+                },
+                  h("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
+                    h("div", { style: { width: 8, height: 8, borderRadius: "50%", background: bankColor } }),
+                    h("span", { style: { fontSize: 13, fontWeight: 600, color: "var(--fg-1)" } }, a.name)
+                  ),
+                  h("span", { className: "num", title: `${pct.toFixed(1)}% do caixa`, style: { fontSize: 15, fontWeight: 700, color: (a.balance || 0) < 0 ? "var(--neg)" : "var(--fg-0)", minWidth: 90, textAlign: "right" } }, fmtBRL(a.balance || 0))
+                );
+              })
         )
       )
-    ),
-
-    faturaReceipt && h(Modal, {
-      open: true,
-      title: `Fatura ${faturaReceipt.label}`,
-      onClose: () => { setFaturaReceipt(null); setFaturaData(null); },
-      width: 520
-    },
-      (() => {
-        // One purchase row with a membership checkbox. Checked = in the fatura; toggling
-        // moves it between members/candidates and writes fatura_due via PATCH.
-        const faturaRow = (t, isMember, last) => h("button", {
-          key: t.id,
-          onClick: () => toggleFaturaMember(t, !isMember),
-          disabled: faturaBusy === t.id,
-          className: "row-hover",
-          style: { display: "flex", alignItems: "center", gap: 12, width: "100%", textAlign: "left",
-                   background: "transparent", border: "none", cursor: faturaBusy === t.id ? "wait" : "pointer",
-                   opacity: faturaBusy === t.id ? 0.5 : 1,
-                   padding: "11px 8px", borderBottom: last ? "none" : "1px dashed var(--line-1)", borderRadius: 6 }
-        },
-          h("div", { style: { width: 18, height: 18, flexShrink: 0, borderRadius: 5,
-                   border: `1.5px solid ${isMember ? "var(--info)" : "var(--line-2)"}`,
-                   background: isMember ? "var(--info)" : "transparent",
-                   display: "flex", alignItems: "center", justifyContent: "center",
-                   color: "var(--bg-0)", fontSize: 12, fontWeight: 800 } }, isMember ? "✓" : ""),
-          h("div", { style: { display: "flex", flexDirection: "column", gap: 3, flex: 1, minWidth: 0 } },
-            h("div", { style: { fontSize: 14, fontWeight: 600, color: "var(--fg-1)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, t.display_name || t.description),
-            h("div", { style: { fontSize: 11, color: "var(--fg-3)", display: "flex", gap: 8, fontFamily: "var(--ff-mono)" } },
-              h("span", null, fmtDateBR(t.date)),
-              t.category && h("span", { style: { background: "var(--bg-2)", padding: "2px 6px", borderRadius: 4, textTransform: "uppercase", letterSpacing: "0.04em" } }, t.category)
-            )
-          ),
-          h("div", { className: "num", style: { fontSize: 15, fontWeight: 700, color: isMember ? "var(--fg-0)" : "var(--fg-3)" } }, fmtBRL(t.amount))
-        );
-        const sectionLabel = (txt) => h("div", { style: { fontSize: 11, color: "var(--fg-3)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", margin: "4px 0 8px" } }, txt);
-
-        return h("div", { style: { padding: "0 24px 24px", display: "flex", flexDirection: "column", gap: 20 } },
-          h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", background: "var(--bg-1)", padding: 16, borderRadius: 12, border: "1px solid var(--line-1)" } },
-            h("div", { style: { display: "flex", flexDirection: "column", gap: 4 } },
-              h("div", { style: { fontSize: 12, color: "var(--fg-3)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" } }, "Total da fatura"),
-              h("div", { className: "num", style: { fontSize: 28, fontWeight: 800, color: "var(--fg-0)", letterSpacing: "-0.02em" } }, fmtBRL(faturaData ? faturaData.total : (faturaReceipt.total || 0)))
-            ),
-            h("div", { style: { textAlign: "right", display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" } },
-              h("div", null,
-                h("div", { style: { fontSize: 12, color: "var(--fg-3)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 } }, "Vence"),
-                h("div", { style: { fontSize: 13, color: "var(--fg-1)", fontFamily: "var(--ff-mono)" } }, faturaReceipt.due_date || "—")
-              ),
-              onJumpToAccount && h("button", {
-                className: "btn btn-ghost",
-                onClick: () => { const acc = faturaReceipt.accountId; setFaturaReceipt(null); setFaturaData(null); onJumpToAccount(acc); },
-                style: { fontSize: 11, fontWeight: 700, color: "var(--info)", padding: "2px 4px" }
-              }, "Ver no histórico →")
-            )
-          ),
-
-          !faturaData ? h("div", { style: { padding: 32, textAlign: "center", color: "var(--fg-3)" } }, "Carregando lançamentos…") :
-          h("div", { className: "custom-scrollbar", style: { display: "flex", flexDirection: "column", maxHeight: 420, overflowY: "auto", paddingRight: 8, marginRight: -8 } },
-            sectionLabel(`Nesta fatura · ${faturaData.members.length}`),
-            faturaData.members.length === 0
-              ? h("div", { style: { padding: "8px 8px 16px", color: "var(--fg-3)", fontSize: 13 } }, "Nenhuma compra marcada nesta fatura.")
-              : faturaData.members.map((t, i) => faturaRow(t, true, i === faturaData.members.length - 1)),
-
-            faturaData.candidates.length > 0 && h("div", { style: { marginTop: 16, paddingTop: 8, borderTop: "1px solid var(--line-1)" } },
-              sectionLabel("Adicionar à fatura"),
-              h("div", { style: { fontSize: 11, color: "var(--fg-3)", margin: "-4px 8px 8px" } }, "Compras do cartão sem fatura, no período."),
-              faturaData.candidates.map((t, i) => faturaRow(t, false, i === faturaData.candidates.length - 1))
-            )
-          )
-        );
-      })()
-    )
-  );
-}
-
-// ── CategoriesPanel ───────────────────────────────────────────────────────────
-
-function CategoriesPanel({ refreshKey, onRefresh, onClose }) {
-  const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
-  const [flow, setFlow] = _ovSt("expense");
-  const [cats, setCats] = _ovSt([]);
-  const [newName, setNewName] = _ovSt("");
-  const [adding, setAdding] = _ovSt(false);
-  const [err, setErr] = _ovSt("");
-  const [deleteModal, setDeleteModal] = _ovSt(null); // {id, name, count}
-  const [reassignTo, setReassignTo] = _ovSt("");
-  const [deleting, setDeleting] = _ovSt(false);
-
-  _ovEf(() => {
-    fetchCategoriesFull(flow).then(setCats);
-  }, [flow, refreshKey]);
-
-  async function handleAdd(e) {
-    e.preventDefault();
-    const name = newName.trim();
-    if (!name) return;
-    setAdding(true); setErr("");
-    try {
-      await postCategory(name, flow);
-      setNewName("");
-      fetchCategoriesFull(flow).then(setCats);
-      onRefresh && onRefresh();
-    } catch (ex) {
-      setErr(ex.message);
-    } finally {
-      setAdding(false);
-    }
-  }
-
-  async function handleDelete() {
-    if (!deleteModal || !reassignTo) return;
-    setDeleting(true); setErr("");
-    try {
-      await deleteCategory(deleteModal.id, parseInt(reassignTo));
-      setDeleteModal(null); setReassignTo("");
-      fetchCategoriesFull(flow).then(setCats);
-      onRefresh && onRefresh();
-    } catch (ex) {
-      setErr(ex.message);
-    } finally {
-      setDeleting(false);
-    }
-  }
-
-  const otherCats = deleteModal ? cats.filter(c => c.id !== deleteModal.id) : cats;
-
-  return h("div", { className: "fade-in", style: { padding: "20px 0", maxWidth: 640, margin: "0 auto" } },
-    h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 } },
-      h("div", { style: { display: "flex", alignItems: "center", gap: 16 } },
-        onClose && h("button", {
-          onClick: onClose, title: "Voltar",
-          style: { width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "50%", background: "var(--bg-1)", border: "1px solid var(--line-1)", color: "var(--fg-2)", cursor: "pointer", transition: "all 0.1s" },
-          onMouseEnter: e => { e.currentTarget.style.color = "var(--fg-0)"; e.currentTarget.style.background = "var(--bg-2)"; },
-          onMouseLeave: e => { e.currentTarget.style.color = "var(--fg-2)"; e.currentTarget.style.background = "var(--bg-1)"; }
-        }, "←"),
-        h("span", { style: { fontWeight: 700, fontSize: "var(--fz-4)", textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--fg-2)" } }, "Gerenciar Categorias")
-      ),
-      h(window.BS.SegmentControl, {
-        options: [{ value: "expense", label: "Despesas" }, { value: "income", label: "Receitas" }],
-        value: flow, onChange: setFlow, columns: 2,
-      })
     ),
 
     h("div", { style: { background: "var(--bg-1)", borderRadius: 16, border: "1px solid var(--line-1)", display: "flex", flexDirection: "column", overflow: "hidden" } },

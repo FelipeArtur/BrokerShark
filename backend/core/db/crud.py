@@ -20,7 +20,6 @@ def insert_transaction(
     account_id: str,
     amount: float,
     description: str,
-    installments: int = 1,
     category_id: Optional[int] = None,
     dest_account_id: Optional[str] = None,
     counterpart: Optional[str] = None,
@@ -36,7 +35,6 @@ def insert_transaction(
         account_id: FK to ``accounts.id``.
         amount: Positive monetary value in BRL.
         description: Human-readable label entered by the user.
-        installments: Number of installments (default 1).
         category_id: FK to ``categories.id`` (required for expenses).
         dest_account_id: FK for internal transfers (usually ``None``).
         counterpart: Sender/recipient name for external PIX.
@@ -67,77 +65,17 @@ def insert_transaction(
     with _connect() as conn:
         cur = conn.execute(
             f"""{verb} INTO transactions
-               (date, flow, method, account_id, amount, installments,
+               (date, flow, method, account_id, amount,
                 description, category_id, dest_account_id, counterpart, is_revenue,
                 external_id)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (date, flow, method, account_id, amount, installments,
+               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+            (date, flow, method, account_id, amount,
              description, category_id, dest_account_id, counterpart, is_revenue,
              external_id),
         )
         last_id = cur.lastrowid if (cur.rowcount and cur.lastrowid is not None) else -1
     events.notify()
     return last_id
-
-
-def _add_months(iso_date: str, months: int) -> str:
-    """Return ``iso_date`` shifted forward by ``months``, clamping the day.
-
-    A purchase made on the 31st whose next installment lands in a 30-day month
-    is clamped to the 30th (never rolls into the following month).
-    """
-    d = datetime.strptime(iso_date, "%Y-%m-%d").date()
-    total = (d.month - 1) + months
-    year = d.year + total // 12
-    month = total % 12 + 1
-    day = min(d.day, calendar.monthrange(year, month)[1])
-    return f"{year:04d}-{month:02d}-{day:02d}"
-
-
-def insert_expense(
-    date: str,
-    method: str,
-    account_id: str,
-    amount: float,
-    description: str,
-    installments: int = 1,
-    category_id: Optional[int] = None,
-    dest_account_id: Optional[str] = None,
-) -> int:
-    """Insert an expense, expanding a multi-installment purchase into one row per month.
-
-    A single ``credit`` purchase split into N installments is stored as N separate
-    transactions — one per monthly billing cycle, each carrying ``amount / N`` — so
-    each fatura and each monthly summary reflect only the installment due that month
-    (matching how imported card statements already arrive). The cents remainder is
-    placed on the final installment so the parts sum back to ``amount`` exactly.
-
-    Single-installment purchases (``installments <= 1``) insert one row, unchanged.
-
-    Returns:
-        The ``id`` of the first inserted row.
-    """
-    if installments <= 1:
-        return insert_transaction(
-            date=date, flow="expense", method=method, account_id=account_id,
-            amount=amount, description=description, installments=installments,
-            category_id=category_id, dest_account_id=dest_account_id,
-        )
-    per = round(amount / installments, 2)
-    parts = [per] * (installments - 1)
-    parts.append(round(amount - per * (installments - 1), 2))  # remainder on the last
-    first_id = -1
-    for k, part in enumerate(parts):
-        label = f"{description} ({k + 1}/{installments})"
-        tx_id = insert_transaction(
-            date=_add_months(date, k), flow="expense", method=method,
-            account_id=account_id, amount=part, description=label,
-            installments=installments, category_id=category_id,
-            dest_account_id=dest_account_id,
-        )
-        if k == 0:
-            first_id = tx_id
-    return first_id
 
 
 def get_transaction(transaction_id: int) -> Optional[sqlite3.Row]:
@@ -150,45 +88,12 @@ def get_transaction(transaction_id: int) -> Optional[sqlite3.Row]:
 
 # Full transactions column set, in a fixed order, for round-trip delete→restore.
 _TX_COLUMNS = (
-    "id", "date", "flow", "method", "account_id", "amount", "installments",
+    "id", "date", "flow", "method", "account_id", "amount",
     "description", "category_id", "dest_account_id", "counterpart", "is_revenue",
     "external_id", "display_name", "is_third_party", "original_amount",
-    "import_batch_id", "fatura_due",
+    "import_batch_id",
 )
 
-_INSTALLMENT_RE = re.compile(r"^(?P<base>.+) \((?P<k>\d+)/(?P<n>\d+)\)$")
-
-
-def _is_fatura_payment(row: sqlite3.Row) -> bool:
-    """True for a fatura-total/payment leg (transfer into a credit-card account).
-
-    These rows are what the patrimônio counts as the real cash outflow, so they
-    are protected: never deletable row-by-row and never taggable with ``fatura_due``.
-    """
-    return row["method"] == "transfer" and row["dest_account_id"] in ("nu-cc", "inter-cc")
-
-
-def _installment_group(conn: sqlite3.Connection, row: sqlite3.Row) -> list[sqlite3.Row]:
-    """Return all sibling rows of a manual installment purchase, or just ``row``.
-
-    Manual parcelas are stored as N rows ``"<base> (k/N)"`` (see ``insert_expense``),
-    sharing account/method/installments. Imported card rows that don't follow the
-    ``(k/N)`` convention are treated as standalone (returned as a single-row list).
-    """
-    if (row["installments"] or 1) <= 1:
-        return [row]
-    m = _INSTALLMENT_RE.match(row["description"] or "")
-    if not m or int(m.group("n")) != row["installments"]:
-        return [row]
-    base, n = m.group("base"), row["installments"]
-    siblings = conn.execute(
-        "SELECT * FROM transactions WHERE installments = ? AND account_id = ? AND method = ?",
-        (n, row["account_id"], row["method"]),
-    ).fetchall()
-    group = [r for r in siblings
-             if (mm := _INSTALLMENT_RE.match(r["description"] or "")) and mm.group("base") == base
-             and int(mm.group("n")) == n]
-    return group or [row]
 
 
 def _self_transfer_partner(conn: sqlite3.Connection, row: sqlite3.Row) -> Optional[sqlite3.Row]:
@@ -251,8 +156,6 @@ def delete_transaction(tx_id: int) -> Optional[dict]:
     """Delete a transaction (and its integrity-linked siblings) and return a restore payload.
 
     Safety guarantees:
-      * **Fatura payments** are never deletable (raises ``ValueError``).
-      * **Installment purchases** delete as a whole group — never orphan a parcela.
       * **Auto-transfer pairs** (``counterpart='SELF'``) delete both legs together.
       * **Investment legs** created via the web modal also revert
         ``investments.current_balance`` so the position isn't left overstated.
@@ -273,16 +176,8 @@ def delete_transaction(tx_id: int) -> Optional[dict]:
         ).fetchone()
         if target is None:
             return None
-        if _is_fatura_payment(target):
-            raise ValueError(
-                "Pagamentos de fatura não podem ser excluídos. "
-                "Este lançamento representa o total da fatura paga e é usado no cálculo do patrimônio."
-            )
-
         # Build the set of rows that must go together (dedup by id).
-        to_delete: dict[int, sqlite3.Row] = {}
-        for r in _installment_group(conn, target):
-            to_delete[r["id"]] = r
+        to_delete: dict[int, sqlite3.Row] = {target["id"]: target}
         partner = _self_transfer_partner(conn, target)
         if partner is not None:
             to_delete[partner["id"]] = partner
@@ -343,12 +238,7 @@ def delete_batch(import_batch_id: str) -> dict:
     """Reverse a whole import in one transaction — every row that shares the tag.
 
     This is the deliberate counterpart to :func:`delete_transaction`'s per-row guard.
-    A single-row delete refuses fatura-total rows (``dest IN ('nu-cc','inter-cc')``)
-    because those are load-bearing for patrimônio; but a fatura import stages exactly
-    such a row, and those rows are invisible in the Histórico (``get_month_transactions``
-    filters ``dest IS NULL``). So per-row delete can never reverse a fatura import and
-    would leave a double-counting orphan. ``delete_batch`` removes the entire tagged set
-    — purchases AND the fatura total — restoring the books to their pre-import state.
+    delete_batch removes the entire tagged set.
 
     Installment groups all share the tag (imported card rows are single rows anyway),
     so they go together by definition. Any modal-style investment legs revert
@@ -407,10 +297,9 @@ def update_transaction_fields(tx_id: int, **fields: Any) -> None:
     """Update one or more editable fields on a transaction.
 
     Accepts keyword arguments: ``display_name`` (str | None),
-    ``category_id`` (int), ``is_third_party`` (int 0/1),
-    ``fatura_due`` (str ``YYYY-MM-DD`` | None — credit-card fatura membership).
+    ``category_id`` (int), ``is_third_party`` (int 0/1).
     """
-    allowed = {"display_name", "category_id", "is_third_party", "fatura_due"}
+    allowed = {"display_name", "category_id", "is_third_party"}
     cols = {k: v for k, v in fields.items() if k in allowed}
     if not cols:
         return
@@ -540,9 +429,9 @@ def register_investment_transfer(
     with _connect() as conn:
         cur = conn.execute(
             """INSERT INTO transactions
-               (date, flow, method, account_id, amount, installments,
+               (date, flow, method, account_id, amount,
                 description, category_id, dest_account_id, counterpart, is_revenue, external_id)
-               VALUES (?,?,?,?,?,1,?,NULL,NULL,NULL,0,NULL)""",
+               VALUES (?,?,?,?,?,?,NULL,NULL,NULL,0,NULL)""",
             (date, flow, "transfer", checking, amount, desc),
         )
         tx_id = cur.lastrowid
@@ -695,7 +584,6 @@ def confirm_staging_batch(
     batch_id: str,
     exclude_ids: Optional[set[int]] = None,
     import_batch_id: Optional[str] = None,
-    fatura_due: Optional[str] = None,
 ) -> dict:
     """Atomically promote a batch's 'new' rows to transactions and drop the batch.
 
@@ -712,11 +600,6 @@ def confirm_staging_batch(
             reversible as one unit via :func:`delete_batch`. Generated when omitted.
             Only rows actually inserted carry it — ``INSERT OR IGNORE`` collisions and
             excluded rows are not tagged (so the tag = the exact undo set).
-        fatura_due: Optional override that forces every card purchase in the batch into a
-            single bill (``YYYY-MM-DD`` vencimento). When omitted (the default), each card
-            purchase leg is auto-assigned to its fatura by date via the account's closing
-            day (:func:`vencimento_for_date`) — so a multi-month fatura export splits into
-            the correct monthly bills instead of one giant fatura.
 
     Returns:
         ``{"inserted": int, "skipped": int, "import_batch_id": str}``, or
@@ -732,38 +615,7 @@ def confirm_staging_batch(
         if not rows:
             return {"inserted": 0, "skipped": 0, "missing": True}
 
-        # Resolve each card purchase's fatura: an explicit `fatura_due` override forces a
-        # single bill; otherwise auto-assign by date via the card's closing cycle (so a
-        # multi-month fatura export splits into the right monthly bills). Only card-leg
-        # rows (dest IS NULL, with a billing_day) carry it; a fatura-total/payment row
-        # (dest set) or a checking row never does. billing_day cached per account.
-        _billing: dict[str, Optional[tuple[int, int]]] = {}
-
-        def _due_for(row: sqlite3.Row) -> Optional[str]:
-            """Resolve the ``fatura_due`` ISO date for one staged row (None = no tag).
-
-            Explicit ``fatura_due`` (import modal) overrides everything; otherwise the
-            due date is derived from the purchase date via the card's closing cycle.
-            Non-card legs (``dest_account_id`` set, or account without ``billing_day``)
-            never receive a tag.
-            """
-            if row["dest_account_id"] is not None:
-                return None
-            if fatura_due:
-                return fatura_due
-            acct = row["account_id"]
-            if acct not in _billing:
-                a = conn.execute(
-                    "SELECT billing_day, due_day FROM accounts WHERE id=?", (acct,)
-                ).fetchone()
-                _billing[acct] = (a["billing_day"], a["due_day"]) if (a and a["billing_day"]) else None
-            cfg = _billing[acct]
-            if cfg is None:
-                return None
-            bday, dday = cfg
-            d = datetime.strptime(row["date"], "%Y-%m-%d").date()
-            return vencimento_for_date(d, bday, dday or (bday + 7)).strftime("%Y-%m-%d")
-
+        # import_batch_id tags the whole import so it's reversible as one unit.
         inserted = 0
         for r in rows:
             if r["status"] != "new" or r["id"] in excluded:
@@ -772,35 +624,20 @@ def confirm_staging_batch(
             # store original_amount only when the user actually overrode the value,
             # so it stays a clean audit flag (NULL = untouched bank value)
             audit_amount = orig if (orig is not None and round(orig, 2) != round(r["amount"], 2)) else None
-            row_fatura_due = _due_for(r)
             cur = conn.execute(
                 """INSERT OR IGNORE INTO transactions
-                   (date, flow, method, account_id, amount, installments,
+                   (date, flow, method, account_id, amount,
                     description, category_id, dest_account_id, counterpart,
                     is_revenue, external_id, display_name, original_amount,
-                    import_batch_id, fatura_due)
-                   VALUES (?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,?)""",
+                    import_batch_id)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (r["date"], r["flow"], r["method"], r["account_id"], r["amount"],
                  r["description"], _sget(r, "category_id"), r["dest_account_id"],
                  _staging_counterpart(r), r["is_revenue"] or 0, r["external_id"],
-                 _sget(r, "display_name"), audit_amount, import_batch_id, row_fatura_due),
+                 _sget(r, "display_name"), audit_amount, import_batch_id),
             )
             if cur.rowcount:
                 inserted += 1
-        # Override path only: when a single `fatura_due` is forced, a re-import dedups
-        # purchases already in the table, so stamp that vencimento onto the matching
-        # existing rows too — not just the newly inserted ones (idempotent re-tag). The
-        # auto path needs no re-tag: vencimento_for_date is deterministic from the date,
-        # so existing rows already carry the right fatura.
-        if fatura_due:
-            conn.execute(
-                """UPDATE transactions SET fatura_due = ?
-                   WHERE dest_account_id IS NULL AND flow = 'expense'
-                     AND (account_id, date, description, amount) IN (
-                         SELECT account_id, date, description, amount
-                         FROM import_staging WHERE batch_id = ? AND status != 'skipped')""",
-                (fatura_due, batch_id),
-            )
         conn.execute("DELETE FROM import_staging WHERE batch_id = ?", (batch_id,))
     # Rows enter with category_id from the preview edit if set, else NULL — then
     # categorized by hand in the Histórico (filter "Sem categoria" + inline edit).
