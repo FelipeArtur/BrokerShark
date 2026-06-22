@@ -6,7 +6,7 @@ import sqlite3
 from datetime import date, datetime, timedelta
 from typing import Optional
 
-from core.db.billing import billing_cycle_for_due, vencimento_for_date
+
 from core.db.schema import _connect
 
 _PT_SHORT = ["", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
@@ -638,9 +638,7 @@ def get_liquidity_history(months: int = 12) -> list[dict]:
 
     liquidity[m] = checking balance at end of month (investment-adjusted, via
     ``_checking_balance_at``, so the latest point lines up with the hero "Disponível"
-    number) − card spend during that month. The card-spend term is a per-month proxy
-    for the open fatura (exact per-cycle fatura history is not stored), so historical
-    points are approximate; the trend is what the sparkline conveys.
+    number).
     """
     today_dt = date.today()
     result: list[dict] = []
@@ -669,18 +667,8 @@ def get_liquidity_history(months: int = 12) -> list[dict]:
                 for acc in checking_accounts
             )
 
-            card_spend = conn.execute(
-                """SELECT COALESCE(SUM(amount), 0) AS spent
-                   FROM transactions
-                   WHERE account_id IN ('nu-cc','inter-cc')
-                     AND flow='expense' AND dest_account_id IS NULL
-                     AND method != 'transfer' AND COALESCE(is_third_party,0)=0
-                     AND date BETWEEN ? AND ?""",
-                (start, cutoff),
-            ).fetchone()["spent"] or 0.0
-
             label = f"{_PT_SHORT[m]}/{str(y)[-2:]}"
-            result.append({"label": label, "value": round(checking_bal - card_spend, 2)})
+            result.append({"label": label, "value": round(checking_bal, 2)})
 
     return result
 
@@ -924,7 +912,6 @@ def get_available_to_spend() -> dict:
             checking_total += float(acc["balance"] or 0)
     return {
         "checking_total": checking_total,
-        "faturas_total":  0.0,
         "available":      checking_total,
     }
 

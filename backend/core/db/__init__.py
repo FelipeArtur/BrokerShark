@@ -1,4 +1,4 @@
-"""Data layer split by responsibility — schema, crud, analytics, billing, categories.
+"""Data layer split by responsibility — schema, crud, analytics, categories.
 
 External callers import ``core.database`` (a re-export shim over these modules);
 the split exists so each concern stays reviewable. All SQL in the project lives

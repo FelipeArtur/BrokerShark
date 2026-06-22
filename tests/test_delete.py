@@ -9,7 +9,7 @@ import pytest
 
 def _add(**kw):
     from core.db import crud
-    defaults = dict(flow="expense", method="pix", account_id="nu-db", installments=1,
+    defaults = dict(flow="expense", method="pix", account_id="nu-db",
                     category_id=None, dest_account_id=None, counterpart=None, is_revenue=0)
     defaults.update(kw)
     return crud.insert_transaction(**defaults)

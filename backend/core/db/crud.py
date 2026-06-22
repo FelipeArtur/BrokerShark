@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from typing import Any, Iterable, Optional
 from uuid import uuid4
 
-from core.db.billing import vencimento_for_date
+
 from core.db.schema import _connect
 from core import events
 
@@ -166,9 +166,6 @@ def delete_transaction(tx_id: int) -> Optional[dict]:
 
     Returns:
         The restore payload, or ``None`` if the id was not found.
-
-    Raises:
-        ValueError: If the target is a protected fatura payment.
     """
     with _connect() as conn:
         target = conn.execute(
@@ -225,7 +222,7 @@ def restore_transactions(payload: dict) -> int:
 
 
 def count_batch(import_batch_id: str) -> int:
-    """Number of transactions tagged with ``import_batch_id`` (incl. hidden fatura rows)."""
+    """Number of transactions tagged with ``import_batch_id``."""
     with _connect() as conn:
         row = conn.execute(
             "SELECT COUNT(*) FROM transactions WHERE import_batch_id = ?",

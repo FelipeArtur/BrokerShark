@@ -3,7 +3,7 @@ Description=BrokerShark — alerta de desktop quando o backup FALHA (OnFailure)
 
 [Service]
 Type=oneshot
-# Alarme de INFRA (não é lembrete de fatura): sem ele, falha de backup só aparece
+# Alarme de INFRA: sem ele, falha de backup só aparece
 # se você rodar `systemctl --user --failed` à mão — o silêncio que deixou o
 # projeto sem nenhum backup até 2026-06-11.
 ExecStart=/usr/bin/notify-send --urgency=critical "BrokerShark" "Backup FALHOU — veja: journalctl --user -u brokershark-backup -n 30"

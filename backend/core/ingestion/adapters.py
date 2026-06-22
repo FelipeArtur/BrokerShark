@@ -20,8 +20,7 @@ from typing import Optional
 
 import config
 
-# account_id → adapter key. nu-cc (Nubank fatura) is intentionally absent: the
-# sample directory was empty, so that adapter is deferred (see plan / backlog).
+# account_id → adapter key.
 ACCOUNT_SOURCE = {
     "nu-db":    "nubank_extrato",
     "inter-db": "inter_extrato",

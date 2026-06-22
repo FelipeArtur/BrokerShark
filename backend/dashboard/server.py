@@ -334,11 +334,11 @@ def api_account_detail(account_id: str) -> Response:
     """Return all details for a single account in one call.
 
     Args:
-        account_id: One of ``nu-cc``, ``nu-db``, ``inter-cc``, ``inter-db``.
+        account_id: One of ``nu-db``, ``inter-db``.
 
     Returns:
         JSON with ``id``, ``name``, ``type``, ``bank``, ``balance``,
-        ``monthly_summary``, and (for credit accounts) ``billing_info``.
+        ``monthly_summary``.
     """
     if account_id not in _VALID_ACCOUNTS:
         return jsonify({"error": "unknown account"}), 400
@@ -548,11 +548,10 @@ def api_cashflow_statement() -> Response:
 
 @app.route("/api/available")
 def api_available() -> Response:
-    """Return real liquidity: checking cash minus open card bills ("disponível pra gastar").
+    """Return real liquidity ("disponível pra gastar").
 
     Returns:
-        JSON with ``checking_total``, ``faturas_total``, ``available``.
-        available = checking_total − faturas_total.
+        JSON with ``checking_total`` and ``available`` (which are equal now).
     """
     return jsonify(database.get_available_to_spend())
 
@@ -1028,13 +1027,12 @@ def api_delete_category(category_id: int) -> Response:
 def api_delete_transaction(transaction_id: int) -> Response:
     """Delete a transaction (and integrity-linked siblings) by ID.
 
-    Installment groups, auto-transfer pairs and investment-balance reverts are
-    handled in :func:`database.delete_transaction`. The response carries an opaque
+    Auto-transfer pairs and investment-balance reverts are handled in
+    :func:`database.delete_transaction`. The response carries an opaque
     ``restore`` payload the client posts back to ``/api/transactions/restore`` for undo.
 
     Returns:
-        ``{"ok": true, "deleted": N, "restore": {...}}`` on success;
-        404 if not found; 409 for a protected fatura payment.
+        ``{"ok": true, "deleted": N, "restore": {...}}`` on success; 404 if not found.
     """
     try:
         restore = database.delete_transaction(transaction_id)
@@ -1068,8 +1066,6 @@ def api_restore_transactions() -> Response:
 def api_delete_import_batch(import_batch_id: str) -> Response:
     """Reverse a whole import: delete every transaction sharing ``import_batch_id``.
 
-    Unlike per-row delete, this deliberately removes fatura-total rows too (the
-    per-row 409 guard is for accidental single deletes, not a whole-import undo).
     The response carries a ``restore`` payload the client can post back to
     ``/api/transactions/restore``.
 

@@ -528,7 +528,7 @@ function ImportModal({ onClose, onDone }) {
       if (ext !== "csv" && ext !== "xlsx") return null;
       return { key: uuid(), file: f, account: null, b3: ext === "xlsx" };
     }).filter(Boolean);
-    if (!incoming.length) { setErr("Envie .csv (extratos/faturas) ou .xlsx (relatório B3)."); return; }
+    if (!incoming.length) { setErr("Envie .csv (extratos) ou .xlsx (relatório B3)."); return; }
     setFiles(prev => [...prev, ...incoming]);
   }
   const removeFile = key => setFiles(prev => prev.filter(f => f.key !== key));
@@ -800,7 +800,7 @@ function ConfirmDeleteModal({ tx, onCancel, onConfirm }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   const desc = tx.display_name || tx.description || "";
   const m = /\((\d+)\/(\d+)\)\s*$/.exec(tx.description || "");
-  const isParcela = !!m && Number(tx.installments || 0) > 1;
+  const isParcela = !!m;
   const nParcelas = isParcela ? Number(m[2]) : 0;
   const isSelf = tx.counterpart === "SELF";
 
@@ -1023,7 +1023,7 @@ function App() {
           ? (n > 0 ? `${n} ${n === 1 ? "posição importada" : "posições importadas"}` : "Nenhuma posição encontrada")
           : (n > 0 ? `${n} ${n === 1 ? "lançamento importado" : "lançamentos importados"}` : "Nada novo para importar");
         // Reversível enquanto o toast vive: "Desfazer" remove o lote inteiro
-        // (compras + total da fatura, que o delete por linha protege) via delete_batch.
+        // (lançamentos do mês inteiro, que o delete por linha protege) via delete_batch.
         const undo = (res?.kind === "tx" && res?.importBatchId && n > 0)
           ? {
               label: "Desfazer",

@@ -8,9 +8,8 @@ const { useState: _ovSt, useEffect: _ovEf, useMemo: _ovMemo } = React;
 const { fmtBRL, fmtBRLCompact, fmtDateBR, BankChip, DualLine, Modal, PT_MONTHS, PT_SHORT, fmtCycleDate } = window.BS;
 
 /* ── OverviewView — tela "Dinheiro" ──────────────────────────────────────────
-   "Como estou agora": herói Disponível pra gastar (/api/available = contas −
-   faturas abertas), ledger Patrimônio líquido, faturas (modal de pertença
-   editável), contas, atividade recente e projeções advisory. Sempre mês atual. */
+   "Como estou agora": herói Disponível pra gastar (/api/available = contas).
+   ledger Patrimônio líquido, contas, atividade recente e projeções advisory. Sempre mês atual. */
 function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey, filterMonth, onImport }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
 
@@ -62,7 +61,7 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
   const totalReservas   = investments.reduce((s, inv) => s + (inv.balance || 0), 0);
   // Use the same checking number as the hero (investment-adjusted) for consistency.
   const checkingTotal   = available ? available.checking_total : checkingAccounts.reduce((s, a) => s + (a.balance || 0), 0);
-  // Patrimônio líquido = o que sobra se você quitar todas as faturas em aberto agora.
+  // Patrimônio líquido = saldo de todas as contas + investimentos.
   const patrimonioLiquido = checkingTotal + totalReservas;
 
   const now = new Date();
@@ -74,7 +73,7 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
 
   // Trend deltas are computed WITHIN each history series (last − previous), comparing
   // like with like. (Previously the patrimônio delta mixed the live full number —
-  // caixa + investimentos − faturas — with the cash-based history series, which
+  // caixa + investimentos — with the cash-based history series, which
   // excludes investments, yielding a misleading delta. A true historical net worth
   // can't be reconstructed: investments only carry a current snapshot, no monthly
   // history. So the trend reflects the reconstructable monthly series; the headline
@@ -116,7 +115,7 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
 
   // First-run: nothing imported yet → single invite, no ghost zero-cards.
   const isFirstRun = !availErr && available
-    && available.checking_total === 0 && available.faturas_total === 0
+    && available.checking_total === 0
     && activity.length === 0;
 
   const availValue = available ? available.available : 0;
@@ -190,14 +189,14 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
         ),
         h("div", { className: "pane-content", style: { padding: "32px" } },
           h("div", { style: { fontSize: 13, color: "var(--fg-2)", lineHeight: 1.6, marginBottom: 32 } },
-            "Importe extratos e faturas para ver quanto você pode gastar."
+            "Importe extratos para ver quanto você pode gastar."
           ),
 
           h("div", { style: { marginBottom: 12, fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--fg-3)", fontWeight: 700 } }, "Formatos Suportados"),
           h("table", { style: { width: "100%", borderCollapse: "collapse", marginBottom: 32 } },
             h("tbody", null,
-              SourceRow("Nubank", "*.csv", "Conta Corrente / Fatura"),
-              SourceRow("Inter", "*.csv", "Conta Corrente / Fatura"),
+              SourceRow("Nubank", "*.csv", "Conta Corrente"),
+              SourceRow("Inter", "*.csv", "Conta Corrente"),
               SourceRow("B3 (Bolsa)", "*.xlsx", "Relatório de Posições")
             )
           ),
@@ -287,7 +286,7 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
     ),
 
     // ── 2. PATRIMÔNIO ──
-    // Headline = precise current patrimônio (caixa + investimentos − faturas), with its
+    // Headline = precise current patrimônio (caixa + investimentos), with its
     // real breakdown in the popover. The trend is the reconstructable 12-month series
     // (investments have no monthly history, so the sparkline conveys direction, and the
     // delta is within-series — honest month-over-month, not the old mixed comparison).

@@ -1,5 +1,5 @@
 /* view-history.js — HistoryView (tela Histórico/Análise) */
-/* global React, fetchMonthlyFull, fetchMonthTransactions, fetchPixTop, deleteTransaction, fetchCategoriesFull, patchTransactionCategory, fetchAccountFaturas, fetchFatura */
+/* global React, fetchMonthlyFull, fetchMonthTransactions, fetchPixTop, deleteTransaction, fetchCategoriesFull, patchTransactionCategory */
 
 const { useState: _s2St, useEffect: _s2Ef, useMemo: _s2Memo } = React;
 const { fmtBRL, fmtBRLCompact, fmtDateBR, BankChip, DualLine, PT_MONTHS, PT_SHORT, fmtCycleDate } = window.BS;
@@ -65,8 +65,7 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
     }
   }, [pickedIdx, monthly, refreshKey]);
 
-  // Drill-down: a fatura/conta click on the Dinheiro screen lands here pre-filtered.
-  // A credit-card id (…-cc) pivots to fatura mode (browse by vencimento, totals = the
+  // Drill-down: a conta click on the Dinheiro screen lands here pre-filtered.
   // bank's bill); a checking account just pre-filters the month table by bank.
   _s2Ef(() => {
     if (initialAccount) {
@@ -380,16 +379,11 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
           ),
           h("select", {
             value: filterAccount,
-            // "card:<id>" pivota p/ modo-fatura (gastos do ciclo); o resto filtra o mês por banco.
-            onChange: e => { const v = e.target.value; if (v.startsWith("card:")) setFaturaCard(v.slice(5)); else setFilterAccount(v); },
+            onChange: e => setFilterAccount(e.target.value),
             className: "select", style: { height: 26, fontSize: 11, padding: "0 24px 0 10px", width: "auto", borderRadius: 6, background: "var(--bg-1)", border: "1px solid var(--line-1)", color: "var(--fg-1)", fontWeight: 500, cursor: "pointer" }
           },
             h("option", { value: "all" }, "Banco ▾"),
-            bankNames.length > 0 && h("optgroup", { label: "Filtrar mês por banco" }, bankNames.map(b => h("option", { key: b, value: b }, b))),
-            h("optgroup", { label: "Ver fatura do cartão" },
-              h("option", { value: "card:nu-cc" }, "Fatura Nubank"),
-              h("option", { value: "card:inter-cc" }, "Fatura Inter")
-            )
+            bankNames.length > 0 && h("optgroup", { label: "Filtrar mês por banco" }, bankNames.map(b => h("option", { key: b, value: b }, b)))
           ),
           h("div", { style: { flex: 1, minWidth: 16 } }),
           h("div", { style: { display: "flex", alignItems: "center", gap: 8 } },

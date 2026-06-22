@@ -216,7 +216,3 @@ def test_third_party_excluded_from_account_balance(db):
     # Third-party 500 excluded → balance is 1000, consistent with both functions.
     assert nu_db["balance"] == pytest.approx(1000.0, abs=0.001)
     assert analytics.get_account_balance("nu-db") == pytest.approx(nu_db["balance"], abs=0.001)
-
-
-# ── Fatura membership (editable open fatura) ──────────────────────────────────
-
