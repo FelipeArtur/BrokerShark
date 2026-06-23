@@ -657,7 +657,7 @@ function ImportModal({ onClose, onDone }) {
     onDrop: e => { e.preventDefault(); e.currentTarget.style.borderColor = "var(--line-2)"; e.currentTarget.style.background = "var(--bg-1)"; addFiles(e.dataTransfer.files); },
   },
     h("div", { style: { background: "var(--bg-2)", padding: 12, borderRadius: "50%", color: "var(--fg-1)", marginBottom: 4 } }, h(IconImport, { size: 24 })),
-    h("div", { style: { fontSize: 15, fontWeight: 600, color: "var(--fg-0)" } }, "Arraste os arquivos bancários aqui"),
+    h("div", { style: { fontSize: 15, fontWeight: 600, color: "var(--fg-0)" } }, "Arraste os arquivos aqui, ou clique para escolher"),
     h("div", { style: { fontSize: 13, color: "var(--fg-3)" } }, "Múltiplos extratos (.csv) ou relatórios B3 (.xlsx)"),
     h("input", { type: "file", accept: ".csv,.xlsx,text/csv", multiple: true, style: { display: "none" },
       onChange: e => { addFiles(e.target.files); e.target.value = null; } })
@@ -723,48 +723,58 @@ function ImportModal({ onClose, onDone }) {
         h("div", { style: { display: "flex", alignItems: "center", gap: 16, fontSize: 12, color: "var(--fg-2)", fontWeight: 600 } },
           allNew.length > 0 && h("button", { className: "data-tag", onClick: () => setGroupAll(g.account, !allIncluded), title: allIncluded ? "Desmarcar todas as novas" : "Marcar todas as novas", style: { cursor: "pointer" } }, allIncluded ? "Desmarcar" : "Marcar todas"),
           h("span", null, `${newRows.length} ${newRows.length === 1 ? "nova" : "novas"}`),
-          g.counts.duplicate > 0 && h("span", { style: { color: "var(--fg-3)" } }, `${g.counts.duplicate} já existem`),
+          g.counts.duplicate > 0 && h("span", { style: { color: "var(--fg-3)" } }, `${g.counts.duplicate} já importados`),
           h("span", { style: { fontFamily: "var(--ff-mono)", fontSize: 14, color: subtotal < 0 ? "var(--neg)" : "var(--pos)" } }, `${subtotal < 0 ? "−" : "+"}${fmtBRL(Math.abs(subtotal))}`)
         )
       ),
-      g.err && h("div", { style: { padding: "12px 20px", fontSize: 12, fontWeight: 600, color: "var(--neg)", background: "color-mix(in oklch, var(--neg) 10%, transparent)" } }, g.err),
+      g.err && h("div", { style: { padding: "12px 20px", display: "flex", flexDirection: "column", gap: 4, background: "color-mix(in oklch, var(--neg) 10%, transparent)" } },
+        h("div", { style: { fontSize: 12, fontWeight: 700, color: "var(--neg)" } }, g.err),
+        h("div", { style: { fontSize: 11, fontWeight: 500, color: "var(--fg-2)" } }, "Confira se a conta atribuída (Nubank/Inter) corresponde ao arquivo, ou se é mesmo um extrato desse banco.")),
       Math.abs(div) >= 0.01 && h("div", { style: { padding: "12px 20px", fontSize: 12, fontWeight: 600, color: "var(--reserve)", background: "color-mix(in oklch, var(--reserve) 12%, transparent)", borderBottom: "1px solid var(--line-1)" } },
         `Ajuste de Saldo: ${div > 0 ? "+" : "−"}${fmtBRL(Math.abs(div))} vs extrato original`),
-      !g.err && h("div", { style: { maxHeight: 320, overflowY: "auto", background: "var(--bg-0)" } },
-        h("table", { style: { width: "100%", borderCollapse: "collapse" } },
-          h("tbody", null, rows.map((r, i) => {
-            const isNew = r.status === "new";
-            const checked = isNew && !excluded.has(r.id);
-            const { color, sign } = amtMeta(r);
-            return h("tr", { key: r.id, style: { borderBottom: i < rows.length - 1 ? "1px solid var(--line-0)" : "none", opacity: (!isNew || !checked) ? 0.45 : 1, fontSize: 13, transition: "background 0.1s" }, onMouseEnter: e => e.currentTarget.style.background = "var(--bg-1)", onMouseLeave: e => e.currentTarget.style.background = "transparent" },
-              h("td", { style: { padding: "12px 16px", width: 40, textAlign: "center" } },
-                isNew ? h("input", { type: "checkbox", checked, onChange: () => toggle(r.id), "aria-label": "Incluir", style: { cursor: "pointer", accentColor: "var(--fg-0)" } })
-                      : h("span", { style: { color: "var(--fg-3)" } }, "−")),
-              h("td", { style: { padding: "12px 0", color: "var(--fg-3)", whiteSpace: "nowrap", fontSize: 11, fontWeight: 600, fontFamily: "var(--ff-mono)" } }, fmtDateBR(r.date)),
-              h("td", { style: { padding: "12px 16px", width: "100%" } },
-                h("div", { style: { color: isNew ? "var(--fg-0)" : "var(--fg-3)", fontWeight: 600 } }, r.description),
-                isNew && h("div", { style: { fontSize: 11, color: "var(--fg-3)", marginTop: 4, display: "flex", gap: 6, alignItems: "center" } },
-                  "APELIDO:", h(EditableCell, {
-                    value: r.display_name || "", kind: "text", color: "var(--info)",
-                    render: v => v || "Adicionar...",
-                    onCommit: v => editRow(g.account, g.batch_id, r.id, { display_name: v }),
-                    onError: m => toast(m),
-                  }))
-              ),
-              h("td", { style: { padding: "12px 20px", textAlign: "right", whiteSpace: "nowrap" } },
-                isNew ? h(EditableCell, {
-                  value: r.amount, kind: "amount", align: "right", color,
-                  render: v => `${sign}${fmtBRL(v)}`,
-                  onCommit: v => {
-                    const n = _parseAmountInput(v);
-                    if (n == null) throw new Error("Valor inválido");
-                    return editRow(g.account, g.batch_id, r.id, { amount: n });
-                  },
-                  onError: m => toast(m),
-                }) : h("span", { style: { color, fontWeight: 700, fontFamily: "var(--ff-mono)" } }, `${sign}${fmtBRL(r.amount)}`))
-            );
-          }))
-        )
+      !g.err && (allNew.length === 0
+        ? h("div", { style: { padding: "20px", textAlign: "center", color: "var(--fg-2)", fontSize: 13, fontWeight: 600, background: "var(--bg-0)" } },
+            g.counts.duplicate > 0
+              ? `Tudo já importado ✓ — ${g.counts.duplicate} lançamento${g.counts.duplicate === 1 ? "" : "s"} já consta${g.counts.duplicate === 1 ? "" : "m"}, nada novo`
+              : "Nada novo neste arquivo")
+        : h("div", { style: { maxHeight: 320, overflowY: "auto", background: "var(--bg-0)" } },
+            // Re-import: só as linhas NOVAS aparecem; as já importadas viram um resumo
+            // (não poluem a revisão com dezenas de linhas cinzas).
+            g.counts.duplicate > 0 && h("div", { style: { padding: "8px 20px", fontSize: 11, color: "var(--fg-3)", background: "var(--bg-1)", borderBottom: "1px dashed var(--line-1)" } },
+              `${g.counts.duplicate} já importado${g.counts.duplicate === 1 ? "" : "s"} (ocultos) · ${allNew.length} novo${allNew.length === 1 ? "" : "s"} abaixo`),
+            h("table", { style: { width: "100%", borderCollapse: "collapse" } },
+              h("tbody", null, allNew.map((r, i) => {
+                const checked = !excluded.has(r.id);
+                const { color, sign } = amtMeta(r);
+                return h("tr", { key: r.id, style: { borderBottom: i < allNew.length - 1 ? "1px solid var(--line-0)" : "none", opacity: checked ? 1 : 0.45, fontSize: 13, transition: "background 0.1s" }, onMouseEnter: e => e.currentTarget.style.background = "var(--bg-1)", onMouseLeave: e => e.currentTarget.style.background = "transparent" },
+                  h("td", { style: { padding: "12px 16px", width: 40, textAlign: "center" } },
+                    h("input", { type: "checkbox", checked, onChange: () => toggle(r.id), "aria-label": "Incluir", style: { cursor: "pointer", accentColor: "var(--fg-0)" } })),
+                  h("td", { style: { padding: "12px 0", color: "var(--fg-3)", whiteSpace: "nowrap", fontSize: 11, fontWeight: 600, fontFamily: "var(--ff-mono)" } }, fmtDateBR(r.date)),
+                  h("td", { style: { padding: "12px 16px", width: "100%" } },
+                    h("div", { style: { color: "var(--fg-0)", fontWeight: 600 } }, r.description),
+                    h("div", { style: { fontSize: 11, color: "var(--fg-3)", marginTop: 4, display: "flex", gap: 6, alignItems: "center" } },
+                      "APELIDO:", h(EditableCell, {
+                        value: r.display_name || "", kind: "text", color: "var(--info)",
+                        render: v => v || "Adicionar...",
+                        onCommit: v => editRow(g.account, g.batch_id, r.id, { display_name: v }),
+                        onError: m => toast(m),
+                      }))
+                  ),
+                  h("td", { style: { padding: "12px 20px", textAlign: "right", whiteSpace: "nowrap" } },
+                    h(EditableCell, {
+                      value: r.amount, kind: "amount", align: "right", color,
+                      render: v => `${sign}${fmtBRL(v)}`,
+                      onCommit: v => {
+                        const n = _parseAmountInput(v);
+                        if (n == null) throw new Error("Valor inválido");
+                        return editRow(g.account, g.batch_id, r.id, { amount: n });
+                      },
+                      onError: m => toast(m),
+                    }))
+                );
+              }))
+            )
+          )
       )
     );
   };
