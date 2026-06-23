@@ -1,5 +1,4 @@
-# Ambiente virtual Python
-.pytest_cache/
+# ── Python ──────────────────────────────────────────────────────────────
 .venv/
 venv/
 env/
@@ -11,37 +10,41 @@ __pycache__/
 dist/
 build/
 
-# Variáveis de ambiente (credenciais sensíveis)
+# ── Caches de ferramentas (ruff/mypy/pytest) ────────────────────────────
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── Node ────────────────────────────────────────────────────────────────
+node_modules/
+
+# ── Segredos / ambiente ─────────────────────────────────────────────────
+# .env tem credenciais; .env.example é o template versionado.
 .env
 .env.*
-
-# Credentials
+!.env.example
 credentials/
 
-# Banco de dados
+# ── Dados locais (nunca versionar) ──────────────────────────────────────
+# data/ = SQLite (DB_PATH). docs/ = artefatos locais (PRODUCT.md = dados pessoais).
 data/
-
-# Backups
 backups/
-
-# Logs
 logs/
 *.log
+docs/
 
-# IDE
+# ── Tooling de agentes (local, fora do VCS) ─────────────────────────────
+.agents/
+.gstack/
+.antigravitycli/
+.claude/settings.local.json
+
+# ── IDE / editor ────────────────────────────────────────────────────────
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# OS
+# ── OS ──────────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
-
-# Agentes
-.agents/
-# docs/ = artefatos locais (PRODUCT.md tem dados pessoais) — fora do VCS
-docs/
-.gstack/
-.antigravitycli
-node_modules/
