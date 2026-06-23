@@ -127,15 +127,16 @@ def test_golden_all_time_summary(seeded):
     assert s["expenses_total"] == pytest.approx(850.0)
 
 
-def test_golden_all_time_categories_PINS_262_divergence(seeded):
-    """analytics.py:262 (get_all_time_categories) currently OMITS COALESCE(is_third_party,0)=0,
-    so Mercado over-counts by the 1000 third-party expense → 200+300+250+1000 = 1750.
+def test_golden_all_time_categories_262_fixed(seeded):
+    """analytics.py:262 (get_all_time_categories) used to OMIT COALESCE(is_third_party,0)=0,
+    over-counting Mercado by the 1000 third-party expense (200+300+250+1000 = 1750).
 
-    This is the T1b divergence. When Phase 1b aligns :262 to the canonical clause, this
-    literal becomes 750.0 (third-party excluded) — update it then, with a commit note.
-    Until then, pinning 1750 proves the swap itself didn't move the number.
+    Phase 1a fixed it (T1b): the site now uses consumption_expense_clause("t"), which adds
+    the missing is_third_party filter → 200+300+250 = 750, consistent with every other
+    expense aggregate. This is the ONE intentional behavior change of the swap; every other
+    golden assertion above stayed byte-identical, proving the centralization introduced no drift.
     """
     from core.db import analytics
 
     rows = analytics.get_all_time_categories()
-    assert rows == [{"name": "Mercado", "total": pytest.approx(1750.0)}]
+    assert rows == [{"name": "Mercado", "total": pytest.approx(750.0)}]
