@@ -47,15 +47,17 @@ core/events.notify() — SSE push ao browser (< 1s)
 ```
 backend/
   main.py, config.py, bootstrap.py
-  core/  database.py (shim), events.py, backup.py (snapshot mensal, tri-state),
-         db/ (schema, crud, analytics, categories), ingestion/ (adapters, dedup, service, b3)
+  core/  database.py (facade), events.py, backup.py (snapshot mensal, tri-state),
+         db/ (schema c/ conn-factory seam, crud, analytics, categories, _sql consumption clause),
+         domain/ (classification — PURO, sem DB), ingestion/ (adapters, dedup, service, b3)
   jobs/backup.py  (python -m, entrypoint do timer)
   dashboard/server.py
 frontend/js/  api.js, primitives.js, view-overview.js, view-history.js, view-investments.js, app.js
 .githooks/  pre-commit (Health Stack gate — core.hooksPath .githooks)
          # deploy/ apagado 2026-06-23 — runtime/restore em rethink (TODOS T-C)
-tests/   test_database, test_ingestion, test_b3, test_backup, test_jobs, test_delete,
-         test_import_batch, test_investments, test_server_writes
+tests/   conftest.py (raiz); unit/ (puro, sem DB: classification, jobs);
+         integration/ (DB/Flask/backup: database, ingestion, b3, backup, delete,
+         import_batch, investments, server_writes, golden_totals, db_seam)
 ```
 
 ---
@@ -92,7 +94,7 @@ budgets (id, category_id, amount_limit)
 
 ### Invariantes financeiras (load-bearing)
 
-- **Consumption-expense rule:** despesa filtra `dest_account_id IS NULL AND method != 'transfer'` — transferência (leg de investimento) nunca é despesa. Aplicada no backend e replicada no front (Histórico recebe `is_revenue`). Despesas/Receitas batem em todas as telas.
+- **Consumption-expense rule:** despesa filtra `flow='expense' AND dest_account_id IS NULL AND method != 'transfer' AND COALESCE(is_third_party,0)=0` — transferência (leg de investimento) nunca é despesa. **Fonte única:** `core/db/_sql.py::consumption_expense_clause(alias)`. Não aplicar a income/investment-leg/patrimônio (cláusulas diferentes). Front replica só a flag `is_revenue`. Gate: `tests/integration/test_golden_totals.py`.
 - **Patrimônio:** `get_patrimonio_history()` = só conta corrente (`initial_balances + income − expenses`); investimentos entram no display via `current_balance`. **Não filtra por method**.
 - **`is_revenue`:** `1` receita real, `0` self-transfer. **Sempre explícito** em `insert_transaction()`.
 - **`counterpart='SELF'`** (auto-Pix/TED entre contas próprias): nem despesa/receita/investimento. Saída `method='transfer'`, entrada `is_revenue=0`, ambas `SELF`. Saldos preservados, fora de Despesas/Receitas e `investment_net`. Via `adapters._is_self_transfer` (`config.OWNER_SELF_KEYWORDS`).
@@ -126,7 +128,7 @@ Navegação: **Visão do Mês** (`OverviewView`), **Histórico** (`HistoryView`)
 
 ## Engineering Directives
 
-- **Todo SQL via `core/database.py`** — sem SQL inline.
+- **Todo SQL via `core/database.py`** (facade) → `core/db/*` — sem SQL inline fora de `core/db/`. Fragmento da consumption clause em `core/db/_sql.py`; lógica pura sem SQL em `core/domain/`.
 - **Type hints obrigatórias** — verificadas por mypy. Health Stack: `ruff` + `mypy` + `pytest` verdes antes de commitar (`pyproject.toml`, mypy estrito em `core/`). Enforçado pelo hook `.githooks/pre-commit` (`git config core.hooksPath .githooks`); bypass: `git commit --no-verify`.
 - `PRAGMA journal_mode=WAL` + `PRAGMA foreign_keys=ON` no connect.
 - Backup/restore nunca propagam exceção (logado + valor de retorno). `run_backup` é **tri-state** (`created|skipped|failed`) — o job sai ≠0 só em falha REAL (→ alerta via `OnFailure`).

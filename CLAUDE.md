@@ -39,8 +39,9 @@ backend/
   config.py          # único arquivo que chama os.getenv()
   bootstrap.py       # load_dotenv + config.validate + logging + DB path (reusado por jobs)
   core/
-    database.py      # data layer — shim re-export → core/db/
-    db/              # schema.py, crud.py, analytics.py, categories.py
+    database.py      # data layer — facade público (re-export → core/db/)
+    db/              # schema.py (conn-factory seam), crud.py, analytics.py, categories.py, _sql.py (consumption clause)
+    domain/          # classification.py — PURO (sem DB/IO): rotulagem no import
     ingestion/       # adapters.py (parse), dedup.py (classify), service.py, b3.py
     events.py        # SSE pub/sub — notify() após escrita
     backup.py        # snapshot mensal (conn.backup WAL-safe, run_backup tri-state/restore)
@@ -50,8 +51,10 @@ frontend/
   js/  api.js, primitives.js, view-overview.js, view-history.js, view-investments.js, app.js
 .githooks/  pre-commit (Health Stack gate — ligado via core.hooksPath .githooks)
          # deploy/ foi apagado 2026-06-23 — estratégia de runtime/restore em rethink (TODOS T-C)
-tests/   test_database, test_ingestion, test_b3, test_backup, test_jobs, test_delete,
-         test_import_batch, test_investments, test_server_writes
+tests/   conftest.py (raiz, fixture db compartilhada);
+         unit/        — puro, sem DB (test_classification, test_jobs) — roda em ~0.04s
+         integration/ — DB/Flask/backup (database, ingestion, b3, backup, delete,
+                        import_batch, investments, server_writes, golden_totals, db_seam)
 ```
 
 ---
@@ -77,7 +80,7 @@ core/events.notify() — SSE push ao browser (< 1s)
 
 ### Invariantes financeiras (load-bearing — não quebrar)
 
-- **Consumption-expense rule (canônica):** totais de despesa filtram `dest_account_id IS NULL AND method != 'transfer'` — uma transferência (leg de investimento) **nunca** é despesa. Aplicada por `get_monthly_summary`, `get_cashflow_statement`, `get_monthly_history_present`, `get_expenses_by_category`, `get_account_monthly_summary` e replicada no front (Histórico recebe `is_revenue` em `/api/month-transactions`). Garante que Despesas/Receitas batem em todas as telas.
+- **Consumption-expense rule (canônica):** totais de despesa filtram `flow='expense' AND dest_account_id IS NULL AND method != 'transfer' AND COALESCE(is_third_party,0)=0` — uma transferência (leg de investimento) **nunca** é despesa. **Fonte única:** `core/db/_sql.py::consumption_expense_clause(alias)` (parametrizado por alias — joins usam `t.`, single-table não). Os ~15 sites da família consumption em `analytics.py` chamam o helper; o front replica só a flag `is_revenue` (`/api/month-transactions`), não o WHERE. **Não aplicar o helper** a income (`is_revenue=1`), legs de investimento (`method='transfer'`, ver `_APLIC`/`_RESG`) nem patrimônio (`dest_account_id IS NULL` **sem** filtro de method) — são cláusulas diferentes. Gate de regressão: `tests/integration/test_golden_totals.py`.
 - **Patrimônio:** `get_patrimonio_history()` = só saldo de conta corrente (`initial_balances + income − expenses`). Movimentos de investimento são excluídos; o saldo de investimento entra no display via `investments.current_balance`. **Patrimônio NÃO filtra por method**.
 - **`is_revenue`** (Integer em `transactions`): `1` p/ receita real, `0` p/ self-transfer. Controla totais de receita, resumos de conta e patrimônio. **Sempre passar explícito** em `insert_transaction()` — nunca confiar em default de migração.
 - **`counterpart='SELF'`** (auto-Pix/TED entre contas próprias): nem despesa, nem receita, nem investimento. Saída → `flow='expense', method='transfer', counterpart='SELF'`; entrada → `flow='income', is_revenue=0, counterpart='SELF'`. Ambas visíveis (tag "transferência"), saldos preservados, fora de Despesas/Receitas e de `investment_net`. Classificado no import por `adapters._is_self_transfer` (allow-list `config.OWNER_SELF_KEYWORDS`).
@@ -182,7 +185,7 @@ Um único job: **backup local mensal** (`core/backup.py`, entrypoint `jobs/backu
 ## Development Guidelines
 
 - **Type hints obrigatórias** em toda assinatura (verificadas por mypy).
-- **Todo SQL via `core/database.py`** — sem SQL inline em outro lugar.
+- **Todo SQL via `core/database.py`** (facade) → `core/db/*` — sem SQL inline fora de `core/db/`. Fragmentos compartilhados (consumption clause) em `core/db/_sql.py`. Lógica pura sem SQL (classificação de import) em `core/domain/`.
 - `PRAGMA journal_mode=WAL` + `PRAGMA foreign_keys=ON` no connect.
 - `main.py` **bloqueia em foreground** (`waitress.serve`) e sai ≠0 em ambiente inválido. Hoje sobe via `./run.sh` (sem supervisor — se cair, sobe na mão; auto-restart era o systemd, agora pausado/apagado — ver TODOS T-C).
 - **Health Stack (antes de commitar):** `ruff check backend tests` + `mypy` + `pytest` verdes. Config em `pyproject.toml` (ruff = E/F/B; mypy estrito em `core/`, relaxado na borda de framework em `dashboard.server`). **Enforçado** por hook versionado `.githooks/pre-commit` (ligado via `git config core.hooksPath .githooks`) — bloqueia o commit se algo estiver vermelho. Bypass pontual: `git commit --no-verify`. (Existe porque o pivot checking-only chegou a commitar um `POST /api/transactions` que dava 500 sem rodar o stack — `c2c467a`.)
