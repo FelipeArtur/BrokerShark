@@ -33,6 +33,63 @@ function fmtCycleDate(ddmmyyyy) {
   const [d, m] = ddmmyyyy.split("/");
   return `${parseInt(d, 10)} ${PT_SHORT[parseInt(m, 10)]}`;
 }
+
+/* ── prettifyDesc ───────────────────────────────────────────────────────────
+   Cosmetic, DISPLAY-ONLY cleanup of the raw bank `description`. Never mutates the
+   stored value — that stays the source of truth for dedup + classification, so a
+   user-set `display_name` always wins over this (callers do display_name ||
+   prettifyDesc(description)). Three passes: strip transfer noise → curated accent
+   fix (common banking words only; never guesses accents on proper names) → casing
+   (ALL-CAPS tokens → Title Case, known acronyms preserved, connectives lowered). */
+const _DESC_ACRONYMS = new Set([
+  "CDB", "RDB", "SA", "S/A", "ME", "MEI", "EPP", "EIRELI", "LTDA",
+  "IOF", "IRRF", "IR", "GRU", "CPF", "CNPJ", "TED", "DOC", "PIX", "II", "III", "IV",
+]);
+const _DESC_CONNECTIVES = new Set([
+  "de", "da", "do", "dos", "das", "e", "em", "no", "na", "nos", "nas", "a", "o", "à",
+]);
+const _DESC_ACCENTS = {
+  "aplicacao": "aplicação", "cobranca": "cobrança", "cartao": "cartão",
+  "automacao": "automação", "servico": "serviço", "servicos": "serviços",
+  "transferencia": "transferência", "credito": "crédito", "debito": "débito",
+  "comercio": "comércio", "avaliacao": "avaliação", "selecao": "seleção",
+  "condominio": "condomínio", "salario": "salário", "agua": "água",
+};
+
+function _capWord(w) {
+  return w ? w.charAt(0).toUpperCase() + w.slice(1) : w;
+}
+
+function prettifyDesc(raw) {
+  if (!raw) return raw;
+  let s = String(raw).trim();
+  // 1. Strip transfer noise: wrapping quotes, "Cp :NNNN-" counterparty codes, and
+  //    leading bank routing codes ("...: 00019 136948731 NAME" → "...: NAME").
+  s = s.replace(/"/g, "");
+  s = s.replace(/Cp\s*:\s*\d+\s*-\s*/gi, "");
+  s = s.replace(/:\s*0*\d{4,6}\s+\d{6,}\s+/g, ": ");
+  // Drop the Nubank Pix routing tail — everything from the CPF mask / CNPJ onward
+  // ("- •••.000.000-•• - BANCO INTER (0077) Agência: 1 Conta: 9") leaving just the
+  // counterparty name. Falls back to cutting a stray "Agência:" segment.
+  s = s.replace(/\s*[-–]\s*(?:•••|\d{2}\.\d{3}\.\d{3}\/\d{4}).*$/u, "");
+  s = s.replace(/\s+Agência:.*$/u, "");
+  s = s.replace(/\s+\.\s+/g, " ").replace(/\s{2,}/g, " ").trim();
+  // 2+3. Per-token accent + casing, preserving any attached punctuation.
+  return s.split(" ").map((tok, i) => {
+    const m = tok.match(/^([^0-9A-Za-zÀ-ÿ]*)([0-9A-Za-zÀ-ÿ/]*)([^0-9A-Za-zÀ-ÿ]*)$/);
+    if (!m || !m[2]) return tok;
+    const [, lead, core, trail] = m;
+    const upper = core.toUpperCase();
+    const isAllCaps = core === upper && /[A-ZÀ-Ý]/.test(core);
+    if (isAllCaps && _DESC_ACRONYMS.has(upper)) return lead + core + trail;
+    let base = isAllCaps ? core.toLowerCase() : core;
+    const accent = _DESC_ACCENTS[base.toLowerCase()];
+    if (accent) base = (!isAllCaps && base[0] === base[0].toUpperCase()) ? _capWord(accent) : accent;
+    if (i > 0 && _DESC_CONNECTIVES.has(base.toLowerCase())) return lead + base.toLowerCase() + trail;
+    if (isAllCaps) base = _capWord(base);
+    return lead + base + trail;
+  }).join(" ");
+}
 /* ── DualLine ───────────────────────────────────────────────────────────── */
 function DualLine({ data, height = 180 }) {
   const canvasRef = _useRef(null);
@@ -382,7 +439,7 @@ const TxRow = React.memo(({ t, cols, onEditCategory }) => {
       cols.includes("date") && h("td", { className: "mono", style: { color: "var(--fg-3)", fontSize: 10 } }, fmtDateBR(t.date)),
       cols.includes("desc") && h("td", { style: { maxWidth: cols.includes("account") ? 260 : "none" } },
         h("div", { style: { display: "flex", alignItems: "center", gap: 6, overflow: "hidden" } },
-          h("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: isThirdParty ? "var(--fg-3)" : "var(--fg-0)", fontWeight: 500, textDecoration: isThirdParty ? "line-through" : "none" } }, t.display_name || t.description),
+          h("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: isThirdParty ? "var(--fg-3)" : "var(--fg-0)", fontWeight: 500, textDecoration: isThirdParty ? "line-through" : "none" } }, t.display_name || prettifyDesc(t.description)),
           isThirdParty && h("span", { title: "Despesa de terceiros: não contabilizada", style: { fontSize: 9, padding: "2px 6px", borderRadius: 4, border: "1px dashed var(--fg-3)", color: "var(--fg-2)", fontWeight: 600, flexShrink: 0 } }, "TERCEIROS")
         )
       ),
@@ -425,7 +482,7 @@ const TxRow = React.memo(({ t, cols, onEditCategory }) => {
 
 window.BS = window.BS || {};
 Object.assign(window.BS, {
-  fmtBRL, fmtBRLCompact, fmtDateBR,
+  fmtBRL, fmtBRLCompact, fmtDateBR, prettifyDesc,
   PT_MONTHS, PT_SHORT, fmtCycleDate,
   DualLine, Donut,
   Modal, Drawer, useToasts, BankChip, SegmentControl,

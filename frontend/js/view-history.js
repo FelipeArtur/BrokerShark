@@ -160,7 +160,10 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
                     (t.bank === "inter" || (t.account_id && t.account_id.startsWith("inter"))) ? "Inter" : (t.bank || t.account_id);
       if (bName !== filterAccount) return false;
     }
-    const label = (t.display_name || t.description || "").toLowerCase();
+    // Search both the cleaned display text AND the raw description, so the hidden
+    // routing tail (bank/agency/account) stays findable even though it's not shown.
+    const label = [t.display_name, window.BS.prettifyDesc(t.description), t.description]
+      .filter(Boolean).join(" ").toLowerCase();
     if (search && !label.includes(search.toLowerCase())) return false;
     return true;
   });

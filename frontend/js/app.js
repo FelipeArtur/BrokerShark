@@ -201,7 +201,7 @@ function CategoryEditor({ tx, onClose, onSave }) {
             sign + fmtBRL(tx.amount)
           ),
           h("div", { style: { fontSize: 20, fontWeight: 700, color: "var(--fg-0)", wordBreak: "break-word", lineHeight: 1.2 } },
-            displayName || tx.description
+            displayName || window.BS.prettifyDesc(tx.description)
           )
         ),
 
@@ -226,7 +226,7 @@ function CategoryEditor({ tx, onClose, onSave }) {
           h("label", { style: { fontSize: 11, color: "var(--fg-2)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" } }, "Renomear Transação"),
           h("input", {
             className: "input", type: "text", maxLength: 100,
-            placeholder: tx.description?.slice(0, 50) || "Ex: Almoço Padaria...",
+            placeholder: window.BS.prettifyDesc(tx.description)?.slice(0, 50) || "Ex: Almoço Padaria...",
             value: displayName,
             onChange: e => setDisplayName(e.target.value),
             style: { fontSize: 15, height: 44, borderRadius: 8, padding: "0 16px", background: "var(--bg-1)", border: "1px solid var(--line-1)" }
@@ -383,7 +383,7 @@ function SearchModal({ onClose, onSelect }) {
           },
             h("div", { style: { minWidth: 0, flex: 1, textAlign: "left", display: "grid", gridTemplateColumns: "1fr 140px 100px", alignItems: "center", gap: 16 } },
               h("div", { style: { display: "flex", flexDirection: "column", gap: 4, minWidth: 0 } },
-                h("div", { style: { fontSize: 14, color: "var(--fg-0)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, hlt(t.description)),
+                h("div", { style: { fontSize: 14, color: "var(--fg-0)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, hlt(t.display_name || window.BS.prettifyDesc(t.description))),
                 h("div", { style: { fontSize: 12, color: "var(--fg-3)" } }, hlt(t.category || "—"))
               ),
               h("div", { style: { fontSize: 12, color: "var(--fg-2)", fontFamily: "var(--ff-mono)" } }, fmtDateBR(t.date)),
@@ -751,7 +751,7 @@ function ImportModal({ onClose, onDone }) {
                     h("input", { type: "checkbox", checked, onChange: () => toggle(r.id), "aria-label": "Incluir", style: { cursor: "pointer", accentColor: "var(--fg-0)" } })),
                   h("td", { style: { padding: "12px 0", color: "var(--fg-3)", whiteSpace: "nowrap", fontSize: 11, fontWeight: 600, fontFamily: "var(--ff-mono)" } }, fmtDateBR(r.date)),
                   h("td", { style: { padding: "12px 16px", width: "100%" } },
-                    h("div", { style: { color: "var(--fg-0)", fontWeight: 600 } }, r.description),
+                    h("div", { style: { color: "var(--fg-0)", fontWeight: 600 } }, window.BS.prettifyDesc(r.description)),
                     h("div", { style: { fontSize: 11, color: "var(--fg-3)", marginTop: 4, display: "flex", gap: 6, alignItems: "center" } },
                       "APELIDO:", h(EditableCell, {
                         value: r.display_name || "", kind: "text", color: "var(--info)",
@@ -832,7 +832,7 @@ function ImportModal({ onClose, onDone }) {
 /* ── ConfirmDeleteModal — confirmação explícita antes de excluir ─────────── */
 function ConfirmDeleteModal({ tx, onCancel, onConfirm }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
-  const desc = tx.display_name || tx.description || "";
+  const desc = tx.display_name || window.BS.prettifyDesc(tx.description) || "";
   const isSelf = tx.counterpart === "SELF";
 
   const warnings = [];
