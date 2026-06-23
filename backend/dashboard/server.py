@@ -235,6 +235,10 @@ def api_investments() -> Response:
     derived = database.get_ledger_savings_positions()
     if bank:
         derived = [d for d in derived if d["bank"] == bank]
+    # B3 is the source of truth: if a position with the same name already came from
+    # the B3 import, drop its ledger-derived twin so net worth never double-counts.
+    table_names = {inv["name"] for inv in investments}
+    derived = [d for d in derived if d["name"] not in table_names]
     out.extend(derived)
     return jsonify(out)
 
@@ -250,16 +254,18 @@ def api_investment_evolution() -> Response:
 
 @app.route("/api/investments/<int:inv_id>/balance", methods=["PATCH"])
 def api_patch_investment_balance(inv_id: int) -> Response:
-    """Update the current balance of an investment to its real-world value.
+    """Locked: the B3 report is the source of truth for investment balances.
 
-    Body JSON: ``{"balance": float}``
+    Positions are full-synced from B3 on each import, so a manual balance override
+    would be silently clobbered on the next import and break the "B3 = truth"
+    invariant. Adjust a position by re-importing the report instead. (``crud.
+    update_investment_balance`` survives as an internal/test helper.)
     """
-    body = request.get_json(silent=True) or {}
-    new_balance = body.get("balance")
-    if new_balance is None or not isinstance(new_balance, (int, float)):
-        return jsonify({"error": "Campo 'balance' obrigatório (número)."}), 400
-    database.update_investment_balance(inv_id, float(new_balance))
-    return jsonify({"ok": True, "id": inv_id, "balance": float(new_balance)})
+    return jsonify({
+        "error": "Saldo de investimento é definido pela B3 (somente leitura). "
+                 "Reimporte o relatório para atualizar.",
+        "id": inv_id,
+    }), 409
 
 
 @app.route("/api/monthly")

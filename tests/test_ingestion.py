@@ -66,6 +66,25 @@ def test_nubank_investment_rows_are_transfers():
     assert pix.flow == "expense" and pix.method == "pix" and pix.amount == 50.0
 
 
+def test_fatura_payments_classified_as_credit():
+    """Credit-card invoice payments (both banks) surface under Crédito, not TED."""
+    from core.ingestion import adapters
+
+    nu = (
+        "Data,Valor,Identificador,Descrição\n"
+        "23/04/2026,-1022.99,uuid-fat,Pagamento de fatura\n"
+        '25/04/2026,-586.11,uuid-fat2,"Pagamento efetuado: Pagamento fatura cartao Inter"\n'
+    ).encode("utf-8")
+    nu_recs = {r.description: r for r in adapters.parse("nu-db", nu)}
+    assert nu_recs["Pagamento de fatura"].method == "credit"
+    assert nu_recs["Pagamento de fatura"].flow == "expense"  # still a real expense
+    assert nu_recs['Pagamento efetuado: Pagamento fatura cartao Inter'].method == "credit"
+
+    inter_recs = {r.description: r for r in adapters.parse("inter-db", INTER_EXTRATO)}
+    fatura = inter_recs["Pagamento efetuado: Pagamento fatura cartao Inter"]
+    assert fatura.method == "credit" and fatura.flow == "expense"
+
+
 def test_self_transfer_rows_marked_not_income_expense():
     """Auto-Pix/TED entre contas do dono → counterpart='SELF', fora de receita/despesa."""
     from core.ingestion import adapters

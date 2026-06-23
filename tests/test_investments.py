@@ -107,10 +107,15 @@ def test_ledger_savings_positions_derived(db):
     crud.insert_transaction(date="2026-01-12", flow="expense", method="transfer",
                             account_id="nu-db", amount=50.0, description="Aplicação RDB",
                             counterpart="SELF", is_revenue=0)
+    # Inter Porquinho leg → NOT derived: a Porquinho is a B3-custodied CDB, so it
+    # comes from the B3 truth table, not here (deriving it would double-count).
+    crud.insert_transaction(date="2026-01-15", flow="expense", method="transfer",
+                            account_id="inter-db", amount=300.0,
+                            description='Aplicacao: CDB Porquinho BANCO INTER SA', is_revenue=0)
 
     pos = {p["name"]: p for p in analytics.get_ledger_savings_positions()}
     assert "Caixinha Nubank" in pos
     assert pos["Caixinha Nubank"]["balance"] == 1300.0  # 1000 + 500 − 200
     assert pos["Caixinha Nubank"]["id"] is None
     assert pos["Caixinha Nubank"]["derived"] is True
-    assert "Porquinho Inter" not in pos  # no Inter legs
+    assert "Porquinho Inter" not in pos  # B3-tracked CDB, never derived

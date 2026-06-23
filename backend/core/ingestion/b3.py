@@ -205,10 +205,13 @@ def _parse_tesouro(rows: list[tuple], h: dict[str, int], sheet: str) -> list[B3P
 
 
 def load_b3_positions(data: bytes) -> dict:
-    """Parse a B3 report and upsert every position into ``investments``.
+    """Parse a B3 report and full-sync ``investments`` to match it.
 
-    Each position is keyed by name (idempotent): re-importing the same report
-    updates balances in place rather than duplicating. Returns a summary dict.
+    The report is the source of truth for brokerage positions. Each position is
+    upserted keyed by name (idempotent: re-importing updates balances in place),
+    then any position absent from the report is pruned (matured/redeemed). Ledger-
+    derived pockets (Caixinha/Porquinho) never reach this table, so they survive.
+    Returns a summary dict (``created``/``updated``/``removed``/``total``).
     """
     positions = parse_b3(data)
     created = updated = 0
@@ -216,9 +219,11 @@ def load_b3_positions(data: bytes) -> dict:
         _, was_created = crud.set_investment_balance_by_name(p.name, p.type, p.bank, p.balance)
         created += int(was_created)
         updated += int(not was_created)
+    removed = crud.prune_investments_except([p.name for p in positions])
     return {
         "created": created,
         "updated": updated,
+        "removed": removed,
         "total": len(positions),
         "positions": [
             {"name": p.name, "type": p.type, "bank": p.bank, "balance": p.balance}

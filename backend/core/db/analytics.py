@@ -124,28 +124,33 @@ def get_investment_by_name(name: str) -> Optional[sqlite3.Row]:
         ).fetchone()
 
 
-# Savings pockets that live ONLY in the transactions ledger: Nubank Caixinha
-# (RDB) and Inter Porquinho. Money moved into them is classified as an investment
-# leg (method='transfer'), so it leaves checking — but it never reaches the
-# ``investments`` table (only B3 + the "+ Movimento" modal write there) nor B3,
-# so without deriving it the balance vanishes from net worth.
-# Keywords are SAVINGS-only on purpose: brokerage transfers (NuInvest/Tesouro)
-# are excluded because that money becomes a B3 position and would double-count.
+# Savings pockets that live ONLY in the transactions ledger. Money moved into them
+# is classified as an investment leg (method='transfer'), so it leaves checking —
+# but it never reaches the ``investments`` table nor B3, so without deriving it the
+# balance vanishes from net worth.
+# Keep this list to pockets that are GENUINELY absent from B3:
+#   • Caixinha Nubank = RDB (Recibo de Depósito Bancário) — not B3-custodied. ✓
+#   • Inter Porquinho is a CDB → it IS B3-custodied (shows up as an Inter CDB
+#     position). It must come from B3 (the truth table), NOT be derived here, or it
+#     double-counts. So it is deliberately NOT listed. Its aplicação/resgate legs
+#     are still classified as investment transfers (adapters._INVESTMENT_KEYWORDS),
+#     they just feed investment_net / the B3 CDB value rather than a derived pocket.
+# Brokerage transfers (NuInvest/Tesouro) are excluded for the same reason.
 _LEDGER_POSITIONS = (
     # (display name, type, bank, description keywords)
     ("Caixinha Nubank", "savings", "nubank", ("rdb", "caixinha", "dinheiro guardado")),
-    ("Porquinho Inter", "savings", "inter",  ("porquinho", "cdb porq")),
 )
 
 
 def get_ledger_savings_positions() -> list[dict]:
-    """Derive Caixinha/Porquinho positions from classified investment legs.
+    """Derive ledger-only savings pockets (Caixinha Nubank) from investment legs.
 
     Net = applications (expense transfer legs) − redemptions (income transfer
     legs) matching each pocket's keywords, scoped to that pocket's bank. SELF and
     third-party rows are excluded. Returned shape matches the ``/api/investments``
     item (``id`` is None and ``derived`` is True since there is no table row).
-    Positions with a zero net are omitted.
+    Positions with a zero net are omitted. Inter Porquinho is intentionally absent
+    — it is a B3-custodied CDB (see ``_LEDGER_POSITIONS``).
     """
     out: list[dict] = []
     with _connect() as conn:

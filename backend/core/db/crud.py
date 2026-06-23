@@ -349,6 +349,42 @@ def set_investment_balance_by_name(
     return inv_id, created
 
 
+def prune_investments_except(names: list[str]) -> int:
+    """Delete investment positions whose name is not in ``names`` (B3 full-sync).
+
+    The B3 report is the source of truth for brokerage positions: a position that
+    drops out of the latest report (matured/redeemed/transferred out) must vanish
+    from the table, not linger with a stale balance. Caixinha/Porquinho live only
+    in the ledger (never in this table), so they are never matched/removed here.
+    Dependent ``investment_movements`` rows are deleted first to satisfy the FK.
+
+    No-op (returns 0) when ``names`` is empty — an empty report is a parse failure
+    upstream, never a signal to wipe every position.
+
+    Returns:
+        The number of positions removed.
+    """
+    if not names:
+        return 0
+    placeholders = ",".join("?" * len(names))
+    with _connect() as conn:
+        stale = [
+            r["id"]
+            for r in conn.execute(
+                f"SELECT id FROM investments WHERE name NOT IN ({placeholders})", names
+            ).fetchall()
+        ]
+        if stale:
+            id_ph = ",".join("?" * len(stale))
+            conn.execute(
+                f"DELETE FROM investment_movements WHERE investment_id IN ({id_ph})", stale
+            )
+            conn.execute(f"DELETE FROM investments WHERE id IN ({id_ph})", stale)
+    if stale:
+        events.notify()
+    return len(stale)
+
+
 def insert_investment_movement(
     date: str,
     investment_id: int,

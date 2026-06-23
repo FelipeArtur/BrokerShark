@@ -45,6 +45,21 @@ def test_income_invalid_type_rejected(client):
     assert resp.status_code == 400
 
 
+def test_investment_balance_patch_is_locked(client):
+    """B3 = truth: manual balance overrides are rejected (409) so the next import
+    cannot silently clobber them."""
+    from core.db import crud, analytics
+
+    inv_id = crud.upsert_investment("Tesouro X", "treasury", "nubank")
+    crud.update_investment_balance(inv_id, 100.0)
+
+    resp = client.patch(f"/api/investments/{inv_id}/balance", json={"balance": 999.0})
+    assert resp.status_code == 409
+    # Balance untouched by the rejected request.
+    invs = {i["name"]: i for i in analytics.get_all_investments()}
+    assert invs["Tesouro X"]["current_balance"] == 100.0
+
+
 def test_expense_post_creates_transaction(client):
     """Regression: POST /api/transactions must persist an expense. The
     checking-only pivot renamed crud.insert_expense → insert_transaction but left

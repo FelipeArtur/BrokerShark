@@ -88,3 +88,44 @@ def test_load_b3_positions_idempotent(db):
     # No duplicates: second run updates in place.
     assert res2["created"] == 0 and res2["updated"] == 2
     assert len(analytics.get_all_investments()) == 2
+
+
+def _make_b3_xlsx_tesouro_only() -> bytes:
+    """A B3 report with just the Tesouro position (the CDB has dropped out)."""
+    import openpyxl
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    td = wb.create_sheet("Posição - Tesouro Direto")
+    td.append(["Produto", "Instituição", "Código ISIN", "Indexador", "Vencimento",
+               "Quantidade", "Quantidade Disponível", "Quantidade Indisponível",
+               "Motivo", "Valor Aplicado", "Valor bruto", "Valor líquido",
+               "Valor Atualizado"])
+    td.append(["Tesouro IPCA+ 2029", "NU INVESTIMENTOS S.A. - CTVM", "BRSTNCNTB6A3",
+               "IPCA", "15/05/2029", 0.05, 0.05, 0, "-", 140.56, 186.68, 178.74, 186.68])
+    td.append([""] * 12 + ["Total"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def test_load_b3_positions_full_sync_prunes_dropped(db):
+    """B3 = truth table: a position absent from the latest report is removed,
+    not left lingering with a stale balance."""
+    from core.ingestion import b3
+    from core.db import analytics
+
+    b3.load_b3_positions(_make_b3_xlsx())  # CDB + Tesouro
+    res = b3.load_b3_positions(_make_b3_xlsx_tesouro_only())  # CDB matured/dropped
+
+    assert res["removed"] == 1
+    names = {i["name"] for i in analytics.get_all_investments()}
+    assert names == {"Tesouro IPCA+ 2029"}
+
+
+def test_prune_investments_empty_report_never_wipes(db):
+    """A no-position result must not prune everything (guards a parse hiccup)."""
+    from core.db import crud, analytics
+
+    crud.set_investment_balance_by_name("Tesouro X", "treasury", "nubank", 100.0)
+    assert crud.prune_investments_except([]) == 0
+    assert len(analytics.get_all_investments()) == 1

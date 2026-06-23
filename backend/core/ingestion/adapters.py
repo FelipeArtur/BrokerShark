@@ -273,14 +273,27 @@ def _parse_inter_extrato(text: str) -> list[Record]:
             rec.method = "pix" if "pix" in desc.lower() else "ted"
         else:
             rec.flow = "expense"
-            rec.method = "pix" if "pix" in desc.lower() else "ted"
+            rec.method = _checking_expense_method(desc)
         out.append(rec)
     return out
+
+
+def _is_fatura_payment(desc: str) -> bool:
+    """True if a checking-account outflow is a credit-card invoice payment.
+
+    These are surfaced under "Crédito" (not TED) so the bill stands out. NOTE: this
+    is a stand-in until itemized invoice handling lands — then the bill payment
+    becomes a settlement (excluded from expense totals) and the line items become
+    the real credit expenses, reconciled to the statement period (see CLAUDE.md).
+    """
+    return "fatura" in desc.lower()
 
 
 def _checking_expense_method(desc: str) -> str:
     """Infer the payment method of a checking-account outflow from its description."""
     low = desc.lower()
+    if _is_fatura_payment(desc):
+        return "credit"
     if "pix" in low:
         return "pix"
     if "débito" in low or "debito" in low:
