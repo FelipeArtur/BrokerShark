@@ -124,6 +124,54 @@ def get_investment_by_name(name: str) -> Optional[sqlite3.Row]:
         ).fetchone()
 
 
+# Savings pockets that live ONLY in the transactions ledger: Nubank Caixinha
+# (RDB) and Inter Porquinho. Money moved into them is classified as an investment
+# leg (method='transfer'), so it leaves checking — but it never reaches the
+# ``investments`` table (only B3 + the "+ Movimento" modal write there) nor B3,
+# so without deriving it the balance vanishes from net worth.
+# Keywords are SAVINGS-only on purpose: brokerage transfers (NuInvest/Tesouro)
+# are excluded because that money becomes a B3 position and would double-count.
+_LEDGER_POSITIONS = (
+    # (display name, type, bank, description keywords)
+    ("Caixinha Nubank", "savings", "nubank", ("rdb", "caixinha", "dinheiro guardado")),
+    ("Porquinho Inter", "savings", "inter",  ("porquinho", "cdb porq")),
+)
+
+
+def get_ledger_savings_positions() -> list[dict]:
+    """Derive Caixinha/Porquinho positions from classified investment legs.
+
+    Net = applications (expense transfer legs) − redemptions (income transfer
+    legs) matching each pocket's keywords, scoped to that pocket's bank. SELF and
+    third-party rows are excluded. Returned shape matches the ``/api/investments``
+    item (``id`` is None and ``derived`` is True since there is no table row).
+    Positions with a zero net are omitted.
+    """
+    out: list[dict] = []
+    with _connect() as conn:
+        for name, typ, bank, keywords in _LEDGER_POSITIONS:
+            like = " OR ".join(["lower(t.description) LIKE ?"] * len(keywords))
+            params = [f"%{k}%" for k in keywords]
+            row = conn.execute(
+                f"""SELECT
+                      COALESCE(SUM(CASE WHEN t.flow='expense' THEN t.amount ELSE 0 END), 0)
+                    - COALESCE(SUM(CASE WHEN t.flow='income'  THEN t.amount ELSE 0 END), 0) AS net
+                    FROM transactions t
+                    JOIN accounts a ON a.id = t.account_id
+                    WHERE t.method = 'transfer' AND t.dest_account_id IS NULL
+                      AND COALESCE(t.counterpart, '') != 'SELF'
+                      AND COALESCE(t.is_third_party, 0) = 0
+                      AND a.bank = ?
+                      AND ({like})""",
+                [bank, *params],
+            ).fetchone()
+            net = round(float(row["net"] or 0), 2)
+            if net != 0:
+                out.append({"id": None, "name": name, "type": typ,
+                            "bank": bank, "balance": net, "derived": True})
+    return out
+
+
 # ── Summary queries ───────────────────────────────────────────────────────────
 
 def get_monthly_summary(year: int, month: int, bank: Optional[str] = None) -> dict:

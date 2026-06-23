@@ -41,6 +41,7 @@ from core.db.analytics import (  # noqa: F401
     get_account_balance,
     get_all_investments,
     get_investment_by_name,
+    get_ledger_savings_positions,
     get_monthly_summary,
     get_all_time_summary,
     get_all_time_categories,

@@ -83,3 +83,34 @@ def test_investment_evolution_derives_from_transactions(db):
     # proves the chart no longer reads investment_movements (which stays empty)
     with sqlite3.connect(db) as raw:
         assert raw.execute("SELECT COUNT(*) FROM investment_movements").fetchone()[0] == 0
+
+
+def test_ledger_savings_positions_derived(db):
+    """Caixinha is derived from RDB legs (never reaches the investments table).
+
+    NuInvest/brokerage legs are excluded (they become B3 positions → double-count)
+    and SELF legs are excluded.
+    """
+    from core.db import crud, analytics
+    crud.insert_transaction(date="2026-01-05", flow="expense", method="transfer",
+                            account_id="nu-db", amount=1000.0, description="Aplicação RDB", is_revenue=0)
+    crud.insert_transaction(date="2026-02-05", flow="expense", method="transfer",
+                            account_id="nu-db", amount=500.0,
+                            description="Dinheiro guardado com resgate planejado", is_revenue=0)
+    crud.insert_transaction(date="2026-03-05", flow="income", method="transfer",
+                            account_id="nu-db", amount=200.0, description="Resgate RDB", is_revenue=0)
+    # brokerage transfer → NOT Caixinha (would double-count against B3)
+    crud.insert_transaction(date="2026-01-10", flow="expense", method="transfer",
+                            account_id="nu-db", amount=900.0,
+                            description="Transferência de saldo NuInvest", is_revenue=0)
+    # SELF transfer → excluded
+    crud.insert_transaction(date="2026-01-12", flow="expense", method="transfer",
+                            account_id="nu-db", amount=50.0, description="Aplicação RDB",
+                            counterpart="SELF", is_revenue=0)
+
+    pos = {p["name"]: p for p in analytics.get_ledger_savings_positions()}
+    assert "Caixinha Nubank" in pos
+    assert pos["Caixinha Nubank"]["balance"] == 1300.0  # 1000 + 500 − 200
+    assert pos["Caixinha Nubank"]["id"] is None
+    assert pos["Caixinha Nubank"]["derived"] is True
+    assert "Porquinho Inter" not in pos  # no Inter legs

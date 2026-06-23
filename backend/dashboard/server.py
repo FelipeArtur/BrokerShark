@@ -225,11 +225,18 @@ def api_investments() -> Response:
     investments = database.get_all_investments()
     if bank:
         investments = [inv for inv in investments if inv["bank"] == bank]
-    return jsonify([
+    out = [
         {"id": inv["id"], "name": inv["name"], "balance": inv["current_balance"],
-         "type": inv["type"], "bank": inv["bank"]}
+         "type": inv["type"], "bank": inv["bank"], "derived": False}
         for inv in investments
-    ])
+    ]
+    # Append ledger-derived savings pockets (Caixinha/Porquinho) — these never
+    # reach the investments table, so without them net worth misses the balance.
+    derived = database.get_ledger_savings_positions()
+    if bank:
+        derived = [d for d in derived if d["bank"] == bank]
+    out.extend(derived)
+    return jsonify(out)
 
 @app.route("/api/investment-evolution")
 def api_investment_evolution() -> Response:
