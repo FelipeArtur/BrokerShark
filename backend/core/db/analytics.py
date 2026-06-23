@@ -140,7 +140,7 @@ def get_investment_by_name(name: str) -> Optional[sqlite3.Row]:
 #   • Inter Porquinho is a CDB → it IS B3-custodied (shows up as an Inter CDB
 #     position). It must come from B3 (the truth table), NOT be derived here, or it
 #     double-counts. So it is deliberately NOT listed. Its aplicação/resgate legs
-#     are still classified as investment transfers (adapters._INVESTMENT_KEYWORDS),
+#     are still classified as investment transfers (domain.classification.INVESTMENT_KEYWORDS),
 #     they just feed investment_net / the B3 CDB value rather than a derived pocket.
 # Brokerage transfers (NuInvest/Tesouro) are excluded for the same reason.
 _LEDGER_POSITIONS = (

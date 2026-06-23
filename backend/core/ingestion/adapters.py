@@ -18,7 +18,7 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Optional
 
-import config
+from core.domain import classification
 
 # account_id → adapter key.
 ACCOUNT_SOURCE = {
@@ -27,18 +27,6 @@ ACCOUNT_SOURCE = {
 }
 # adapter key → account_id (reverse of ACCOUNT_SOURCE) for content-based detection.
 SOURCE_ACCOUNT = {source: account for account, source in ACCOUNT_SOURCE.items()}
-
-# Nubank checking rows that are investment movements, not real income/expense.
-# Matched case-insensitively against the description. These become transfers
-# with is_revenue=0 so they keep the account balance correct without inflating
-# receitas or polluting gastos por categoria. Reviewable per-row in the preview.
-_INVESTMENT_KEYWORDS = (
-    "rdb", "nuinvest", "tesouro", "irrf", "cobrança de investimentos",
-    "cobranca de investimentos", "aplicação", "aplicacao", "resgate",
-    # Reservas: Caixinha (Nubank) e Porquinho (Inter). "cdb porq" cobre tanto
-    # "CDB PORQUINHO" quanto "CDB Porq Obj", inclusive os estornos dessas reservas.
-    "caixinha", "porquinho", "cdb porq",
-)
 
 @dataclass
 class Record:
@@ -102,25 +90,6 @@ def parse_date_br(raw: str) -> str:
 def _norm_desc(raw: str) -> str:
     """Collapse internal whitespace so the dedup content key is stable."""
     return " ".join((raw or "").split())
-
-
-def _is_investment(desc: str) -> bool:
-    """True if the statement line is an investment leg (Caixinha/RDB/CDB/etc.)."""
-    low = desc.lower()
-    return any(k in low for k in _INVESTMENT_KEYWORDS)
-
-
-def _is_self_transfer(desc: str) -> bool:
-    """True if the counterparty is the account owner themselves (auto-Pix/TED).
-
-    Matched against the owner's name/CPF (config.OWNER_SELF_KEYWORDS). Excludes
-    investment estornos ("Estorno CDB…") which also carry the owner's name but are
-    a different concept handled by the investment path.
-    """
-    low = desc.lower()
-    if "estorno" in low or "cdb" in low:
-        return False
-    return any(k in low for k in config.OWNER_SELF_KEYWORDS)
 
 
 def _decode(data: bytes) -> str:
@@ -204,12 +173,12 @@ def _parse_nubank_extrato(text: str) -> list[Record]:
             date=iso, amount=abs(value), description=desc,
             account_id="nu-db", external_id=ext,
         )
-        if _is_investment(desc):
+        if classification.is_investment(desc):
             rec.method = "transfer"
             rec.is_revenue = 0
             rec.flow = "income" if value >= 0 else "expense"
             rec.note = "movimento de investimento"
-        elif _is_self_transfer(desc):
+        elif classification.is_self_transfer(desc):
             rec.counterpart = "SELF"
             rec.is_revenue = 0
             rec.note = "transferência entre contas próprias"
@@ -225,7 +194,7 @@ def _parse_nubank_extrato(text: str) -> list[Record]:
         else:
             rec.flow = "expense"
             rec.is_revenue = 0
-            rec.method = _checking_expense_method(desc)
+            rec.method = classification.checking_expense_method(desc)
         out.append(rec)
     return out
 
@@ -252,14 +221,14 @@ def _parse_inter_extrato(text: str) -> list[Record]:
                                note="linha não reconhecida"))
             continue
         rec = Record(date=iso, amount=abs(value), description=desc, account_id="inter-db")
-        if _is_investment(desc):
+        if classification.is_investment(desc):
             # Porquinho Inter (aplicação/resgate/estorno): fluxo de investimento,
             # não consumo nem receita. Mantém o saldo, fica fora dos totais.
             rec.method = "transfer"
             rec.is_revenue = 0
             rec.flow = "income" if value >= 0 else "expense"
             rec.note = "movimento de investimento"
-        elif _is_self_transfer(desc):
+        elif classification.is_self_transfer(desc):
             rec.counterpart = "SELF"
             rec.is_revenue = 0
             rec.note = "transferência entre contas próprias"
@@ -273,32 +242,9 @@ def _parse_inter_extrato(text: str) -> list[Record]:
             rec.method = "pix" if "pix" in desc.lower() else "ted"
         else:
             rec.flow = "expense"
-            rec.method = _checking_expense_method(desc)
+            rec.method = classification.checking_expense_method(desc)
         out.append(rec)
     return out
-
-
-def _is_fatura_payment(desc: str) -> bool:
-    """True if a checking-account outflow is a credit-card invoice payment.
-
-    These are surfaced under "Crédito" (not TED) so the bill stands out. NOTE: this
-    is a stand-in until itemized invoice handling lands — then the bill payment
-    becomes a settlement (excluded from expense totals) and the line items become
-    the real credit expenses, reconciled to the statement period (see CLAUDE.md).
-    """
-    return "fatura" in desc.lower()
-
-
-def _checking_expense_method(desc: str) -> str:
-    """Infer the payment method of a checking-account outflow from its description."""
-    low = desc.lower()
-    if _is_fatura_payment(desc):
-        return "credit"
-    if "pix" in low:
-        return "pix"
-    if "débito" in low or "debito" in low:
-        return "debit"
-    return "ted"
 
 
 def _find_header(lines: list[str], needle: str) -> Optional[int]:
