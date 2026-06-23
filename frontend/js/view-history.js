@@ -2,7 +2,8 @@
 /* global React, fetchMonthlyFull, fetchMonthTransactions, fetchPixTop, deleteTransaction, fetchCategoriesFull, patchTransactionCategory */
 
 const { useState: _s2St, useEffect: _s2Ef, useMemo: _s2Memo } = React;
-const { fmtBRL, fmtBRLCompact, fmtDateBR, BankChip, DualLine, PT_MONTHS, PT_SHORT, fmtCycleDate } = window.BS;
+const { fmtBRL, fmtBRLCompact, fmtDateBR, BankChip, DualLine, PT_MONTHS, PT_SHORT, fmtCycleDate,
+        isSelf, isConsumptionExpense, isRevenue } = window.BS;
 
 /* ── HistoryView — Lupa do mês ───────────────────────────────────────────── */
 
@@ -94,9 +95,8 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
   // (resgates) NÃO são despesa/receita — são fluxo de investimento, contado à parte.
   // counterpart='SELF' = auto-Pix entre as contas do usuário: nem despesa, nem receita,
   // nem investimento — só trânsito, fica fora de todos os totais.
-  const isSelf      = t => t.counterpart === "SELF";
-  const expenses    = monthTx.filter(t => t.flow === "expense" && t.method !== "transfer" && !t.is_third_party);
-  const income      = monthTx.filter(t => t.flow === "income"  && t.is_revenue === 1 && !t.is_third_party);
+  const expenses    = monthTx.filter(isConsumptionExpense);
+  const income      = monthTx.filter(isRevenue);
   const totalExp    = expenses.reduce((s, t) => s + t.amount, 0);
   const totalInc    = income.reduce((s, t)  => s + t.amount, 0);
   const investOut   = monthTx.filter(t => t.flow === "expense" && t.method === "transfer" && !isSelf(t) && !t.is_third_party).reduce((s, t) => s + t.amount, 0);
@@ -149,10 +149,7 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
     if (filterCat === "__none__") {
       // "Sem categoria" = linhas categorizáveis (consumo/receita real) ainda sem categoria.
       // Transferências/investimentos (method='transfer' ou income não-revenue) não contam.
-      const categorizable = !t.is_third_party && (
-        (t.flow === "expense" && t.method !== "transfer") ||
-        (t.flow === "income" && t.is_revenue === 1)
-      );
+      const categorizable = isConsumptionExpense(t) || isRevenue(t);
       if (!categorizable || t.category_id) return false;
     } else if (filterCat !== "all" && t.category !== filterCat) return false;
     if (filterAccount !== "all") {
@@ -170,8 +167,8 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
 
   if (!picked) return h("div", { style: { padding: 24, color: "var(--fg-2)" } }, "Carregando…");
 
-  const filtExp  = filteredTx.filter(t => t.flow === "expense" && t.method !== "transfer" && !t.is_third_party).reduce((s, t) => s + t.amount, 0);
-  const filtInc  = filteredTx.filter(t => t.flow === "income" && t.is_revenue === 1 && !t.is_third_party).reduce((s, t)  => s + t.amount, 0);
+  const filtExp  = filteredTx.filter(isConsumptionExpense).reduce((s, t) => s + t.amount, 0);
+  const filtInc  = filteredTx.filter(isRevenue).reduce((s, t)  => s + t.amount, 0);
   const hasFilter = filterFlow !== "all" || filterMethod !== "all" || filterCat !== "all" || filterAccount !== "all" || search;
 
   return h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 32, paddingBottom: 40 } },

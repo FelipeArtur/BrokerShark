@@ -426,10 +426,10 @@ function BrokerSharkLogo({ size = 28 }) {
 const TxRow = React.memo(({ t, cols, onEditCategory }) => {
   const h = React.createElement;
   const isThirdParty = !!t.is_third_party;
-  // Non-consumption cash legs
-  const isSelf   = t.counterpart === "SELF";
-  const isInvest = !isSelf && (t.method === "transfer" || (t.flow === "income" && !t.is_revenue));
-  const amtColor = isSelf ? "var(--info)" : isInvest ? "var(--reserve)" : (t.flow === "expense" ? "var(--neg)" : "var(--pos)");
+  // Non-consumption cash legs (shared classifiers — window.BS.isSelf / isInvest)
+  const _self   = isSelf(t);
+  const _invest = isInvest(t);
+  const amtColor = _self ? "var(--info)" : _invest ? "var(--reserve)" : (t.flow === "expense" ? "var(--neg)" : "var(--pos)");
   const rows = [
     h("tr", { 
       key: t.id, 
@@ -444,9 +444,9 @@ const TxRow = React.memo(({ t, cols, onEditCategory }) => {
         )
       ),
       cols.includes("cat") && h("td", null,
-        isSelf
+        _self
           ? h("span", { className: "data-tag", style: { borderColor: "color-mix(in oklch, var(--info) 30%, transparent)", color: "var(--info)" }, title: "transferência entre suas contas — não conta como despesa nem receita" }, "transferência")
-          : isInvest
+          : _invest
             ? h("span", { className: "data-tag", style: { borderColor: "color-mix(in oklch, var(--reserve) 30%, transparent)", color: "var(--reserve)" }, title: "movimento de investimento — não conta como despesa nem receita" }, "investimento")
             : t.category
               ? h("span", {
@@ -480,6 +480,16 @@ const TxRow = React.memo(({ t, cols, onEditCategory }) => {
   prev.t.display_name === next.t.display_name
 );
 
+// ── Transaction classification (single source — mirrors the backend rule) ──────
+// Same semantics as core/db/_sql.py::consumption_expense_clause + the SELF/investment
+// invariants in CLAUDE.md. The API already filters internal transfers (dest_account_id)
+// server-side, so the client only re-checks method/is_revenue/is_third_party. Null-safe
+// so callers can pass a possibly-undefined tx. Keep these the ONLY copies in the front.
+const isSelf               = t => t?.counterpart === "SELF";
+const isConsumptionExpense = t => t?.flow === "expense" && t.method !== "transfer" && !t.is_third_party;
+const isRevenue            = t => t?.flow === "income"  && t.is_revenue === 1 && !t.is_third_party;
+const isInvest             = t => !!t && !isSelf(t) && (t.method === "transfer" || (t.flow === "income" && !t.is_revenue));
+
 window.BS = window.BS || {};
 Object.assign(window.BS, {
   fmtBRL, fmtBRLCompact, fmtDateBR, prettifyDesc,
@@ -487,6 +497,7 @@ Object.assign(window.BS, {
   DualLine, Donut,
   Modal, Drawer, useToasts, BankChip, SegmentControl,
   BrokerSharkLogo, TxRow,
+  isSelf, isConsumptionExpense, isRevenue, isInvest,
 });
 
 /* ── SingleAreaChart ───────────────────────────────────────────────────────────── */

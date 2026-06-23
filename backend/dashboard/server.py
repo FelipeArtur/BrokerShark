@@ -662,6 +662,7 @@ def api_post_transaction() -> Response:
         amount=float(amount),
         description=description,
         category_id=category_id,
+        is_revenue=0,  # despesa nunca é receita — explícito (invariante CLAUDE.md)
     )
     return jsonify({"ok": True, "id": tx_id})
 

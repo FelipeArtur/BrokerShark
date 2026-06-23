@@ -10,6 +10,7 @@ const {
   PT_SHORT,
   OverviewView, HistoryView, InvestmentsView,
   CategoriesPanel,
+  isSelf, isInvest,
 } = window.BS;
 
 function _currentMonth() {
@@ -173,9 +174,9 @@ function CategoryEditor({ tx, onClose, onSave }) {
   const methodLabel = tx ? (METHOD_LABELS[tx.method] || tx.method || "") : "";
   const flowIsExpense = tx?.flow === "expense";
   
-  const isSelf = tx?.counterpart === "SELF";
-  const isInvest = !isSelf && tx && (tx.method === "transfer" || (tx.flow === "income" && !tx.is_revenue));
-  const amtColor = isSelf ? "var(--info)" : isInvest ? "var(--reserve)" : (flowIsExpense ? "var(--neg)" : "var(--pos)");
+  const _self = isSelf(tx);
+  const _invest = isInvest(tx);
+  const amtColor = _self ? "var(--info)" : _invest ? "var(--reserve)" : (flowIsExpense ? "var(--neg)" : "var(--pos)");
   const sign = flowIsExpense ? "−" : "+";
 
   return h(Modal, { open: !!tx, onClose, title: "Perfil da Transação", width: 460 },
@@ -188,7 +189,7 @@ function CategoryEditor({ tx, onClose, onSave }) {
         h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 } },
           h("div", { style: { display: "flex", flexDirection: "column", gap: 4 } },
             h("div", { style: { fontSize: 10, color: amtColor, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 800 } }, 
-               isSelf ? "Transferência Própria" : isInvest ? "Movimento de Invest" : flowIsExpense ? "Comprovante de Despesa" : "Comprovante de Receita"
+               _self ? "Transferência Própria" : _invest ? "Movimento de Invest" : flowIsExpense ? "Comprovante de Despesa" : "Comprovante de Receita"
             ),
             h("div", { className: "mono", style: { fontSize: 12, color: "var(--fg-2)" } }, fmtDateBR(tx.date))
           ),
@@ -699,10 +700,10 @@ function ImportModal({ onClose, onDone }) {
 
   /* ── Step 2: grouped, editable review ── */
   const amtMeta = r => {
-    const isSelf = r.counterpart === "SELF";
-    const isInvest = !isSelf && (r.method === "transfer" || (r.flow === "income" && !r.is_revenue));
+    const _self = isSelf(r);
+    const _invest = isInvest(r);
     return {
-      color: isSelf ? "var(--info)" : isInvest ? "var(--reserve)" : (r.flow === "expense" ? "var(--neg)" : "var(--pos)"),
+      color: _self ? "var(--info)" : _invest ? "var(--reserve)" : (r.flow === "expense" ? "var(--neg)" : "var(--pos)"),
       sign: r.flow === "expense" ? "−" : "+",
     };
   };
@@ -833,10 +834,10 @@ function ImportModal({ onClose, onDone }) {
 function ConfirmDeleteModal({ tx, onCancel, onConfirm }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   const desc = tx.display_name || window.BS.prettifyDesc(tx.description) || "";
-  const isSelf = tx.counterpart === "SELF";
+  const _self = isSelf(tx);
 
   const warnings = [];
-  if (isSelf) warnings.push("É uma transferência entre suas contas — os dois lançamentos do par serão excluídos.");
+  if (_self) warnings.push("É uma transferência entre suas contas — os dois lançamentos do par serão excluídos.");
 
   return h(Modal, { open: true, onClose: onCancel, title: "Excluir lançamento?", width: 440 },
     h("div", { style: { padding: 4 } },
