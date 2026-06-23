@@ -1,11 +1,10 @@
 """Entry point — boots the web dashboard and serves it in the foreground.
 
-Designed to run as a systemd **user** service (``deploy/systemd/
-brokershark-dashboard.service``): the process blocks on the WSGI server, logs to
-stdout (journald), and exits non-zero on a bad environment so ``Restart=on-failure``
-can act. The periodic backup runs separately as a systemd user timer
-(``backend/jobs/backup.py``). ``bootstrap`` is imported first so ``.env`` loads
-before ``config`` is read.
+Runs in the foreground via ``./run.sh`` (deploy strategy in rethink — see TODOS T-C):
+the process blocks on the WSGI server, logs to stdout, and exits non-zero on a bad
+environment. The periodic backup runs separately (``backend/jobs/backup.py``, fired
+manually for now). ``bootstrap`` is imported first so ``.env`` loads before ``config``
+is read.
 """
 from bootstrap import bootstrap
 

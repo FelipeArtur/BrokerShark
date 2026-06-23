@@ -37,7 +37,7 @@ core/events.notify() — SSE push ao browser (< 1s)
 
 - **SQLite = fonte única.** Sem write-back externo. Toda escrita pela web.
 - **CSV import via web** ("+ Importar" → preview/staging → confirm; dedup UUID/hash). Pipeline `backend/core/ingestion/`. Fontes: `nu-db`, `inter-db`. Importados entram com `category_id=NULL`; **categorização manual no Histórico** (filtro "Sem categoria" + inline → `PATCH /api/transactions/<id>`).
-- **Runtime: always-on** — dashboard como serviço systemd de usuário (`brokershark-dashboard.service`, `Restart=on-failure`, `main.py` bloqueia em foreground) + backup como timer (`brokershark-backup.timer`, checagem diária 07h, `Persistent=true`). Exige `loginctl enable-linger`. Backup **mensal-apenas** (1 arquivo/mês, retém 12) via **API SQLite** (`conn.backup()`, WAL-safe), refrescado a cada import confirmado. `deploy/brokershark.sh` = atalho de browser; restore via `deploy/restore.sh` (para o serviço antes). Ver `deploy/README.md`.
+- **Runtime: foreground via `./run.sh`** (deploy em rethink — TODOS T-C; `deploy/` apagado 2026-06-23). `main.py` bloqueia no `waitress.serve`. Backup **manual** (`PYTHONPATH=backend .venv/bin/python -m jobs.backup`), mensal-apenas (1/mês, retém 12) via API SQLite (`conn.backup()`, WAL-safe). Restore = cópia manual do `.db` com app parado (wrapper `restore.sh` apagado; lógica em `core/backup.py::restore_backup`; redesenho seguro = P1 no T-C). Modelo antigo systemd no `git log`.
 - **Segurança de rede:** bind `127.0.0.1` + guard Host/Origin em `server.py` (DNS-rebinding/CSRF) — API sem auth, guard é load-bearing.
 
 ---
@@ -52,8 +52,8 @@ backend/
   jobs/backup.py  (python -m, entrypoint do timer)
   dashboard/server.py
 frontend/js/  api.js, primitives.js, view-overview.js, view-history.js, view-investments.js, app.js
-deploy/  systemd/* (dashboard.service, backup.{service,timer}, backup-alert.service),
-         brokershark.sh, restore.sh, README.md
+.githooks/  pre-commit (Health Stack gate — core.hooksPath .githooks)
+         # deploy/ apagado 2026-06-23 — runtime/restore em rethink (TODOS T-C)
 tests/   test_database, test_ingestion, test_b3, test_backup, test_jobs, test_delete,
          test_import_batch, test_investments, test_server_writes
 ```
@@ -67,8 +67,8 @@ tests/   test_database, test_ingestion, test_b3, test_backup, test_jobs, test_de
 | Language | Python 3.14 (venv); código 3.12+ |
 | Database | SQLite (WAL mode) |
 | Backup | snapshot local mensal no HDD (retém 12), WAL-safe, refresh pós-import |
-| Scheduler | **systemd user units** (`Persistent`) — dashboard.service + backup.timer |
-| Dashboard API | Flask 3.1 + Waitress 3.0 (32 threads, foreground/systemd) |
+| Scheduler | **nenhum** — deploy em rethink (TODOS T-C); backup manual |
+| Dashboard API | Flask 3.1 + Waitress 3.0 (32 threads, foreground via `./run.sh`) |
 | Frontend | React 18 + Babel standalone, Chart.js |
 | Real-time | SSE via `events.py` |
 
@@ -127,10 +127,10 @@ Navegação: **Visão do Mês** (`OverviewView`), **Histórico** (`HistoryView`)
 ## Engineering Directives
 
 - **Todo SQL via `core/database.py`** — sem SQL inline.
-- **Type hints obrigatórias** — verificadas por mypy. Health Stack: `ruff` + `mypy` + `pytest` verdes antes de commitar (`pyproject.toml`, mypy estrito em `core/`). Enforçado pelo hook `deploy/hooks/pre-commit` (`git config core.hooksPath deploy/hooks`); bypass: `git commit --no-verify`.
+- **Type hints obrigatórias** — verificadas por mypy. Health Stack: `ruff` + `mypy` + `pytest` verdes antes de commitar (`pyproject.toml`, mypy estrito em `core/`). Enforçado pelo hook `.githooks/pre-commit` (`git config core.hooksPath .githooks`); bypass: `git commit --no-verify`.
 - `PRAGMA journal_mode=WAL` + `PRAGMA foreign_keys=ON` no connect.
 - Backup/restore nunca propagam exceção (logado + valor de retorno). `run_backup` é **tri-state** (`created|skipped|failed`) — o job sai ≠0 só em falha REAL (→ alerta via `OnFailure`).
-- `main.py` bloqueia em foreground (`waitress.serve`) e sai ≠0 em ambiente inválido — systemd (`Restart=on-failure`) reage.
+- `main.py` bloqueia em foreground (`waitress.serve`) e sai ≠0 em ambiente inválido. Sobe via `./run.sh` (sem supervisor — auto-restart era systemd, agora pausado; rethink em T-C).
 - **B3 ingestion:** `core/ingestion/b3.py` → `investments` (**full-sync**: upsert por nome + poda das ausentes; Renda Fixa = valor CURVA, Tesouro = Valor líquido). Memória (sem zip-slip), cap de tamanho, sem XXE. Ver "B3 = tabela verdade".
 
 ---
@@ -148,7 +148,7 @@ OWNER_SELF_KEYWORDS=seu nome completo,fragmento-cpf
 
 ## Running
 
-Produção local = systemd (ver `deploy/README.md`). Dev em foreground:
+Runtime = **foreground via `./run.sh`** (deploy em rethink — T-C). Backup manual (`PYTHONPATH=backend .venv/bin/python -m jobs.backup`). Foreground:
 
 ```bash
 source .venv/bin/activate.fish

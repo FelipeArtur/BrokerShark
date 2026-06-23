@@ -26,9 +26,9 @@ month's file is never more than one import behind (and ends the month as the
 month-end close). The snapshot uses the SQLite online backup API and is WAL-safe
 against the live dashboard.
 
-``restore_backup`` is the recovery path — run it with the app STOPPED (see
-``deploy/restore.sh``, which enforces that). Backup/restore failures never
-propagate — they are logged and reported via the return value.
+``restore_backup`` is the recovery path — run it with the app STOPPED (stop
+``./run.sh`` first; a safe operational wrapper is P1 in TODOS T-C). Backup/restore
+failures never propagate — they are logged and reported via the return value.
 """
 import logging
 import os
@@ -220,8 +220,8 @@ def restore_backup(backup_path: str) -> bool:
     restored file isn't shadowed by old WAL frames, then writes the backup over
     ``DB_PATH``. Returns True on success, False (logged) on any failure; never raises.
 
-    With the dashboard running as an always-on service, stop it first —
-    ``deploy/restore.sh`` wraps this function and enforces that.
+    Stop the dashboard (``./run.sh``) before calling this — restoring while the app
+    writes corrupts the DB. A safe operational restore wrapper is P1 in TODOS T-C.
     """
     src = Path(backup_path)
     if not src.exists():

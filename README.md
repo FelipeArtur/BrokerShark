@@ -56,20 +56,28 @@ python backend/main.py
 # Dashboard: http://localhost:8080
 ```
 
-## Running as a service (production)
+## Running (foreground)
 
-The dashboard runs as an always-on systemd **user** service and the backup as a timer — install once, see [`deploy/README.md`](./deploy/README.md) for the full guide (acceptance checks, daily ops, backup/restore semantics):
+The deploy strategy is being rethought (see `TODOS.md` → T-C). For now the dashboard
+runs in the **foreground** via `./run.sh` (logs straight to the terminal, Ctrl-C to stop):
 
 ```bash
-mkdir -p ~/.config/systemd/user
-cp deploy/systemd/brokershark-*.{service,timer} ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now brokershark-dashboard.service brokershark-backup.timer
-loginctl enable-linger $USER   # CRITICAL: without it, user units die on logout/boot
+./run.sh
+# Dashboard: http://localhost:8080
 ```
 
-Logs go to the journal: `journalctl --user -u brokershark-dashboard -f`.
-Restore a snapshot safely (stops the service first): `deploy/restore.sh <snapshot.db>`.
+Backup runs **manually** (monthly snapshot, WAL-safe, keeps 12):
+
+```bash
+PYTHONPATH=backend .venv/bin/python -m jobs.backup
+```
+
+Restore a snapshot: stop `./run.sh`, then copy the snapshot `.db` into `DB_PATH` (or call
+`core/backup.py::restore_backup`, which verifies + writes a `.pre-restore` sidecar) **with the
+app stopped** — never while it's writing. A safe operational restore wrapper is P1 in T-C.
+
+> The previous always-on model (systemd user units + linger + `OnFailure` desktop alert)
+> lived in `deploy/`, deleted 2026-06-23; it's recoverable from `git log` if the rethink revives it.
 
 ## Development
 

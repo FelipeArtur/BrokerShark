@@ -35,7 +35,7 @@ BrokerShark é uma **ferramenta pessoal de análise de dinheiro**, 100% local (L
 
 ```
 backend/
-  main.py            # entrypoint — bootstrap + serve do dashboard em foreground (systemd)
+  main.py            # entrypoint — bootstrap + serve do dashboard em foreground (./run.sh)
   config.py          # único arquivo que chama os.getenv()
   bootstrap.py       # load_dotenv + config.validate + logging + DB path (reusado por jobs)
   core/
@@ -48,8 +48,8 @@ backend/
   dashboard/server.py      # Flask + Waitress (32 threads, SSE)
 frontend/
   js/  api.js, primitives.js, view-overview.js, view-history.js, view-investments.js, app.js
-deploy/  systemd/* (dashboard.service, backup.{service,timer}, backup-alert.service),
-         brokershark.sh (atalho de browser), restore.sh, README.md
+.githooks/  pre-commit (Health Stack gate — ligado via core.hooksPath .githooks)
+         # deploy/ foi apagado 2026-06-23 — estratégia de runtime/restore em rethink (TODOS T-C)
 tests/   test_database, test_ingestion, test_b3, test_backup, test_jobs, test_delete,
          test_import_batch, test_investments, test_server_writes
 ```
@@ -72,7 +72,7 @@ core/events.notify() — SSE push ao browser (< 1s)
 
 - **SQLite é a fonte única.** Sem write-back externo. Toda escrita pela web.
 - **A análise é o produto.** Import é apoio.
-- **Runtime: always-on** — dashboard como **serviço systemd de usuário** (`brokershark-dashboard.service`, `Restart=on-failure`, `main.py` bloqueia no `waitress.serve`, loga em stdout/journald) + backup como **timer** (`brokershark-backup.timer`, checagem diária 07h, `Persistent=true`). **(Pausado por ora:** units stopadas/disabled p/ rodar foreground via `./run.sh` — logs direto no terminal. Backup automático também pausa; rodar manual com `PYTHONPATH=backend .venv/bin/python -m jobs.backup`. Religar: `systemctl --user enable --now brokershark-dashboard.service brokershark-backup.timer`.) Exige `loginctl enable-linger joao` (sem linger, units de usuário não sobem no boot nem sobrevivem ao logout). `deploy/brokershark.sh` é só atalho de browser; restore via `deploy/restore.sh` (para o serviço antes — restore com o app escrevendo corrompe). Detalhes em `deploy/README.md`.
+- **Runtime: foreground (estratégia de deploy em rethink — ver TODOS T-C).** Dashboard roda em foreground via **`./run.sh`** (`main.py` bloqueia no `waitress.serve`, logs no terminal). Backup **manual**: `PYTHONPATH=backend .venv/bin/python -m jobs.backup`. **Restore: cópia manual do `.db` com o app parado** (o wrapper `restore.sh` foi apagado junto com `deploy/` em 2026-06-23; redesenho de restore seguro é P1 no TODO T-C). A lógica de baixo nível de restore sobrevive em `core/backup.py::restore_backup` (verificação + sidecar `.pre-restore`). O modelo antigo (systemd user units + linger + OnFailure alert) está no `git log` (commit `08db96c`~) caso o rethink decida ressuscitá-lo.
 - **Segurança de rede:** bind em `127.0.0.1` + guard de Host/Origin em `server.py` (DNS-rebinding/CSRF) — a API não tem auth, então isso é load-bearing.
 
 ### Invariantes financeiras (load-bearing — não quebrar)
@@ -97,8 +97,8 @@ core/events.notify() — SSE push ao browser (< 1s)
 | Language | Python 3.14 (venv) — código usa 3.12+ |
 | Database | SQLite (WAL mode) |
 | Backup | snapshot local mensal no HDD (retém 12), `conn.backup()` WAL-safe, refresh pós-import |
-| Scheduler | **systemd user units** (`Persistent=true`) — dashboard.service + backup.timer |
-| Dashboard API | Flask 3.1 + Waitress 3.0 (32 threads, foreground/systemd) |
+| Scheduler | **nenhum por ora** — deploy em rethink (TODOS T-C); backup rodado manual |
+| Dashboard API | Flask 3.1 + Waitress 3.0 (32 threads, foreground via `./run.sh`) |
 | Frontend | React 18 + Babel standalone (no build step), Chart.js |
 | Real-time | SSE via `events.py` (no polling, < 1s) |
 
@@ -175,7 +175,7 @@ Um único job: **backup local mensal** (`core/backup.py`, entrypoint `jobs/backu
 - **Checagem diária = retry:** `Persistent=true` repõe execuções **perdidas** (PC desligado), nunca execuções **falhadas** — HDD desmontado na virada do mês é coberto na manhã seguinte.
 - **Escrita atômica:** `.tmp` + integrity-check + `os.replace` — snapshot falho nunca destrói o último bom.
 - **Pós-import:** confirmar/desfazer um import refresca o **snapshot do mês** em background (`request_post_import_snapshot` → `refresh_monthly_snapshot`, single-flight) — o arquivo do mês corrente nunca fica mais de um import atrás e termina o mês como fechamento.
-- **Restore:** `deploy/restore.sh` (para o serviço, restaura com verificação + sidecar `.pre-restore`, religa). Nunca chamar `restore_backup` com o dashboard no ar.
+- **Restore:** o wrapper `deploy/restore.sh` foi apagado (2026-06-23). Por ora = parar o `./run.sh` → cópia manual do `.db`, ou chamar `core/backup.py::restore_backup` (verificação + sidecar `.pre-restore`) **com o dashboard parado** — nunca com o app escrevendo (corrompe). Redesenho de restore seguro operacional = P1 no TODO T-C.
 
 ---
 
@@ -184,8 +184,8 @@ Um único job: **backup local mensal** (`core/backup.py`, entrypoint `jobs/backu
 - **Type hints obrigatórias** em toda assinatura (verificadas por mypy).
 - **Todo SQL via `core/database.py`** — sem SQL inline em outro lugar.
 - `PRAGMA journal_mode=WAL` + `PRAGMA foreign_keys=ON` no connect.
-- `main.py` **bloqueia em foreground** (`waitress.serve`) e sai ≠0 em ambiente inválido — é o systemd (`Restart=on-failure`) que reage, não o processo.
-- **Health Stack (antes de commitar):** `ruff check backend tests` + `mypy` + `pytest` verdes. Config em `pyproject.toml` (ruff = E/F/B; mypy estrito em `core/`, relaxado na borda de framework em `dashboard.server`). **Enforçado** por hook versionado `deploy/hooks/pre-commit` (ligado via `git config core.hooksPath deploy/hooks`) — bloqueia o commit se algo estiver vermelho. Bypass pontual: `git commit --no-verify`. (Existe porque o pivot checking-only chegou a commitar um `POST /api/transactions` que dava 500 sem rodar o stack — `c2c467a`.)
+- `main.py` **bloqueia em foreground** (`waitress.serve`) e sai ≠0 em ambiente inválido. Hoje sobe via `./run.sh` (sem supervisor — se cair, sobe na mão; auto-restart era o systemd, agora pausado/apagado — ver TODOS T-C).
+- **Health Stack (antes de commitar):** `ruff check backend tests` + `mypy` + `pytest` verdes. Config em `pyproject.toml` (ruff = E/F/B; mypy estrito em `core/`, relaxado na borda de framework em `dashboard.server`). **Enforçado** por hook versionado `.githooks/pre-commit` (ligado via `git config core.hooksPath .githooks`) — bloqueia o commit se algo estiver vermelho. Bypass pontual: `git commit --no-verify`. (Existe porque o pivot checking-only chegou a commitar um `POST /api/transactions` que dava 500 sem rodar o stack — `c2c467a`.)
 
 ---
 
@@ -203,7 +203,7 @@ OWNER_SELF_KEYWORDS=seu nome completo,fragmento-cpf         # detecta auto-Pix/T
 
 ## Running Locally
 
-Produção local = systemd (ver `deploy/README.md`): `brokershark-dashboard.service` sempre ativo + `brokershark-backup.timer`. Para desenvolvimento, rodar em foreground:
+Runtime atual = **foreground via `./run.sh`** (a estratégia always-on/systemd está em rethink — ver TODOS T-C). Backup roda manual (`PYTHONPATH=backend .venv/bin/python -m jobs.backup`). Rodar em foreground:
 
 ```bash
 cp .env.example .env   # preencher DB_PATH (absoluto)
