@@ -24,7 +24,7 @@ from core import database
 from core import ingestion
 from core.ingestion import b3
 from core import events as _events
-from core.ingestion.adapters import SourceMismatch
+from core.ingestion.adapters import SourceMismatch, detect_account
 _logger = logging.getLogger(__name__)
 
 DASHBOARD_PORT = config.DASHBOARD_PORT
@@ -877,6 +877,23 @@ def api_import_preview() -> Response:
     except SourceMismatch as exc:
         return jsonify({"error": str(exc)}), 400
     return jsonify(result)
+
+
+@app.route("/api/import/detect", methods=["POST"])
+def api_import_detect() -> Response:
+    """Guess the owning account for each uploaded CSV from its header content.
+
+    Multipart form: ``file`` repeated once per file. Returns a list aligned to
+    upload order: ``[{"account_id": "nu-db"|"inter-db"|null}, …]``. Lets the
+    import modal pre-fill the account on drop; the user can still override. Never
+    raises on an unknown header — returns ``null`` for that file. Only the first
+    8 KB of each file is read (enough to sniff the header).
+    """
+    uploads = request.files.getlist("file")
+    if not uploads:
+        return jsonify({"error": "file required"}), 400
+    detected = [{"account_id": detect_account(u.read(8192))} for u in uploads]
+    return jsonify(detected)
 
 
 @app.route("/api/import/staging/<batch_id>")

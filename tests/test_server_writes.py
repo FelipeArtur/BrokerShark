@@ -112,6 +112,22 @@ def test_import_staging_edit_rejects_bad_amount(client):
     assert resp.status_code == 400
 
 
+def test_import_detect_endpoint(client):
+    """POST /api/import/detect sniffs each file's header → account_id or null."""
+    import io
+    nu = b"Data,Valor,Identificador,Descricao\n10/01/2026,-50.00,uuid-1,Padaria\n"
+    resp = client.post("/api/import/detect",
+                       data={"file": (io.BytesIO(nu), "nubank.csv")},
+                       content_type="multipart/form-data")
+    assert resp.status_code == 200
+    assert resp.get_json()[0]["account_id"] == "nu-db"
+
+    unknown = client.post("/api/import/detect",
+                          data={"file": (io.BytesIO(b"a,b,c\n1,2,3\n"), "x.csv")},
+                          content_type="multipart/form-data")
+    assert unknown.get_json()[0]["account_id"] is None
+
+
 def test_import_staging_edit_unknown_row_404(client):
     preview = _stage_one_pix()
     resp = client.patch(

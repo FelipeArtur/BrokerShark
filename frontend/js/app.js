@@ -529,10 +529,18 @@ function ImportModal({ onClose, onDone }) {
     }).filter(Boolean);
     if (!incoming.length) { setErr("Envie .csv (extratos) ou .xlsx (relatório B3)."); return; }
     setFiles(prev => [...prev, ...incoming]);
+    // Auto-detect the owning account from each CSV's header (content sniff) so a
+    // multi-file drop needs no manual picking. Parallel; user can still override.
+    // B3 files self-type, so skip them.
+    incoming.filter(f => !f.b3).forEach(f => {
+      importDetect(f.file).then(acc => {
+        if (acc) setFiles(prev => prev.map(x => x.key === f.key ? { ...x, account: acc, auto: true } : x));
+      });
+    });
   }
   const removeFile = key => setFiles(prev => prev.filter(f => f.key !== key));
   const setFileAccount = (key, account) =>
-    setFiles(prev => prev.map(f => f.key === key ? { ...f, account } : f));
+    setFiles(prev => prev.map(f => f.key === key ? { ...f, account, auto: false } : f));
 
   // Each file just needs an account assigned (B3 files self-type).
   const canAnalyze = files.length > 0 && !busy &&
@@ -545,22 +553,23 @@ function ImportModal({ onClose, onDone }) {
       files.filter(f => !f.b3).forEach(f => {
         (byAccount[f.account] = byAccount[f.account] || []).push(f.file);
       });
-      const txGroups = [];
-      for (const account of Object.keys(byAccount)) {
-        try {
-          const res = await importPreview(byAccount[account], account);  // one POST, all files
-          txGroups.push({ account, ...res, err: null });
-        } catch (e) {
-          txGroups.push({ account, batch_id: null,
-            counts: { new: 0, duplicate: 0, skipped: 0, total: 0 }, rows: [],
-            amount_divergence: 0, err: e.message || "Falha ao analisar." });
-        }
-      }
-      const b3Previews = [];
-      for (const f of files.filter(f => f.b3)) {
-        try { b3Previews.push({ key: f.key, file: f.file, preview: await importB3(f.file), err: null }); }
-        catch (e) { b3Previews.push({ key: f.key, file: f.file, preview: null, err: e.message || "Falha ao ler B3." }); }
-      }
+      // Preview every account + every B3 file concurrently (was sequential).
+      const [txGroups, b3Previews] = await Promise.all([
+        Promise.all(Object.keys(byAccount).map(async account => {
+          try {
+            const res = await importPreview(byAccount[account], account);  // one POST per account, all its files
+            return { account, ...res, err: null };
+          } catch (e) {
+            return { account, batch_id: null,
+              counts: { new: 0, duplicate: 0, skipped: 0, total: 0 }, rows: [],
+              amount_divergence: 0, err: e.message || "Falha ao analisar." };
+          }
+        })),
+        Promise.all(files.filter(f => f.b3).map(async f => {
+          try { return { key: f.key, file: f.file, preview: await importB3(f.file), err: null }; }
+          catch (e) { return { key: f.key, file: f.file, preview: null, err: e.message || "Falha ao ler B3." }; }
+        })),
+      ]);
       const rmap = {};
       txGroups.forEach(g => { rmap[g.account] = g.rows || []; });
       setRowsByGroup(rmap);
@@ -574,6 +583,16 @@ function ImportModal({ onClose, onDone }) {
 
   function toggle(id) {
     setExcluded(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  }
+
+  // Include/exclude every "new" row of one account at once (header toggle).
+  function setGroupAll(account, include) {
+    const ids = (rowsByGroup[account] || []).filter(r => r.status === "new").map(r => r.id);
+    setExcluded(prev => {
+      const n = new Set(prev);
+      ids.forEach(id => include ? n.delete(id) : n.add(id));
+      return n;
+    });
   }
 
   // PATCH one staged row, then refresh its row + the group's divergence.
@@ -599,22 +618,22 @@ function ImportModal({ onClose, onDone }) {
     let totalInserted = 0, b3Created = 0, b3Updated = 0;
     const status = [];
     try {
-      for (const g of (groups || [])) {
-        if (!g.batch_id || g.err) continue;
-        const excl = (rowsByGroup[g.account] || []).filter(r => excluded.has(r.id)).map(r => r.id);
-        try {
-          const res = await importConfirm(g.batch_id, excl, sessionId);
-          totalInserted += res.inserted || 0;
-          status.push({ account: g.account, ok: true, inserted: res.inserted || 0 });
-        } catch (e) {
-          status.push({ account: g.account, ok: false, msg: e.message || "falhou" });
-        }
-      }
-      for (const b of b3s) {
-        if (!b.preview || b.err) continue;
-        try { const res = await importB3(b.file, { confirm: true }); b3Created += res.created || 0; b3Updated += res.updated || 0; }
-        catch (e) { status.push({ account: "b3", ok: false, msg: e.message || "falhou" }); }
-      }
+      // Confirm every account + B3 concurrently (was sequential); aggregate after.
+      const txStatus = await Promise.all((groups || [])
+        .filter(g => g.batch_id && !g.err)
+        .map(async g => {
+          const excl = (rowsByGroup[g.account] || []).filter(r => excluded.has(r.id)).map(r => r.id);
+          try { const res = await importConfirm(g.batch_id, excl, sessionId); return { account: g.account, ok: true, inserted: res.inserted || 0 }; }
+          catch (e) { return { account: g.account, ok: false, msg: e.message || "falhou" }; }
+        }));
+      const b3Status = await Promise.all(b3s
+        .filter(b => b.preview && !b.err)
+        .map(async b => {
+          try { const res = await importB3(b.file, { confirm: true }); return { b3: true, created: res.created || 0, updated: res.updated || 0 }; }
+          catch (e) { return { account: "b3", ok: false, msg: e.message || "falhou" }; }
+        }));
+      txStatus.forEach(s => { if (s.ok) totalInserted += s.inserted || 0; status.push(s); });
+      b3Status.forEach(s => { if (s.b3) { b3Created += s.created; b3Updated += s.updated; } else status.push(s); });
       if (status.some(s => !s.ok)) {
         setResults(status);  // a per-account confirm failed → show status, stay open
       } else {
@@ -652,13 +671,16 @@ function ImportModal({ onClose, onDone }) {
       ),
       f.b3
         ? h("span", { style: { fontSize: 11, fontWeight: 700, padding: "6px 12px", background: "var(--info-bg)", color: "var(--info)", borderRadius: 6 } }, "B3")
-        : h("select", {
-            value: f.account || "", onChange: e => setFileAccount(f.key, e.target.value || null),
-            "aria-label": "Conta de origem",
-            style: { fontSize: 13, fontWeight: 600, padding: "8px 12px", borderRadius: 6, background: "var(--bg-0)", color: f.account ? "var(--fg-0)" : "var(--fg-3)", border: `1px solid ${f.account ? "var(--line-2)" : "var(--reserve)"}`, cursor: "pointer", outline: "none" },
-          },
-            h("option", { value: "" }, "Atribuir Conta…"),
-            BANKS.map(b => h("option", { key: b.id, value: b.id }, b.label))
+        : h("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
+            f.auto && h("span", { title: "conta detectada automaticamente — confira", style: { fontSize: 10, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: "var(--info)", border: "1px solid color-mix(in oklch, var(--info) 30%, transparent)", borderRadius: 4, padding: "2px 6px" } }, "auto"),
+            h("select", {
+              value: f.account || "", onChange: e => setFileAccount(f.key, e.target.value || null),
+              "aria-label": "Conta de origem",
+              style: { fontSize: 13, fontWeight: 600, padding: "8px 12px", borderRadius: 6, background: "var(--bg-0)", color: f.account ? "var(--fg-0)" : "var(--fg-3)", border: `1px solid ${f.account ? "var(--line-2)" : "var(--reserve)"}`, cursor: "pointer", outline: "none" },
+            },
+              h("option", { value: "" }, "Atribuir Conta…"),
+              BANKS.map(b => h("option", { key: b.id, value: b.id }, b.label))
+            )
           ),
       h("button", { onClick: () => removeFile(f.key), title: "Remover arquivo", style: { width: 32, height: 32, borderRadius: "50%", background: "transparent", border: "none", color: "var(--fg-3)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.1s" }, onMouseEnter: e => { e.currentTarget.style.color = "var(--neg)"; e.currentTarget.style.background = "var(--bg-2)"; }, onMouseLeave: e => { e.currentTarget.style.color = "var(--fg-3)"; e.currentTarget.style.background = "transparent"; } }, "✕")
     ))
@@ -688,6 +710,8 @@ function ImportModal({ onClose, onDone }) {
   const renderTxGroup = (g) => {
     const rows = rowsByGroup[g.account] || g.rows || [];
     const newRows = groupNew(g.account);
+    const allNew = rows.filter(r => r.status === "new");
+    const allIncluded = allNew.length > 0 && allNew.every(r => !excluded.has(r.id));
     const subtotal = newRows.reduce((s, r) => s + (r.flow === "expense" ? -r.amount : r.amount), 0);
     const div = g.amount_divergence || 0;
     return h("div", { key: g.account, style: { border: "1px solid var(--line-1)", borderRadius: 12, overflow: "hidden" } },
@@ -697,6 +721,7 @@ function ImportModal({ onClose, onDone }) {
           h("span", { style: { fontWeight: 700, fontSize: 14, color: "var(--fg-0)" } }, accLabel(g.account))
         ),
         h("div", { style: { display: "flex", alignItems: "center", gap: 16, fontSize: 12, color: "var(--fg-2)", fontWeight: 600 } },
+          allNew.length > 0 && h("button", { className: "data-tag", onClick: () => setGroupAll(g.account, !allIncluded), title: allIncluded ? "Desmarcar todas as novas" : "Marcar todas as novas", style: { cursor: "pointer" } }, allIncluded ? "Desmarcar" : "Marcar todas"),
           h("span", null, `${newRows.length} ${newRows.length === 1 ? "nova" : "novas"}`),
           g.counts.duplicate > 0 && h("span", { style: { color: "var(--fg-3)" } }, `${g.counts.duplicate} já existem`),
           h("span", { style: { fontFamily: "var(--ff-mono)", fontSize: 14, color: subtotal < 0 ? "var(--neg)" : "var(--pos)" } }, `${subtotal < 0 ? "−" : "+"}${fmtBRL(Math.abs(subtotal))}`)

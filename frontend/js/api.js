@@ -101,6 +101,19 @@ async function importPreview(files, accountId) {
   if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || "falha ao analisar arquivo"); }
   return r.json();
 }
+async function importDetect(file) {
+  // Sniff one CSV's header → owning account_id ("nu-db"/"inter-db") or null.
+  // Pre-fills the import account per dropped file. Never throws: an unknown
+  // header (or any failure) returns null and the user assigns manually.
+  try {
+    const form = new FormData();
+    form.append("file", file);
+    const r = await fetch("/api/import/detect", { method: "POST", body: form });
+    if (!r.ok) return null;
+    const out = await r.json().catch(() => []);
+    return (out[0] || {}).account_id || null;
+  } catch { return null; }
+}
 async function patchStagingRow(batchId, rowId, fields) {
   // Edit one preview row (amount/category_id/display_name) → {ok, row, amount_divergence}.
   return _patch(`/api/import/staging/${batchId}/${rowId}`, fields);

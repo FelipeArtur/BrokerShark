@@ -126,6 +126,14 @@ def test_source_mismatch_rejected():
         adapters.parse("inter-db", NUBANK_EXTRATO)  # wrong file for the account
 
 
+def test_detect_account_by_content():
+    """Content sniff guesses the owning account for the import modal's auto-fill."""
+    from core.ingestion import adapters
+    assert adapters.detect_account(NUBANK_EXTRATO) == "nu-db"
+    assert adapters.detect_account(INTER_EXTRATO) == "inter-db"
+    assert adapters.detect_account(b"foo,bar,baz\n1,2,3\n") is None  # unknown → None, no raise
+
+
 # ── Dedup classification (pure) ───────────────────────────────────────────────
 
 def test_inter_legit_duplicate_preserved():

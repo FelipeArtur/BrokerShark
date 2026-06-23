@@ -25,6 +25,8 @@ ACCOUNT_SOURCE = {
     "nu-db":    "nubank_extrato",
     "inter-db": "inter_extrato",
 }
+# adapter key → account_id (reverse of ACCOUNT_SOURCE) for content-based detection.
+SOURCE_ACCOUNT = {source: account for account, source in ACCOUNT_SOURCE.items()}
 
 # Nubank checking rows that are investment movements, not real income/expense.
 # Matched case-insensitively against the description. These become transfers
@@ -129,6 +131,21 @@ def _decode(data: bytes) -> str:
         return data.decode("latin-1")
 
 
+def _match_source(data: bytes) -> Optional[str]:
+    """Return the adapter key whose header signature matches ``data``, or None.
+
+    Single source of truth for the per-source content signatures, shared by
+    :func:`detect_source` (verify a chosen account) and :func:`detect_account`
+    (guess the account from content). Reads only the first 4 KB.
+    """
+    head = _decode(data[:4096]).lower()
+    if "identificador" in head and "valor" in head:
+        return "nubank_extrato"
+    if "extrato conta corrente" in head or "data lançamento" in head:
+        return "inter_extrato"
+    return None
+
+
 def detect_source(account_id: str, data: bytes) -> str:
     """Return the adapter key for ``account_id`` after verifying the file header.
 
@@ -139,16 +156,22 @@ def detect_source(account_id: str, data: bytes) -> str:
     expected = ACCOUNT_SOURCE.get(account_id)
     if expected is None:
         raise SourceMismatch(f"Conta '{account_id}' não suporta importação ainda.")
-    head = _decode(data[:4096]).lower()
-    signatures = {
-        "nubank_extrato": "identificador" in head and "valor" in head,
-        "inter_extrato":  "extrato conta corrente" in head or "data lançamento" in head,
-    }
-    if not signatures.get(expected):
+    if _match_source(data) != expected:
         raise SourceMismatch(
             f"O arquivo não parece ser um {expected.replace('_', ' ')} de {account_id}."
         )
     return expected
+
+
+def detect_account(data: bytes) -> Optional[str]:
+    """Guess the owning account_id from a CSV's header content, or None.
+
+    Content-based (never filename): lets the import modal pre-fill the account
+    per dropped file so a multi-file drop needs no manual assignment. Returns
+    None when the header matches no known source — caller falls back to manual.
+    """
+    source = _match_source(data)
+    return SOURCE_ACCOUNT.get(source) if source is not None else None
 
 
 def parse(account_id: str, data: bytes) -> list[Record]:
