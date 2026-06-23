@@ -9,16 +9,21 @@ mutations run exactly once and are never repeated on subsequent startups.
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Callable
 from datetime import datetime
 
 import config
 
-DB_PATH = config.DB_PATH
+ConnectionFactory = Callable[[], sqlite3.Connection]
 
 
-def _connect() -> sqlite3.Connection:
-    """Open and configure a SQLite connection."""
-    conn = sqlite3.connect(DB_PATH)
+def _default_connect() -> sqlite3.Connection:
+    """Open a prod-configured SQLite connection for ``config.DB_PATH``.
+
+    ``config.DB_PATH`` is read lazily (at call time, not snapshotted at import), so a
+    test that points it at a temp file is honoured without patching this module.
+    """
+    conn = sqlite3.connect(config.DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
     conn.execute("PRAGMA synchronous=NORMAL")
@@ -26,6 +31,29 @@ def _connect() -> sqlite3.Connection:
     conn.execute("PRAGMA temp_store=MEMORY")
     conn.row_factory = sqlite3.Row
     return conn
+
+
+# Connection-factory seam: the single point every db sub-module opens a connection
+# through (they all ``from core.db.schema import _connect``). Tests swap this once via
+# set_connection_factory() instead of monkeypatching _connect across four modules.
+_connection_factory: ConnectionFactory = _default_connect
+
+
+def set_connection_factory(factory: ConnectionFactory) -> None:
+    """Override how connections are opened (e.g. inject an isolated test DB)."""
+    global _connection_factory
+    _connection_factory = factory
+
+
+def reset_connection_factory() -> None:
+    """Restore the default (prod) connection factory."""
+    global _connection_factory
+    _connection_factory = _default_connect
+
+
+def _connect() -> sqlite3.Connection:
+    """Open a configured SQLite connection via the active factory."""
+    return _connection_factory()
 
 
 def init_db() -> None:

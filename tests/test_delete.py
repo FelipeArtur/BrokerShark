@@ -81,9 +81,7 @@ def test_investment_leg_delete_reverts_balance_and_restores(db):
 
 @pytest.fixture()
 def client(db, monkeypatch):
-    import importlib
     import dashboard.server as server
-    importlib.reload(server)
     server.app.config["TESTING"] = True
     return server.app.test_client()
 

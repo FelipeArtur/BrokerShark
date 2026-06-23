@@ -5,9 +5,7 @@ import pytest
 @pytest.fixture()
 def client(db, monkeypatch):
     """Flask test client bound to the isolated test DB from the `db` fixture."""
-    import importlib
     import dashboard.server as server
-    importlib.reload(server)  # rebind module-level refs after _connect is patched
     server.app.config["TESTING"] = True
     return server.app.test_client()
 

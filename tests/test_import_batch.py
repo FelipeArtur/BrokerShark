@@ -137,9 +137,7 @@ def test_import_batch_id_column_and_partial_index_present_and_idempotent(db):
 
 @pytest.fixture()
 def client(db, monkeypatch):
-    import importlib
     import dashboard.server as server
-    importlib.reload(server)
     server.app.config["TESTING"] = True
     return server.app.test_client()
 
