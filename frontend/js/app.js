@@ -1,3 +1,5 @@
+/* IIFE-wrapped: own scope (replaces Babel's per-file isolation) */
+(function () {
 /* app.js — BrokerShark v2 app shell */
 /* global React, ReactDOM, fetchExpenseCategories, patchTransaction,
           searchTransactions, postCategory, deleteCategory, deleteTransaction,
@@ -1248,3 +1250,5 @@ function App() {
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));
+
+})();

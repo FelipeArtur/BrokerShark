@@ -1,3 +1,5 @@
+/* IIFE-wrapped: own scope (replaces Babel's per-file isolation) */
+(function () {
 /* view-overview.js — OverviewView (tela "Dinheiro") + CategoriesPanel */
 /* global React, fetchSummary, fetchAvailable, fetchAccounts,
           fetchMonthTransactions, fetchCashflowStatement, fetchInvestments,
@@ -536,3 +538,5 @@ function CategoriesPanel({ refreshKey, onRefresh, onClose }) {
 window.BS = window.BS || {};
 window.BS.OverviewView = OverviewView;
 window.BS.CategoriesPanel = CategoriesPanel;
+
+})();

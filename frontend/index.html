@@ -8,31 +8,24 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/css/style.css?v=33" />
+  <link rel="stylesheet" href="/static/css/style.css?v=35" />
 </head>
 <body>
   <div id="root"></div>
 
-  <!-- React 18 + Babel for JSX (no build step needed) -->
-  <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"
-          crossorigin integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z"></script>
-  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"
-          crossorigin integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1"></script>
-  <script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js"
-          crossorigin integrity="sha384-EIcs2MbARRLcLs7Gv2wqqhhfMlcLeW9yuJsWki1r5iveN1F5gpzHOwAKycJqSQOI"></script>
+  <!-- Vendored locally (no CDN, no build step) so the app runs fully offline — e.g.
+       on a Raspberry Pi with no internet. The app code is plain JS hyperscript
+       (React.createElement), never JSX, so no Babel transform is needed. -->
+  <script src="/static/js/vendor/react.production.min.js"></script>
+  <script src="/static/js/vendor/react-dom.production.min.js"></script>
+  <script src="/static/js/vendor/chart.umd.min.js"></script>
 
-  <!-- Chart.js -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"
-          crossorigin integrity="sha384-jb8JQMbMoBUzgWatfe6COACi2ljcDdZQ2OxczGA3bGNeWe+6DChMTBJemed7ZnvJ"></script>
-
-  <!-- API helpers (plain JS, no JSX) -->
-  <script src="/static/js/api.js?v=33"></script>
-
-  <!-- Babel pre-compiles locally, cache bust to force updates -->
-  <script type="text/babel" src="/static/js/primitives.js?v=33"></script>
-  <script type="text/babel" src="/static/js/view-overview.js?v=33"></script>
-  <script type="text/babel" src="/static/js/view-history.js?v=33"></script>
-  <script type="text/babel" src="/static/js/view-investments.js?v=33"></script>
-  <script type="text/babel" src="/static/js/app.js?v=33"></script>
+  <!-- App scripts — plain JS, execute in order (shared global scope via window.BS) -->
+  <script src="/static/js/api.js?v=35"></script>
+  <script src="/static/js/primitives.js?v=35"></script>
+  <script src="/static/js/view-overview.js?v=35"></script>
+  <script src="/static/js/view-history.js?v=35"></script>
+  <script src="/static/js/view-investments.js?v=35"></script>
+  <script src="/static/js/app.js?v=35"></script>
 </body>
 </html>

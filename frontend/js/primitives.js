@@ -1,3 +1,5 @@
+/* IIFE-wrapped: own scope (replaces Babel's per-file isolation) */
+(function () {
 /* primitives.js — formatters, hooks, and shared SVG chart components */
 /* global React */
 
@@ -661,3 +663,5 @@ function SingleAreaChart({ data, height = 180, color = "var(--pos)", label = "Ev
   );
 }
 window.BS.SingleAreaChart = SingleAreaChart;
+
+})();

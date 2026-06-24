@@ -1,3 +1,5 @@
+/* IIFE-wrapped: own scope (replaces Babel's per-file isolation) */
+(function () {
 /* view-history.js — HistoryView (tela Histórico/Análise) */
 /* global React, fetchMonthlyFull, fetchMonthTransactions, fetchPixTop, deleteTransaction, fetchCategoriesFull, patchTransactionCategory, fetchCoverage, recordCoverage, fetchUncategorizedMerchants, categorizeBulk */
 
@@ -607,3 +609,5 @@ function BulkCategorizeModal({ groups, catsByFlow, monthLabel, onApply, onClose 
 
 window.BS = window.BS || {};
 Object.assign(window.BS, { HistoryView });
+
+})();

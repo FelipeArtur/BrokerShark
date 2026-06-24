@@ -1,3 +1,5 @@
+/* IIFE-wrapped: own scope (replaces Babel's per-file isolation) */
+(function () {
 /* view-investments.js — InvestmentsView (aba "Investimentos") */
 /* global React, fetchInvestments, fetchInvestmentMovements, patchInvestmentBalance, fetchInvestmentEvolution, postInvestmentMovement */
 
@@ -293,3 +295,5 @@ function InvestmentsView({ refreshKey, filterMonth }) {
 
 window.BS = window.BS || {};
 Object.assign(window.BS, { InvestmentsView });
+
+})();

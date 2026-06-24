@@ -88,14 +88,19 @@ def _add_security_headers(response: Response) -> Response:
     # (JS/CSS/fonts) stay cacheable.
     if request.path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store"
+    # Scripts are all first-party (vendored locally, no CDN, no Babel/eval), so
+    # script-src locks to 'self' — no 'unsafe-inline'/'unsafe-eval'. style-src keeps
+    # 'unsafe-inline' for React's inline style attributes; fonts come from Google.
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
-        "script-src 'self' https://unpkg.com https://cdn.jsdelivr.net 'unsafe-inline' 'unsafe-eval'; "
+        "script-src 'self'; "
         "style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; "
         "font-src 'self' https://fonts.gstatic.com; "
         "img-src 'self' data:; "
         "connect-src 'self'; "
-        "frame-ancestors 'none';"
+        "frame-ancestors 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self';"
     )
     return response
 
