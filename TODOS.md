@@ -32,12 +32,17 @@ picker interativo / `--list`); confirmação que falha fechada sem TTY (a não s
 Ainda **manual** parar/subir o app (Ctrl+C no `./run.sh` → restore → `./run.sh`) — a automação
 disso depende da decisão de runtime abaixo (se virar systemd, o wrapper pode chamar `systemctl --user`).
 
-**Why:** A estratégia systemd (linger, units de usuário, OnFailure) tinha fricção e está pausada;
-vale decidir conscientemente entre **systemd / supervisor leve / foreground-só** em vez de manter
-units mortas. Constraints a respeitar: always-on local 1-user, backup mensal WAL-safe, alerta de falha.
+**✅ Decisão de runtime (2026-06-24): foreground resource-minimal, SEM always-on.** O dono quer
+consumo mínimo, sem serviço rodando à toa. Medido: idle ~0% CPU (threads bloqueiam), ~43 MB vivo,
+zero parado. Então: `./run.sh` on-demand + **auto-shutdown por ociosidade** (`IDLE_SHUTDOWN_MIN`=30,
+0 desabilita) que libera a RAM quando todas as abas fecham + `DASHBOARD_THREADS`=12. systemd
+always-on foi **descartado conscientemente** (oposto do que o dono quer). Resta em aberto (P3, opcional):
+**backup agendado** (hoje manual `python -m jobs.backup` + refresh pós-import) — automação via cron/timer
+só se o dono topar; e **auto-restart** virou no-op (sem serviço always-on, sobe na mão quando usa).
 
-**Pros:** runtime e recovery intencionais, não herdados; remove cruft pausado.
-**Cons:** janela sem restore-script automatizado até o P1 ser feito (mitigação: cópia manual documentada).
+**Why (histórico):** A estratégia systemd (linger, units, OnFailure) tinha fricção e foi pausada;
+decidido conscientemente por foreground resource-minimal. O modelo systemd antigo segue no `git log`
+caso um dia vire um Pi always-on.
 
 **Effort:** M.  **Priority:** P2 (sub-item de restore = P1).  **Depends on:** nothing.
 
