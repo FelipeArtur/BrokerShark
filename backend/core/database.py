@@ -34,6 +34,7 @@ from core.db.crud import (  # noqa: F401
     staging_divergence,
     record_coverage,
     get_coverage,
+    bulk_categorize,
 )
 
 from core.db.analytics import (  # noqa: F401
@@ -58,6 +59,7 @@ from core.db.analytics import (  # noqa: F401
     get_recent_transactions,
     get_recent_activity,
     get_categorized_history,
+    get_uncategorized_merchants,
     get_month_transactions,
     get_patrimonio_history,
     get_daily_spend,

@@ -323,6 +323,32 @@ def api_statement_coverage() -> Response:
     return jsonify({"ok": True, "added": added})
 
 
+@app.route("/api/uncategorized-merchants")
+def api_uncategorized_merchants() -> Response:
+    """Uncategorized transactions grouped by merchant for the bulk-categorize panel.
+
+    Returns ``[{merchant_key, flow, sample_description, count, total, ids,
+    suggested_category_id, suggested_category_name}]``, most-spent first.
+    """
+    return jsonify(database.get_uncategorized_merchants())
+
+
+@app.route("/api/transactions/categorize-bulk", methods=["POST"])
+def api_categorize_bulk() -> Response:
+    """Tag many transactions with one category. Body ``{ids: [int], category_id: int}``."""
+    body = request.get_json(silent=True) or {}
+    raw_ids = body.get("ids") or []
+    category_id = body.get("category_id")
+    if category_id is None:
+        return jsonify({"error": "category_id required"}), 400
+    try:
+        ids = [int(i) for i in raw_ids]
+        updated = database.bulk_categorize(ids, int(category_id))
+    except (TypeError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({"ok": True, "updated": updated})
+
+
 @app.route("/api/categories")
 def api_categories() -> Response:
     """Return expenses grouped by category (current month or all-time).

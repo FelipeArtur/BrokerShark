@@ -229,6 +229,28 @@ def count_batch(import_batch_id: str) -> int:
     return int(row[0] or 0)
 
 
+def bulk_categorize(ids: Iterable[int], category_id: int) -> int:
+    """Set ``category_id`` on many transactions at once; returns rows updated.
+
+    Validates the category exists. Powers bulk categorization by merchant — one
+    pick tags every occurrence at once. Notifies the dashboard via SSE.
+    """
+    id_list = [int(i) for i in ids]
+    if not id_list:
+        return 0
+    with _connect() as conn:
+        if conn.execute("SELECT 1 FROM categories WHERE id = ?", (category_id,)).fetchone() is None:
+            raise ValueError(f"category {category_id} not found")
+        placeholders = ",".join("?" * len(id_list))
+        cur = conn.execute(
+            f"UPDATE transactions SET category_id = ? WHERE id IN ({placeholders})",
+            (category_id, *id_list),
+        )
+        updated = cur.rowcount
+    events.notify()
+    return updated
+
+
 def record_coverage(
     months: Iterable[tuple[int, int]], origin: str = "import",
 ) -> int:

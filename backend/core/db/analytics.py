@@ -9,6 +9,7 @@ from typing import Optional
 
 from core.db._sql import consumption_expense_clause
 from core.db.schema import _connect
+from core.domain import classification
 
 # Canonical consumption-expense WHERE fragments (single source — see core/db/_sql.py).
 # Used ONLY for the consumption family; income / investment-leg / patrimônio sites use
@@ -978,6 +979,56 @@ def get_categorized_history() -> list[sqlite3.Row]:
                WHERE t.category_id IS NOT NULL
                  AND COALESCE(t.is_third_party, 0) = 0""",
         ).fetchall()
+
+
+def get_uncategorized_merchants() -> list[dict]:
+    """Group uncategorized, categorizable transactions by merchant for bulk tagging.
+
+    One entry per merchant key (most-spent first): the ``ids`` to tag, a sample
+    description, the ``count`` and ``total`` amount, the ``flow``, and a
+    history-learned suggested category. Powers the bulk-categorize panel — one pick
+    tags every occurrence of the same merchant at once. Only consumption expense and
+    real income are included; transfer legs, SELF and investment legs are never
+    categorized (same rule as ``classification.is_categorizable``). Rows whose
+    description reduces to an empty merchant key are skipped (tag those inline).
+    """
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT id, description, flow, amount
+               FROM transactions
+               WHERE category_id IS NULL
+                 AND COALESCE(is_third_party, 0) = 0
+                 AND (counterpart IS NULL OR counterpart != 'SELF')
+                 AND ( (flow = 'expense' AND method != 'transfer')
+                       OR (flow = 'income' AND is_revenue = 1) )""",
+        ).fetchall()
+    index = classification.build_category_index(
+        [dict(h) for h in get_categorized_history()]
+    )
+    groups: dict[tuple[str, str], dict] = {}
+    for r in rows:
+        desc = r["description"] or ""
+        key = classification.merchant_key(desc)
+        if not key:
+            continue
+        gk = (r["flow"], key)
+        g = groups.get(gk)
+        if g is None:
+            sug = classification.suggest_from_index(desc, r["flow"], index)
+            g = groups[gk] = {
+                "merchant_key": key,
+                "flow": r["flow"],
+                "sample_description": desc,
+                "count": 0,
+                "total": 0.0,
+                "ids": [],
+                "suggested_category_id": sug[0] if sug else None,
+                "suggested_category_name": sug[1] if sug else None,
+            }
+        g["count"] += 1
+        g["total"] += r["amount"] or 0.0
+        g["ids"].append(r["id"])
+    return sorted(groups.values(), key=lambda g: g["total"], reverse=True)
 
 
 def get_key_counts(account_id: str, date_lo: str, date_hi: str) -> dict[tuple, int]:

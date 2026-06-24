@@ -1,5 +1,5 @@
 /* view-history.js — HistoryView (tela Histórico/Análise) */
-/* global React, fetchMonthlyFull, fetchMonthTransactions, fetchPixTop, deleteTransaction, fetchCategoriesFull, patchTransactionCategory, fetchCoverage, recordCoverage */
+/* global React, fetchMonthlyFull, fetchMonthTransactions, fetchPixTop, deleteTransaction, fetchCategoriesFull, patchTransactionCategory, fetchCoverage, recordCoverage, fetchUncategorizedMerchants, categorizeBulk */
 
 const { useState: _s2St, useEffect: _s2Ef, useMemo: _s2Memo } = React;
 const { fmtBRL, fmtBRLCompact, fmtDateBR, BankChip, DualLine, PT_MONTHS, PT_SHORT, fmtCycleDate,
@@ -12,6 +12,8 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   const [monthly, setMonthly] = _s2St([]);
   const [coverage, setCoverage] = _s2St([]);   // accounted-for months (missing-month net)
+  const [bulkGroups, setBulkGroups] = _s2St([]); // uncategorized merchants → bulk panel
+  const [bulkOpen, setBulkOpen] = _s2St(false);
   const [pickedIdx, setPickedIdx] = _s2St(-1);
   const [browsingYear, setBrowsingYear] = _s2St(null);
   const [monthTx, setMonthTx] = _s2St([]);
@@ -31,6 +33,7 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
     Promise.all([fetchCategoriesFull("expense"), fetchCategoriesFull("income")])
       .then(([exp, inc]) => setCatsByFlow({ expense: exp, income: inc }));
     fetchCoverage().then(setCoverage).catch(() => setCoverage([]));
+    fetchUncategorizedMerchants().then(setBulkGroups).catch(() => setBulkGroups([]));
     fetchMonthlyFull().then(data => {
       setMonthly(data);
       if (pickedRef.current) {
@@ -93,14 +96,24 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
     recordCoverage([{ year: g.year, month: g.month }], "manual")
       .then(() => fetchCoverage().then(setCoverage))
       .catch(() => {});
+  // Bulk categorization: tag every occurrence of a merchant at once. Removes the
+  // group from the panel on success; the SSE refresh repaints the table behind.
+  const uncatCount = bulkGroups.reduce((s, g) => s + g.count, 0);
+  const applyBulk = (group, categoryId) =>
+    categorizeBulk(group.ids, categoryId)
+      .then(() => setBulkGroups(prev =>
+        prev.filter(g => !(g.merchant_key === group.merchant_key && g.flow === group.flow))))
+      .catch(() => {});
   const pickedMonthObj = monthly[pickedIdx] || null;
   const activeYear = browsingYear || (pickedMonthObj ? pickedMonthObj.year : now.getFullYear());
   const availableYears = [...new Set(monthly.map(m => m.year))].sort((a,b) => a - b);
-  const maxH = Math.max(...monthly.map(x => x.expenses), 1);
   const yearSlots = [];
   for (let m = 1; m <= 12; m++) {
     yearSlots.push({ month: m, data: monthly.find(x => x.year === activeYear && x.month === m) });
   }
+  // Bars scale to the ACTIVE year's own max, not the all-time max — otherwise an
+  // early low-spend year (2021 ~R$200) is invisible next to a R$6k month elsewhere.
+  const maxH = Math.max(...yearSlots.map(s => s.data ? s.data.expenses : 0), 1);
 
   const picked = monthly[pickedIdx] || null;
   const monthLabel = picked ? `${PT_MONTHS[picked.month]} ${picked.year}` : "";
@@ -236,7 +249,9 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
         h("div", { style: { display: "flex", alignItems: "flex-end", gap: 8, height: 60 } },
           yearSlots.map((slot) => {
             const d = slot.data;
-            const barH = d ? Math.max((d.expenses / maxH) * 100, 4) : 0;
+            // Pixel height (not %) — the parent button has no resolvable height, so a
+            // % bar always collapsed to minHeight. ~38px of headroom in the 60px row.
+            const barH = d ? Math.max((d.expenses / maxH) * 38, 3) : 0;
             const isPicked = d && pickedMonthObj && d.year === pickedMonthObj.year && d.month === pickedMonthObj.month;
             const isCur2 = activeYear === now.getFullYear() && slot.month === (now.getMonth() + 1);
             // Forgotten past month vs a plain empty (future / pre-history) slot.
@@ -270,7 +285,7 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
               isGap
                 ? h("div", { style: { height: "100%", display: "flex", alignItems: "flex-end", justifyContent: "center", color: "var(--warn)", fontSize: 13, fontWeight: 700, lineHeight: 1 } }, "!")
                 : h("div", { style: {
-                    width: "100%", height: `${barH}%`, minHeight: 3,
+                    width: "100%", height: `${barH}px`, minHeight: 3,
                     background: isPicked ? "var(--accent)" : isCur2 ? "var(--fg-2)" : "var(--line-2)",
                     borderRadius: 3
                   } }),
@@ -370,7 +385,23 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
         h("div", { style: { display: "flex", flexDirection: "column", gap: 16 } },
           (() => {
             if (byCat.length === 0) return h("div", { style: { color: "var(--fg-3)", fontSize: 13, textAlign: "center", padding: "40px 0" } }, "Nenhuma despesa no período.");
-            
+            // Everything fell into "Outro" → a single 100% bar tells you nothing.
+            // Nudge to categorize instead (the bulk panel makes it one pass).
+            if (byCat.every(c => c.name === "Outro") && uncatCount > 0) {
+              return h("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "28px 8px", textAlign: "center" } },
+                h("div", { style: { fontSize: 13, color: "var(--fg-2)", lineHeight: 1.5 } },
+                  "Estas despesas estão sem categoria — por isso aparecem como ", h("strong", null, "“Outro”"), ". Categorize pra ver pra onde o dinheiro vai."),
+                h("button", {
+                  onClick: () => setBulkOpen(true),
+                  style: {
+                    cursor: "pointer", padding: "8px 16px", borderRadius: 8, fontSize: 13, fontWeight: 600,
+                    color: "var(--accent)", background: "color-mix(in oklch, var(--accent) 12%, transparent)",
+                    border: "1px solid color-mix(in oklch, var(--accent) 40%, transparent)",
+                  }
+                }, `Categorizar em lote · ${uncatCount} sem categoria`)
+              );
+            }
+
             const limit = 8;
             let items = byCat.slice(0, limit);
             if (byCat.length > limit) {
@@ -405,7 +436,19 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
     h("div", { style: { display: "flex", flexDirection: "column" } },
         h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--line-1)", paddingBottom: 20, marginBottom: 20 } },
           h("div", null,
-            h("div", { style: { fontSize: 18, fontWeight: 700, color: "var(--fg-1)" } }, "Lançamentos"),
+            h("div", { style: { display: "flex", alignItems: "center", gap: 12 } },
+              h("div", { style: { fontSize: 18, fontWeight: 700, color: "var(--fg-1)" } }, "Lançamentos"),
+              uncatCount > 0 && h("button", {
+                onClick: () => setBulkOpen(true),
+                title: "Categorizar vários lançamentos de uma vez, agrupados por comerciante",
+                style: {
+                  display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer",
+                  padding: "4px 10px", borderRadius: 999, fontSize: 12, fontWeight: 600,
+                  color: "var(--accent)", background: "color-mix(in oklch, var(--accent) 10%, transparent)",
+                  border: "1px solid color-mix(in oklch, var(--accent) 35%, transparent)",
+                }
+              }, `Categorizar em lote · ${uncatCount} sem categoria`)
+            ),
             h("div", { style: { fontSize: 12, color: "var(--fg-3)", marginTop: 4, fontFamily: "var(--ff-mono)" } }, `${filteredTx.length} itens exibidos`)
           ),
           h("div", { style: { display: "flex", gap: 32, alignItems: "center" } },
@@ -500,7 +543,64 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
             )
           )
         )
+      ),
+
+    bulkOpen && h(BulkCategorizeModal, {
+      groups: bulkGroups, catsByFlow, onApply: applyBulk, onClose: () => setBulkOpen(false),
+    })
+  );
+}
+
+// Bulk-categorize panel: uncategorized transactions grouped by merchant (most-spent
+// first). Picking a category tags every occurrence at once (onApply → categorizeBulk).
+function BulkCategorizeModal({ groups, catsByFlow, onApply, onClose }) {
+  const h = (t, p, ...c) => React.createElement(t, p, ...c);
+  const Modal = window.BS.Modal;
+  const prettify = window.BS.prettifyDesc || (s => s);
+  const total = groups.reduce((s, g) => s + g.count, 0);
+  return h(Modal, { open: true, onClose, title: "Categorizar em lote", width: 660 },
+    h("div", { style: { display: "flex", flexDirection: "column" } },
+      h("div", { style: { fontSize: 13, color: "var(--fg-2)", marginBottom: 12, lineHeight: 1.4 } },
+        groups.length === 0
+          ? "Tudo categorizado. 🎉"
+          : `${groups.length} ${groups.length === 1 ? "comerciante" : "comerciantes"} · ${total} lançamentos sem categoria. Escolha a categoria — vale pra todos os iguais de uma vez.`),
+      h("div", { style: { display: "flex", flexDirection: "column", maxHeight: "60vh", overflowY: "auto" } },
+        groups.map(g => {
+          const list = catsByFlow[g.flow] || [];
+          return h("div", { key: `${g.flow}-${g.merchant_key}`, style: { display: "flex", alignItems: "center", gap: 16, padding: "10px 2px", borderBottom: "1px solid var(--line-0)" } },
+            h("div", { style: { flex: 1, minWidth: 0 } },
+              h("div", { style: { fontSize: 13, fontWeight: 600, color: "var(--fg-0)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, prettify(g.sample_description)),
+              h("div", { style: { fontSize: 11, color: g.flow === "income" ? "var(--pos)" : "var(--fg-3)", marginTop: 3, fontFamily: "var(--ff-mono)" } },
+                `${g.count}× · ${fmtBRL(g.total)}${g.flow === "income" ? " · receita" : ""}`)
+            ),
+            // One-click accept of the history suggestion (defaultValue wouldn't fire
+            // onChange), plus a select to pick any other category.
+            g.suggested_category_id != null && h("button", {
+              onClick: () => onApply(g, g.suggested_category_id),
+              title: "Aplicar esta categoria a todos os iguais",
+              style: {
+                cursor: "pointer", whiteSpace: "nowrap", padding: "5px 10px", borderRadius: 6,
+                fontSize: 12, fontWeight: 600, color: "var(--accent)",
+                background: "color-mix(in oklch, var(--accent) 12%, transparent)",
+                border: "1px solid color-mix(in oklch, var(--accent) 40%, transparent)",
+              }
+            }, `✓ ${g.suggested_category_name}`),
+            h("select", {
+              value: "", "aria-label": "Categoria",
+              onChange: e => { if (e.target.value) onApply(g, parseInt(e.target.value)); },
+              style: {
+                height: 30, minWidth: 160, fontSize: 12, fontWeight: 500, padding: "0 8px", borderRadius: 6,
+                cursor: "pointer", backgroundColor: "var(--bg-0)", color: "var(--fg-1)", outline: "none",
+                border: "1px solid var(--line-1)",
+              }
+            },
+              h("option", { value: "" }, g.suggested_category_id != null ? "Outra…" : "Escolher categoria…"),
+              list.map(c => h("option", { key: c.id, value: c.id }, c.name))
+            )
+          );
+        })
       )
+    )
   );
 }
 
