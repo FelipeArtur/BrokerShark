@@ -33,7 +33,6 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
     Promise.all([fetchCategoriesFull("expense"), fetchCategoriesFull("income")])
       .then(([exp, inc]) => setCatsByFlow({ expense: exp, income: inc }));
     fetchCoverage().then(setCoverage).catch(() => setCoverage([]));
-    fetchUncategorizedMerchants().then(setBulkGroups).catch(() => setBulkGroups([]));
     fetchMonthlyFull().then(data => {
       setMonthly(data);
       if (pickedRef.current) {
@@ -64,6 +63,8 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
     const { month, year } = monthly[pickedIdx];
     fetchMonthTransactions({ month, year }).then(setMonthTx);
     fetchPixTop({ month, year }).then(setPixTop).catch(() => setPixTop([]));
+    // Bulk-categorize panel follows the month on screen — not an all-time pile.
+    fetchUncategorizedMerchants({ year, month }).then(setBulkGroups).catch(() => setBulkGroups([]));
     
     const monthStr = `${year}-${month}`;
     if (lastFetchedMonth.current !== monthStr) {
@@ -440,7 +441,7 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
               h("div", { style: { fontSize: 18, fontWeight: 700, color: "var(--fg-1)" } }, "Lançamentos"),
               uncatCount > 0 && h("button", {
                 onClick: () => setBulkOpen(true),
-                title: "Categorizar vários lançamentos de uma vez, agrupados por comerciante",
+                title: "Categorizar os lançamentos deste mês de uma vez, agrupados por comerciante",
                 style: {
                   display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer",
                   padding: "4px 10px", borderRadius: 999, fontSize: 12, fontWeight: 600,
@@ -546,24 +547,24 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
       ),
 
     bulkOpen && h(BulkCategorizeModal, {
-      groups: bulkGroups, catsByFlow, onApply: applyBulk, onClose: () => setBulkOpen(false),
+      groups: bulkGroups, catsByFlow, monthLabel, onApply: applyBulk, onClose: () => setBulkOpen(false),
     })
   );
 }
 
 // Bulk-categorize panel: uncategorized transactions grouped by merchant (most-spent
 // first). Picking a category tags every occurrence at once (onApply → categorizeBulk).
-function BulkCategorizeModal({ groups, catsByFlow, onApply, onClose }) {
+function BulkCategorizeModal({ groups, catsByFlow, monthLabel, onApply, onClose }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
   const Modal = window.BS.Modal;
   const prettify = window.BS.prettifyDesc || (s => s);
   const total = groups.reduce((s, g) => s + g.count, 0);
-  return h(Modal, { open: true, onClose, title: "Categorizar em lote", width: 660 },
+  return h(Modal, { open: true, onClose, title: `Categorizar em lote — ${monthLabel}`, width: 660 },
     h("div", { style: { display: "flex", flexDirection: "column" } },
       h("div", { style: { fontSize: 13, color: "var(--fg-2)", marginBottom: 12, lineHeight: 1.4 } },
         groups.length === 0
-          ? "Tudo categorizado. 🎉"
-          : `${groups.length} ${groups.length === 1 ? "comerciante" : "comerciantes"} · ${total} lançamentos sem categoria. Escolha a categoria — vale pra todos os iguais de uma vez.`),
+          ? `Tudo categorizado em ${monthLabel}. 🎉`
+          : `${groups.length} ${groups.length === 1 ? "comerciante" : "comerciantes"} · ${total} lançamentos sem categoria em ${monthLabel}. Escolha a categoria — vale pra todos os iguais deste mês de uma vez.`),
       h("div", { style: { display: "flex", flexDirection: "column", maxHeight: "60vh", overflowY: "auto" } },
         groups.map(g => {
           const list = catsByFlow[g.flow] || [];

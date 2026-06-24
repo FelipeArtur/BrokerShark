@@ -327,10 +327,14 @@ def api_statement_coverage() -> Response:
 def api_uncategorized_merchants() -> Response:
     """Uncategorized transactions grouped by merchant for the bulk-categorize panel.
 
-    Returns ``[{merchant_key, flow, sample_description, count, total, ids,
-    suggested_category_id, suggested_category_name}]``, most-spent first.
+    Query params ``year``/``month`` scope it to one month (the panel follows the
+    month on screen); omit both for all-time. Returns ``[{merchant_key, flow,
+    sample_description, count, total, ids, suggested_category_id,
+    suggested_category_name}]``, most-spent first.
     """
-    return jsonify(database.get_uncategorized_merchants())
+    year = request.args.get("year", type=int)
+    month = request.args.get("month", type=int)
+    return jsonify(database.get_uncategorized_merchants(year, month))
 
 
 @app.route("/api/transactions/categorize-bulk", methods=["POST"])

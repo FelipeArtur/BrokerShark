@@ -52,6 +52,17 @@ def test_groups_merchant_with_suggestion(db):
     assert g["suggested_category_name"] == "Padaria"
 
 
+def test_month_scoped(db):
+    from core import database
+    _cat, ids = _seed(db)  # the two uncategorized padaria rows are in 2026-03
+    # scoped to March 2026 → the padaria group shows up
+    assert len(database.get_uncategorized_merchants(2026, 3)) == 1
+    # a different month has none of them
+    assert database.get_uncategorized_merchants(2026, 2) == []
+    # no scope → all-time (still just the one group)
+    assert len(database.get_uncategorized_merchants()) == 1
+
+
 def test_bulk_categorize_tags_all(client, db):
     from core import database
     cat, ids = _seed(db)

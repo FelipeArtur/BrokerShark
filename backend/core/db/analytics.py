@@ -981,26 +981,36 @@ def get_categorized_history() -> list[sqlite3.Row]:
         ).fetchall()
 
 
-def get_uncategorized_merchants() -> list[dict]:
+def get_uncategorized_merchants(
+    year: Optional[int] = None, month: Optional[int] = None,
+) -> list[dict]:
     """Group uncategorized, categorizable transactions by merchant for bulk tagging.
 
-    One entry per merchant key (most-spent first): the ``ids`` to tag, a sample
-    description, the ``count`` and ``total`` amount, the ``flow``, and a
-    history-learned suggested category. Powers the bulk-categorize panel — one pick
-    tags every occurrence of the same merchant at once. Only consumption expense and
-    real income are included; transfer legs, SELF and investment legs are never
-    categorized (same rule as ``classification.is_categorizable``). Rows whose
+    Scoped to one month when ``year``/``month`` are given (the bulk panel follows the
+    month on screen in the Histórico, so it never becomes an all-time pile); without
+    them it spans everything. One entry per merchant key (most-spent first): the
+    ``ids`` to tag, a sample description, the ``count`` and ``total`` amount, the
+    ``flow``, and a history-learned suggested category (the suggestion index always
+    learns from ALL categorized history, not just this month). Only consumption
+    expense and real income are included; transfer legs, SELF and investment legs are
+    never categorized (same rule as ``classification.is_categorizable``). Rows whose
     description reduces to an empty merchant key are skipped (tag those inline).
     """
+    where = (
+        "category_id IS NULL "
+        "AND COALESCE(is_third_party, 0) = 0 "
+        "AND (counterpart IS NULL OR counterpart != 'SELF') "
+        "AND ( (flow = 'expense' AND method != 'transfer') "
+        "      OR (flow = 'income' AND is_revenue = 1) )"
+    )
+    params: list = []
+    if year is not None and month is not None:
+        where += " AND date LIKE ?"
+        params.append(f"{int(year):04d}-{int(month):02d}-%")
     with _connect() as conn:
         rows = conn.execute(
-            """SELECT id, description, flow, amount
-               FROM transactions
-               WHERE category_id IS NULL
-                 AND COALESCE(is_third_party, 0) = 0
-                 AND (counterpart IS NULL OR counterpart != 'SELF')
-                 AND ( (flow = 'expense' AND method != 'transfer')
-                       OR (flow = 'income' AND is_revenue = 1) )""",
+            f"SELECT id, description, flow, amount FROM transactions WHERE {where}",
+            params,
         ).fetchall()
     index = classification.build_category_index(
         [dict(h) for h in get_categorized_history()]
