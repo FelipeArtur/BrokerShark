@@ -215,7 +215,7 @@ function InvestmentsView({ refreshKey, filterMonth }) {
                     h("span", { style: { width: 8, height: 8, borderRadius: "50%", background: color, flexShrink: 0 } }),
                     h("div", { style: { fontWeight: 600, fontSize: 14, color: "var(--fg-1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, inv.name),
                     h(BankChip, { bank: inv.bank }),
-                    inv.derived && h("span", { title: "calculado a partir do extrato (Aplicações − Resgates)", style: { fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--fg-3)", border: "1px solid var(--line-2)", borderRadius: 4, padding: "1px 5px" } }, "derivado")
+                    inv.derived && h("span", { title: "Posição derivada do extrato: Aplicações − Resgates (só principal, sem rendimento). A Caixinha é RDB, não custodiada na B3 — não tem valor de mercado oficial.", style: { fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--fg-3)", border: "1px solid var(--line-2)", borderRadius: 4, padding: "1px 5px", cursor: "help" } }, "derivado")
                   ),
                   h("div", { style: { display: "flex", alignItems: "center", gap: 24 } },
                     h("span", { className: "mono", style: { fontSize: 12, color: "var(--fg-3)", width: 44, textAlign: "right" } }, pct.toFixed(1), "%"),
