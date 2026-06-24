@@ -32,6 +32,8 @@ from core.db.crud import (  # noqa: F401
     delete_staging_batch,
     update_staging_row,
     staging_divergence,
+    record_coverage,
+    get_coverage,
 )
 
 from core.db.analytics import (  # noqa: F401

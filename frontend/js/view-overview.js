@@ -2,7 +2,7 @@
 /* global React, fetchSummary, fetchAvailable, fetchAccounts,
           fetchMonthTransactions, fetchCashflowStatement, fetchInvestments,
           fetchPatrimonioHistory, fetchExpenseCategoriesFull, postCategory, deleteCategory,
-          fetchRecentTransactions, patchTransaction, fetchMonthlyFull */
+          fetchRecentTransactions, patchTransaction, fetchMonthlyFull, fetchCoverage */
 
 const { useState: _ovSt, useEffect: _ovEf, useMemo: _ovMemo } = React;
 const { fmtBRL, fmtBRLCompact, fmtDateBR, BankChip, DualLine, Modal, PT_MONTHS, PT_SHORT, fmtCycleDate,
@@ -26,6 +26,7 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
   const [patrimonioHistory, setPatrimonioHistory] = _ovSt([]);
   const [liquidityHistory, setLiquidityHistory] = _ovSt([]);
   const [monthlyFull, setMonthlyFull] = _ovSt([]);   // present-only list → missing-month badge
+  const [coverage, setCoverage] = _ovSt([]);          // accounted-for months (subtract from gaps)
 
   _ovEf(() => {
     const parts = filterMonth ? filterMonth.split("-").map(Number) : [];
@@ -40,14 +41,16 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
       fetchInvestments(),
       fetchPatrimonioHistory(),
       fetchLiquidityHistory(),
-      fetchMonthlyFull()
-    ]).then(([s, ac, a, cf, invs, ph, lh, mf]) => {
+      fetchMonthlyFull(),
+      fetchCoverage()
+    ]).then(([s, ac, a, cf, invs, ph, lh, mf, cov]) => {
       setSummary(s);
       setAccounts(ac); setActivity(a); setCashflow(cf);
       setInvestments(invs);
       setPatrimonioHistory(ph || []);
       setLiquidityHistory(lh || []);
       setMonthlyFull(mf || []);
+      setCoverage(cov || []);
     }).catch(() => setLoadErr(true));
   }, [refreshKey, filterMonth, retryTick]);
 
@@ -74,8 +77,8 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
 
   const now = new Date();
   // Import safety net — same source as the Histórico banner (see primitives.js).
-  const monthGaps = findMonthGaps(monthlyFull, now);
-  const curMonthMissing = currentMonthMissing(monthlyFull, now);
+  const monthGaps = findMonthGaps(monthlyFull, now, coverage);
+  const curMonthMissing = currentMonthMissing(monthlyFull, now, 5, coverage);
   const isCur = cashflow && cashflow.month === now.getMonth() + 1 && cashflow.year === now.getFullYear();
   const displayExpense = cashflow ? cashflow.expense_total : 0;
   const displayFree = cashflow 

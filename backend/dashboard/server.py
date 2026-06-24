@@ -292,6 +292,37 @@ def api_monthly() -> Response:
     return jsonify(database.get_monthly_history(months=months, bank=bank))
 
 
+@app.route("/api/statement-coverage", methods=["GET", "POST"])
+def api_statement_coverage() -> Response:
+    """Months the user has accounted for — powers the missing-month safety net.
+
+    GET  → ``[{year, month, origin}]`` (origin: ``'import'`` | ``'manual'``).
+    POST → record coverage. Body ``{periods: [{year, month}, ...],
+           origin: "import"|"manual"}``. The client posts ``import`` after an
+           import confirm (one entry per month each statement file covered, so an
+           empty month still counts) and ``manual`` when the user dismisses a gap
+           as a no-activity month.
+    """
+    if request.method == "GET":
+        return jsonify([dict(r) for r in database.get_coverage()])
+    body = request.get_json(silent=True) or {}
+    origin = body.get("origin", "manual")
+    if origin not in ("import", "manual"):
+        return jsonify({"error": "origin must be import or manual"}), 400
+    months: list[tuple[int, int]] = []
+    try:
+        for p in (body.get("periods") or []):
+            year, month = int(p["year"]), int(p["month"])
+            if not (1 <= month <= 12) or not (1900 <= year <= 3000):
+                return jsonify({"error": "invalid period"}), 400
+            months.append((year, month))
+    except (KeyError, TypeError, ValueError):
+        return jsonify({"error": "periods must be [{year, month}]"}), 400
+    added = database.record_coverage(months, origin=origin)
+    _events.notify()
+    return jsonify({"ok": True, "added": added})
+
+
 @app.route("/api/categories")
 def api_categories() -> Response:
     """Return expenses grouped by category (current month or all-time).

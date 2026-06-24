@@ -163,6 +163,23 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_staging_batch
                 ON import_staging(batch_id);
 
+            -- Statement coverage for the missing-month safety net. One row per
+            -- (year, month) the user has accounted for, so the Histórico/home
+            -- gap warning stops flagging a month whose statement was imported
+            -- (even an empty one — a real no-activity month) or that the user
+            -- explicitly reviewed. Account-agnostic, matching the gap detection.
+            -- origin: 'import' = a confirmed import covered this month;
+            --         'manual' = the user dismissed the gap as no-activity.
+            CREATE TABLE IF NOT EXISTS statement_coverage (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                year       INTEGER NOT NULL,
+                month      INTEGER NOT NULL,
+                origin     TEXT NOT NULL DEFAULT 'import'
+                    CHECK (origin IN ('import', 'manual')),
+                created_at TEXT NOT NULL,
+                UNIQUE (year, month)
+            );
+
             -- Indices for common query patterns
             CREATE INDEX IF NOT EXISTS idx_tx_date
                 ON transactions(date);

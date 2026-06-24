@@ -1,5 +1,5 @@
 /* view-history.js — HistoryView (tela Histórico/Análise) */
-/* global React, fetchMonthlyFull, fetchMonthTransactions, fetchPixTop, deleteTransaction, fetchCategoriesFull, patchTransactionCategory */
+/* global React, fetchMonthlyFull, fetchMonthTransactions, fetchPixTop, deleteTransaction, fetchCategoriesFull, patchTransactionCategory, fetchCoverage, recordCoverage */
 
 const { useState: _s2St, useEffect: _s2Ef, useMemo: _s2Memo } = React;
 const { fmtBRL, fmtBRLCompact, fmtDateBR, BankChip, DualLine, PT_MONTHS, PT_SHORT, fmtCycleDate,
@@ -11,6 +11,7 @@ const { fmtBRL, fmtBRLCompact, fmtDateBR, BankChip, DualLine, PT_MONTHS, PT_SHOR
 function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, onAccountConsumed }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   const [monthly, setMonthly] = _s2St([]);
+  const [coverage, setCoverage] = _s2St([]);   // accounted-for months (missing-month net)
   const [pickedIdx, setPickedIdx] = _s2St(-1);
   const [browsingYear, setBrowsingYear] = _s2St(null);
   const [monthTx, setMonthTx] = _s2St([]);
@@ -29,6 +30,7 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
   _s2Ef(() => {
     Promise.all([fetchCategoriesFull("expense"), fetchCategoriesFull("income")])
       .then(([exp, inc]) => setCatsByFlow({ expense: exp, income: inc }));
+    fetchCoverage().then(setCoverage).catch(() => setCoverage([]));
     fetchMonthlyFull().then(data => {
       setMonthly(data);
       if (pickedRef.current) {
@@ -80,11 +82,17 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
   const now = new Date();
   // Import safety net: past months with zero data (likely forgotten statements)
   // + a nudge if the current month is still empty past the grace day.
-  const monthGaps = findMonthGaps(monthly, now);
-  const curMonthMissing = currentMonthMissing(monthly, now);
+  const monthGaps = findMonthGaps(monthly, now, coverage);
+  const curMonthMissing = currentMonthMissing(monthly, now, 5, coverage);
   // Keyed gaps so the month strip can flag a forgotten past month distinctly from
   // a future / pre-history empty slot (both were just faint before).
   const gapSet = new Set(monthGaps.map(g => `${g.year}-${g.month}`));
+  // Dismiss a gap the user knows had no activity → record manual coverage so it
+  // stops being flagged (durable, server-side). Refetch to drop it from the view.
+  const dismissGap = (g) =>
+    recordCoverage([{ year: g.year, month: g.month }], "manual")
+      .then(() => fetchCoverage().then(setCoverage))
+      .catch(() => {});
   const pickedMonthObj = monthly[pickedIdx] || null;
   const activeYear = browsingYear || (pickedMonthObj ? pickedMonthObj.year : now.getFullYear());
   const availableYears = [...new Set(monthly.map(m => m.year))].sort((a,b) => a - b);
@@ -274,26 +282,49 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
         )
       ),
 
-    // A2 — Aviso de meses sem dados (rede de segurança de importação). Some quando
-    // não há buraco; lista os meses passados vazios + cutuca se o mês atual está vazio.
+    // A2 — Rede de segurança de importação. Some quando não há buraco. Cada mês
+    // sem lançamentos vira um chip: ou você importa o extrato esquecido, ou marca
+    // "sem movimento" (grava cobertura manual e o chip some pra sempre).
     (monthGaps.length > 0 || curMonthMissing) && h("div", {
       style: {
-        display: "flex", alignItems: "flex-start", gap: 10, padding: "12px 16px",
+        display: "flex", flexDirection: "column", gap: 10, padding: "12px 16px",
         background: "color-mix(in oklch, var(--warn) 9%, transparent)",
         border: "1px solid color-mix(in oklch, var(--warn) 30%, transparent)",
         borderRadius: 8, fontSize: 13,
       }
     },
-      h("span", { style: { color: "var(--warn)", fontWeight: 700, lineHeight: 1.4 } }, "⚠"),
-      h("div", { style: { display: "flex", flexDirection: "column", gap: 4, lineHeight: 1.4 } },
-        monthGaps.length > 0 && h("div", { style: { color: "var(--fg-1)" } },
-          h("strong", { style: { color: "var(--warn)" } },
-            monthGaps.length === 1 ? "1 mês sem lançamentos" : `${monthGaps.length} meses sem lançamentos`),
-          ": ",
-          h("span", { style: { fontFamily: "var(--ff-mono)", fontWeight: 600 } }, fmtMonthGaps(monthGaps)),
-          h("span", { style: { color: "var(--fg-3)" } }, " — confira se esqueceu de importar.")),
-        curMonthMissing && h("div", { style: { color: "var(--fg-2)" } },
-          "Este mês ainda não tem nenhum lançamento — importe o extrato deste mês.")
+      h("div", { style: { display: "flex", alignItems: "baseline", gap: 8, lineHeight: 1.4 } },
+        h("span", { style: { color: "var(--warn)", fontWeight: 700 } }, "⚠"),
+        monthGaps.length > 0
+          ? h("span", { style: { color: "var(--fg-1)" } },
+              h("strong", { style: { color: "var(--warn)" } },
+                monthGaps.length === 1 ? "1 mês sem lançamentos." : `${monthGaps.length} meses sem lançamentos.`),
+              h("span", { style: { color: "var(--fg-3)" } },
+                " Importe o extrato que faltou — ou marque o mês que não teve movimento."))
+          : h("span", { style: { color: "var(--fg-2)" } },
+              "Este mês ainda não tem lançamentos — importe o extrato deste mês.")
+      ),
+      // Per-month chips, each with a "sem movimento" dismiss.
+      monthGaps.length > 0 && h("div", { style: { display: "flex", flexWrap: "wrap", gap: 8 } },
+        monthGaps.map(g => h("span", {
+          key: `${g.year}-${g.month}`,
+          style: {
+            display: "inline-flex", alignItems: "center", gap: 8, padding: "4px 6px 4px 10px",
+            borderRadius: 999, fontSize: 12, fontWeight: 600,
+            background: "var(--bg-1)", border: "1px solid color-mix(in oklch, var(--warn) 30%, transparent)",
+          }
+        },
+          h("span", { style: { fontFamily: "var(--ff-mono)", color: "var(--warn)" } },
+            `${PT_SHORT[g.month]}/${String(g.year).slice(2)}`),
+          h("button", {
+            onClick: () => dismissGap(g),
+            title: "Marcar como mês sem movimento — some do aviso",
+            style: {
+              cursor: "pointer", border: "none", borderRadius: 999, padding: "2px 8px",
+              fontSize: 11, fontWeight: 600, color: "var(--fg-2)", background: "var(--bg-2)",
+            }
+          }, "sem movimento")
+        ))
       )
     ),
 

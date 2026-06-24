@@ -87,6 +87,7 @@ transactions (id, date, flow, method, account_id, amount, description,
               -- import_batch_id: tag de sessão de import (1 por drop) → reversível via crud.delete_batch
 investments (id, name, type, bank, current_balance)
 investment_movements (id, date, investment_id, operation, amount, description)
+statement_coverage (id, year, month, origin, created_at)  -- UNIQUE(year,month); origin import|manual; rede de segurança
 budgets (id, category_id, amount_limit)
 ```
 
@@ -112,7 +113,7 @@ budgets (id, category_id, amount_limit)
 
 Escrita (validada no servidor): `POST /api/transactions` (despesa), `POST /api/incomes` (receita/transferência), `POST /api/investment-movements`, `PATCH /api/transactions/<id>` (category_id/display_name/is_third_party), `PATCH /api/budgets/<id>`, `DELETE /api/transactions/<id>`, `POST /api/transactions/restore`. Import: `POST /api/import/preview` (múltiplos `file` da mesma conta), `GET /api/import/staging/<batch_id>`, `PATCH /api/import/staging/<batch_id>/<row_id>` (edita preview → `amount_divergence`), `POST /api/import/confirm` (recebe/ecoa `import_batch_id`), `DELETE /api/import/batch/<id>` (reverte o lote).
 
-Leitura: `/api/available` (herói), `/api/summary`, `/api/accounts`, `/api/investments`, `/api/monthly` (`?present=1` = só meses com dados), `/api/categories`, `/api/transactions`, `/api/recent-activity`, `/api/patrimonio-history`, `/api/daily-spend` (mês zero-filled), `/api/month-transactions` (inclui `is_revenue`), `/api/budgets`, `/api/categories-full`, `/api/pix-top`, `/api/expenses-by-method`, `/api/events` (SSE).
+Leitura: `/api/available` (herói), `/api/summary`, `/api/accounts`, `/api/investments`, `/api/monthly` (`?present=1` = só meses com dados), `/api/categories`, `/api/transactions`, `/api/recent-activity`, `/api/patrimonio-history`, `/api/daily-spend` (mês zero-filled), `/api/month-transactions` (inclui `is_revenue`), `/api/budgets`, `/api/categories-full`, `/api/pix-top`, `/api/expenses-by-method`, `/api/statement-coverage` (GET/POST cobertura), `/api/events` (SSE).
 
 ---
 
@@ -121,7 +122,7 @@ Leitura: `/api/available` (herói), `/api/summary`, `/api/accounts`, `/api/inves
 Navegação: **Visão do Mês** (`OverviewView`), **Histórico** (`HistoryView`), **Investimentos** (`InvestmentsView`). Atalhos `1`/`2`/`3`. Categorias vive em Configurações.
 
 - **Dinheiro** (agora): herói **Disponível pra gastar** (`/api/available`); direita = ledger Patrimônio líquido. Sempre mês atual. Projeções advisory. Clicar conta → Histórico filtrado.
-- **Histórico** (análise): meses com dados (`/api/monthly?present=1`), 4 métricas (Δ vs média), fluxo 6m (`DualLine`), por categoria, Top PIX, tabela filtrável (flow · método · categoria · conta · busca) + categorização inline. **Rede de segurança de importação:** banner + flag no strip avisam meses passados sem lançamentos (extrato esquecido) e cutucam mês atual vazio após dia 5 — `primitives.js::findMonthGaps`/`currentMonthMissing`/`fmtMonthGaps` (puro, sobre a lista present); selo na Home reusa os mesmos helpers.
+- **Histórico** (análise): meses com dados (`/api/monthly?present=1`), 4 métricas (Δ vs média), fluxo 6m (`DualLine`), por categoria, Top PIX, tabela filtrável (flow · método · categoria · conta · busca) + categorização inline. **Rede de segurança de importação:** banner + flag no strip avisam meses passados sem lançamentos (extrato esquecido) e cutucam mês atual vazio após dia 5 — `primitives.js::findMonthGaps`/`currentMonthMissing`/`fmtMonthGaps` (sobre a lista present); selo na Home reusa os helpers. Buraco = sem dados **E não coberto**: `statement_coverage`/`/api/statement-coverage` marca meses cobertos por import (front deriva período do **nome do arquivo** via `coverageFromFilename` + datas das linhas, grava `origin=import` no confirm, incl. arquivo vazio) ou por dismiss manual ("sem movimento" → `origin=manual`). Idempotente, UNIQUE(year,month).
 - **Investimentos:** donut (`Donut`) + Σ `current_balance` + lista editável + "+ Movimento".
 
 ---

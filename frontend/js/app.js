@@ -11,6 +11,7 @@ const {
   OverviewView, HistoryView, InvestmentsView,
   CategoriesPanel,
   isSelf, isInvest,
+  coverageFromFilename, coverageFromISODates,
 } = window.BS;
 
 function _currentMonth() {
@@ -675,6 +676,19 @@ function ImportModal({ onClose, onDone }) {
       if (status.some(s => !s.ok)) {
         setResults(status);  // a per-account confirm failed → show status, stay open
       } else {
+        // Record statement coverage so the missing-month net knows these months
+        // are accounted for — even an empty one (filename declares the period;
+        // row dates are the supplement). Best-effort: never blocks the import.
+        const periods = (() => {
+          const seen = new Map();
+          const add = p => seen.set(`${p.year}-${p.month}`, p);
+          (files || []).filter(f => !f.b3 && f.file)
+            .forEach(f => coverageFromFilename(f.file.name).forEach(add));
+          (groups || [])
+            .forEach(g => coverageFromISODates(groupNew(g.account).map(r => r.date)).forEach(add));
+          return [...seen.values()];
+        })();
+        if (periods.length) { try { await recordCoverage(periods, "import"); } catch (e) { /* non-blocking */ } }
         onDone({ inserted: totalInserted, kind: "tx", importBatchId: sessionId,
                  b3: { created: b3Created, updated: b3Updated } });
       }

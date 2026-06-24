@@ -229,6 +229,44 @@ def count_batch(import_batch_id: str) -> int:
     return int(row[0] or 0)
 
 
+def record_coverage(
+    months: Iterable[tuple[int, int]], origin: str = "import",
+) -> int:
+    """Mark ``(year, month)`` pairs as accounted for (missing-month safety net).
+
+    ``origin`` is ``'import'`` (a confirmed statement covered the month, even when
+    it had zero transactions) or ``'manual'`` (the user dismissed a gap as a
+    no-activity month). Account-agnostic, idempotent: the UNIQUE(year, month)
+    constraint means re-recording a covered month is a silent no-op (an existing
+    'import' row is never downgraded by a later 'manual' dismiss). Returns the
+    number of newly inserted rows.
+    """
+    if origin not in ("import", "manual"):
+        raise ValueError(f"invalid coverage origin: {origin!r}")
+    now = datetime.now().isoformat(timespec="seconds")
+    added = 0
+    with _connect() as conn:
+        for year, month in months:
+            if not (1 <= int(month) <= 12):
+                raise ValueError(f"invalid coverage month: {month!r}")
+            cur = conn.execute(
+                "INSERT OR IGNORE INTO statement_coverage "
+                "(year, month, origin, created_at) VALUES (?, ?, ?, ?)",
+                (int(year), int(month), origin, now),
+            )
+            added += cur.rowcount
+    return added
+
+
+def get_coverage() -> list[sqlite3.Row]:
+    """Return every accounted-for month as rows of ``year, month, origin``."""
+    with _connect() as conn:
+        return conn.execute(
+            "SELECT year, month, origin FROM statement_coverage "
+            "ORDER BY year, month",
+        ).fetchall()
+
+
 def delete_batch(import_batch_id: str) -> dict:
     """Reverse a whole import in one transaction — every row that shares the tag.
 
