@@ -121,7 +121,7 @@ Leitura: `/api/available` (herói), `/api/summary`, `/api/accounts`, `/api/inves
 Navegação: **Visão do Mês** (`OverviewView`), **Histórico** (`HistoryView`), **Investimentos** (`InvestmentsView`). Atalhos `1`/`2`/`3`. Categorias vive em Configurações.
 
 - **Dinheiro** (agora): herói **Disponível pra gastar** (`/api/available`); direita = ledger Patrimônio líquido. Sempre mês atual. Projeções advisory. Clicar conta → Histórico filtrado.
-- **Histórico** (análise): meses com dados (`/api/monthly?present=1`), 4 métricas (Δ vs média), fluxo 6m (`DualLine`), por categoria, Top PIX, tabela filtrável (flow · método · categoria · conta · busca) + categorização inline.
+- **Histórico** (análise): meses com dados (`/api/monthly?present=1`), 4 métricas (Δ vs média), fluxo 6m (`DualLine`), por categoria, Top PIX, tabela filtrável (flow · método · categoria · conta · busca) + categorização inline. **Rede de segurança de importação:** banner + flag no strip avisam meses passados sem lançamentos (extrato esquecido) e cutucam mês atual vazio após dia 5 — `primitives.js::findMonthGaps`/`currentMonthMissing`/`fmtMonthGaps` (puro, sobre a lista present); selo na Home reusa os mesmos helpers.
 - **Investimentos:** donut (`Donut`) + Σ `current_balance` + lista editável + "+ Movimento".
 
 ---

@@ -2,10 +2,11 @@
 /* global React, fetchSummary, fetchAvailable, fetchAccounts,
           fetchMonthTransactions, fetchCashflowStatement, fetchInvestments,
           fetchPatrimonioHistory, fetchExpenseCategoriesFull, postCategory, deleteCategory,
-          fetchRecentTransactions, patchTransaction */
+          fetchRecentTransactions, patchTransaction, fetchMonthlyFull */
 
 const { useState: _ovSt, useEffect: _ovEf, useMemo: _ovMemo } = React;
-const { fmtBRL, fmtBRLCompact, fmtDateBR, BankChip, DualLine, Modal, PT_MONTHS, PT_SHORT, fmtCycleDate } = window.BS;
+const { fmtBRL, fmtBRLCompact, fmtDateBR, BankChip, DualLine, Modal, PT_MONTHS, PT_SHORT, fmtCycleDate,
+        findMonthGaps, currentMonthMissing, fmtMonthGaps } = window.BS;
 
 /* ── OverviewView — tela "Dinheiro" ──────────────────────────────────────────
    "Como estou agora": herói Disponível pra gastar (/api/available = contas).
@@ -24,6 +25,7 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
   const [investments, setInvestments] = _ovSt([]);
   const [patrimonioHistory, setPatrimonioHistory] = _ovSt([]);
   const [liquidityHistory, setLiquidityHistory] = _ovSt([]);
+  const [monthlyFull, setMonthlyFull] = _ovSt([]);   // present-only list → missing-month badge
 
   _ovEf(() => {
     const parts = filterMonth ? filterMonth.split("-").map(Number) : [];
@@ -37,13 +39,15 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
       fetchCashflowStatement((month && year) ? { month, year } : {}),
       fetchInvestments(),
       fetchPatrimonioHistory(),
-      fetchLiquidityHistory()
-    ]).then(([s, ac, a, cf, invs, ph, lh]) => {
+      fetchLiquidityHistory(),
+      fetchMonthlyFull()
+    ]).then(([s, ac, a, cf, invs, ph, lh, mf]) => {
       setSummary(s);
       setAccounts(ac); setActivity(a); setCashflow(cf);
       setInvestments(invs);
       setPatrimonioHistory(ph || []);
       setLiquidityHistory(lh || []);
+      setMonthlyFull(mf || []);
     }).catch(() => setLoadErr(true));
   }, [refreshKey, filterMonth, retryTick]);
 
@@ -69,6 +73,9 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
   const patrimonioLiquido = checkingTotal + totalReservas;
 
   const now = new Date();
+  // Import safety net — same source as the Histórico banner (see primitives.js).
+  const monthGaps = findMonthGaps(monthlyFull, now);
+  const curMonthMissing = currentMonthMissing(monthlyFull, now);
   const isCur = cashflow && cashflow.month === now.getMonth() + 1 && cashflow.year === now.getFullYear();
   const displayExpense = cashflow ? cashflow.expense_total : 0;
   const displayFree = cashflow 
@@ -250,6 +257,28 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
                 h("div", { className: "mono", style: { fontSize: 52, fontWeight: 700, letterSpacing: "-0.03em", lineHeight: 0.95, color: availNeg ? "var(--neg)" : "var(--pos)", cursor: "help", display: "inline-block" } },
                   (availNeg ? "−" : "") + fmtBRL(Math.abs(availValue)))
               ),
+
+        // Selo "meses sem dados" — rede de segurança de importação. Clica → Histórico
+        // (onde o banner detalha quais meses). Some quando não há buraco nem mês vazio.
+        (monthGaps.length > 0 || curMonthMissing) && h("button", {
+          onClick: () => onJumpToAccount && onJumpToAccount(null),
+          title: monthGaps.length > 0
+            ? `Sem lançamentos: ${fmtMonthGaps(monthGaps)} — ver no Histórico`
+            : "Importe o extrato deste mês — ver no Histórico",
+          style: {
+            display: "inline-flex", alignItems: "center", gap: 7, alignSelf: "flex-start",
+            padding: "5px 11px", borderRadius: 999, cursor: "pointer", fontSize: 12, fontWeight: 600,
+            color: "var(--warn)", textAlign: "left",
+            background: "color-mix(in oklch, var(--warn) 9%, transparent)",
+            border: "1px solid color-mix(in oklch, var(--warn) 30%, transparent)",
+          }
+        },
+          "⚠",
+          h("span", null, monthGaps.length > 0
+            ? (monthGaps.length === 1 ? "1 mês sem dados" : `${monthGaps.length} meses sem dados`)
+            : "Mês atual sem dados"),
+          h("span", { style: { color: "var(--fg-3)", fontWeight: 500 } }, "· ver Histórico")
+        ),
 
         // Split bar — proporção do caixa por banco (cores de banco = identidade visual)
         checkingTotal > 0 && sortedAccounts.length > 1 && h("div", { style: { display: "flex", gap: 3, height: 5 } },

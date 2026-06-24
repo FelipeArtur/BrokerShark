@@ -3,7 +3,8 @@
 
 const { useState: _s2St, useEffect: _s2Ef, useMemo: _s2Memo } = React;
 const { fmtBRL, fmtBRLCompact, fmtDateBR, BankChip, DualLine, PT_MONTHS, PT_SHORT, fmtCycleDate,
-        isSelf, isConsumptionExpense, isRevenue } = window.BS;
+        isSelf, isConsumptionExpense, isRevenue,
+        findMonthGaps, currentMonthMissing, fmtMonthGaps } = window.BS;
 
 /* ── HistoryView — Lupa do mês ───────────────────────────────────────────── */
 
@@ -77,6 +78,13 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
   }, [initialAccount]);
 
   const now = new Date();
+  // Import safety net: past months with zero data (likely forgotten statements)
+  // + a nudge if the current month is still empty past the grace day.
+  const monthGaps = findMonthGaps(monthly, now);
+  const curMonthMissing = currentMonthMissing(monthly, now);
+  // Keyed gaps so the month strip can flag a forgotten past month distinctly from
+  // a future / pre-history empty slot (both were just faint before).
+  const gapSet = new Set(monthGaps.map(g => `${g.year}-${g.month}`));
   const pickedMonthObj = monthly[pickedIdx] || null;
   const activeYear = browsingYear || (pickedMonthObj ? pickedMonthObj.year : now.getFullYear());
   const availableYears = [...new Set(monthly.map(m => m.year))].sort((a,b) => a - b);
@@ -223,9 +231,11 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
             const barH = d ? Math.max((d.expenses / maxH) * 100, 4) : 0;
             const isPicked = d && pickedMonthObj && d.year === pickedMonthObj.year && d.month === pickedMonthObj.month;
             const isCur2 = activeYear === now.getFullYear() && slot.month === (now.getMonth() + 1);
-            
+            // Forgotten past month vs a plain empty (future / pre-history) slot.
+            const isGap = !d && gapSet.has(`${activeYear}-${slot.month}`);
+
             return h("button", {
-              key: slot.month, 
+              key: slot.month,
               onClick: () => {
                 if (d) {
                   const idx = monthly.indexOf(d);
@@ -234,29 +244,58 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
                 }
               },
               disabled: !d,
-              title: d ? `${PT_MONTHS[slot.month]} ${activeYear}: ${fmtBRL(d.expenses)}` : `${PT_MONTHS[slot.month]} (sem dados)`,
+              title: d ? `${PT_MONTHS[slot.month]} ${activeYear}: ${fmtBRL(d.expenses)}`
+                : isGap ? `${PT_MONTHS[slot.month]} ${activeYear} — sem lançamentos (esqueceu de importar?)`
+                : `${PT_MONTHS[slot.month]} (sem dados)`,
               style: {
                 flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", gap: 6,
-                background: isPicked ? "color-mix(in oklch, var(--accent) 12%, transparent)" : "transparent",
+                background: isPicked ? "color-mix(in oklch, var(--accent) 12%, transparent)"
+                  : isGap ? "color-mix(in oklch, var(--warn) 8%, transparent)" : "transparent",
                 borderRadius: 6, padding: "8px 4px 6px 4px",
-                border: isPicked ? "1px solid color-mix(in oklch, var(--accent) 40%, transparent)" : "1px solid transparent",
+                border: isPicked ? "1px solid color-mix(in oklch, var(--accent) 40%, transparent)"
+                  : isGap ? "1px dashed color-mix(in oklch, var(--warn) 45%, transparent)" : "1px solid transparent",
                 cursor: d ? "pointer" : "default",
-                opacity: d ? 1 : 0.3,
+                opacity: d ? 1 : isGap ? 0.9 : 0.3,
                 transition: "all 0.1s"
               },
             },
-              h("div", { style: {
-                width: "100%", height: `${barH}%`, minHeight: 3,
-                background: isPicked ? "var(--accent)" : isCur2 ? "var(--fg-2)" : "var(--line-2)",
-                borderRadius: 3
-              } }),
-              h("span", { style: { fontSize: 10, color: isPicked ? "var(--accent)" : "var(--fg-3)", fontFamily: "var(--ff-mono)", textTransform: "uppercase", fontWeight: isPicked ? 700 : 500 } },
+              isGap
+                ? h("div", { style: { height: "100%", display: "flex", alignItems: "flex-end", justifyContent: "center", color: "var(--warn)", fontSize: 13, fontWeight: 700, lineHeight: 1 } }, "!")
+                : h("div", { style: {
+                    width: "100%", height: `${barH}%`, minHeight: 3,
+                    background: isPicked ? "var(--accent)" : isCur2 ? "var(--fg-2)" : "var(--line-2)",
+                    borderRadius: 3
+                  } }),
+              h("span", { style: { fontSize: 10, color: isPicked ? "var(--accent)" : isGap ? "var(--warn)" : "var(--fg-3)", fontFamily: "var(--ff-mono)", textTransform: "uppercase", fontWeight: isPicked || isGap ? 700 : 500 } },
                 PT_MONTHS[slot.month].substring(0,3)
               )
             );
           })
         )
       ),
+
+    // A2 — Aviso de meses sem dados (rede de segurança de importação). Some quando
+    // não há buraco; lista os meses passados vazios + cutuca se o mês atual está vazio.
+    (monthGaps.length > 0 || curMonthMissing) && h("div", {
+      style: {
+        display: "flex", alignItems: "flex-start", gap: 10, padding: "12px 16px",
+        background: "color-mix(in oklch, var(--warn) 9%, transparent)",
+        border: "1px solid color-mix(in oklch, var(--warn) 30%, transparent)",
+        borderRadius: 8, fontSize: 13,
+      }
+    },
+      h("span", { style: { color: "var(--warn)", fontWeight: 700, lineHeight: 1.4 } }, "⚠"),
+      h("div", { style: { display: "flex", flexDirection: "column", gap: 4, lineHeight: 1.4 } },
+        monthGaps.length > 0 && h("div", { style: { color: "var(--fg-1)" } },
+          h("strong", { style: { color: "var(--warn)" } },
+            monthGaps.length === 1 ? "1 mês sem lançamentos" : `${monthGaps.length} meses sem lançamentos`),
+          ": ",
+          h("span", { style: { fontFamily: "var(--ff-mono)", fontWeight: 600 } }, fmtMonthGaps(monthGaps)),
+          h("span", { style: { color: "var(--fg-3)" } }, " — confira se esqueceu de importar.")),
+        curMonthMissing && h("div", { style: { color: "var(--fg-2)" } },
+          "Este mês ainda não tem nenhum lançamento — importe o extrato deste mês.")
+      )
+    ),
 
     // B — faixa de métricas (Borderless hero numbers)
     (() => {

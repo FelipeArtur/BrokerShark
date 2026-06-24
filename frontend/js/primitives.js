@@ -490,6 +490,46 @@ const isConsumptionExpense = t => t?.flow === "expense" && t.method !== "transfe
 const isRevenue            = t => t?.flow === "income"  && t.is_revenue === 1 && !t.is_third_party;
 const isInvest             = t => !!t && !isSelf(t) && (t.method === "transfer" || (t.flow === "income" && !t.is_revenue));
 
+// ── Missing-month detection (import safety net) ───────────────────────────────
+// Surfaces statements you likely forgot to import. Input is the present-only,
+// ascending monthly list (/api/monthly?present=1) — each entry is a month that
+// HAS transactions. A gap = a month between the first recorded month and the
+// current month with no entry. The current month is NEVER a gap (it's in
+// progress); currentMonthMissing covers it separately. Pure + null-safe so both
+// the Histórico banner and the home badge share one source of truth.
+function findMonthGaps(monthly, now = new Date()) {
+  if (!monthly || !monthly.length) return [];
+  const curY = now.getFullYear(), curM = now.getMonth() + 1;
+  const have = new Set(monthly.map(m => `${m.year}-${m.month}`));
+  const gaps = [];
+  let { year, month } = monthly[0];                 // ascending → first recorded month
+  while (year < curY || (year === curY && month < curM)) {   // strictly before current
+    if (!have.has(`${year}-${month}`)) gaps.push({ year, month });
+    if (++month > 12) { month = 1; year++; }
+  }
+  return gaps;
+}
+
+// True when the current month still has zero transactions past an early grace
+// period (default day 5) — a nudge to import this month's statement. Before the
+// grace day an empty current month is normal, so it stays quiet (no false alarm).
+function currentMonthMissing(monthly, now = new Date(), graceDay = 5) {
+  if (now.getDate() <= graceDay) return false;
+  const curY = now.getFullYear(), curM = now.getMonth() + 1;
+  return !(monthly || []).some(m => m.year === curY && m.month === curM);
+}
+
+// "Fev · Mar/26" — short month labels; the year is appended once on the last item
+// for a single-year run, or per-item when the gaps straddle more than one year.
+function fmtMonthGaps(gaps) {
+  if (!gaps || !gaps.length) return "";
+  const multiYear = new Set(gaps.map(g => g.year)).size > 1;
+  const yy = g => String(g.year).slice(2);
+  if (multiYear) return gaps.map(g => `${PT_SHORT[g.month]}/${yy(g)}`).join(" · ");
+  return gaps.map((g, i) =>
+    i === gaps.length - 1 ? `${PT_SHORT[g.month]}/${yy(g)}` : PT_SHORT[g.month]).join(" · ");
+}
+
 window.BS = window.BS || {};
 Object.assign(window.BS, {
   fmtBRL, fmtBRLCompact, fmtDateBR, prettifyDesc,
@@ -498,6 +538,7 @@ Object.assign(window.BS, {
   Modal, Drawer, useToasts, BankChip, SegmentControl,
   BrokerSharkLogo, TxRow,
   isSelf, isConsumptionExpense, isRevenue, isInvest,
+  findMonthGaps, currentMonthMissing, fmtMonthGaps,
 });
 
 /* ── SingleAreaChart ───────────────────────────────────────────────────────────── */
