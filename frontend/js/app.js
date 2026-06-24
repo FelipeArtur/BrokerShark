@@ -198,7 +198,7 @@ function CategoryEditor({ tx, onClose, onSave }) {
         
         // Amount & Display Name
         h("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
-          h("span", { className: "num", style: { fontSize: 44, fontWeight: 800, letterSpacing: "-0.04em", color: amtColor, lineHeight: 1 } },
+          h("span", { className: "mono", style: { fontSize: 44, fontWeight: 700, letterSpacing: "-0.03em", color: amtColor, lineHeight: 1 } },
             sign + fmtBRL(tx.amount)
           ),
           h("div", { style: { fontSize: 20, fontWeight: 700, color: "var(--fg-0)", wordBreak: "break-word", lineHeight: 1.2 } },
@@ -389,7 +389,7 @@ function SearchModal({ onClose, onSelect }) {
               ),
               h("div", { style: { fontSize: 12, color: "var(--fg-2)", fontFamily: "var(--ff-mono)" } }, fmtDateBR(t.date)),
               h("div", { style: { textAlign: "right" } },
-                h("span", { className: "num", style: { color: COLOR[t.flow] || "var(--fg-1)", fontSize: 14, fontWeight: 700, letterSpacing: "-0.02em" } },
+                h("span", { className: "mono", style: { color: COLOR[t.flow] || "var(--fg-1)", fontSize: 14, fontWeight: 700, letterSpacing: "-0.02em" } },
                   LABEL[t.flow] || "", fmtBRL(t.amount))
               )
             )
@@ -844,7 +844,7 @@ function ConfirmDeleteModal({ tx, onCancel, onConfirm }) {
       h("div", { style: { background: "var(--bg-2)", border: "1px solid var(--line-1)", borderRadius: 6, padding: "10px 12px", marginBottom: 12 } },
         h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 } },
           h("span", { style: { fontSize: 13, color: "var(--fg-0)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, desc),
-          h("span", { className: "num", style: { fontSize: 14, fontWeight: 700, color: tx.flow === "expense" ? "var(--neg)" : "var(--pos)", flexShrink: 0 } },
+          h("span", { className: "mono", style: { fontSize: 14, fontWeight: 700, color: tx.flow === "expense" ? "var(--neg)" : "var(--pos)", flexShrink: 0 } },
             (tx.flow === "expense" ? "−" : "+") + fmtBRL(tx.amount))
         ),
         h("div", { style: { fontSize: 11, color: "var(--fg-3)", marginTop: 2 } }, fmtDateBR(tx.date))

@@ -186,9 +186,9 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
               setBrowsingYear(null);
             },
             className: "btn btn-ghost btn-sm",
-            style: { fontSize: 12, fontWeight: 700, color: "var(--info)", padding: "4px 12px", borderRadius: 999, border: "1px solid color-mix(in oklch, var(--info) 30%, transparent)", background: "color-mix(in oklch, var(--info) 10%, transparent)", marginRight: 8, transition: "all 0.1s" },
-            onMouseEnter: e => e.currentTarget.style.background = "color-mix(in oklch, var(--info) 15%, transparent)",
-            onMouseLeave: e => e.currentTarget.style.background = "color-mix(in oklch, var(--info) 10%, transparent)"
+            style: { fontSize: 12, fontWeight: 700, color: "var(--accent)", padding: "4px 12px", borderRadius: 999, border: "1px solid color-mix(in oklch, var(--accent) 30%, transparent)", background: "color-mix(in oklch, var(--accent) 10%, transparent)", marginRight: 8, transition: "all 0.1s" },
+            onMouseEnter: e => e.currentTarget.style.background = "color-mix(in oklch, var(--accent) 15%, transparent)",
+            onMouseLeave: e => e.currentTarget.style.background = "color-mix(in oklch, var(--accent) 10%, transparent)"
           }, "Hoje"),
           h("button", { onClick: () => { setPickedIdx(Math.max(0, pickedIdx - 1)); setBrowsingYear(null); }, className: "btn btn-ghost", disabled: pickedIdx === 0, style: { padding: "0 8px", fontSize: 18 } }, "‹"),
           h("div", { style: { fontSize: 16, fontWeight: 700, color: "var(--fg-0)", minWidth: 160, textAlign: "center", display: "flex", alignItems: "center", justifyContent: "center", gap: 12 } },
@@ -210,7 +210,7 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
                 background: "none", border: "none", cursor: "pointer", padding: "0 0 6px 0",
                 fontSize: 13, fontWeight: activeYear === y ? 700 : 500,
                 color: activeYear === y ? "var(--fg-1)" : "var(--fg-3)",
-                borderBottom: activeYear === y ? "2px solid var(--info)" : "2px solid transparent",
+                borderBottom: activeYear === y ? "2px solid var(--accent)" : "2px solid transparent",
                 transition: "all 0.1s"
               }
             }, y)
@@ -237,9 +237,9 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
               title: d ? `${PT_MONTHS[slot.month]} ${activeYear}: ${fmtBRL(d.expenses)}` : `${PT_MONTHS[slot.month]} (sem dados)`,
               style: {
                 flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", gap: 6,
-                background: isPicked ? "color-mix(in oklch, var(--info) 10%, transparent)" : "transparent",
+                background: isPicked ? "color-mix(in oklch, var(--accent) 12%, transparent)" : "transparent",
                 borderRadius: 6, padding: "8px 4px 6px 4px",
-                border: isPicked ? "1px solid color-mix(in oklch, var(--info) 40%, transparent)" : "1px solid transparent",
+                border: isPicked ? "1px solid color-mix(in oklch, var(--accent) 40%, transparent)" : "1px solid transparent",
                 cursor: d ? "pointer" : "default",
                 opacity: d ? 1 : 0.3,
                 transition: "all 0.1s"
@@ -247,10 +247,10 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
             },
               h("div", { style: {
                 width: "100%", height: `${barH}%`, minHeight: 3,
-                background: isPicked ? "var(--info)" : isCur2 ? "var(--fg-2)" : "var(--line-2)",
+                background: isPicked ? "var(--accent)" : isCur2 ? "var(--fg-2)" : "var(--line-2)",
                 borderRadius: 3
               } }),
-              h("span", { style: { fontSize: 10, color: isPicked ? "var(--info)" : "var(--fg-3)", fontFamily: "var(--ff-mono)", textTransform: "uppercase", fontWeight: isPicked ? 700 : 500 } },
+              h("span", { style: { fontSize: 10, color: isPicked ? "var(--accent)" : "var(--fg-3)", fontFamily: "var(--ff-mono)", textTransform: "uppercase", fontWeight: isPicked ? 700 : 500 } },
                 PT_MONTHS[slot.month].substring(0,3)
               )
             );
@@ -271,7 +271,7 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
         cards.map((s, i) =>
           h("div", { key: i, style: { flex: 1, minWidth: 140 } },
             h("div", { style: { fontSize: 11, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700, marginBottom: 8 } }, s.l),
-            h("div", { className: "num", style: { fontSize: 20, fontWeight: 800, color: s.c, letterSpacing: "-0.02em", lineHeight: 1 } }, s.v)
+            h("div", { className: "mono", style: { fontSize: 20, fontWeight: 700, color: s.c, letterSpacing: "-0.02em", lineHeight: 1 } }, s.v)
           )
         )
       );
@@ -281,7 +281,7 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
     h("div", { style: { display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 24, marginTop: 16, marginBottom: 32 } },
 
       // Fluxo de caixa (Bar Chart)
-      h("div", { style: { background: "var(--bg-1)", border: "1px solid var(--line-1)", borderRadius: 12, padding: 24, display: "flex", flexDirection: "column" } },
+      h("div", { className: "panel", style: { padding: 24, display: "flex", flexDirection: "column" } },
         h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 24 } },
           h("div", { style: { fontSize: 12, fontWeight: 700, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em" } }, "Fluxo de Caixa"),
           h("span", { style: { fontSize: 11, color: "var(--fg-3)", fontFamily: "var(--ff-mono)" } }, "6 meses")
@@ -292,7 +292,7 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
       ),
 
       // Composição de Despesas (Waterfall / Progress Bars)
-      h("div", { style: { display: "flex", flexDirection: "column", minWidth: 0, background: "var(--bg-1)", border: "1px solid var(--line-1)", borderRadius: 12, padding: 24 } },
+      h("div", { className: "panel", style: { display: "flex", flexDirection: "column", minWidth: 0, padding: 24 } },
         h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 24 } },
           h("div", { style: { fontSize: 12, fontWeight: 700, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em" } }, "Despesas"),
           h("span", { style: { fontSize: 11, color: "var(--fg-3)", fontFamily: "var(--ff-mono)" } }, `${byCat.length} categorias`)
@@ -317,12 +317,12 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
                 h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline" } },
                   h("span", { style: { fontSize: 13, fontWeight: 600, color: "var(--fg-0)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, c.name || c.label),
                   h("div", { style: { display: "flex", gap: 12, alignItems: "baseline" } },
-                    h("span", { className: "num", style: { fontSize: 11, color: "var(--fg-3)", fontWeight: 500 } }, globalPct.toFixed(1), "%"),
-                    h("span", { className: "num", style: { fontSize: 14, fontWeight: 700, color: "var(--fg-1)" } }, fmtBRL(c.total))
+                    h("span", { className: "mono", style: { fontSize: 11, color: "var(--fg-3)", fontWeight: 500 } }, globalPct.toFixed(1), "%"),
+                    h("span", { className: "mono", style: { fontSize: 14, fontWeight: 700, color: "var(--fg-1)" } }, fmtBRL(c.total))
                   )
                 ),
                 h("div", { style: { width: "100%", height: 6, background: "var(--bg-2)", borderRadius: 3, overflow: "hidden" } },
-                  h("div", { style: { width: `${globalPct}%`, height: "100%", background: c.isOther ? "var(--line-2)" : (i === 0 ? "var(--info)" : "var(--fg-2)"), borderRadius: 3 } })
+                  h("div", { style: { width: `${globalPct}%`, height: "100%", background: c.isOther ? "var(--line-2)" : (i === 0 ? "var(--accent)" : "var(--fg-2)"), borderRadius: 3 } })
                 )
               );
             });
@@ -341,16 +341,16 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
           h("div", { style: { display: "flex", gap: 32, alignItems: "center" } },
             h("div", { style: { display: "flex", flexDirection: "column", minWidth: 90, textAlign: "right" } },
               h("span", { style: { fontSize: 11, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700, marginBottom: 4 } }, "Receitas"),
-              h("span", { className: "num", style: { fontSize: 16, fontWeight: 700, color: "var(--pos)" } }, `+${fmtBRL(filtInc)}`)
+              h("span", { className: "mono", style: { fontSize: 16, fontWeight: 700, color: "var(--pos)" } }, `+${fmtBRL(filtInc)}`)
             ),
             h("div", { style: { display: "flex", flexDirection: "column", minWidth: 90, textAlign: "right" } },
               h("span", { style: { fontSize: 11, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700, marginBottom: 4 } }, "Despesas"),
-              h("span", { className: "num", style: { fontSize: 16, fontWeight: 700, color: "var(--neg)" } }, `−${fmtBRL(filtExp)}`)
+              h("span", { className: "mono", style: { fontSize: 16, fontWeight: 700, color: "var(--neg)" } }, `−${fmtBRL(filtExp)}`)
             ),
             h("div", { style: { width: 1, height: 28, background: "var(--line-1)" } }),
             h("div", { style: { display: "flex", flexDirection: "column", minWidth: 110, textAlign: "right" } },
               h("span", { style: { fontSize: 11, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700, marginBottom: 4 } }, "Saldo Listado"),
-              h("span", { className: "num", style: { fontSize: 18, fontWeight: 800, color: (filtInc - filtExp) >= 0 ? "var(--pos)" : "var(--neg)" } },
+              h("span", { className: "mono", style: { fontSize: 18, fontWeight: 800, color: (filtInc - filtExp) >= 0 ? "var(--pos)" : "var(--neg)" } },
                 (filtInc - filtExp) >= 0 ? "+" : "−", fmtBRL(Math.abs(filtInc - filtExp))
               )
             )

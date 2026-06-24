@@ -57,6 +57,10 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
 
   // Checking accounts only, for the "Contas correntes" card.
   const checkingAccounts = accounts.filter(a => a.type === "checking");
+  const bankColorOf = a => (a.bank === "nubank" || (a.id || "").startsWith("nu")) ? "var(--nubank)" : "var(--inter)";
+  // Nubank first, then Inter — stable order for the split bar + ledger.
+  const sortedAccounts = [...checkingAccounts].sort(
+    (a, b) => ((a.id || "").startsWith("nu") ? 1 : 2) - ((b.id || "").startsWith("nu") ? 1 : 2));
 
   const totalReservas   = investments.reduce((s, inv) => s + (inv.balance || 0), 0);
   // Use the same checking number as the hero (investment-adjusted) for consistency.
@@ -83,18 +87,21 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
   const deltaPatrimonio = _seriesDelta(patrimonioHistory);
   const deltaLiquidez = _seriesDelta(liquidityHistory);
 
-  function Sparkline({ data, width = 120, height = 40, color = "var(--reserve)" }) {
+  function Sparkline({ data, width = 120, height = 40, color = "var(--accent)", fill = "var(--accent-bg)" }) {
     if (!data || data.length < 2) return null;
     const min = Math.min(...data);
     const max = Math.max(...data);
     const range = max - min || 1;
-    const points = data.map((v, i) => {
+    const coords = data.map((v, i) => {
       const x = (i / (data.length - 1)) * width;
-      const y = height - ((v - min) / range) * height;
-      return `${x},${y}`;
-    }).join(" ");
-    return h("svg", { width, height, viewBox: `0 0 ${width} ${height}`, style: { overflow: "visible" } },
-      h("polyline", { fill: "none", stroke: color, strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", points })
+      const y = height - ((v - min) / range) * (height - 4) - 2;  // 2px breathing room top/bottom
+      return [x, y];
+    });
+    const points = coords.map(([x, y]) => `${x},${y}`).join(" ");
+    const area = `${coords[0][0]},${height} ${points} ${coords[coords.length - 1][0]},${height}`;
+    return h("svg", { width, height, viewBox: `0 0 ${width} ${height}`, style: { overflow: "visible", display: "block" } },
+      fill && h("polygon", { points: area, fill, stroke: "none" }),
+      h("polyline", { fill: "none", stroke: color, strokeWidth: 2.5, strokeLinecap: "round", strokeLinejoin: "round", points })
     );
   }
 
@@ -103,10 +110,10 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
   function TrendLine({ history, delta, color, width = 132 }) {
     if (!history || history.length < 2) return null;
     const up = (delta || 0) >= 0;
-    return h("div", { style: { display: "flex", alignItems: "center", gap: 14, marginTop: 14 } },
-      h(Sparkline, { data: history.map(p => p.value), width, height: 34, color: color || "var(--info)" }),
+    return h("div", { style: { display: "flex", alignItems: "center", gap: 16 } },
+      h(Sparkline, { data: history.map(p => p.value), width, height: 44, color: color || "var(--accent)" }),
       delta !== null && h("div", { style: { display: "flex", flexDirection: "column", lineHeight: 1.25 } },
-        h("span", { className: "num", style: { fontSize: 13, fontWeight: 700, color: up ? "var(--pos)" : "var(--neg)" } },
+        h("span", { className: "mono", style: { fontSize: 13, fontWeight: 700, color: up ? "var(--pos)" : "var(--neg)" } },
           (up ? "+" : "−") + fmtBRL(Math.abs(delta))),
         h("span", { style: { fontSize: 10, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.04em", fontWeight: 600 } }, "vs mês passado")
       )
@@ -214,61 +221,82 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
     );
   }
 
-  return h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 20, flex: 1, height: "100%" } },
+  // mono number used across the balanço grid — single source of the style.
+  const balNum = (value, color, extra = {}) => h("div", {
+    className: "mono",
+    style: { fontSize: 22, fontWeight: 700, color, letterSpacing: "-0.02em", lineHeight: 1, ...extra }
+  }, value);
+
+  return h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 16 } },
 
     // ── 1. THE MONTH AT A GLANCE (Hero Panel) ──
-    h("div", { className: "panel", style: { display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 24, padding: 32 } },
+    // Left = the answer ("quanto posso gastar") + where the cash sits, one block.
+    // Right = the month's flow. A 1px rule separates the two, no decorative gap.
+    h("div", { className: "panel", style: { display: "grid", gridTemplateColumns: "1.25fr 1fr", alignItems: "stretch" } },
 
-      // Left: Disponível
-      h("div", { style: { display: "flex", flexDirection: "column", justifyContent: "center" } },
-        h("div", { style: { fontSize: 13, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700, marginBottom: 16 } }, "Disponível pra gastar"),
+      // Left: Disponível pra gastar + caixa por conta
+      h("div", { style: { display: "flex", flexDirection: "column", gap: 16, padding: 28 } },
+        h("div", { className: "eyebrow", style: { fontSize: 12 } }, "Disponível pra gastar"),
         availErr
           ? h("div", { style: { color: "var(--neg)", background: "color-mix(in oklch, var(--neg) 10%, transparent)", padding: "12px 16px", borderRadius: 8, border: "1px dashed color-mix(in oklch, var(--neg) 30%, transparent)", fontSize: 13, fontWeight: 600 } }, "Falha ao carregar liquidez")
           : !available
             ? h("div", { style: { height: 56, width: 240, borderRadius: 8, background: "var(--bg-2)", opacity: 0.5 } })
-            : h("div", null,
-                h(BreakdownPopover, {
-                  position: "bottom",
-                  totalLabel: "Disponível",
-                  totalValue: availValue,
-                  items: [
-                    { label: "Saldo nas Contas", value: available.checking_total }
-                  ]
-                },
-                  h("div", { className: "num", style: { fontSize: 32, fontWeight: 800, letterSpacing: "-0.04em", lineHeight: 1, color: availNeg ? "var(--neg)" : "var(--pos)", marginBottom: 12, cursor: "help", display: "inline-block" } },
-                    (availNeg ? "−" : "") + fmtBRL(Math.abs(availValue))
-                  )
-                ),
-                // Omitted TrendLine to adhere to "Tool, not Product" guidelines.
-              )
+            : h(BreakdownPopover, {
+                position: "bottom",
+                totalLabel: "Disponível",
+                totalValue: availValue,
+                items: [{ label: "Saldo nas Contas", value: available.checking_total }]
+              },
+                h("div", { className: "mono", style: { fontSize: 52, fontWeight: 700, letterSpacing: "-0.03em", lineHeight: 0.95, color: availNeg ? "var(--neg)" : "var(--pos)", cursor: "help", display: "inline-block" } },
+                  (availNeg ? "−" : "") + fmtBRL(Math.abs(availValue)))
+              ),
+
+        // Split bar — proporção do caixa por banco (cores de banco = identidade visual)
+        checkingTotal > 0 && sortedAccounts.length > 1 && h("div", { style: { display: "flex", gap: 3, height: 5 } },
+          sortedAccounts.map(a => {
+            const pct = ((a.balance || 0) / checkingTotal) * 100;
+            return pct > 0.5 && h("div", { key: a.id, title: `${a.name}: ${pct.toFixed(0)}%`, style: { width: pct + "%", background: bankColorOf(a), borderRadius: 2, opacity: 0.85 } });
+          })
+        ),
+
+        // Ledger de contas — clicável → Histórico filtrado pela conta
+        checkingAccounts.length > 0 && h("div", { style: { display: "flex", flexDirection: "column", marginTop: 2 } },
+          sortedAccounts.map((a, i, arr) => h("button", {
+            key: a.id, className: "row-hover",
+            onClick: () => onJumpToAccount && onJumpToAccount(a.id),
+            title: "Ver no Histórico",
+            style: { display: "flex", justifyContent: "space-between", alignItems: "center", height: 42, padding: "0 10px", margin: "0 -10px", background: "transparent", border: "none", borderBottom: i < arr.length - 1 ? "1px dashed var(--line-1)" : "none", cursor: "pointer", textAlign: "left", borderRadius: 6 }
+          },
+            h("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
+              h("div", { style: { width: 8, height: 8, borderRadius: "50%", background: bankColorOf(a) } }),
+              h("span", { style: { fontSize: 13, fontWeight: 600, color: "var(--fg-1)" } }, a.name)),
+            h("span", { className: "mono", title: checkingTotal > 0 ? `${(((a.balance || 0) / checkingTotal) * 100).toFixed(0)}% do caixa` : "", style: { fontSize: 14, fontWeight: 600, color: (a.balance || 0) < 0 ? "var(--neg)" : "var(--fg-0)" } }, fmtBRL(a.balance || 0))
+          ))
+        )
       ),
 
-      // Right: Balanço do Mês
-      cashflow && h("div", { style: { display: "flex", flexDirection: "column" } },
-        h("div", { style: { fontSize: 13, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700, marginBottom: 16 } }, "Balanço deste mês"),
-        h("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, flex: 1, alignContent: "center" } },
+      // Right: Balanço do Mês — separated by a 1px rule
+      cashflow && h("div", { style: { display: "flex", flexDirection: "column", gap: 20, padding: 28, borderLeft: "1px solid var(--line-1)" } },
+        h("div", { className: "eyebrow", style: { fontSize: 12 } }, "Balanço deste mês"),
+        h("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px 20px" } },
           h("div", null,
-            h("div", { style: { fontSize: 11, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700, marginBottom: 8 } }, "Receitas"),
-            h("div", { className: "num", style: { fontSize: 24, fontWeight: 800, color: "var(--pos)", letterSpacing: "-0.02em", lineHeight: 1 } }, "+" + fmtBRL(cashflow.income_total))
+            h("div", { className: "eyebrow", style: { marginBottom: 8 } }, "Receitas"),
+            balNum("+" + fmtBRL(cashflow.income_total), "var(--pos)")
           ),
           h("div", null,
-            h("div", { style: { fontSize: 11, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700, marginBottom: 8 } }, "Despesas"),
+            h("div", { className: "eyebrow", style: { marginBottom: 8 } }, "Despesas"),
             h(BreakdownPopover, {
-              items: [
-                { label: "Gastos em Conta (Débito/PIX/TED)", value: cashflow.expense_total, negative: true }
-              ],
+              items: [{ label: "Gastos em Conta (Débito/PIX/TED)", value: cashflow.expense_total, negative: true }],
               totalLabel: "Total Despesas",
               totalValue: -displayExpense
-            },
-              h("div", { className: "num", style: { fontSize: 24, fontWeight: 800, color: "var(--neg)", letterSpacing: "-0.02em", lineHeight: 1, cursor: "help", display: "inline-block" } }, "−" + fmtBRL(displayExpense))
-            )
+            }, balNum("−" + fmtBRL(displayExpense), "var(--neg)", { cursor: "help", display: "inline-block" }))
           ),
           h("div", null,
-            h("div", { style: { fontSize: 11, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700, marginBottom: 8 } }, "Investimentos"),
-            h("div", { className: "num", style: { fontSize: 24, fontWeight: 800, color: cashflow.investment_net === 0 ? "var(--fg-3)" : (cashflow.investment_net > 0 ? "var(--reserve)" : "var(--info)"), letterSpacing: "-0.02em", lineHeight: 1 } }, fmtBRL(Math.abs(cashflow.investment_net)))
+            h("div", { className: "eyebrow", style: { marginBottom: 8 } }, "Investimentos"),
+            balNum(fmtBRL(Math.abs(cashflow.investment_net)), cashflow.investment_net === 0 ? "var(--fg-3)" : (cashflow.investment_net > 0 ? "var(--reserve)" : "var(--info)"))
           ),
           h("div", null,
-            h("div", { style: { fontSize: 11, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700, marginBottom: 8 } }, "Saldo livre"),
+            h("div", { className: "eyebrow", style: { marginBottom: 8 } }, "Saldo livre"),
             h(BreakdownPopover, {
               items: [
                 { label: "Receitas", value: cashflow.income_total },
@@ -277,9 +305,7 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
               ],
               totalLabel: "Saldo Livre",
               totalValue: displayFree
-            },
-              h("div", { className: "num", style: { fontSize: 24, fontWeight: 800, color: displayFree >= 0 ? "var(--pos)" : (cashflow.income_total === 0 ? "var(--warn)" : "var(--neg)"), letterSpacing: "-0.02em", lineHeight: 1, cursor: "help", display: "inline-block" } }, (displayFree >= 0 ? "+" : "−") + fmtBRL(Math.abs(displayFree)))
-            )
+            }, balNum((displayFree >= 0 ? "+" : "−") + fmtBRL(Math.abs(displayFree)), displayFree >= 0 ? "var(--pos)" : (cashflow.income_total === 0 ? "var(--warn)" : "var(--neg)"), { cursor: "help", display: "inline-block" }))
           )
         )
       )
@@ -302,47 +328,36 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
           totalLabel: "Patrimônio",
           totalValue: patrimonioLiquido
         },
-          h("div", { className: "num", style: { fontSize: 24, fontWeight: 800, color: patrimonioLiquido < 0 ? "var(--neg)" : "var(--fg-0)", cursor: "help", display: "inline-block", letterSpacing: "-0.02em", lineHeight: 1 } },
+          h("div", { className: "mono", style: { fontSize: 28, fontWeight: 700, color: patrimonioLiquido < 0 ? "var(--neg)" : "var(--fg-0)", cursor: "help", display: "inline-block", letterSpacing: "-0.025em", lineHeight: 1 } },
              (patrimonioLiquido < 0 ? "−" : "") + fmtBRL(Math.abs(patrimonioLiquido))
           )
         )
       ),
-      h(TrendLine, { history: patrimonioHistory, delta: deltaPatrimonio, color: "var(--reserve)", width: 160 })
+      h(TrendLine, { history: patrimonioHistory, delta: deltaPatrimonio, color: "var(--accent)", width: 180 })
     ),
 
-    // ── 3. POSIÇÃO DE CAIXA ──
-    h("div", { className: "panel", style: { padding: 24, display: "flex", flexDirection: "column", minHeight: 0 } },
-      h("div", { style: { display: "flex", alignItems: "center", gap: 16, marginBottom: 20 } },
-        h("div", { style: { fontSize: 13, fontWeight: 700, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em" } }, "Posição Atual (Disponível)"),
-        h("div", { style: { height: 1, flex: 1, background: "var(--line-1)" } })
+    // ── 3. ATIVIDADE DO MÊS ──
+    // The home's "o que aconteceu" peek. Uses month-transactions (carries
+    // counterpart + is_revenue), so TxRow tags SELF / investimento correctly —
+    // recent-activity omits those fields and would mislabel transfers.
+    h("div", { className: "panel", style: { display: "flex", flexDirection: "column", overflow: "hidden" } },
+      h("div", { style: { display: "flex", alignItems: "center", gap: 12, padding: "16px 24px", borderBottom: "1px solid var(--line-1)" } },
+        h("div", { className: "eyebrow", style: { fontSize: 12 } }, "Atividade do mês"),
+        h("div", { style: { flex: 1 } }),
+        h("span", { className: "mono", style: { fontSize: 11, color: "var(--fg-3)" } },
+          `${activity.length} ${activity.length === 1 ? "lançamento" : "lançamentos"}`)
       ),
-      h("div", { style: { display: "flex", flexDirection: "column", minHeight: 0 } },
-        h("div", { className: "custom-scrollbar", style: { display: "flex", flexDirection: "column", overflowY: "auto", flex: 1, paddingRight: 8, marginRight: -8 } },
-          checkingAccounts.length === 0
-            ? h("div", { style: { padding: "16px 0", color: "var(--fg-3)", fontSize: 13 } }, "Nenhuma conta corrente.")
-            : [...checkingAccounts].sort((a,b) => ((a.id||"").startsWith("nu") ? 1 : 2) - ((b.id||"").startsWith("nu") ? 1 : 2)).map((a, i, arr) => {
-                const bankColor = (a.bank === "nubank" || (a.id||"").startsWith("nu")) ? "var(--nubank)" : "var(--inter)";
-                const pct = checkingTotal > 0 ? ((a.balance || 0) / checkingTotal) * 100 : 0;
-
-                return h("button", {
-                  key: a.id, className: "row-hover",
-                  onClick: () => onJumpToAccount && onJumpToAccount(a.id),
-                  style: {
-                    display: "flex", justifyContent: "space-between", alignItems: "center",
-                    height: 60, padding: "0 16px", background: "transparent", border: "none",
-                    borderBottom: i < arr.length - 1 ? "1px dashed var(--line-1)" : "none",
-                    cursor: "pointer", textAlign: "left", borderRadius: 8
-                  },
-                },
-                  h("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
-                    h("div", { style: { width: 8, height: 8, borderRadius: "50%", background: bankColor } }),
-                    h("span", { style: { fontSize: 13, fontWeight: 600, color: "var(--fg-1)" } }, a.name)
-                  ),
-                  h("span", { className: "num", title: `${pct.toFixed(1)}% do caixa`, style: { fontSize: 15, fontWeight: 700, color: (a.balance || 0) < 0 ? "var(--neg)" : "var(--fg-0)", minWidth: 90, textAlign: "right" } }, fmtBRL(a.balance || 0))
-                );
-              })
-        )
-      )
+      activity.length === 0
+        ? h("div", { style: { padding: "32px 24px", textAlign: "center", color: "var(--fg-3)", fontSize: 13 } }, "Nenhum lançamento neste mês.")
+        : h("div", { style: { maxHeight: 460, overflowY: "auto" } },
+            h("table", { className: "grid-table" },
+              h("tbody", null,
+                [...activity]
+                  .sort((a, b) => (b.date || "").localeCompare(a.date || "") || (b.id - a.id))
+                  .map(t => h(window.BS.TxRow, { key: t.id, t, cols: ["date", "desc", "cat", "account", "amount"], onEditCategory }))
+              )
+            )
+          )
     )
   );
 }

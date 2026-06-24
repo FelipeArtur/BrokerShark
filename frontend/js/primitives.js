@@ -417,7 +417,7 @@ function BrokerSharkLogo({ size = 28 }) {
     }),
     React.createElement("span", { style: { fontWeight: 700, fontSize: 14, letterSpacing: "-0.015em", color: "var(--fg-0)" } },
       "Broker",
-      React.createElement("span", { style: { color: "var(--info)" } }, "Shark")
+      React.createElement("span", { style: { color: "var(--accent)" } }, "Shark")
     )
   );
 }

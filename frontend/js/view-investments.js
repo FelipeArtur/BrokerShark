@@ -12,11 +12,16 @@ const _INV_TYPE_LABEL = {
   lca:      "LCA / Renda fixa",
 };
 
-// Restrained cool ramp (blue → indigo → violet → teal), keyed to the brand's
-// cold-blue palette. Avoids the warm yellow/red rainbow that read "friendly".
+// Curated cold palette, led by the brand cyan (hue 200) and well-separated by
+// hue + lightness so adjacent segments stay legible. All cold (teal → cyan →
+// blue → indigo → violet); never the warm rainbow that reads "friendly".
 const _INV_COLORS = [
-  "oklch(72% 0.12 250)", "oklch(70% 0.13 290)", "oklch(74% 0.11 220)",
-  "oklch(68% 0.10 200)", "oklch(72% 0.12 312)", "oklch(66% 0.09 262)",
+  "oklch(78% 0.13 200)",  // cyan — brand accent
+  "oklch(67% 0.17 305)",  // violet
+  "oklch(74% 0.13 172)",  // teal-green
+  "oklch(63% 0.16 270)",  // indigo
+  "oklch(72% 0.14 240)",  // blue
+  "oklch(58% 0.13 255)",  // deep slate-blue
 ];
 
 /* Parse a BRL amount the way the backend parse_money does — so "1.000,50"
@@ -53,7 +58,7 @@ function AssetDetailsModal({ asset, onClose }) {
         ),
         h("div", { style: { textAlign: "right" } },
           h("div", { style: { fontSize: 12, fontWeight: 700, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 } }, "Saldo Atual"),
-          h("div", { className: "num", style: { fontSize: 24, fontWeight: 800, color: "var(--fg-1)" } }, window.BS.fmtBRL ? window.BS.fmtBRL(asset.balance || 0) : asset.balance)
+          h("div", { className: "mono", style: { fontSize: 24, fontWeight: 700, color: "var(--fg-1)" } }, window.BS.fmtBRL ? window.BS.fmtBRL(asset.balance || 0) : asset.balance)
         )
       ),
       h("div", null,
@@ -67,7 +72,7 @@ function AssetDetailsModal({ asset, onClose }) {
                 h("span", { style: { display: "inline-block", padding: "4px 8px", borderRadius: 6, fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", color: isDeposit ? "var(--reserve)" : "var(--info)", background: "color-mix(in oklch, " + (isDeposit ? "var(--reserve)" : "var(--info)") + " 15%, transparent)" } }, isDeposit ? "Aplicação" : "Resgate"),
                 h("span", { className: "mono", style: { color: "var(--fg-3)", fontSize: 12 } }, window.BS.fmtDateBR ? window.BS.fmtDateBR(m.date) : m.date.slice(0, 10))
               ),
-              h("div", { className: "num", style: { display: "flex", alignItems: "center", gap: 6 } },
+              h("div", { className: "mono", style: { display: "flex", alignItems: "center", gap: 6 } },
                 h("span", { style: { color: "var(--fg-3)", fontSize: 11 } }, isDeposit ? "+" : "−"),
                 h("span", { style: { color: isDeposit ? "var(--fg-0)" : "var(--fg-1)", fontWeight: 700, fontSize: 14 } }, window.BS.fmtBRL ? window.BS.fmtBRL(m.amount) : m.amount)
               )
@@ -170,7 +175,7 @@ function InvestmentsView({ refreshKey, filterMonth }) {
       h("div", { className: "panel", style: { padding: 32, display: "flex", flexDirection: "column", alignItems: "center", alignSelf: "start" } },
         h("div", { style: { width: "100%", textAlign: "left" } },
           h("div", { style: { fontSize: 13, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700, marginBottom: 16 } }, "Total investido"),
-          h("div", { className: "num", style: { fontSize: 32, fontWeight: 800, letterSpacing: "-0.04em", color: "var(--fg-0)", lineHeight: 1 } }, fmtBRL(total))
+          h("div", { className: "mono", style: { fontSize: 32, fontWeight: 700, letterSpacing: "-0.03em", color: "var(--fg-0)", lineHeight: 1 } }, fmtBRL(total))
         ),
         
         h("div", { style: { display: "flex", justifyContent: "center", marginTop: 40, marginBottom: 40 } },
@@ -183,8 +188,8 @@ function InvestmentsView({ refreshKey, filterMonth }) {
             return h("div", { key: i, onClick: () => setCategoryFilter(categoryFilter === cat.name ? null : cat.name), className: "row-hover", style: { display: "flex", alignItems: "center", gap: 12, fontSize: 13, padding: "8px 12px", margin: "0 -12px", borderRadius: 8, cursor: "pointer", background: categoryFilter === cat.name ? "var(--bg-2)" : undefined } },
               h("span", { style: { width: 12, height: 12, borderRadius: 4, background: cat.color, display: "inline-block", flexShrink: 0 } }),
               h("span", { style: { flex: 1, color: "var(--fg-1)", fontWeight: 600 } }, cat.name),
-              h("span", { className: "num", style: { color: "var(--fg-3)", width: 44, textAlign: "right", fontWeight: 500 } }, pct.toFixed(1), "%"),
-              h("span", { className: "num", style: { width: 90, textAlign: "right", color: "var(--fg-0)", fontWeight: 700 } }, fmtBRL(cat.balance))
+              h("span", { className: "mono", style: { color: "var(--fg-3)", width: 44, textAlign: "right", fontWeight: 500 } }, pct.toFixed(1), "%"),
+              h("span", { className: "mono", style: { width: 104, textAlign: "right", color: "var(--fg-0)", fontWeight: 700 } }, fmtBRL(cat.balance))
             );
           })
         )
@@ -213,8 +218,8 @@ function InvestmentsView({ refreshKey, filterMonth }) {
                     inv.derived && h("span", { title: "calculado a partir do extrato (Aplicações − Resgates)", style: { fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--fg-3)", border: "1px solid var(--line-2)", borderRadius: 4, padding: "1px 5px" } }, "derivado")
                   ),
                   h("div", { style: { display: "flex", alignItems: "center", gap: 24 } },
-                    h("span", { className: "num", style: { fontSize: 12, color: "var(--fg-3)", width: 44, textAlign: "right" } }, pct.toFixed(1), "%"),
-                    h("div", { className: "num", style: { fontSize: 16, fontWeight: 700, color: "var(--fg-1)", width: 120, textAlign: "right" } }, fmtBRL(bal))
+                    h("span", { className: "mono", style: { fontSize: 12, color: "var(--fg-3)", width: 44, textAlign: "right" } }, pct.toFixed(1), "%"),
+                    h("div", { className: "mono", style: { fontSize: 16, fontWeight: 700, color: "var(--fg-1)", width: 120, textAlign: "right" } }, fmtBRL(bal))
                   )
                 );
               })
@@ -254,7 +259,7 @@ function InvestmentsView({ refreshKey, filterMonth }) {
                 h("td", null, h("span", { style: { display: "inline-block", padding: "4px 8px", borderRadius: 6, fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", color: isDeposit ? "var(--reserve)" : "var(--info)", background: "color-mix(in oklch, " + (isDeposit ? "var(--reserve)" : "var(--info)") + " 15%, transparent)" } }, isDeposit ? "Aplicação" : "Resgate")),
                 h("td", { style: { fontWeight: 600, color: "var(--fg-1)" } }, (investments.find(inv => inv.id === m.investment_id) || {}).name || "Ativo desconhecido"),
                 h("td", null, h(BankChip, { bank: m.bank })),
-                h("td", { className: "num", style: { textAlign: "right" } },
+                h("td", { className: "mono", style: { textAlign: "right" } },
                   h("div", { style: { display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 6 } },
                     h("span", { style: { color: "var(--fg-3)", fontSize: 11 } }, isDeposit ? "+" : "−"),
                     h("span", { style: { color: isDeposit ? "var(--fg-0)" : "var(--fg-1)", fontWeight: 700, fontSize: 14 } }, fmtBRL(m.amount))
@@ -273,7 +278,7 @@ function InvestmentsView({ refreshKey, filterMonth }) {
           h("span", { style: { fontSize: 12, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700 } }, "12 meses")
         ),
         h("div", { style: { height: 260, paddingBottom: 16 } },
-          h(SingleAreaChart, { data: evolution.map(e => ({ label: e.label, value: e.cumulative })), height: 240, color: "var(--info)" })
+          h(SingleAreaChart, { data: evolution.map(e => ({ label: e.label, value: e.cumulative })), height: 240, color: "var(--accent)" })
         )
       )
     ),
