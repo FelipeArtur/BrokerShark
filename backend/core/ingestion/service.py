@@ -11,8 +11,12 @@ from uuid import uuid4
 
 from core.db import analytics, crud
 from core.db.crud import STAGING_COLS
+from core.domain import classification
 from core.ingestion import adapters, dedup
 from core.ingestion.adapters import Record, SourceMismatch  # noqa: F401  (re-export)
+
+# Type of the merchant→category index built once per preview (see classification).
+CategoryIndex = dict
 
 
 def _to_staging_dict(rec: Record) -> dict:
@@ -20,28 +24,45 @@ def _to_staging_dict(rec: Record) -> dict:
     return {f: getattr(rec, f) for f in STAGING_COLS}
 
 
-def _row_view(row) -> dict:
-    """Shape a staging row for the preview table / JSON response."""
+def _row_view(row, index: Optional[CategoryIndex] = None) -> dict:
+    """Shape a staging row for the preview table / JSON response.
+
+    ``index`` is the merchant→category map; when given, a categorizable row carries
+    a suggested category learned from history (suggest-only — the UI confirms it).
+    """
     keys = row.keys()
 
     def g(k):
         """Row value at key ``k``, or None for columns missing in older rows."""
         return row[k] if k in keys else None
 
+    counterpart = g("counterpart")
+    suggested_id: Optional[int] = None
+    suggested_name: Optional[str] = None
+    if index is not None and classification.is_categorizable(
+        row["flow"], row["method"], counterpart, row["is_revenue"]
+    ):
+        match = classification.suggest_from_index(row["description"], row["flow"], index)
+        if match is not None:
+            suggested_id, suggested_name = match
+
     return {
-        "id":              row["id"],
-        "date":            row["date"],
-        "description":     row["description"],
-        "amount":          row["amount"],
-        "flow":            row["flow"],
-        "method":          row["method"],
-        "dest_account_id": row["dest_account_id"],
-        "is_revenue":      row["is_revenue"],
-        "status":          row["status"],
-        "note":            row["note"],
-        "category_id":     g("category_id"),
-        "display_name":    g("display_name"),
-        "original_amount": g("original_amount"),
+        "id":                     row["id"],
+        "date":                   row["date"],
+        "description":            row["description"],
+        "amount":                 row["amount"],
+        "flow":                   row["flow"],
+        "method":                 row["method"],
+        "dest_account_id":        row["dest_account_id"],
+        "is_revenue":             row["is_revenue"],
+        "counterpart":            counterpart,
+        "status":                 row["status"],
+        "note":                   row["note"],
+        "category_id":            g("category_id"),
+        "display_name":           g("display_name"),
+        "original_amount":        g("original_amount"),
+        "suggested_category_id":   suggested_id,
+        "suggested_category_name": suggested_name,
     }
 
 
@@ -92,14 +113,46 @@ def get_staging_view(batch_id: str, source: Optional[str] = None,
     for r in rows:
         counts[r["status"]] = counts.get(r["status"], 0) + 1
     counts["total"] = len(rows)
+
+    # Build the merchant→category index once, only when a row could use a
+    # suggestion (skips the history query for transfer-only batches).
+    index = _suggestion_index(rows)
+
     return {
         "batch_id":          batch_id,
         "source":            source or (rows[0]["source"] if rows else None),
         "account_id":        account_id,
         "counts":            counts,
         "amount_divergence": crud.staging_divergence(batch_id),
-        "rows":              [_row_view(r) for r in rows],
+        "rows":              [_row_view(r, index) for r in rows],
     }
+
+
+def staging_rows_view(batch_id: str) -> list[dict]:
+    """Serialize a batch's staged rows (with category suggestions) for the JSON API."""
+    rows = crud.get_staging_batch(batch_id)
+    index = _suggestion_index(rows)
+    return [_row_view(r, index) for r in rows]
+
+
+def staging_row_view(row) -> dict:
+    """Serialize one staged row (with its suggestion) — the PATCH-edit echo."""
+    return _row_view(row, _suggestion_index([row]))
+
+
+def _suggestion_index(rows: list) -> Optional[CategoryIndex]:
+    """Index categorized history for suggestions, or None if no row is categorizable."""
+    def cp(row) -> Optional[str]:
+        return row["counterpart"] if "counterpart" in row.keys() else None
+
+    needs = any(
+        classification.is_categorizable(r["flow"], r["method"], cp(r), r["is_revenue"])
+        for r in rows
+    )
+    if not needs:
+        return None
+    history = [dict(h) for h in analytics.get_categorized_history()]
+    return classification.build_category_index(history)
 
 
 def confirm_import(

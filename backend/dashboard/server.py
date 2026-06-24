@@ -917,9 +917,8 @@ def api_import_staging(batch_id: str) -> Response:
     Each row now carries ``category_id``/``display_name``/``original_amount`` for the
     editable preview; the divergence can be derived from ``amount`` vs ``original_amount``.
     """
-    from core.ingestion.service import _row_view  # local import: internal helper
-    rows = database.get_staging_batch(batch_id)
-    return jsonify([_row_view(r) for r in rows])
+    from core.ingestion import service
+    return jsonify(service.staging_rows_view(batch_id))
 
 
 @app.route("/api/import/staging/<batch_id>/<int:row_id>", methods=["PATCH"])
@@ -959,10 +958,10 @@ def api_import_staging_edit(batch_id: str, row_id: int) -> Response:
     row = database.update_staging_row(batch_id, row_id, fields)
     if row is None:
         return jsonify({"error": "staging row not found"}), 404
-    from core.ingestion.service import _row_view
+    from core.ingestion import service
     return jsonify({
         "ok": True,
-        "row": _row_view(row),
+        "row": service.staging_row_view(row),
         "amount_divergence": database.staging_divergence(batch_id),
     })
 

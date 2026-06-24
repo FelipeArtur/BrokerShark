@@ -959,6 +959,27 @@ def get_existing_external_ids(ids: list[str]) -> set[str]:
     return found
 
 
+def get_categorized_history() -> list[sqlite3.Row]:
+    """Return every categorized, non-third-party transaction for category suggestion.
+
+    Rows carry ``description``, ``flow``, ``category_id``, ``category_name`` and
+    ``date`` — the import preview indexes them by merchant key to suggest a category
+    for new rows (see ``core.domain.classification.build_category_index``).
+    """
+    with _connect() as conn:
+        return conn.execute(
+            """SELECT t.description AS description,
+                      t.flow        AS flow,
+                      t.category_id AS category_id,
+                      c.name        AS category_name,
+                      t.date        AS date
+               FROM transactions t
+               JOIN categories c ON c.id = t.category_id
+               WHERE t.category_id IS NOT NULL
+                 AND COALESCE(t.is_third_party, 0) = 0""",
+        ).fetchall()
+
+
 def get_key_counts(account_id: str, date_lo: str, date_hi: str) -> dict[tuple, int]:
     """Count existing transactions per content key for one account / date range.
 

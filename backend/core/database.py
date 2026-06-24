@@ -55,6 +55,7 @@ from core.db.analytics import (  # noqa: F401
     get_expenses_by_category_account,
     get_recent_transactions,
     get_recent_activity,
+    get_categorized_history,
     get_month_transactions,
     get_patrimonio_history,
     get_daily_spend,
