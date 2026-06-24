@@ -32,7 +32,7 @@ Supporting roles (not the center):
 | Language | Python 3.12+ (in a 3.14 venv) |
 | Database | SQLite (WAL mode) |
 | Dashboard API | Flask 3.1 + Waitress 3.0 (32 threads) |
-| Dashboard frontend | React 18 + Chart.js, vendored locally (no CDN, no build step, no Babel — plain JS hyperscript) |
+| Dashboard frontend | React 18 + Chart.js + Inter/JetBrains Mono fonts, all vendored locally (no CDN → fully offline, no build step, no Babel — plain JS hyperscript) |
 | Real-time | SSE via `core/events.py` |
 | Runtime | systemd **user** units — always-on service + backup timer (`Persistent=true`) |
 | Backup | Monthly local HDD snapshot via the SQLite backup API (WAL-safe) |
