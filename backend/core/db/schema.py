@@ -8,6 +8,7 @@ mutations run exactly once and are never repeated on subsequent startups.
 """
 from __future__ import annotations
 
+import os
 import sqlite3
 from collections.abc import Callable
 from datetime import datetime
@@ -198,6 +199,25 @@ def init_db() -> None:
         _apply_column_migrations(conn)
 
         _run_pending_migrations(conn)
+
+    _restrict_db_permissions()
+
+
+def _restrict_db_permissions() -> None:
+    """Lock the DB file (and WAL/SHM sidecars) to owner-only 0600.
+
+    This is a personal finance ledger; with the default umask SQLite creates it
+    world/group-readable (0644), so any other local user or process could read the
+    full history. There is no auth on the app, so file permissions are the at-rest
+    boundary. Best-effort: silently skip on filesystems that don't support chmod.
+    """
+    for suffix in ("", "-wal", "-shm"):
+        path = f"{config.DB_PATH}{suffix}"
+        try:
+            if os.path.exists(path):
+                os.chmod(path, 0o600)
+        except OSError:
+            pass
 
 
 def _apply_column_migrations(conn: sqlite3.Connection) -> None:

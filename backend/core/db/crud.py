@@ -229,24 +229,38 @@ def count_batch(import_batch_id: str) -> int:
     return int(row[0] or 0)
 
 
+# Bound + chunk the bulk-categorize id list: cap abuse, and keep each IN clause
+# under SQLite's default SQLITE_MAX_VARIABLE_NUMBER (999) so a large legit batch
+# updates instead of raising "too many SQL variables".
+_BULK_MAX_IDS = 10000
+_BULK_CHUNK = 900
+
+
 def bulk_categorize(ids: Iterable[int], category_id: int) -> int:
     """Set ``category_id`` on many transactions at once; returns rows updated.
 
     Validates the category exists. Powers bulk categorization by merchant — one
-    pick tags every occurrence at once. Notifies the dashboard via SSE.
+    pick tags every occurrence at once. The id list is de-duplicated, capped at
+    ``_BULK_MAX_IDS`` (raises ``ValueError`` past that), and applied in chunks under
+    SQLite's variable limit. Notifies the dashboard via SSE.
     """
-    id_list = [int(i) for i in ids]
+    id_list = list(dict.fromkeys(int(i) for i in ids))  # de-dupe, keep order
     if not id_list:
         return 0
+    if len(id_list) > _BULK_MAX_IDS:
+        raise ValueError(f"too many ids (max {_BULK_MAX_IDS})")
+    updated = 0
     with _connect() as conn:
         if conn.execute("SELECT 1 FROM categories WHERE id = ?", (category_id,)).fetchone() is None:
             raise ValueError(f"category {category_id} not found")
-        placeholders = ",".join("?" * len(id_list))
-        cur = conn.execute(
-            f"UPDATE transactions SET category_id = ? WHERE id IN ({placeholders})",
-            (category_id, *id_list),
-        )
-        updated = cur.rowcount
+        for start in range(0, len(id_list), _BULK_CHUNK):
+            chunk = id_list[start:start + _BULK_CHUNK]
+            placeholders = ",".join("?" * len(chunk))
+            cur = conn.execute(
+                f"UPDATE transactions SET category_id = ? WHERE id IN ({placeholders})",
+                (category_id, *chunk),
+            )
+            updated += cur.rowcount
     events.notify()
     return updated
 

@@ -30,6 +30,10 @@ from core.db import crud
 # Bank/broker exports are a few KB; cap well above that to bound memory and reject
 # crafted bombs before openpyxl touches the bytes.
 _MAX_BYTES = 16 * 1024 * 1024
+# An .xlsx is a zip; a tiny file can declare gigabytes of inner XML (decompression
+# bomb). Reject when the uncompressed total is implausibly large before openpyxl
+# inflates it. Real B3 reports are well under this.
+_MAX_UNCOMPRESSED_BYTES = 200 * 1024 * 1024
 
 
 class B3ParseError(ValueError):
@@ -117,6 +121,16 @@ def parse_b3(data: bytes) -> list[B3Position]:
         raise B3ParseError("arquivo vazio")
     if len(data) > _MAX_BYTES:
         raise B3ParseError("arquivo grande demais")
+
+    # Decompression-bomb guard: sum the zip's declared uncompressed sizes before
+    # openpyxl inflates them. zipfile enforces the declared size on read, so a tiny
+    # file claiming gigabytes is rejected here instead of OOMing the worker.
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as zf:
+            if sum(zi.file_size for zi in zf.infolist()) > _MAX_UNCOMPRESSED_BYTES:
+                raise B3ParseError("relatório B3 grande demais (descomprimido)")
+    except zipfile.BadZipFile as exc:
+        raise B3ParseError(f"não é um relatório B3 válido (.xlsx): {exc}") from exc
 
     # Imported lazily so the rest of core.ingestion stays importable without openpyxl.
     import openpyxl  # noqa: PLC0415

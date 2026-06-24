@@ -62,6 +62,11 @@ def _guard_host_origin():
         origin = request.headers.get("Origin")
         if origin and urlparse(origin).netloc not in _ALLOWED_HOSTS:
             return jsonify({"error": "cross-origin request blocked"}), 403
+        # Defense-in-depth alongside the Origin check: modern browsers tag the
+        # request context. A genuine cross-site write reads "cross-site" even if the
+        # Origin header were somehow stripped; same-origin / direct (none) pass.
+        if request.headers.get("Sec-Fetch-Site") == "cross-site":
+            return jsonify({"error": "cross-origin request blocked"}), 403
     return None
 
 
@@ -77,6 +82,8 @@ def _add_security_headers(response: Response) -> Response:
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "no-referrer"
+    # No browser feature is used; deny them all (defense-in-depth if content is ever injected).
+    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=(), interest-cohort=()"
     # Financial data must not linger in the browser disk cache. Static assets
     # (JS/CSS/fonts) stay cacheable.
     if request.path.startswith("/api/"):
