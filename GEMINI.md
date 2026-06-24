@@ -70,7 +70,7 @@ tests/   conftest.py (raiz); unit/ (puro, sem DB: classification, jobs);
 | Database | SQLite (WAL mode) |
 | Backup | snapshot local mensal no HDD (retém 12), WAL-safe, refresh pós-import |
 | Scheduler | **nenhum** — deploy em rethink (TODOS T-C); backup manual |
-| Dashboard API | Flask 3.1 + Waitress 3.0 (32 threads, foreground via `./run.sh`) |
+| Dashboard API | Flask 3.1 + Waitress 3.0 (DASHBOARD_THREADS=12, foreground via `./run.sh`, auto-shutdown idle) |
 | Frontend | React 18 + Chart.js + fontes Inter/JetBrains Mono, todos vendorizados (`frontend/js/vendor/`, `frontend/fonts/`) — sem CDN, app 100% offline; sem build/Babel, JS puro hyperscript (sem JSX), cada arquivo em IIFE |
 | Real-time | SSE via `events.py` |
 

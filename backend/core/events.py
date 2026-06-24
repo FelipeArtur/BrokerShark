@@ -38,6 +38,16 @@ def unsubscribe(q: queue.Queue) -> None:
             _clients.remove(q)
 
 
+def client_count() -> int:
+    """Number of connected SSE clients (open dashboard tabs).
+
+    Used by the idle-shutdown watchdog: while a tab is open it holds a subscription,
+    so a non-zero count means someone is actively viewing and the app must stay up.
+    """
+    with _lock:
+        return len(_clients)
+
+
 def notify() -> None:
     """Broadcast an ``"update"`` event to all subscribed clients.
 

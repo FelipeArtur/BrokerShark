@@ -2,7 +2,7 @@
 
 A local tool to **understand and analyze my money**. Runs 100% on Linux, accounts at Nubank + Inter. It answers one question first — **"quanto eu posso gastar agora?"** — and then lets me dig into where the money goes.
 
-**Web-only**: the product is a three-screen web dashboard at `http://localhost:8080`, running as an always-on systemd user service. All data entry happens through the web — there is no other write path.
+**Web-only**: the product is a three-screen web dashboard at `http://localhost:8080`, run on demand via `./run.sh` (no always-on service, by design — it idles at ~0% CPU and auto-shuts down when no tab is open). All data entry happens through the web — there is no other write path.
 
 ## What it does
 
@@ -31,10 +31,10 @@ Supporting roles (not the center):
 |-------|-----------|
 | Language | Python 3.12+ (in a 3.14 venv) |
 | Database | SQLite (WAL mode) |
-| Dashboard API | Flask 3.1 + Waitress 3.0 (32 threads) |
+| Dashboard API | Flask 3.1 + Waitress 3.0 (12 threads cfg, idle auto-shutdown) |
 | Dashboard frontend | React 18 + Chart.js + Inter/JetBrains Mono fonts, all vendored locally (no CDN → fully offline, no build step, no Babel — plain JS hyperscript) |
 | Real-time | SSE via `core/events.py` |
-| Runtime | systemd **user** units — always-on service + backup timer (`Persistent=true`) |
+| Runtime | Foreground via `./run.sh` (no always-on service, by design). ~0% CPU idle, ~43 MB live, zero when stopped. Auto-shuts down after `IDLE_SHUTDOWN_MIN` (30) idle with no open tab. |
 | Backup | Monthly local HDD snapshot via the SQLite backup API (WAL-safe) |
 
 ## Getting started

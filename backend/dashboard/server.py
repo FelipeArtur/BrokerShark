@@ -12,7 +12,10 @@ The server is started via :func:`run_dashboard`, which blocks on Waitress
 systemd user service (``Restart=on-failure``).
 """
 import logging
+import os
 import queue
+import threading
+import time
 from datetime import date, datetime
 
 from flask import Flask, Response, jsonify, request, send_from_directory, stream_with_context
@@ -70,6 +73,18 @@ def _guard_host_origin():
     return None
 
 
+# Last legit-request time, for the idle-shutdown watchdog. A rejected request (foreign
+# Host/Origin) skips this hook, so a stray probe can't keep the app alive.
+_last_activity = time.monotonic()
+
+
+@app.before_request
+def _track_activity() -> None:
+    """Stamp the last-activity clock on every accepted request (idle watchdog input)."""
+    global _last_activity
+    _last_activity = time.monotonic()
+
+
 @app.errorhandler(413)
 def _too_large(_exc) -> Response:
     """Return JSON (not HTML) when an upload exceeds MAX_CONTENT_LENGTH."""
@@ -120,8 +135,9 @@ def sse_stream() -> Response:
     - ``data: update``    — whenever any transaction or investment is written
     - ``data: heartbeat`` — every 30 s to keep the connection alive
 
-    Each connected client holds one thread from the Waitress pool, which is
-    why the server is configured with 32 threads.
+    Each connected client holds one thread from the Waitress pool, which is why
+    ``config.DASHBOARD_THREADS`` (default 12) sizes for a page-load burst plus a
+    few open tabs. An open client also keeps the app alive against the idle watchdog.
 
     Returns:
         A streaming :class:`flask.Response` with MIME type ``text/event-stream``.
@@ -1190,14 +1206,53 @@ def api_delete_import_batch(import_batch_id: str) -> Response:
 
 
 
+def _start_idle_watchdog(timeout_min: int) -> None:
+    """Shut the app down after ``timeout_min`` idle with no open tab (frees its RAM).
+
+    The app is idle-cheap (0% CPU when nothing is happening) but still holds ~40 MB
+    while alive. This reclaims it: once no SSE client is connected (every tab closed)
+    AND no request has arrived for the timeout, send SIGINT to ourselves — the same
+    graceful stop as Ctrl+C on ``./run.sh``. A non-positive timeout disables it. An
+    open tab keeps a live SSE subscription, so viewing (even idle) never trips it.
+    """
+    if timeout_min <= 0:
+        return
+    timeout_s = timeout_min * 60
+
+    def _watch() -> None:
+        """Poll once a minute; exit when idle with zero connected clients."""
+        while True:
+            time.sleep(60)
+            if _idle_expired(timeout_s):
+                _logger.info("Ocioso %d min sem abas abertas — desligando para liberar "
+                             "recursos (IDLE_SHUTDOWN_MIN=0 desabilita).", timeout_min)
+                # Hard-exit the process. The watchdog only fires when idle (no SSE
+                # client, no request for the timeout), so there is nothing in flight;
+                # SQLite WAL is durable on commit. (os.kill(SIGINT) doesn't work —
+                # Python routes SIGINT to the main thread as KeyboardInterrupt, which
+                # the waitress serve loop swallows, so the process never stops.)
+                os._exit(0)
+
+    threading.Thread(target=_watch, daemon=True, name="idle-watchdog").start()
+
+
+def _idle_expired(timeout_s: float) -> bool:
+    """True when no tab is open (zero SSE clients) AND no request for ``timeout_s``."""
+    return _events.client_count() == 0 and (time.monotonic() - _last_activity) > timeout_s
+
+
 def run_dashboard() -> None:
     """Serve the dashboard with Waitress in the foreground (blocks until killed).
 
-    Uses 32 threads: each open SSE connection holds one thread permanently,
-    and a full page load fires ~10 API requests in parallel — 32 threads
-    keeps the queue empty under normal single-user load. SIGTERM (systemd
-    stop) terminates the process with the default handler, which systemd
-    treats as a clean exit.
+    Threads come from ``config.DASHBOARD_THREADS`` (default 12): a page load fires
+    ~10 API calls in parallel and each open SSE tab parks one thread. Optionally
+    auto-shuts down when idle (``config.IDLE_SHUTDOWN_MIN``) so a forgotten run frees
+    its RAM. SIGTERM/SIGINT terminate the process gracefully (systemd-clean too).
     """
-    _logger.info("Dashboard available at http://127.0.0.1:%d", DASHBOARD_PORT)
-    serve(app, host="127.0.0.1", port=DASHBOARD_PORT, threads=32)
+    _logger.info("Dashboard available at http://127.0.0.1:%d (%d threads)",
+                 DASHBOARD_PORT, config.DASHBOARD_THREADS)
+    if config.IDLE_SHUTDOWN_MIN > 0:
+        _logger.info("Auto-shutdown: após %d min ocioso sem abas abertas "
+                     "(IDLE_SHUTDOWN_MIN=0 desabilita).", config.IDLE_SHUTDOWN_MIN)
+    _start_idle_watchdog(config.IDLE_SHUTDOWN_MIN)
+    serve(app, host="127.0.0.1", port=DASHBOARD_PORT, threads=config.DASHBOARD_THREADS)

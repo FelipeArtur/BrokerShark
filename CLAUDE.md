@@ -46,7 +46,7 @@ backend/
     events.py        # SSE pub/sub — notify() após escrita
     backup.py        # snapshot mensal (conn.backup WAL-safe, run_backup tri-state/restore)
   jobs/backup.py     # entrypoint do timer (python -m, exit≠0 só em falha REAL)
-  dashboard/server.py      # Flask + Waitress (32 threads, SSE)
+  dashboard/server.py      # Flask + Waitress (12 threads cfg, SSE, idle auto-shutdown)
 frontend/
   js/  api.js, primitives.js, view-overview.js, view-history.js, view-investments.js, app.js
 .githooks/  pre-commit (Health Stack gate — ligado via core.hooksPath .githooks)
@@ -75,7 +75,7 @@ core/events.notify() — SSE push ao browser (< 1s)
 
 - **SQLite é a fonte única.** Sem write-back externo. Toda escrita pela web.
 - **A análise é o produto.** Import é apoio.
-- **Runtime: foreground (estratégia de deploy em rethink — ver TODOS T-C).** Dashboard roda em foreground via **`./run.sh`** (`main.py` bloqueia no `waitress.serve`, logs no terminal). Backup **manual**: `PYTHONPATH=backend .venv/bin/python -m jobs.backup`. **Restore seguro: `python -m jobs.restore`** (wrapper com guard fail-closed: recusa se o dashboard está servindo na porta — restaurar sob o writer vivo corrompe; `--latest`/caminho/picker/`--list`; confirma; falha fechada sem TTY salvo `--yes`). Miolo em `core/backup.py::restore_backup` (verify + sidecar `.pre-restore` + swap atômico). Parar/subir o app ainda é manual (Ctrl+C no `./run.sh` → restore → `./run.sh`). O modelo antigo (systemd user units + linger + OnFailure alert) está no `git log` (commit `08db96c`~) caso o rethink de runtime decida ressuscitá-lo.
+- **Runtime: foreground, resource-minimal (deploy em rethink — ver TODOS T-C).** Dashboard roda em foreground via **`./run.sh`** (`main.py` bloqueia no `waitress.serve`, logs no terminal). **Footprint:** ~0% CPU ocioso (threads bloqueiam, não giram), ~43 MB RSS vivo, **zero** parado. `DASHBOARD_THREADS` (12) e **auto-shutdown por ociosidade** (`IDLE_SHUTDOWN_MIN`=30; 0 desabilita) — quando todas as abas fecham (zero clientes SSE via `events.client_count()`) e não chega request por X min, o watchdog dá SIGINT gracioso em si mesmo e libera a RAM. Aba aberta (SSE vivo) nunca dispara; qualquer request reseta o relógio. Gate: `tests/integration/test_idle_shutdown.py`. Conscientemente **sem serviço always-on** — o dono quer consumo mínimo, só roda quando usa. Backup **manual**: `PYTHONPATH=backend .venv/bin/python -m jobs.backup`. **Restore seguro: `python -m jobs.restore`** (wrapper com guard fail-closed: recusa se o dashboard está servindo na porta — restaurar sob o writer vivo corrompe; `--latest`/caminho/picker/`--list`; confirma; falha fechada sem TTY salvo `--yes`). Miolo em `core/backup.py::restore_backup` (verify + sidecar `.pre-restore` + swap atômico). Parar/subir o app ainda é manual (Ctrl+C no `./run.sh` → restore → `./run.sh`). O modelo antigo (systemd user units + linger + OnFailure alert) está no `git log` (commit `08db96c`~) caso o rethink de runtime decida ressuscitá-lo.
 - **Segurança de rede:** bind em `127.0.0.1` + guard de Host/Origin em `server.py` (DNS-rebinding/CSRF) — a API não tem auth, então isso é load-bearing. Reforços (VibeSec): rejeita `Sec-Fetch-Site: cross-site` (defense-in-depth do Origin); headers `nosniff`/`X-Frame-Options DENY`/`Permissions-Policy`/no-store em `/api/`; **CSP toda `'self'`** (`script-src`/`style-src`/`font-src`/`connect-src` — libs E fontes vendorizadas, sem CDN, sem Babel/`unsafe-eval`; `base-uri`/`form-action 'self'`); **DB SQLite chmod 0600** no `init_db` (`_restrict_db_permissions` — sem auth, perms de arquivo são a fronteira at-rest); upload cap 8MB + B3 cap 16MB comprimido **e 200MB descomprimido** (anti zip-bomb, in-memory sem zip-slip, openpyxl sem XXE); `bulk_categorize` dedupe+cap (10k)+chunk (≤900, sob o limite de vars do SQLite). SQL 100% parametrizado (f-strings só interpolam fragmentos estáticos de cláusula). Gate: `tests/integration/test_hardening.py`.
 
 ### Invariantes financeiras (load-bearing — não quebrar)
@@ -101,7 +101,7 @@ core/events.notify() — SSE push ao browser (< 1s)
 | Database | SQLite (WAL mode) |
 | Backup | snapshot local mensal no HDD (retém 12), `conn.backup()` WAL-safe, refresh pós-import |
 | Scheduler | **nenhum por ora** — deploy em rethink (TODOS T-C); backup rodado manual |
-| Dashboard API | Flask 3.1 + Waitress 3.0 (32 threads, foreground via `./run.sh`) |
+| Dashboard API | Flask 3.1 + Waitress 3.0 (`DASHBOARD_THREADS`=12, foreground via `./run.sh`, auto-shutdown idle) |
 | Frontend | React 18 + Chart.js (`frontend/js/vendor/`) + fontes Inter/JetBrains Mono (`frontend/fonts/` + `frontend/css/fonts.css`) **todos vendorizados localmente, sem CDN** → app roda **100% offline** (zero URL externa no `index.html`). **Sem build step e sem Babel** — JS puro hyperscript (`React.createElement`, nunca JSX); cada arquivo de app em IIFE (escopo próprio; sem colisão de `const` global). |
 | Real-time | SSE via `events.py` (no polling, < 1s) |
 
