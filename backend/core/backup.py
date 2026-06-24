@@ -26,9 +26,11 @@ month's file is never more than one import behind (and ends the month as the
 month-end close). The snapshot uses the SQLite online backup API and is WAL-safe
 against the live dashboard.
 
-``restore_backup`` is the recovery path — run it with the app STOPPED (stop
-``./run.sh`` first; a safe operational wrapper is P1 in TODOS T-C). Backup/restore
-failures never propagate — they are logged and reported via the return value.
+``restore_backup`` is the recovery primitive — verify + ``.pre-restore`` sidecar +
+atomic swap. Drive it through the safe operational wrapper ``python -m jobs.restore``,
+which refuses to run while the dashboard is serving (restoring under a live writer
+corrupts the DB) and confirms before swapping. Backup/restore failures never
+propagate — they are logged and reported via the return value.
 """
 import logging
 import os
@@ -217,11 +219,12 @@ def restore_backup(backup_path: str) -> bool:
 
     Verifies the backup's integrity first (refuses on failure), copies the current
     database to a ``.pre-restore`` sidecar, clears any stale ``-wal``/``-shm`` so the
-    restored file isn't shadowed by old WAL frames, then writes the backup over
-    ``DB_PATH``. Returns True on success, False (logged) on any failure; never raises.
+    restored file isn't shadowed by old WAL frames, then atomically swaps the backup
+    into ``DB_PATH``. Returns True on success, False (logged) on any failure; never raises.
 
-    Stop the dashboard (``./run.sh``) before calling this — restoring while the app
-    writes corrupts the DB. A safe operational restore wrapper is P1 in TODOS T-C.
+    Prefer the wrapper ``python -m jobs.restore`` — it refuses to run while the
+    dashboard is serving (restoring under the live writer corrupts the DB) and
+    confirms first. Call this directly only with the app already stopped.
     """
     src = Path(backup_path)
     if not src.exists():
@@ -238,7 +241,15 @@ def restore_backup(backup_path: str) -> bool:
             shutil.copy2(db, db.with_name(db.name + ".pre-restore"))
         for side in (db.with_name(db.name + "-wal"), db.with_name(db.name + "-shm")):
             _safe_unlink(side)
-        shutil.copy2(src, db)  # backup is a clean single-file snapshot
+        # Stage then atomically swap: a mid-copy failure never leaves DB_PATH
+        # half-written (and the .pre-restore sidecar is the explicit undo path).
+        tmp = db.with_name(db.name + ".restore-tmp")
+        try:
+            shutil.copy2(src, tmp)  # backup is a clean single-file snapshot
+            os.replace(tmp, db)
+        except OSError:
+            _safe_unlink(tmp)
+            raise
     except OSError as exc:
         _logger.warning("Restore failed from %s: %s", src, exc)
         return False

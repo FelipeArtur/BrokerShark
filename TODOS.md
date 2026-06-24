@@ -22,12 +22,15 @@ apagada em 2026-06-23 (decisão do dono: limpar a estratégia atual antes de rep
   `backup.timer` (diário 07h, Persistent=true, mensal-apenas), `backup-alert.service` (OnFailure
   desktop alert), `brokershark.sh` (atalho de browser). Tudo recuperável no `git log` (commit `08db96c`~).
 
-**🔴 Sub-item P1 — redesenhar restore seguro:** o `restore.sh` apagado fazia: **parar o serviço →
-verificar integridade do backup → sidecar `.pre-restore` → `os.replace` → religar**. Sem ele, um
-restore na mão pode corromper o DB se o app estiver escrevendo. App de dinheiro — recovery seguro
-não pode ficar só "copia o arquivo". Reimplementar (script ou doc passo-a-passo) é P1 do rethink.
-A lógica de baixo nível sobrevive em `core/backup.py::restore_backup` (verificação + sidecar);
-falta o wrapper operacional que para/religa o runtime.
+**✅ Sub-item P1 — restore seguro: FEITO (2026-06-24).** Wrapper `python -m jobs.restore`
+(`backend/jobs/restore.py`): guard **fail-closed** que recusa rodar se o dashboard está servindo
+na porta (restaurar sob o writer vivo corrompe — o dashboard é o único processo que abre o DB,
+então "porta servindo?" é o liveness check autoritativo); seleção de backup (`--latest` / caminho /
+picker interativo / `--list`); confirmação que falha fechada sem TTY (a não ser `--yes`).
+`core/backup.py::restore_backup` foi endurecido: verify + sidecar `.pre-restore` + **swap atômico**
+(stage `.restore-tmp` → `os.replace`, nunca copy in-place). Gate: `tests/integration/test_restore.py`.
+Ainda **manual** parar/subir o app (Ctrl+C no `./run.sh` → restore → `./run.sh`) — a automação
+disso depende da decisão de runtime abaixo (se virar systemd, o wrapper pode chamar `systemctl --user`).
 
 **Why:** A estratégia systemd (linger, units de usuário, OnFailure) tinha fricção e está pausada;
 vale decidir conscientemente entre **systemd / supervisor leve / foreground-só** em vez de manter
