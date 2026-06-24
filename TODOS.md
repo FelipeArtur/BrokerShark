@@ -40,16 +40,23 @@ units mortas. Constraints a respeitar: always-on local 1-user, backup mensal WAL
 
 ---
 
-## T-A — Auto-suggest categories in Histórico (P2)
+## T-A — Auto-suggest categories (P3, mostly done)
 
-**What:** When categorizing in the Histórico table, suggest a likely category per
-uncategorized row instead of a blank `<select>`.
+**What:** Suggest a likely category per uncategorized row instead of a blank `<select>`.
 
-**Why:** Categorization stays "100% manual no Histórico" by design; this just makes that manual pass faster.
+**Done (2026-06-24):** the suggestion engine exists and is wired to the **import preview** —
+`domain.classification.merchant_key`/`build_category_index`/`suggest_from_index` learn
+`(flow, merchant_key) → category` from `analytics.get_categorized_history()`; the preview
+row's `<select>` pre-selects the suggestion (suggest-only, never auto-written). See the
+"Categorização" invariant in CLAUDE.md + `tests/integration/test_import_suggestions.py`.
 
-**Context:** Categorization today is a manual `<select>` per row. Suggestions could come from prior mappings. No auto-apply — suggest, user confirms.
+**Remaining (small):** surface the SAME suggestion in the **Histórico** inline `<select>`
+(today still a blank select). The engine + index are reusable; just need a read endpoint
+(or reuse the staging path) feeding the Histórico table's uncategorized rows.
 
-**Effort:** M (human) → S (CC).  **Priority:** P2.  **Depends on:** nothing.
+**Why:** Categorization stays manual by design; this makes the manual pass faster.
+
+**Effort:** S (CC).  **Priority:** P3.  **Depends on:** nothing.
 
 ---
 
