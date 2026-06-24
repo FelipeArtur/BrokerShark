@@ -518,6 +518,8 @@ function ImportModal({ onClose, onDone }) {
   const [busy, setBusy]           = useState(false);
   const [err, setErr]             = useState(null);
   const [results, setResults]     = useState(null); // per-account confirm status
+  const [cats, setCats]           = useState({ expense: [], income: [] }); // for inline categorize
+  const triedRef = useRef("");                      // guards auto-analyze re-fire
 
   const step = (groups || b3s.length) ? 2 : 1;
 
@@ -526,22 +528,25 @@ function ImportModal({ onClose, onDone }) {
     const incoming = Array.from(fileList || []).map(f => {
       const ext = (f.name.split(".").pop() || "").toLowerCase();
       if (ext !== "csv" && ext !== "xlsx") return null;
-      return { key: uuid(), file: f, account: null, b3: ext === "xlsx" };
+      // `detecting` = header sniff in flight; auto-analyze waits for it to settle.
+      return { key: uuid(), file: f, account: null, b3: ext === "xlsx", detecting: ext === "csv" };
     }).filter(Boolean);
     if (!incoming.length) { setErr("Envie .csv (extratos) ou .xlsx (relatório B3)."); return; }
     setFiles(prev => [...prev, ...incoming]);
     // Auto-detect the owning account from each CSV's header (content sniff) so a
     // multi-file drop needs no manual picking. Parallel; user can still override.
-    // B3 files self-type, so skip them.
+    // B3 files self-type, so skip them. Always clear `detecting`, even on a miss,
+    // so a file that fails detection falls through to the manual picker.
     incoming.filter(f => !f.b3).forEach(f => {
       importDetect(f.file).then(acc => {
-        if (acc) setFiles(prev => prev.map(x => x.key === f.key ? { ...x, account: acc, auto: true } : x));
+        setFiles(prev => prev.map(x => x.key === f.key
+          ? { ...x, account: acc || x.account, auto: !!acc, detecting: false } : x));
       });
     });
   }
   const removeFile = key => setFiles(prev => prev.filter(f => f.key !== key));
   const setFileAccount = (key, account) =>
-    setFiles(prev => prev.map(f => f.key === key ? { ...f, account, auto: false } : f));
+    setFiles(prev => prev.map(f => f.key === key ? { ...f, account, auto: false, detecting: false } : f));
 
   // Each file just needs an account assigned (B3 files self-type).
   const canAnalyze = files.length > 0 && !busy &&
@@ -582,6 +587,30 @@ function ImportModal({ onClose, onDone }) {
     finally { setBusy(false); }
   }
 
+  // Drop → review: once every file resolves (account assigned, or B3 which
+  // self-types), analyze automatically — no explicit "Analisar" click. A
+  // signature guard stops it re-firing after "‹ Voltar" (same file set) while
+  // still firing again when the user adds / removes / reassigns a file.
+  const _fileSig = files.map(f => `${f.key}:${f.account || ""}:${f.b3 ? "b3" : ""}`).sort().join("|");
+  useEffect(() => {
+    if (step === 2 || busy || results) return;
+    if (!files.length) return;
+    if (files.some(f => !f.b3 && f.detecting)) return;   // still sniffing a header
+    if (!files.every(f => f.b3 || f.account)) return;    // a file still needs a manual account
+    if (triedRef.current === _fileSig) return;           // already analyzed this exact set
+    triedRef.current = _fileSig;
+    analyze();
+  }, [_fileSig, files, busy, step, results]);
+
+  // Category lists for the inline suggest-only selects (fetched once on review).
+  useEffect(() => {
+    if (step !== 2) return;
+    if (cats.expense.length || cats.income.length) return;
+    Promise.all([fetchCategoriesFull("expense"), fetchCategoriesFull("income")])
+      .then(([e, i]) => setCats({ expense: e || [], income: i || [] }))
+      .catch(() => {});
+  }, [step]);
+
   function toggle(id) {
     setExcluded(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   }
@@ -619,6 +648,14 @@ function ImportModal({ onClose, onDone }) {
     let totalInserted = 0, b3Created = 0, b3Updated = 0;
     const status = [];
     try {
+      // Suggest → you confirm: a suggested category is only persisted now, on
+      // confirm, and only for INCLUDED rows the user left untouched (category_id
+      // still null but a suggestion exists). Manual picks were persisted on change.
+      await Promise.all((groups || []).filter(g => g.batch_id && !g.err).flatMap(g =>
+        groupNew(g.account)
+          .filter(r => r.category_id == null && r.suggested_category_id != null)
+          .map(r => patchStagingRow(g.batch_id, r.id, { category_id: r.suggested_category_id }).catch(() => {}))
+      ));
       // Confirm every account + B3 concurrently (was sequential); aggregate after.
       const txStatus = await Promise.all((groups || [])
         .filter(g => g.batch_id && !g.err)
@@ -687,18 +724,39 @@ function ImportModal({ onClose, onDone }) {
     ))
   );
 
+  const detecting = files.some(f => !f.b3 && f.detecting);
+  const needsAccount = files.length > 0 && !detecting && !canAnalyze;
   const step1View = h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 16 } },
-    h("div", { style: { color: "var(--fg-2)", fontSize: 13 } }, "Solte os arquivos do mês e diga de qual conta cada um veio."),
+    h("div", { style: { color: "var(--fg-2)", fontSize: 13 } }, "Solte os arquivos do mês — a conta é detectada e a revisão abre sozinha."),
     DropZone,
     fileList,
     err && h("div", { style: { color: "var(--neg)", fontSize: 12, padding: "8px 12px", background: "color-mix(in oklch, var(--neg) 10%, transparent)", borderRadius: 6 } }, err),
-    h("div", { style: { display: "flex", justifyContent: "flex-end", marginTop: 4 } },
-      h("button", { className: "btn btn-primary", disabled: !canAnalyze, onClick: analyze },
-        busy ? "Analisando…" : "Analisar ›")
-    )
+    // Auto-advances when ready; this footer only reflects state (analyzing /
+    // detecting / needs a manual account / retry after an error).
+    (busy || detecting)
+      ? h("div", { style: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, marginTop: 4, fontSize: 12, fontWeight: 600, color: "var(--fg-2)" } },
+          busy ? "Analisando…" : "Detectando conta…")
+      : err
+        ? h("div", { style: { display: "flex", justifyContent: "flex-end", marginTop: 4 } },
+            h("button", { className: "btn btn-primary", disabled: !canAnalyze, onClick: () => { triedRef.current = ""; analyze(); } }, "Tentar de novo"))
+        : needsAccount
+          ? h("div", { style: { textAlign: "right", marginTop: 4, fontSize: 12, fontWeight: 600, color: "var(--reserve)" } }, "Atribua a conta dos arquivos acima")
+          : null
   );
 
   /* ── Step 2: grouped, editable review ── */
+  // What each row WILL become on confirm — same vocabulary/colors as the
+  // History TxRow. `categorizable` gates the inline category select (transfers
+  // and investment legs are never categorized; fatura/credit IS an expense).
+  const classifyRow = r => {
+    if (isSelf(r))   return { tag: "transferência", color: "var(--info)", categorizable: false };
+    if (isInvest(r)) return { tag: "investimento", color: "var(--reserve)", categorizable: false };
+    if (r.method === "credit") return { tag: "crédito", color: "var(--warn)", categorizable: true };
+    if (r.flow === "income") return { tag: "receita", color: "var(--pos)", categorizable: true };
+    return { tag: "despesa", color: "var(--neg)", categorizable: true };
+  };
+  // Amount color: SELF→info, invest→reserve, else by flow. (Credit stays neg —
+  // it is still an outflow; only its tag reads "crédito".)
   const amtMeta = r => {
     const _self = isSelf(r);
     const _invest = isInvest(r);
@@ -706,6 +764,49 @@ function ImportModal({ onClose, onDone }) {
       color: _self ? "var(--info)" : _invest ? "var(--reserve)" : (r.flow === "expense" ? "var(--neg)" : "var(--pos)"),
       sign: r.flow === "expense" ? "−" : "+",
     };
+  };
+  const TagChip = (cls) => h("span", {
+    title: `Será classificado como ${cls.tag}`,
+    style: {
+      fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em",
+      padding: "2px 6px", borderRadius: 4, color: cls.color, whiteSpace: "nowrap", flexShrink: 0,
+      border: `1px solid color-mix(in oklch, ${cls.color} 30%, transparent)`,
+      background: `color-mix(in oklch, ${cls.color} 10%, transparent)`,
+    },
+  }, cls.tag);
+  // Inline suggest-only category select for categorizable rows. Shows the stored
+  // category_id, else the suggestion (with a "sugerido" hint). A manual change
+  // persists immediately via editRow; an untouched suggestion is persisted only
+  // on confirm (see confirm()).
+  const CategorySelect = (g, r) => {
+    const list = cats[r.flow] || [];
+    const showingSuggestion = r.category_id == null && r.suggested_category_id != null;
+    const value = r.category_id != null ? String(r.category_id)
+      : (showingSuggestion ? String(r.suggested_category_id) : "");
+    return h("div", { style: { display: "flex", alignItems: "center", gap: 6, minWidth: 0 } },
+      h("select", {
+        value,
+        "aria-label": "Categoria",
+        onChange: e => editRow(g.account, g.batch_id, r.id, { category_id: e.target.value ? parseInt(e.target.value) : null })
+          .catch(() => toast("Não salvou a categoria")),
+        style: {
+          height: 24, maxWidth: 180, fontSize: 11, fontWeight: 500,
+          padding: "0 22px 0 8px", borderRadius: 4, cursor: "pointer", outline: "none",
+          backgroundColor: "var(--bg-0)", color: value ? "var(--fg-1)" : "var(--fg-3)",
+          border: `1px solid ${showingSuggestion ? "color-mix(in oklch, var(--accent) 40%, transparent)" : "var(--line-1)"}`,
+          appearance: "none",
+          backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath fill='%23888' d='M5 7L0 2h10z'/%3E%3C/svg%3E\")",
+          backgroundRepeat: "no-repeat", backgroundPosition: "right 7px center",
+        },
+      },
+        h("option", { value: "" }, "Sem categoria"),
+        list.map(c => h("option", { key: c.id, value: c.id }, c.name))
+      ),
+      showingSuggestion && h("span", {
+        title: "Sugerido pelo histórico — confirme ou troque",
+        style: { fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--accent)", whiteSpace: "nowrap" },
+      }, "sugerido")
+    );
   };
 
   const renderTxGroup = (g) => {
@@ -747,19 +848,26 @@ function ImportModal({ onClose, onDone }) {
               h("tbody", null, allNew.map((r, i) => {
                 const checked = !excluded.has(r.id);
                 const { color, sign } = amtMeta(r);
+                const cls = classifyRow(r);
                 return h("tr", { key: r.id, style: { borderBottom: i < allNew.length - 1 ? "1px solid var(--line-0)" : "none", opacity: checked ? 1 : 0.45, fontSize: 13, transition: "background 0.1s" }, onMouseEnter: e => e.currentTarget.style.background = "var(--bg-1)", onMouseLeave: e => e.currentTarget.style.background = "transparent" },
                   h("td", { style: { padding: "12px 16px", width: 40, textAlign: "center" } },
                     h("input", { type: "checkbox", checked, onChange: () => toggle(r.id), "aria-label": "Incluir", style: { cursor: "pointer", accentColor: "var(--fg-0)" } })),
                   h("td", { style: { padding: "12px 0", color: "var(--fg-3)", whiteSpace: "nowrap", fontSize: 11, fontWeight: 600, fontFamily: "var(--ff-mono)" } }, fmtDateBR(r.date)),
-                  h("td", { style: { padding: "12px 16px", width: "100%" } },
-                    h("div", { style: { color: "var(--fg-0)", fontWeight: 600 } }, window.BS.prettifyDesc(r.description)),
-                    h("div", { style: { fontSize: 11, color: "var(--fg-3)", marginTop: 4, display: "flex", gap: 6, alignItems: "center" } },
-                      "APELIDO:", h(EditableCell, {
-                        value: r.display_name || "", kind: "text", color: "var(--info)",
-                        render: v => v || "Adicionar...",
+                  h("td", { style: { padding: "10px 16px", width: "100%" } },
+                    h("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
+                      h("span", { style: { color: "var(--fg-0)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, window.BS.prettifyDesc(r.description)),
+                      TagChip(cls)
+                    ),
+                    h("div", { style: { fontSize: 11, color: "var(--fg-3)", marginTop: 6, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" } },
+                      cls.categorizable && CategorySelect(g, r),
+                      h(EditableCell, {
+                        value: r.display_name || "", kind: "text",
+                        color: r.display_name ? "var(--info)" : "var(--fg-3)",
+                        render: v => v || "+ apelido",
                         onCommit: v => editRow(g.account, g.batch_id, r.id, { display_name: v }),
                         onError: m => toast(m),
-                      }))
+                      })
+                    )
                   ),
                   h("td", { style: { padding: "12px 20px", textAlign: "right", whiteSpace: "nowrap" } },
                     h(EditableCell, {
@@ -805,6 +913,15 @@ function ImportModal({ onClose, onDone }) {
       h("button", { className: "btn btn-primary", onClick: () => onDone({ inserted: results.filter(s => s.ok).reduce((a, s) => a + (s.inserted || 0), 0), kind: "tx" }) }, "Fechar"))
   );
 
+  // Breakdown by classification across every included row — a sanity-check of
+  // the mix before confirming.
+  const _willRows = (groups || []).flatMap(g => groupNew(g.account));
+  const _typeCounts = _willRows.reduce((acc, r) => { const t = classifyRow(r).tag; acc[t] = (acc[t] || 0) + 1; return acc; }, {});
+  const _breakdown = ["despesa", "receita", "crédito", "transferência", "investimento"]
+    .filter(t => _typeCounts[t])
+    .map(t => `${_typeCounts[t]} ${_typeCounts[t] > 1 ? t + "s" : t}`)
+    .join(" · ");
+
   const step2View = h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 16 } },
     h("div", { style: { display: "flex", flexDirection: "column", gap: 12, maxHeight: "62vh", overflowY: "auto", paddingRight: 4 } },
       (groups || []).map(renderTxGroup),
@@ -812,10 +929,12 @@ function ImportModal({ onClose, onDone }) {
     ),
     err && h("div", { style: { color: "var(--neg)", fontSize: 12, padding: "8px 12px", background: "color-mix(in oklch, var(--neg) 10%, transparent)", borderRadius: 6 } }, err),
     h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, borderTop: "1px solid var(--line-1)", paddingTop: 14 } },
-      h("div", { style: { fontSize: 13, color: "var(--fg-2)" } },
-        h("strong", { style: { color: "var(--pos)" } }, txWillImport),
-        ` ${txWillImport === 1 ? "transação pronta" : "transações prontas"}`,
-        b3Count > 0 && h("span", { style: { color: "var(--fg-3)" } }, ` · ${b3Count} B3`)),
+      h("div", { style: { display: "flex", flexDirection: "column", gap: 2 } },
+        h("div", { style: { fontSize: 13, color: "var(--fg-2)" } },
+          h("strong", { style: { color: "var(--pos)" } }, txWillImport),
+          ` ${txWillImport === 1 ? "transação pronta" : "transações prontas"}`,
+          b3Count > 0 && h("span", { style: { color: "var(--fg-3)" } }, ` · ${b3Count} B3`)),
+        _breakdown && h("div", { style: { fontSize: 11, color: "var(--fg-3)" } }, _breakdown)),
       h("div", { style: { display: "flex", gap: 8 } },
         h("button", { className: "btn btn-ghost", disabled: busy, onClick: () => { setGroups(null); setB3s([]); setRowsByGroup({}); setResults(null); } }, "‹ Voltar"),
         h("button", { className: "btn btn-primary", disabled: busy || (txWillImport <= 0 && b3Count <= 0), onClick: confirm },
