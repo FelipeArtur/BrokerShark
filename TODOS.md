@@ -50,11 +50,17 @@ units mortas. Constraints a respeitar: always-on local 1-user, backup mensal WAL
 row's `<select>` pre-selects the suggestion (suggest-only, never auto-written). See the
 "Categorização" invariant in CLAUDE.md + `tests/integration/test_import_suggestions.py`.
 
-**Remaining (small):** surface the SAME suggestion in the **Histórico** inline `<select>`
-(today still a blank select). The engine + index are reusable; just need a read endpoint
-(or reuse the staging path) feeding the Histórico table's uncategorized rows.
+**Also done (2026-06-24):** the **bulk-categorize panel** in Histórico now surfaces the
+same suggestion across the whole backlog — `analytics.get_uncategorized_merchants` groups
+uncategorized rows by merchant (with the learned suggestion) and `crud.bulk_categorize`
+tags every occurrence in one pick (`/api/uncategorized-merchants`,
+`/api/transactions/categorize-bulk`; `test_bulk_categorize.py`). This is the high-volume
+path (~474 rows after the full re-import), so it largely closes T-A.
 
-**Why:** Categorization stays manual by design; this makes the manual pass faster.
+**Remaining (optional, low):** also pre-fill the suggestion in the per-row inline `<select>`
+of the Histórico table (the bulk panel covers the mass case; this is just polish for one-offs).
+
+**Why:** Categorization stays manual by design; these make the manual pass fast.
 
 **Effort:** S (CC).  **Priority:** P3.  **Depends on:** nothing.
 
