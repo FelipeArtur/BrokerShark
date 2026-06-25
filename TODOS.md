@@ -36,9 +36,19 @@ disso depende da decisão de runtime abaixo (se virar systemd, o wrapper pode ch
 consumo mínimo, sem serviço rodando à toa. Medido: idle ~0% CPU (threads bloqueiam), ~43 MB vivo,
 zero parado. Então: `./run.sh` on-demand + **auto-shutdown por ociosidade** (`IDLE_SHUTDOWN_MIN`=30,
 0 desabilita) que libera a RAM quando todas as abas fecham + `DASHBOARD_THREADS`=12. systemd
-always-on foi **descartado conscientemente** (oposto do que o dono quer). Resta em aberto (P3, opcional):
-**backup agendado** (hoje manual `python -m jobs.backup` + refresh pós-import) — automação via cron/timer
-só se o dono topar; e **auto-restart** virou no-op (sem serviço always-on, sobe na mão quando usa).
+always-on foi **descartado conscientemente** (oposto do que o dono quer). **Auto-restart** virou no-op
+(sem serviço always-on, sobe na mão quando usa).
+
+**✅ Backup automático sem scheduler (2026-06-24): FEITO via backup-on-open.** Em vez de cron/timer
+always-on (oposto do runtime escolhido), o backup é amarrado a **usar o app**: `run_dashboard`
+dispara `backup.request_startup_snapshot()` no boot — thread daemon que chama `_snapshot_if_stale`
+(refresca o snapshot do mês só se a live DB, incl. `-wal` não-checkpointado, mudou desde o último;
+re-abrir sem editar = no-op, não gira o HDD) + poda. Junto com o refresh pós-import, o snapshot do
+mês nunca fica mais que uma sessão atrás. Indicador de frescor no rodapé (`/api/backup-status` →
+`backup.last_backup_info` → `{exists,name,age_seconds}`; o front mostra "backup hoje/há Nd" e
+alarma stale>7d ou ausente — HDD desmontado = falha silenciosa visível). Gate:
+`tests/integration/test_backup.py` (`_snapshot_if_stale`, `last_backup_info`). O timer systemd
+mensal (`python -m jobs.backup`) segue disponível p/ quem quiser, mas não é mais necessário.
 
 **Why (histórico):** A estratégia systemd (linger, units, OnFailure) tinha fricção e foi pausada;
 decidido conscientemente por foreground resource-minimal. O modelo systemd antigo segue no `git log`

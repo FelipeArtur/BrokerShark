@@ -37,6 +37,7 @@ import os
 import shutil
 import sqlite3
 import threading
+import time
 from datetime import date
 from pathlib import Path
 
@@ -212,6 +213,70 @@ def request_post_import_snapshot() -> None:
                 _post_import_pending = False
 
     threading.Thread(target=_worker, daemon=True, name="post-import-snapshot").start()
+
+
+def _live_db_mtime() -> float:
+    """Newest mtime among the DB file and its ``-wal`` sidecar (captures recent commits)."""
+    newest = 0.0
+    for suffix in ("", "-wal"):
+        p = Path(DB_PATH + suffix)
+        if p.exists():
+            newest = max(newest, p.stat().st_mtime)
+    return newest
+
+
+def request_startup_snapshot() -> None:
+    """On app open: refresh the month's snapshot if the DB changed since the last one.
+
+    Fire-and-forget from a background thread so the HDD spin-up never blocks serving.
+    Change-gated: if the current month's snapshot is already newer than the live DB
+    (including uncheckpointed ``-wal``), it's a no-op — re-opening the app without
+    edits writes nothing. Otherwise it captures everything done since the last
+    snapshot (categorization, edits) and prunes old months. The owner runs no
+    scheduler; this ties the backup to *using* the app (decision 2026-06-24).
+    """
+    def _worker() -> None:
+        """Snapshot off-thread when stale; never crash the boot."""
+        try:
+            _snapshot_if_stale()
+        except Exception:  # thread boundary — log, never take the dashboard down
+            _logger.exception("Startup snapshot failed unexpectedly")
+
+    threading.Thread(target=_worker, daemon=True, name="startup-snapshot").start()
+
+
+def _snapshot_if_stale(today: date | None = None) -> bool:
+    """Refresh the month's snapshot only if the live DB changed since it; prune on write.
+
+    Returns True when a snapshot was written. Change-gate keeps repeated app-opens
+    with no edits from spinning the HDD.
+    """
+    day = today or date.today()
+    snap = _monthly_path(day)
+    if snap.exists() and snap.stat().st_mtime >= _live_db_mtime():
+        return False
+    if refresh_monthly_snapshot(day):
+        _prune(Path(BACKUP_DIR), _MONTHLY_GLOB, MONTHLY_BACKUPS_KEPT)
+        return True
+    return False
+
+
+def last_backup_info() -> dict:
+    """Freshness of the newest monthly snapshot, for the dashboard indicator.
+
+    Returns ``{exists, name, age_seconds}``. ``exists=False`` when there is no
+    snapshot yet or the backup dir is unreachable (HDD unmounted) — the dashboard
+    surfaces that so a silently-failing backup (the historical footgun) can't hide.
+    """
+    try:
+        snaps = sorted(Path(BACKUP_DIR).glob(_MONTHLY_GLOB))
+    except OSError:
+        snaps = []
+    if not snaps:
+        return {"exists": False, "name": None, "age_seconds": None}
+    newest = snaps[-1]
+    age = max(0, int(time.time() - newest.stat().st_mtime))
+    return {"exists": True, "name": newest.name, "age_seconds": age}
 
 
 def restore_backup(backup_path: str) -> bool:

@@ -37,7 +37,7 @@ core/events.notify() — SSE push ao browser (< 1s)
 
 - **SQLite = fonte única.** Sem write-back externo. Toda escrita pela web.
 - **CSV import via web** ("+ Importar" → preview/staging → confirm; dedup UUID/hash). Pipeline `backend/core/ingestion/`. Fontes: `nu-db`, `inter-db`. Importados entram com `category_id=NULL`; **categorização manual no Histórico** (filtro "Sem categoria" + inline → `PATCH /api/transactions/<id>`). Preview tem **sugestão suggest-only** de categoria (aprendida do histórico via `domain.classification` + `analytics.get_categorized_history`; staging traz `counterpart`/`suggested_category_id`/`suggested_category_name`) — nunca auto-aplica: troca manual persiste na hora, sugestão intocada só grava no confirm p/ linhas incluídas. **Categorização em lote no Histórico:** painel agrupa não-categorizados por comerciante (`analytics.get_uncategorized_merchants` + `crud.bulk_categorize`, `GET /api/uncategorized-merchants` / `POST /api/transactions/categorize-bulk`) — 1 escolha categoriza todos os iguais.
-- **Runtime: foreground via `./run.sh`** (deploy em rethink — TODOS T-C; `deploy/` apagado 2026-06-23). `main.py` bloqueia no `waitress.serve`. Backup **manual** (`PYTHONPATH=backend .venv/bin/python -m jobs.backup`), mensal-apenas (1/mês, retém 12) via API SQLite (`conn.backup()`, WAL-safe). Restore seguro = `python -m jobs.restore` (guard fail-closed recusa app servindo; `--latest`/caminho/`--list`/`--yes`; verify + sidecar `.pre-restore` + swap atômico em `core/backup.py::restore_backup`; parar/subir o app é manual). Modelo antigo systemd no `git log`.
+- **Runtime: foreground via `./run.sh`** (deploy em rethink — TODOS T-C; `deploy/` apagado 2026-06-23). `main.py` bloqueia no `waitress.serve`. Backup amarrado a **abrir o app** (sem scheduler): `backup.request_startup_snapshot()` no boot → thread daemon refresca o snapshot do mês **só se** a DB mudou (vs `.db`+`-wal` mtime), poda; re-abrir sem editar = no-op. + refresh pós-import. Frescor: `GET /api/backup-status` (rodapé mostra "backup hoje/há Nd", alarma stale>7d/ausente). Mensal-apenas (1/mês, retém 12) via API SQLite (`conn.backup()`, WAL-safe); avulso manual `PYTHONPATH=backend .venv/bin/python -m jobs.backup`. Restore seguro = `python -m jobs.restore` (guard fail-closed recusa app servindo; `--latest`/caminho/`--list`/`--yes`; verify + sidecar `.pre-restore` + swap atômico em `core/backup.py::restore_backup`; parar/subir o app é manual). Modelo antigo systemd no `git log`.
 - **Segurança de rede:** bind `127.0.0.1` + guard Host/Origin em `server.py` (DNS-rebinding/CSRF) — API sem auth, guard é load-bearing.
 
 ---
@@ -69,7 +69,7 @@ tests/   conftest.py (raiz); unit/ (puro, sem DB: classification, jobs);
 | Language | Python 3.14 (venv); código 3.12+ |
 | Database | SQLite (WAL mode) |
 | Backup | snapshot local mensal no HDD (retém 12), WAL-safe, refresh pós-import |
-| Scheduler | **nenhum** — deploy em rethink (TODOS T-C); backup manual |
+| Scheduler | **nenhum** — backup-on-open (snapshot no boot, change-gated) + refresh pós-import; sem cron/timer |
 | Dashboard API | Flask 3.1 + Waitress 3.0 (DASHBOARD_THREADS=12, foreground via `./run.sh`, auto-shutdown idle) |
 | Frontend | React 18 + Chart.js + fontes Inter/JetBrains Mono, todos vendorizados (`frontend/js/vendor/`, `frontend/fonts/`) — sem CDN, app 100% offline; sem build/Babel, JS puro hyperscript (sem JSX), cada arquivo em IIFE |
 | Real-time | SSE via `events.py` |
@@ -151,7 +151,7 @@ OWNER_SELF_KEYWORDS=seu nome completo,fragmento-cpf
 
 ## Running
 
-Runtime = **foreground via `./run.sh`** (deploy em rethink — T-C). Backup manual (`PYTHONPATH=backend .venv/bin/python -m jobs.backup`). Foreground:
+Runtime = **foreground via `./run.sh`** (deploy em rethink — T-C). Backup-on-open no boot + refresh pós-import (avulso: `PYTHONPATH=backend .venv/bin/python -m jobs.backup`). Foreground:
 
 ```bash
 source .venv/bin/activate.fish

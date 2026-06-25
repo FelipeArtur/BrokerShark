@@ -48,6 +48,7 @@ async function fetchBudgets()              { return _get("/api/budgets"); }
 async function searchTransactions(q)       { return _get(`/api/search?q=${encodeURIComponent(q)}`); }
 async function fetchMonthlyFull(bank)      { return _get(`/api/monthly${_params({ bank, present: 1 })}`); }
 async function fetchCoverage()             { return _get("/api/statement-coverage"); }
+async function fetchBackupStatus()         { return _get("/api/backup-status"); }
 async function fetchUncategorizedMerchants({ year, month } = {}) { return _get(`/api/uncategorized-merchants${_params({ year, month })}`); }
 async function categorizeBulk(ids, categoryId) { return _post("/api/transactions/categorize-bulk", { ids, category_id: categoryId }); }
 async function recordCoverage(periods, origin = "manual") { return _post("/api/statement-coverage", { periods, origin }); }

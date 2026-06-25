@@ -8,6 +8,7 @@ tmp → verify → os.replace, so a failure never destroys the last good snapsho
 restore_backup verifies integrity, keeps a .pre-restore sidecar, and clears stale
 WAL sidecars.
 """
+import os
 import sqlite3
 import threading
 import time
@@ -232,3 +233,56 @@ def test_restore_refuses_corrupt_backup(backup_env):
     # the live db is untouched (no .pre-restore written, original row intact)
     rows = sqlite3.connect(str(db_file)).execute("SELECT v FROM t").fetchall()
     assert [r[0] for r in rows] == ["keep"]
+
+
+# ── Backup-on-open (startup snapshot) + freshness indicator ───────────────────
+
+def test_snapshot_if_stale_writes_then_skips(backup_env):
+    """First open writes the month's snapshot; re-opening with no edits is a no-op."""
+    backup, db_file, bdir = backup_env
+    conn = _make_wal_db(db_file)
+    conn.execute("INSERT INTO t (v) VALUES ('a')")
+    conn.commit()
+    conn.close()
+    # no snapshot yet → writes
+    assert backup._snapshot_if_stale(TODAY) is True
+    snap = _monthly(bdir)
+    assert snap.exists()
+    mtime1 = snap.stat().st_mtime
+    # nothing changed → no-op, snapshot untouched
+    assert backup._snapshot_if_stale(TODAY) is False
+    assert snap.stat().st_mtime == mtime1
+
+
+def test_snapshot_if_stale_recaptures_after_edit(backup_env):
+    """An edit after the snapshot (e.g. categorization) is captured on the next open."""
+    backup, db_file, bdir = backup_env
+    conn = _make_wal_db(db_file)
+    conn.execute("INSERT INTO t (v) VALUES ('a')")
+    conn.commit()
+    conn.close()
+    assert backup._snapshot_if_stale(TODAY) is True
+
+    time.sleep(0.01)
+    conn = sqlite3.connect(str(db_file))
+    conn.execute("INSERT INTO t (v) VALUES ('b')")  # work done after the snapshot
+    conn.commit()
+    conn.close()
+    os.utime(db_file, None)  # bump mtime to be safe across fast filesystems
+
+    assert backup._snapshot_if_stale(TODAY) is True  # DB changed → re-snapshots
+    rows = sqlite3.connect(str(_monthly(bdir))).execute("SELECT v FROM t").fetchall()
+    assert [r[0] for r in rows] == ["a", "b"]
+
+
+def test_last_backup_info(backup_env):
+    backup, db_file, bdir = backup_env
+    assert backup.last_backup_info() == {"exists": False, "name": None, "age_seconds": None}
+    conn = _make_wal_db(db_file)
+    conn.commit()
+    conn.close()
+    backup.run_backup(TODAY)
+    info = backup.last_backup_info()
+    assert info["exists"] is True
+    assert info["name"] == f"brokershark_{TODAY:%Y-%m}.db"
+    assert info["age_seconds"] is not None and info["age_seconds"] >= 0

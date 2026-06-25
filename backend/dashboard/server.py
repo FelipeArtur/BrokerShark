@@ -351,6 +351,16 @@ def api_statement_coverage() -> Response:
     return jsonify({"ok": True, "added": added})
 
 
+@app.route("/api/backup-status")
+def api_backup_status() -> Response:
+    """Freshness of the newest local backup, for the dashboard indicator.
+
+    ``{exists, name, age_seconds}`` — the front shows "backup há Xd" and flags a
+    stale/absent one (e.g. the HDD got unmounted) so a silent failure surfaces.
+    """
+    return jsonify(backup.last_backup_info())
+
+
 @app.route("/api/uncategorized-merchants")
 def api_uncategorized_merchants() -> Response:
     """Uncategorized transactions grouped by merchant for the bulk-categorize panel.
@@ -1255,4 +1265,7 @@ def run_dashboard() -> None:
         _logger.info("Auto-shutdown: após %d min ocioso sem abas abertas "
                      "(IDLE_SHUTDOWN_MIN=0 desabilita).", config.IDLE_SHUTDOWN_MIN)
     _start_idle_watchdog(config.IDLE_SHUTDOWN_MIN)
+    # Backup tied to usage (no scheduler): ensure this month's snapshot is current,
+    # off-thread so the HDD never blocks the boot. No-op when nothing changed.
+    backup.request_startup_snapshot()
     serve(app, host="127.0.0.1", port=DASHBOARD_PORT, threads=config.DASHBOARD_THREADS)

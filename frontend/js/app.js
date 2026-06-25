@@ -1006,6 +1006,34 @@ function ConfirmDeleteModal({ tx, onCancel, onConfirm }) {
    api.js → re-render) e dos modais transversais: TransactionPanel (edição),
    ConfirmDeleteModal, ImportModal e TweaksPanel. As telas (Overview/History/
    Investments) recebem callbacks e nunca falam entre si diretamente. */
+// Footer backup freshness. Backup is tied to opening the app (no scheduler), so this
+// is normally "hoje"; an old age means the snapshot didn't refresh — e.g. the HDD is
+// unmounted — surfacing a silent backup failure. Refetches once after the background
+// startup snapshot has had time to land.
+function BackupIndicator({ refreshKey }) {
+  const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
+  const [info, setInfo] = useState(null);
+  useEffect(() => {
+    const load = () => fetchBackupStatus().then(setInfo).catch(() => {});
+    load();
+    const t = setTimeout(load, 4000);  // catch the bg startup snapshot completing
+    return () => clearTimeout(t);
+  }, [refreshKey]);
+  if (!info) return null;
+  let txt, stale;
+  if (!info.exists) {
+    txt = "sem backup"; stale = true;
+  } else {
+    const d = Math.floor((info.age_seconds || 0) / 86400);
+    txt = "backup " + (d <= 0 ? "hoje" : d === 1 ? "há 1 dia" : `há ${d} dias`);
+    stale = d > 7;
+  }
+  return h("span", {
+    title: info.exists ? `Último backup: ${info.name}` : "Nenhum backup encontrado — o HDD está montado?",
+    style: { fontFamily: "var(--ff-mono)", color: stale ? "var(--warn)" : "var(--fg-3)" },
+  }, txt);
+}
+
 function App() {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   const [tw, setTw] = useTweaks();
@@ -1170,7 +1198,10 @@ function App() {
 
         h("footer", { style: { marginTop: "auto", paddingTop: 64, paddingBottom: 24, fontSize: 11, color: "var(--fg-3)", display: "flex", justifyContent: "space-between", alignItems: "center" } },
           h("span", null, "BrokerShark"),
-          h("span", { style: { fontFamily: "var(--ff-mono)" } }, "localhost:8080 · SQLite")
+          h("div", { style: { display: "flex", gap: 16, alignItems: "center" } },
+            h(BackupIndicator, { refreshKey }),
+            h("span", { style: { fontFamily: "var(--ff-mono)" } }, "localhost:8080 · SQLite")
+          )
         )
       )
     ),
