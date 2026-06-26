@@ -10,7 +10,6 @@ WAL sidecars.
 """
 import os
 import sqlite3
-import threading
 import time
 from datetime import date
 from pathlib import Path
@@ -154,41 +153,6 @@ def test_prune_keeps_newest_and_ignores_foreign_files(backup_env, monkeypatch):
     assert foreign.exists()                            # never counted, never deleted
 
 
-def test_post_import_snapshot_is_single_flight(backup_env, monkeypatch):
-    backup, db_file, bdir = backup_env
-    started = threading.Event()
-    release = threading.Event()
-    calls = []
-
-    def slow_refresh(today=None):
-        calls.append(1)
-        started.set()
-        release.wait(timeout=5)
-        return True
-
-    def wait_pending_clear():
-        for _ in range(500):
-            with backup._post_import_lock:
-                if not backup._post_import_pending:
-                    return
-            time.sleep(0.01)
-        raise AssertionError("snapshot worker never finished")
-
-    monkeypatch.setattr(backup, "refresh_monthly_snapshot", slow_refresh)
-    backup.request_post_import_snapshot()
-    assert started.wait(timeout=5)
-    backup.request_post_import_snapshot()              # dropped: one already in flight
-    release.set()
-    wait_pending_clear()
-    assert len(calls) == 1                             # second request was dropped
-
-    started.clear()
-    backup.request_post_import_snapshot()              # flag cleared → runs again
-    assert started.wait(timeout=5)
-    wait_pending_clear()
-    assert len(calls) == 2                             # 3 requests → 2 executions
-
-
 def test_restore_round_trip(backup_env):
     backup, db_file, bdir = backup_env
     conn = _make_wal_db(db_file)
@@ -273,6 +237,37 @@ def test_snapshot_if_stale_recaptures_after_edit(backup_env):
     assert backup._snapshot_if_stale(TODAY) is True  # DB changed → re-snapshots
     rows = sqlite3.connect(str(_monthly(bdir))).execute("SELECT v FROM t").fetchall()
     assert [r[0] for r in rows] == ["a", "b"]
+
+
+def test_sweep_stale_tmps_removes_orphans_keeps_fresh(backup_env):
+    """A snapshot killed mid-write leaks a .tmp (+ sidecars); the boot sweep clears
+    stale orphans but never yanks a tmp that is genuinely in flight (fresh mtime)."""
+    backup, db_file, bdir = backup_env
+    bdir.mkdir(parents=True, exist_ok=True)
+
+    # orphan from a killed run: a .tmp older than the age gate, with WAL/journal sidecars
+    orphan = bdir / f"brokershark_{TODAY:%Y-%m}.db.tmp"
+    for suffix in ("", "-journal", "-wal", "-shm"):
+        (bdir / (orphan.name + suffix)).write_bytes(b"junk")
+    old = time.time() - (backup._TMP_ORPHAN_MIN_AGE_S + 5)
+    for suffix in ("", "-journal", "-wal", "-shm"):
+        os.utime(bdir / (orphan.name + suffix), (old, old))
+
+    # a snapshot currently in flight: fresh .tmp that must survive the sweep
+    inflight = bdir / "brokershark_2026-07.db.tmp"
+    inflight.write_bytes(b"in progress")
+
+    # a real committed backup must never be touched
+    good = _monthly(bdir)
+    good.write_bytes(b"good")
+
+    backup._sweep_stale_tmps()
+
+    assert not orphan.exists()                                  # stale orphan swept
+    assert not (bdir / (orphan.name + "-wal")).exists()         # sidecars too
+    assert not (bdir / (orphan.name + "-journal")).exists()
+    assert inflight.exists()                                    # fresh tmp left alone
+    assert good.exists()                                        # committed backup untouched
 
 
 def test_last_backup_info(backup_env):

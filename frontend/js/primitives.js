@@ -492,94 +492,6 @@ const isConsumptionExpense = t => t?.flow === "expense" && t.method !== "transfe
 const isRevenue            = t => t?.flow === "income"  && t.is_revenue === 1 && !t.is_third_party;
 const isInvest             = t => !!t && !isSelf(t) && (t.method === "transfer" || (t.flow === "income" && !t.is_revenue));
 
-// ── Missing-month detection (import safety net) ───────────────────────────────
-// Surfaces statements you likely forgot to import. Input is the present-only,
-// ascending monthly list (/api/monthly?present=1) — each entry is a month that
-// HAS transactions. A gap = a month between the first recorded month and the
-// current month with no entry. The current month is NEVER a gap (it's in
-// progress); currentMonthMissing covers it separately. Pure + null-safe so both
-// the Histórico banner and the home badge share one source of truth.
-// `coverage` is the list of months the user has already accounted for
-// (/api/statement-coverage) — a statement imported for that month (even an empty,
-// no-activity one) or a gap they dismissed. Covered months are never gaps, so an
-// empty-but-imported month (e.g. Ago/21) stops being flagged as forgotten.
-function findMonthGaps(monthly, now = new Date(), coverage = []) {
-  if (!monthly || !monthly.length) return [];
-  const curY = now.getFullYear(), curM = now.getMonth() + 1;
-  const have = new Set(monthly.map(m => `${m.year}-${m.month}`));
-  for (const c of (coverage || [])) have.add(`${c.year}-${c.month}`);
-  const gaps = [];
-  let { year, month } = monthly[0];                 // ascending → first recorded month
-  while (year < curY || (year === curY && month < curM)) {   // strictly before current
-    if (!have.has(`${year}-${month}`)) gaps.push({ year, month });
-    if (++month > 12) { month = 1; year++; }
-  }
-  return gaps;
-}
-
-// True when the current month still has zero transactions past an early grace
-// period (default day 5) — a nudge to import this month's statement. Before the
-// grace day an empty current month is normal, so it stays quiet (no false alarm).
-// Coverage (an imported statement for the current month) also silences it.
-function currentMonthMissing(monthly, now = new Date(), graceDay = 5, coverage = []) {
-  if (now.getDate() <= graceDay) return false;
-  const curY = now.getFullYear(), curM = now.getMonth() + 1;
-  const accounted = (monthly || []).some(m => m.year === curY && m.month === curM)
-    || (coverage || []).some(c => c.year === curY && c.month === curM);
-  return !accounted;
-}
-
-// Months a statement filename declares it covers, as [{year, month}], or [] when
-// the name matches no known pattern. Lets an EMPTY month (header-only file) still
-// be marked accounted-for on import. Two shapes from the user's banks:
-//   Nubank: NU_<acct>_01ABR2021_30ABR2021.csv       (PT 3-letter month)
-//   Inter:  Extrato-01-01-2025-a-01-01-2026-CSV.csv  (DD-MM-YYYY range)
-const _PT_MON_ABBR = { JAN: 1, FEV: 2, MAR: 3, ABR: 4, MAI: 5, JUN: 6, JUL: 7, AGO: 8, SET: 9, OUT: 10, NOV: 11, DEZ: 12 };
-function coverageFromFilename(name) {
-  if (!name) return [];
-  const nu = name.toUpperCase().match(/_(\d{2})([A-Z]{3})(\d{4})_(\d{2})([A-Z]{3})(\d{4})/);
-  if (nu && _PT_MON_ABBR[nu[2]] && _PT_MON_ABBR[nu[5]])
-    return _monthSpan(+nu[3], _PT_MON_ABBR[nu[2]], +nu[6], _PT_MON_ABBR[nu[5]]);
-  const it = name.match(/(\d{2})-(\d{2})-(\d{4})-a-(\d{2})-(\d{2})-(\d{4})/i);
-  if (it) return _monthSpan(+it[3], +it[2], +it[6], +it[5]);
-  return [];
-}
-
-// Inclusive month span (y1,m1)→(y2,m2). Caps at 600 to ignore reversed/garbage ranges.
-function _monthSpan(y1, m1, y2, m2) {
-  const out = [];
-  let y = y1, m = m1, guard = 0;
-  while ((y < y2 || (y === y2 && m <= m2)) && guard++ < 600) {
-    out.push({ year: y, month: m });
-    if (++m > 12) { m = 1; y++; }
-  }
-  return out;
-}
-
-// Distinct {year, month} from a list of ISO ("YYYY-MM-DD") dates — the months a
-// non-empty statement's rows actually touch. Unioned with coverageFromFilename
-// at import so both empty and normal months get recorded.
-function coverageFromISODates(dates) {
-  const seen = new Map();
-  for (const d of (dates || [])) {
-    if (!d) continue;
-    const [y, m] = String(d).split("-");
-    if (y && m) seen.set(`${+y}-${+m}`, { year: +y, month: +m });
-  }
-  return [...seen.values()];
-}
-
-// "Fev · Mar/26" — short month labels; the year is appended once on the last item
-// for a single-year run, or per-item when the gaps straddle more than one year.
-function fmtMonthGaps(gaps) {
-  if (!gaps || !gaps.length) return "";
-  const multiYear = new Set(gaps.map(g => g.year)).size > 1;
-  const yy = g => String(g.year).slice(2);
-  if (multiYear) return gaps.map(g => `${PT_SHORT[g.month]}/${yy(g)}`).join(" · ");
-  return gaps.map((g, i) =>
-    i === gaps.length - 1 ? `${PT_SHORT[g.month]}/${yy(g)}` : PT_SHORT[g.month]).join(" · ");
-}
-
 window.BS = window.BS || {};
 Object.assign(window.BS, {
   fmtBRL, fmtBRLCompact, fmtDateBR, prettifyDesc,
@@ -588,8 +500,6 @@ Object.assign(window.BS, {
   Modal, Drawer, useToasts, BankChip, SegmentControl,
   BrokerSharkLogo, TxRow,
   isSelf, isConsumptionExpense, isRevenue, isInvest,
-  findMonthGaps, currentMonthMissing, fmtMonthGaps,
-  coverageFromFilename, coverageFromISODates,
 });
 
 /* ── SingleAreaChart ───────────────────────────────────────────────────────────── */

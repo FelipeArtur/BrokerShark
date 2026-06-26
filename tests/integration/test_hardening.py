@@ -33,13 +33,13 @@ def test_security_headers_present(client):
 
 def test_sec_fetch_site_cross_site_blocked(client):
     """A cross-site write is rejected even though the Origin header is absent."""
-    r = client.post("/api/statement-coverage",
-                    json={"periods": [{"year": 2021, "month": 8}], "origin": "manual"},
+    r = client.post("/api/transactions/categorize-bulk",
+                    json={"ids": [], "category_id": 1},
                     headers={"Sec-Fetch-Site": "cross-site"})
     assert r.status_code == 403
     # same-origin (the real app) still works
-    ok = client.post("/api/statement-coverage",
-                     json={"periods": [{"year": 2021, "month": 8}], "origin": "manual"},
+    ok = client.post("/api/transactions/categorize-bulk",
+                     json={"ids": [], "category_id": 1},
                      headers={"Sec-Fetch-Site": "same-origin"})
     assert ok.status_code == 200
 

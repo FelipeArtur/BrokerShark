@@ -12,10 +12,7 @@ The server is started via :func:`run_dashboard`, which blocks on Waitress
 systemd user service (``Restart=on-failure``).
 """
 import logging
-import os
 import queue
-import threading
-import time
 from datetime import date, datetime
 
 from flask import Flask, Response, jsonify, request, send_from_directory, stream_with_context
@@ -71,18 +68,6 @@ def _guard_host_origin():
         if request.headers.get("Sec-Fetch-Site") == "cross-site":
             return jsonify({"error": "cross-origin request blocked"}), 403
     return None
-
-
-# Last legit-request time, for the idle-shutdown watchdog. A rejected request (foreign
-# Host/Origin) skips this hook, so a stray probe can't keep the app alive.
-_last_activity = time.monotonic()
-
-
-@app.before_request
-def _track_activity() -> None:
-    """Stamp the last-activity clock on every accepted request (idle watchdog input)."""
-    global _last_activity
-    _last_activity = time.monotonic()
 
 
 @app.errorhandler(413)
@@ -280,22 +265,6 @@ def api_investment_evolution() -> Response:
     return jsonify(database.get_investment_evolution(12))
 
 
-@app.route("/api/investments/<int:inv_id>/balance", methods=["PATCH"])
-def api_patch_investment_balance(inv_id: int) -> Response:
-    """Locked: the B3 report is the source of truth for investment balances.
-
-    Positions are full-synced from B3 on each import, so a manual balance override
-    would be silently clobbered on the next import and break the "B3 = truth"
-    invariant. Adjust a position by re-importing the report instead. (``crud.
-    update_investment_balance`` survives as an internal/test helper.)
-    """
-    return jsonify({
-        "error": "Saldo de investimento é definido pela B3 (somente leitura). "
-                 "Reimporte o relatório para atualizar.",
-        "id": inv_id,
-    }), 409
-
-
 @app.route("/api/monthly")
 def api_monthly() -> Response:
     """Return the last 6 months of income vs expenses history.
@@ -318,37 +287,6 @@ def api_monthly() -> Response:
     if account:
         return jsonify(database.get_monthly_history_by_account(account, months=months))
     return jsonify(database.get_monthly_history(months=months, bank=bank))
-
-
-@app.route("/api/statement-coverage", methods=["GET", "POST"])
-def api_statement_coverage() -> Response:
-    """Months the user has accounted for — powers the missing-month safety net.
-
-    GET  → ``[{year, month, origin}]`` (origin: ``'import'`` | ``'manual'``).
-    POST → record coverage. Body ``{periods: [{year, month}, ...],
-           origin: "import"|"manual"}``. The client posts ``import`` after an
-           import confirm (one entry per month each statement file covered, so an
-           empty month still counts) and ``manual`` when the user dismisses a gap
-           as a no-activity month.
-    """
-    if request.method == "GET":
-        return jsonify([dict(r) for r in database.get_coverage()])
-    body = request.get_json(silent=True) or {}
-    origin = body.get("origin", "manual")
-    if origin not in ("import", "manual"):
-        return jsonify({"error": "origin must be import or manual"}), 400
-    months: list[tuple[int, int]] = []
-    try:
-        for p in (body.get("periods") or []):
-            year, month = int(p["year"]), int(p["month"])
-            if not (1 <= month <= 12) or not (1900 <= year <= 3000):
-                return jsonify({"error": "invalid period"}), 400
-            months.append((year, month))
-    except (KeyError, TypeError, ValueError):
-        return jsonify({"error": "periods must be [{year, month}]"}), 400
-    added = database.record_coverage(months, origin=origin)
-    _events.notify()
-    return jsonify({"ok": True, "added": added})
 
 
 @app.route("/api/backup-status")
@@ -689,36 +627,6 @@ def api_liquidity_history() -> Response:
     return jsonify(database.get_liquidity_history(12))
 
 
-@app.route("/api/budgets")
-def api_budgets() -> Response:
-    """Return all budget limits joined with category names.
-
-    Returns:
-        JSON array of ``{id, category_id, category_name, amount_limit}`` objects.
-    """
-    return jsonify(database.get_budgets())
-
-
-@app.route("/api/budgets/<int:budget_id>", methods=["PATCH"])
-def api_patch_budget(budget_id: int) -> Response:
-    """Update the spending limit for a budget row.
-
-    Request body (JSON):
-        amount_limit: float — new monthly limit in BRL.
-        category_id:  int   — category to update (optional, used if budget_id not found).
-
-    Returns:
-        ``{"ok": true}`` on success.
-    """
-    data = request.get_json(silent=True) or {}
-    amount_limit = data.get("amount_limit")
-    category_id = data.get("category_id")
-    if not isinstance(amount_limit, (int, float)) or not isinstance(category_id, int):
-        return jsonify({"error": "amount_limit (number) and category_id (int) required"}), 400
-    database.upsert_budget(category_id, float(amount_limit))
-    return jsonify({"ok": True})
-
-
 @app.route("/api/transactions", methods=["POST"])
 def api_post_transaction() -> Response:
     """Insert an expense transaction from the web quick-entry form.
@@ -836,21 +744,6 @@ def api_post_income() -> Response:
         is_revenue=is_revenue,
     )
     return jsonify({"ok": True, "id": tx_id})
-
-
-@app.route("/api/investment-movements", methods=["GET"])
-def api_get_investment_movements() -> Response:
-    """Return investment movements for a given month/year or specific investment."""
-    month = request.args.get("month", type=int)
-    year  = request.args.get("year",  type=int)
-    inv_id = request.args.get("investment_id", type=str)
-    
-    if inv_id:
-        return jsonify(database.get_investment_movements_by_id(inv_id))
-        
-    if not month or not year:
-        return jsonify(database.get_recent_investment_movements(limit=100))
-    return jsonify(database.get_investment_movements_for_month(month, year))
 
 
 @app.route("/api/investment-movements", methods=["POST"])
@@ -1094,9 +987,6 @@ def api_import_confirm() -> Response:
     result = ingestion.confirm_import(batch_id, exclude_ids, import_batch_id)
     if result.get("missing"):
         return jsonify({"error": "Importação expirada, refaça o upload."}), 404
-    # Refresh the month's snapshot in the background (single-flight) — the import
-    # + categorization work lands on the HDD without the response waiting.
-    backup.request_post_import_snapshot()
     return jsonify({"ok": True, **result})
 
 
@@ -1204,7 +1094,6 @@ def api_delete_import_batch(import_batch_id: str) -> Response:
     result = database.delete_batch(import_batch_id)
     if not result["deleted"]:
         return jsonify({"error": "Importação não encontrada."}), 404
-    backup.request_post_import_snapshot()
     return jsonify({
         "ok": True,
         "deleted": result["deleted"],
@@ -1216,55 +1105,15 @@ def api_delete_import_batch(import_batch_id: str) -> Response:
 
 
 
-def _start_idle_watchdog(timeout_min: int) -> None:
-    """Shut the app down after ``timeout_min`` idle with no open tab (frees its RAM).
-
-    The app is idle-cheap (0% CPU when nothing is happening) but still holds ~40 MB
-    while alive. This reclaims it: once no SSE client is connected (every tab closed)
-    AND no request has arrived for the timeout, send SIGINT to ourselves — the same
-    graceful stop as Ctrl+C on ``./run.sh``. A non-positive timeout disables it. An
-    open tab keeps a live SSE subscription, so viewing (even idle) never trips it.
-    """
-    if timeout_min <= 0:
-        return
-    timeout_s = timeout_min * 60
-
-    def _watch() -> None:
-        """Poll once a minute; exit when idle with zero connected clients."""
-        while True:
-            time.sleep(60)
-            if _idle_expired(timeout_s):
-                _logger.info("Ocioso %d min sem abas abertas — desligando para liberar "
-                             "recursos (IDLE_SHUTDOWN_MIN=0 desabilita).", timeout_min)
-                # Hard-exit the process. The watchdog only fires when idle (no SSE
-                # client, no request for the timeout), so there is nothing in flight;
-                # SQLite WAL is durable on commit. (os.kill(SIGINT) doesn't work —
-                # Python routes SIGINT to the main thread as KeyboardInterrupt, which
-                # the waitress serve loop swallows, so the process never stops.)
-                os._exit(0)
-
-    threading.Thread(target=_watch, daemon=True, name="idle-watchdog").start()
-
-
-def _idle_expired(timeout_s: float) -> bool:
-    """True when no tab is open (zero SSE clients) AND no request for ``timeout_s``."""
-    return _events.client_count() == 0 and (time.monotonic() - _last_activity) > timeout_s
-
-
 def run_dashboard() -> None:
     """Serve the dashboard with Waitress in the foreground (blocks until killed).
 
     Threads come from ``config.DASHBOARD_THREADS`` (default 12): a page load fires
-    ~10 API calls in parallel and each open SSE tab parks one thread. Optionally
-    auto-shuts down when idle (``config.IDLE_SHUTDOWN_MIN``) so a forgotten run frees
-    its RAM. SIGTERM/SIGINT terminate the process gracefully (systemd-clean too).
+    ~10 API calls in parallel and each open SSE tab parks one thread. SIGTERM/SIGINT
+    terminate the process gracefully (Ctrl+C on ``./run.sh`` stops it).
     """
     _logger.info("Dashboard available at http://127.0.0.1:%d (%d threads)",
                  DASHBOARD_PORT, config.DASHBOARD_THREADS)
-    if config.IDLE_SHUTDOWN_MIN > 0:
-        _logger.info("Auto-shutdown: após %d min ocioso sem abas abertas "
-                     "(IDLE_SHUTDOWN_MIN=0 desabilita).", config.IDLE_SHUTDOWN_MIN)
-    _start_idle_watchdog(config.IDLE_SHUTDOWN_MIN)
     # Backup tied to usage (no scheduler): ensure this month's snapshot is current,
     # off-thread so the HDD never blocks the boot. No-op when nothing changed.
     backup.request_startup_snapshot()

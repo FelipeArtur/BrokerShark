@@ -1,10 +1,10 @@
 /* IIFE-wrapped: own scope (replaces Babel's per-file isolation) */
 (function () {
 /* view-investments.js — InvestmentsView (aba "Investimentos") */
-/* global React, fetchInvestments, fetchInvestmentMovements, patchInvestmentBalance, fetchInvestmentEvolution, postInvestmentMovement */
+/* global React, fetchInvestments, fetchInvestmentEvolution, postInvestmentMovement */
 
 const { useState: _s3St, useEffect: _s3Ef, useMemo: _s3Memo } = React;
-const { fmtBRL, BankChip, SingleAreaChart, Modal, Donut } = window.BS;
+const { fmtBRL, BankChip, SingleAreaChart, Donut } = window.BS;
 
 const _INV_TYPE_LABEL = {
   savings:  "Poupança",
@@ -43,73 +43,18 @@ function _parseMoneyBR(raw) {
 }
 
 
-/* ── AssetDetailsModal ───────────────────────────────────────────────────── */
-function AssetDetailsModal({ asset, onClose }) {
-  const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
-  const [movements, setMovements] = _s3St([]);
-  _s3Ef(() => {
-    fetchInvestmentMovements({ investment_id: asset.id }).then(setMovements);
-  }, [asset.id]);
-
-  return h(window.BS.Modal, { open: true, onClose, title: "Detalhes do Ativo", width: 500 },
-    h("div", { style: { display: "flex", flexDirection: "column", gap: 24, padding: "8px 0" } },
-      h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
-        h("div", null,
-          h("div", { style: { fontSize: 20, fontWeight: 800, color: "var(--fg-0)", marginBottom: 4 } }, asset.name),
-          h("div", { style: { fontSize: 13, color: "var(--fg-3)" } }, _INV_TYPE_LABEL[asset.type] || "Investimento")
-        ),
-        h("div", { style: { textAlign: "right" } },
-          h("div", { style: { fontSize: 12, fontWeight: 700, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 } }, "Saldo Atual"),
-          h("div", { className: "mono", style: { fontSize: 24, fontWeight: 700, color: "var(--fg-1)" } }, window.BS.fmtBRL ? window.BS.fmtBRL(asset.balance || 0) : asset.balance)
-        )
-      ),
-      h("div", null,
-        h("div", { style: { fontSize: 14, fontWeight: 700, color: "var(--fg-2)", marginBottom: 12 } }, "Histórico de Movimentos"),
-        movements.length === 0 ? h("div", { style: { color: "var(--fg-3)", fontSize: 13 } }, "Nenhum movimento registrado.") :
-        h("div", { style: { display: "flex", flexDirection: "column", gap: 8, maxHeight: 300, overflowY: "auto", paddingRight: 8 } },
-          movements.map(m => {
-            const isDeposit = m.operation === "deposit";
-            return h("div", { key: m.id, style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px", background: "var(--bg-2)", borderRadius: 8 } },
-              h("div", { style: { display: "flex", alignItems: "center", gap: 12 } },
-                h("span", { style: { display: "inline-block", padding: "4px 8px", borderRadius: 6, fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", color: isDeposit ? "var(--reserve)" : "var(--info)", background: "color-mix(in oklch, " + (isDeposit ? "var(--reserve)" : "var(--info)") + " 15%, transparent)" } }, isDeposit ? "Aplicação" : "Resgate"),
-                h("span", { className: "mono", style: { color: "var(--fg-3)", fontSize: 12 } }, window.BS.fmtDateBR ? window.BS.fmtDateBR(m.date) : m.date.slice(0, 10))
-              ),
-              h("div", { className: "mono", style: { display: "flex", alignItems: "center", gap: 6 } },
-                h("span", { style: { color: "var(--fg-3)", fontSize: 11 } }, isDeposit ? "+" : "−"),
-                h("span", { style: { color: isDeposit ? "var(--fg-0)" : "var(--fg-1)", fontWeight: 700, fontSize: 14 } }, window.BS.fmtBRL ? window.BS.fmtBRL(m.amount) : m.amount)
-              )
-            );
-          })
-        )
-      )
-    )
-  );
-}
-
 /* ── InvestmentsView ─────────────────────────────────────────────────────── */
-function InvestmentsView({ refreshKey, filterMonth }) {
+function InvestmentsView({ refreshKey }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   const [investments, setInvestments] = _s3St([]);
-  const [periodMovements, setPeriodMovements] = _s3St([]);
   const [evolution, setEvolution] = _s3St([]);
   const [bankFilter, setBankFilter] = _s3St("all");
   const [categoryFilter, setCategoryFilter] = _s3St(null);
-  const [historyMode, setHistoryMode] = _s3St("month");
-  const [detailsAsset, setDetailsAsset] = _s3St(null);
 
-  _s3Ef(() => { 
-    fetchInvestments().then(setInvestments); 
+  _s3Ef(() => {
+    fetchInvestments().then(setInvestments);
     fetchInvestmentEvolution().then(setEvolution);
   }, [refreshKey]);
-  
-  _s3Ef(() => {
-    if (historyMode === "all" || !filterMonth || filterMonth === "all") {
-      fetchInvestmentMovements({}).then(setPeriodMovements);
-    } else {
-      const [year, month] = filterMonth.split("-").map(Number);
-      fetchInvestmentMovements({ month, year }).then(setPeriodMovements);
-    }
-  }, [filterMonth, historyMode, refreshKey]);
 
   const typeLabel = (t) => _INV_TYPE_LABEL[t] || (t ? t[0].toUpperCase() + t.slice(1) : "Investimento");
 
@@ -142,15 +87,6 @@ function InvestmentsView({ refreshKey, filterMonth }) {
   // instead of cross-indexing summaryByCategory by position, which would desync
   // the donut and ledger dots if the two arrays ever drift.
   const colorByGroup = Object.fromEntries(summaryByCategory.map(s => [s.name, s.color]));
-
-  const displayedMovements = _s3Memo(() => periodMovements.filter(m => {
-    if (bankFilter !== "all" && m.bank !== bankFilter) return false;
-    if (categoryFilter) {
-      const inv = investments.find(i => i.id === m.investment_id);
-      if (inv && typeLabel(inv.type) !== categoryFilter) return false;
-    }
-    return true;
-  }), [periodMovements, bankFilter, categoryFilter, investments]);
 
   if (investments.length === 0) {
     return h("div", { className: "fade-in pane", style: { padding: 40, textAlign: "center", color: "var(--fg-3)" } },
@@ -212,7 +148,7 @@ function InvestmentsView({ refreshKey, filterMonth }) {
                 const bal = inv.balance || 0;
                 const pct = total ? (bal / total) * 100 : 0;
                 const color = colorByGroup[groupName];
-                return h("div", { key: inv.id || inv.name, onClick: inv.derived ? undefined : () => setDetailsAsset(inv), className: "row-hover", style: { display: "flex", alignItems: "center", padding: "10px 12px", margin: "0 -12px", borderRadius: 8, cursor: inv.derived ? "default" : "pointer" } },
+                return h("div", { key: inv.id || inv.name, style: { display: "flex", alignItems: "center", padding: "10px 12px", margin: "0 -12px", borderRadius: 8 } },
                   h("div", { style: { display: "flex", alignItems: "center", gap: 16, flex: 1, minWidth: 0 } },
                     h("span", { style: { width: 8, height: 8, borderRadius: "50%", background: color, flexShrink: 0 } }),
                     h("div", { style: { fontWeight: 600, fontSize: 14, color: "var(--fg-1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, inv.name),
@@ -231,65 +167,16 @@ function InvestmentsView({ refreshKey, filterMonth }) {
       )
     ),
 
-    // Grid for Period Movements & Evolution
-    h("div", { style: { display: "grid", gridTemplateColumns: displayedMovements.length > 0 ? "1fr 1.5fr" : "1fr", gap: 32, marginTop: 16 } },
-      
-      // Movimentos
-      displayedMovements.length > 0 && h("div", { className: "panel", style: { padding: 32, overflowX: "auto" } },
-        h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", borderBottom: "1px solid var(--line-1)", paddingBottom: 16, marginBottom: 24 } },
-          h("div", { style: { fontSize: 18, fontWeight: 700, color: "var(--fg-1)" } }, "Histórico de Movimentos"),
-          h("div", { className: "filter-pills" },
-            [{ id: "month", label: "Neste Mês" }, { id: "all", label: "Histórico Completo" }].map(hm => h("button", {
-              key: hm.id, onClick: () => setHistoryMode(hm.id),
-              className: `filter-pill${historyMode === hm.id ? " active" : ""}`
-            }, hm.label))
-          )
-        ),
-        h("table", { className: "grid-table" },
-          h("thead", null, h("tr", null,
-            h("th", { style: { width: 90 } }, "Data"),
-            h("th", { style: { width: 140 } }, "Operação"),
-            h("th", null, "Posição"),
-            h("th", { style: { width: 120 } }, "Corretora"),
-            h("th", { style: { textAlign: "right", width: 140 } }, "Valor")
-          )),
-          h("tbody", null,
-            displayedMovements.map((m, i) => {
-              const isDeposit = m.operation === "deposit";
-              return h("tr", { key: i },
-                h("td", { className: "mono", style: { color: "var(--fg-3)", fontSize: 11 } }, window.BS.fmtDateBR ? window.BS.fmtDateBR(m.date) : m.date.slice(0, 10)),
-                h("td", null, h("span", { style: { display: "inline-block", padding: "4px 8px", borderRadius: 6, fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", color: isDeposit ? "var(--reserve)" : "var(--info)", background: "color-mix(in oklch, " + (isDeposit ? "var(--reserve)" : "var(--info)") + " 15%, transparent)" } }, isDeposit ? "Aplicação" : "Resgate")),
-                h("td", { style: { fontWeight: 600, color: "var(--fg-1)" } }, (investments.find(inv => inv.id === m.investment_id) || {}).name || "Ativo desconhecido"),
-                h("td", null, h(BankChip, { bank: m.bank })),
-                h("td", { className: "mono", style: { textAlign: "right" } },
-                  h("div", { style: { display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 6 } },
-                    h("span", { style: { color: "var(--fg-3)", fontSize: 11 } }, isDeposit ? "+" : "−"),
-                    h("span", { style: { color: isDeposit ? "var(--fg-0)" : "var(--fg-1)", fontWeight: 700, fontSize: 14 } }, fmtBRL(m.amount))
-                  )
-                )
-              );
-            })
-          )
-        )
+    // Evolução do patrimônio (derivada do ledger de investimentos)
+    evolution.length > 0 && h("div", { className: "panel", style: { padding: 32, marginTop: 16 } },
+      h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", borderBottom: "1px solid var(--line-1)", paddingBottom: 16, marginBottom: 24 } },
+        h("div", { style: { fontSize: 18, fontWeight: 700, color: "var(--fg-1)" } }, "Evolução do Patrimônio"),
+        h("span", { style: { fontSize: 12, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700 } }, "12 meses")
       ),
-
-      // Evolução chart
-      evolution.length > 0 && h("div", { className: "panel", style: { padding: 32 } },
-        h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", borderBottom: "1px solid var(--line-1)", paddingBottom: 16, marginBottom: 24 } },
-          h("div", { style: { fontSize: 18, fontWeight: 700, color: "var(--fg-1)" } }, "Evolução do Patrimônio"),
-          h("span", { style: { fontSize: 12, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700 } }, "12 meses")
-        ),
-        h("div", { style: { height: 260, paddingBottom: 16 } },
-          h(SingleAreaChart, { data: evolution.map(e => ({ label: e.label, value: e.cumulative })), height: 240, color: "var(--accent)" })
-        )
+      h("div", { style: { height: 260, paddingBottom: 16 } },
+        h(SingleAreaChart, { data: evolution.map(e => ({ label: e.label, value: e.cumulative })), height: 240, color: "var(--accent)" })
       )
-    ),
-
-
-    detailsAsset && h(AssetDetailsModal, {
-      asset: detailsAsset,
-      onClose: () => setDetailsAsset(null)
-    })
+    )
   );
 }
 

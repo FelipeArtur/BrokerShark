@@ -70,7 +70,7 @@ tests/   conftest.py (raiz); unit/ (puro, sem DB: classification, jobs);
 | Database | SQLite (WAL mode) |
 | Backup | snapshot local mensal no HDD (retém 12), WAL-safe, refresh pós-import |
 | Scheduler | **nenhum** — backup-on-open (snapshot no boot, change-gated) + refresh pós-import; sem cron/timer |
-| Dashboard API | Flask 3.1 + Waitress 3.0 (DASHBOARD_THREADS=12, foreground via `./run.sh`, auto-shutdown idle) |
+| Dashboard API | Flask 3.1 + Waitress 3.0 (DASHBOARD_THREADS=12, foreground via `./run.sh`) |
 | Frontend | React 18 + Chart.js + fontes Inter/JetBrains Mono, todos vendorizados (`frontend/js/vendor/`, `frontend/fonts/`) — sem CDN, app 100% offline; sem build/Babel, JS puro hyperscript (sem JSX), cada arquivo em IIFE |
 | Real-time | SSE via `events.py` |
 
@@ -87,8 +87,8 @@ transactions (id, date, flow, method, account_id, amount, description,
               -- import_batch_id: tag de sessão de import (1 por drop) → reversível via crud.delete_batch
 investments (id, name, type, bank, current_balance)
 investment_movements (id, date, investment_id, operation, amount, description)
-statement_coverage (id, year, month, origin, created_at)  -- UNIQUE(year,month); origin import|manual; rede de segurança
-budgets (id, category_id, amount_limit)
+              -- VAZIA por design (write real = transações via register_investment_transfer);
+              -- mantida só como subtração defensiva no-op nos cálculos de saldo de conta
 ```
 
 `method` CHECK: `pix | credit | ted | transfer | debit | salary | freelance | pix_received | other` (4 últimos = subtipos de receita; sem eles `INSERT OR IGNORE` descartava receita em silêncio).
@@ -101,7 +101,7 @@ budgets (id, category_id, amount_limit)
 - **`counterpart='SELF'`** (auto-Pix/TED entre contas próprias): nem despesa/receita/investimento. Saída `method='transfer'`, entrada `is_revenue=0`, ambas `SELF`. Saldos preservados, fora de Despesas/Receitas e `investment_net`. Via `adapters._is_self_transfer` (`config.OWNER_SELF_KEYWORDS`).
 - **Transferência interna:** `flow='expense', method='transfer', dest_account_id=<dest>` — excluída via `AND dest_account_id IS NULL`.
 - **Investimento (fonte = transações, não `investment_movements`):** aplicação = `expense/transfer/dest NULL`; resgate = `income/is_revenue=0/dest NULL`. `free_balance = receitas − despesas − investment_net`. "+ Movimento" → `crud.register_investment_transfer` (leg na conta + ajusta `current_balance`; **não** escreve `investment_movements`, que causaria dupla contagem).
-- **B3 = tabela verdade:** relatório B3 é a fonte autoritativa da tabela `investments` (Tesouro/CDB/NuInvest). `b3.load_b3_positions` **full-sync**: upsert por nome + `crud.prune_investments_except` apaga posição ausente do relatório (espelho fiel). **Read-only:** `PATCH /api/investments/<id>/balance` → **409** (ajuste = re-importar). `prune_investments_except([])` = no-op (relatório vazio nunca apaga tudo).
+- **B3 = tabela verdade:** relatório B3 é a fonte autoritativa da tabela `investments` (Tesouro/CDB/NuInvest). `b3.load_b3_positions` **full-sync**: upsert por nome + `crud.prune_investments_except` apaga posição ausente do relatório (espelho fiel). **Read-only:** sem endpoint de escrita de saldo (ajuste = re-importar). `prune_investments_except([])` = no-op (relatório vazio nunca apaga tudo).
 - **Só Caixinha Nubank derivada:** vive só no ledger (não vai p/ tabela `investments` nem B3). `analytics.get_ledger_savings_positions()` = `Σ(aplicações) − Σ(resgates)` por keyword (`rdb`/`caixinha`/`dinheiro guardado`, banco nubank), sem SELF. `/api/investments` anexa (`id=null, derived=true`). Só Caixinha pq é **RDB (não custodiada na B3)**. **Porquinho Inter NÃO é derivado** — é CDB custodiado na B3 → vem da tabela verdade; derivar contaria 2x (e dá negativo em pote drenado: derivação ignora rendimento). Pernas do Porquinho seguem como investimento (`_INVESTMENT_KEYWORDS` mantém `porquinho`/`cdb porq`). **Nunca usar keyword de corretora (NuInvest/Tesouro/Porquinho)** na derivação. **B3 vence empate de nome.**
 - **Pagamento de fatura → Crédito:** saída de conta corrente com `fatura` na descrição (`adapters._is_fatura_payment`) → `method='credit'` (aba Crédito, não TED), via `_checking_expense_method`. Continua despesa real (`flow=expense`). **Stand-in** até fatura itemizada: então o pagamento vira liquidação (fora dos totais) e os itens viram as despesas `credit` alocadas ao período do extrato — senão pagamento+itens dobram a despesa.
 - **Exclusão segura** (`crud.delete_transaction` + `ConfirmDeleteModal`): SELF apaga 2 legs; legs de investimento revertem `current_balance`.
@@ -111,9 +111,9 @@ budgets (id, category_id, amount_limit)
 
 ## Dashboard API (resumo)
 
-Escrita (validada no servidor): `POST /api/transactions` (despesa), `POST /api/incomes` (receita/transferência), `POST /api/investment-movements`, `PATCH /api/transactions/<id>` (category_id/display_name/is_third_party), `PATCH /api/budgets/<id>`, `DELETE /api/transactions/<id>`, `POST /api/transactions/restore`. Import: `POST /api/import/preview` (múltiplos `file` da mesma conta), `GET /api/import/staging/<batch_id>`, `PATCH /api/import/staging/<batch_id>/<row_id>` (edita preview → `amount_divergence`), `POST /api/import/confirm` (recebe/ecoa `import_batch_id`), `DELETE /api/import/batch/<id>` (reverte o lote).
+Escrita (validada no servidor): `POST /api/transactions` (despesa), `POST /api/incomes` (receita/transferência), `POST /api/investment-movements` (grava leg via register_investment_transfer), `PATCH /api/transactions/<id>` (category_id/display_name/is_third_party), `DELETE /api/transactions/<id>`, `POST /api/transactions/restore`. Import: `POST /api/import/preview` (múltiplos `file` da mesma conta), `GET /api/import/staging/<batch_id>`, `PATCH /api/import/staging/<batch_id>/<row_id>` (edita preview → `amount_divergence`), `POST /api/import/confirm` (recebe/ecoa `import_batch_id`), `DELETE /api/import/batch/<id>` (reverte o lote).
 
-Leitura: `/api/available` (herói), `/api/summary`, `/api/accounts`, `/api/investments`, `/api/monthly` (`?present=1` = só meses com dados), `/api/categories`, `/api/transactions`, `/api/recent-activity`, `/api/patrimonio-history`, `/api/daily-spend` (mês zero-filled), `/api/month-transactions` (inclui `is_revenue`), `/api/budgets`, `/api/categories-full`, `/api/pix-top`, `/api/expenses-by-method`, `/api/statement-coverage` (GET/POST cobertura), `/api/events` (SSE).
+Leitura: `/api/available` (herói), `/api/summary`, `/api/accounts`, `/api/investments`, `/api/investment-evolution`, `/api/monthly` (`?present=1` = só meses com dados), `/api/categories`, `/api/transactions`, `/api/recent-activity`, `/api/patrimonio-history`, `/api/liquidity-history`, `/api/daily-spend` (mês zero-filled), `/api/month-transactions` (inclui `is_revenue`), `/api/categories-full`, `/api/pix-top`, `/api/expenses-by-method`, `/api/backup-status` (frescor), `/api/events` (SSE).
 
 ---
 
@@ -122,7 +122,7 @@ Leitura: `/api/available` (herói), `/api/summary`, `/api/accounts`, `/api/inves
 Navegação: **Visão do Mês** (`OverviewView`), **Histórico** (`HistoryView`), **Investimentos** (`InvestmentsView`). Atalhos `1`/`2`/`3`. Categorias vive em Configurações.
 
 - **Dinheiro** (agora): herói **Disponível pra gastar** (`/api/available`); direita = ledger Patrimônio líquido. Sempre mês atual. Projeções advisory. Clicar conta → Histórico filtrado.
-- **Histórico** (análise): meses com dados (`/api/monthly?present=1`), 4 métricas (Δ vs média), fluxo 6m (`DualLine`), por categoria, Top PIX, tabela filtrável (flow · método · categoria · conta · busca) + categorização inline. **Rede de segurança de importação:** banner + flag no strip avisam meses passados sem lançamentos (extrato esquecido) e cutucam mês atual vazio após dia 5 — `primitives.js::findMonthGaps`/`currentMonthMissing`/`fmtMonthGaps` (sobre a lista present); selo na Home reusa os helpers. Buraco = sem dados **E não coberto**: `statement_coverage`/`/api/statement-coverage` marca meses cobertos por import (front deriva período do **nome do arquivo** via `coverageFromFilename` + datas das linhas, grava `origin=import` no confirm, incl. arquivo vazio) ou por dismiss manual ("sem movimento" → `origin=manual`). Idempotente, UNIQUE(year,month).
+- **Histórico** (análise): meses com dados (`/api/monthly?present=1`), 4 métricas (Δ vs média), fluxo 6m (`DualLine`), por categoria, Top PIX, tabela filtrável (flow · método · categoria · conta · busca) + categorização inline.
 - **Investimentos:** donut (`Donut`) + Σ `current_balance` + lista editável + "+ Movimento".
 
 ---

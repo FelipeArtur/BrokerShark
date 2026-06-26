@@ -44,14 +44,11 @@ async function fetchRecentActivity()       { return _get("/api/recent-activity")
 async function fetchMonthTransactions({ month, year } = {}) { return _get(`/api/month-transactions${_params({ month, year })}`); }
 async function fetchPatrimonioHistory()    { return _get("/api/patrimonio-history"); }
 async function fetchLiquidityHistory()     { return _get("/api/liquidity-history"); }
-async function fetchBudgets()              { return _get("/api/budgets"); }
 async function searchTransactions(q)       { return _get(`/api/search?q=${encodeURIComponent(q)}`); }
 async function fetchMonthlyFull(bank)      { return _get(`/api/monthly${_params({ bank, present: 1 })}`); }
-async function fetchCoverage()             { return _get("/api/statement-coverage"); }
 async function fetchBackupStatus()         { return _get("/api/backup-status"); }
 async function fetchUncategorizedMerchants({ year, month } = {}) { return _get(`/api/uncategorized-merchants${_params({ year, month })}`); }
 async function categorizeBulk(ids, categoryId) { return _post("/api/transactions/categorize-bulk", { ids, category_id: categoryId }); }
-async function recordCoverage(periods, origin = "manual") { return _post("/api/statement-coverage", { periods, origin }); }
 async function fetchCashflowStatement({ month, year } = {}) { return _get(`/api/cashflow-statement${_params({ month, year })}`); }
 async function fetchAvailable() {
   const r = await fetch("/api/available");
@@ -67,13 +64,6 @@ async function patchTransaction(txId, fields) {
   return _patch(`/api/transactions/${txId}`, fields);
 }
 async function fetchPixTop({ month, year } = {}) { return _get(`/api/pix-top${_params({ month, year })}`); }
-async function patchBudget(budgetId, categoryId, amountLimit) {
-  return _patch(`/api/budgets/${budgetId}`, { category_id: categoryId, amount_limit: amountLimit });
-}
-async function fetchInvestmentMovements({ month, year, investment_id } = {}) { return _get(`/api/investment-movements${_params({ month, year, investment_id })}`); }
-async function patchInvestmentBalance(id, balance) {
-  return _patch(`/api/investments/${id}/balance`, { balance });
-}
 async function postInvestmentMovement({ investment_name, operation, amount, date, description }) {
   return _post("/api/investment-movements", { investment_name, operation, amount, date, description });
 }

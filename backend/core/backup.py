@@ -20,11 +20,11 @@ silent historically.
 Every snapshot is written to a ``.tmp`` sidecar, integrity-checked, then moved into
 place with ``os.replace`` — a failed snapshot can never destroy the last good one.
 
-``request_post_import_snapshot`` refreshes the CURRENT month's snapshot from a
-background thread (single-flight) right after an import is confirmed/undone, so the
-month's file is never more than one import behind (and ends the month as the
-month-end close). The snapshot uses the SQLite online backup API and is WAL-safe
-against the live dashboard.
+The backup is tied to *using* the app (no scheduler): ``request_startup_snapshot``
+refreshes the current month's snapshot on boot from a background thread, but only
+when the live DB changed since the last one (re-opening without edits is a no-op).
+The snapshot uses the SQLite online backup API and is WAL-safe against the live
+dashboard.
 
 ``restore_backup`` is the recovery primitive — verify + ``.pre-restore`` sidecar +
 atomic swap. Drive it through the safe operational wrapper ``python -m jobs.restore``,
@@ -161,7 +161,7 @@ def run_backup(today: date | None = None) -> str:
 
 
 def refresh_monthly_snapshot(today: date | None = None) -> bool:
-    """Force-refresh the current month's snapshot (post-import hook), overwrite-safe.
+    """Force-refresh the current month's snapshot, overwrite-safe.
 
     Unlike :func:`run_backup`, this OVERWRITES the month's snapshot so the
     freshest import/categorization work is captured (the file ends the month as
@@ -171,7 +171,7 @@ def refresh_monthly_snapshot(today: date | None = None) -> bool:
     """
     day = today or date.today()
     if not Path(DB_PATH).exists():
-        _logger.warning("Database file not found, skipping post-import snapshot")
+        _logger.warning("Database file not found, skipping snapshot")
         return False
     try:
         Path(BACKUP_DIR).mkdir(parents=True, exist_ok=True)
@@ -179,40 +179,6 @@ def refresh_monthly_snapshot(today: date | None = None) -> bool:
         _logger.warning("Cannot create backup directory %s: %s", BACKUP_DIR, exc)
         return False
     return _write_snapshot(_monthly_path(day))
-
-
-_post_import_lock = threading.Lock()
-_post_import_pending = False
-
-
-def request_post_import_snapshot() -> None:
-    """Fire-and-forget refresh of the month's snapshot (single-flight).
-
-    Called from request handlers right after an import is confirmed or undone.
-    Runs in a background thread so the HTTP response never waits on the HDD
-    (cold spin-up can take seconds). Single-flight: while one snapshot is queued
-    or running, further requests are dropped — a multi-account drop fires several
-    confirms back-to-back and needs only one snapshot. A snapshot raced by a
-    later confirm misses at most that confirm's rows; the next import refreshes.
-    """
-    global _post_import_pending
-    with _post_import_lock:
-        if _post_import_pending:
-            return
-        _post_import_pending = True
-
-    def _worker() -> None:
-        """Run the snapshot off-thread; always release the single-flight latch."""
-        global _post_import_pending
-        try:
-            refresh_monthly_snapshot()
-        except Exception:  # thread boundary: nothing above can catch — log, never crash
-            _logger.exception("Post-import snapshot failed unexpectedly")
-        finally:
-            with _post_import_lock:
-                _post_import_pending = False
-
-    threading.Thread(target=_worker, daemon=True, name="post-import-snapshot").start()
 
 
 def _live_db_mtime() -> float:
@@ -225,6 +191,36 @@ def _live_db_mtime() -> float:
     return newest
 
 
+# An interrupted snapshot leaves a ``.tmp`` (and journal/-wal/-shm) behind: the
+# snapshot runs in a daemon thread, so a process kill mid-write (the idle-shutdown
+# SIGINT, or Ctrl+C on ``./run.sh``) dies instantly — ``_write_snapshot``'s cleanup
+# only fires on *caught* exceptions, never on a hard kill. The age gate keeps the
+# sweep from deleting a snapshot that is genuinely in flight (its tmp is seconds old).
+_TMP_ORPHAN_MIN_AGE_S = 60
+
+
+def _sweep_stale_tmps() -> None:
+    """Delete leftover ``*.tmp`` snapshot scratch (and sidecars) from killed runs.
+
+    Self-heals the backup dir on app open so orphans never accumulate. Best-effort:
+    only removes tmps older than ``_TMP_ORPHAN_MIN_AGE_S`` (an in-flight snapshot's
+    tmp is fresh and is left alone), and never raises.
+    """
+    try:
+        now = time.time()
+        for tmp in Path(BACKUP_DIR).glob(_MONTHLY_GLOB + ".tmp"):
+            try:
+                if now - tmp.stat().st_mtime < _TMP_ORPHAN_MIN_AGE_S:
+                    continue  # likely an in-flight snapshot — don't yank it
+            except OSError:
+                continue
+            for suffix in ("", "-journal", "-wal", "-shm"):
+                _safe_unlink(Path(str(tmp) + suffix))
+            _logger.info("Swept orphan snapshot tmp: %s", tmp)
+    except OSError:
+        pass
+
+
 def request_startup_snapshot() -> None:
     """On app open: refresh the month's snapshot if the DB changed since the last one.
 
@@ -234,10 +230,14 @@ def request_startup_snapshot() -> None:
     edits writes nothing. Otherwise it captures everything done since the last
     snapshot (categorization, edits) and prunes old months. The owner runs no
     scheduler; this ties the backup to *using* the app (decision 2026-06-24).
+
+    First sweeps any orphan ``.tmp`` left by a snapshot killed mid-write (e.g. the
+    idle-shutdown SIGINT racing the daemon snapshot thread) so the dir self-heals.
     """
     def _worker() -> None:
         """Snapshot off-thread when stale; never crash the boot."""
         try:
+            _sweep_stale_tmps()
             _snapshot_if_stale()
         except Exception:  # thread boundary — log, never take the dashboard down
             _logger.exception("Startup snapshot failed unexpectedly")

@@ -128,13 +128,6 @@ def init_db() -> None:
                 FOREIGN KEY (investment_id) REFERENCES investments(id)
             );
 
-            CREATE TABLE IF NOT EXISTS budgets (
-                id           INTEGER PRIMARY KEY AUTOINCREMENT,
-                category_id  INTEGER NOT NULL UNIQUE,
-                amount_limit REAL NOT NULL,
-                FOREIGN KEY (category_id) REFERENCES categories(id)
-            );
-
             -- Staging area for file imports (web ingestion).
             -- Parsed rows land here with a classification status; the user
             -- reviews them in the preview modal, then 'new' rows are promoted
@@ -164,23 +157,6 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_staging_batch
                 ON import_staging(batch_id);
 
-            -- Statement coverage for the missing-month safety net. One row per
-            -- (year, month) the user has accounted for, so the Histórico/home
-            -- gap warning stops flagging a month whose statement was imported
-            -- (even an empty one — a real no-activity month) or that the user
-            -- explicitly reviewed. Account-agnostic, matching the gap detection.
-            -- origin: 'import' = a confirmed import covered this month;
-            --         'manual' = the user dismissed the gap as no-activity.
-            CREATE TABLE IF NOT EXISTS statement_coverage (
-                id         INTEGER PRIMARY KEY AUTOINCREMENT,
-                year       INTEGER NOT NULL,
-                month      INTEGER NOT NULL,
-                origin     TEXT NOT NULL DEFAULT 'import'
-                    CHECK (origin IN ('import', 'manual')),
-                created_at TEXT NOT NULL,
-                UNIQUE (year, month)
-            );
-
             -- Indices for common query patterns
             CREATE INDEX IF NOT EXISTS idx_tx_date
                 ON transactions(date);
@@ -192,7 +168,6 @@ def init_db() -> None:
 
         _seed_accounts(conn)
         _seed_categories(conn)
-        _seed_budgets(conn)
 
         # Backward-compat migrations for existing databases
         # (no-ops on fresh databases where columns are already in the base schema)
@@ -372,21 +347,3 @@ def _seed_categories(conn: sqlite3.Connection) -> None:
     )
     if rows:
         conn.executemany("INSERT INTO categories (name, flow) VALUES (?,?)", rows)
-
-
-def _seed_budgets(conn: sqlite3.Connection) -> None:
-    """Insert a default monthly limit per seeded expense category (skip existing)."""
-    defaults = {
-        "Alimentação": 1500.0, "Carro": 500.0, "Jogos": 200.0,
-        "Lazer": 400.0, "Atividade física": 300.0, "Eletrônicos": 300.0,
-        "Educação": 500.0, "Igreja": 200.0, "Dízimo": 0.0, "Outro": 300.0,
-    }
-    for name, limit in defaults.items():
-        cat = conn.execute(
-            "SELECT id FROM categories WHERE name=? AND flow='expense'", (name,)
-        ).fetchone()
-        if cat:
-            conn.execute(
-                "INSERT OR IGNORE INTO budgets (category_id, amount_limit) VALUES (?,?)",
-                (cat["id"], limit),
-            )

@@ -265,44 +265,6 @@ def bulk_categorize(ids: Iterable[int], category_id: int) -> int:
     return updated
 
 
-def record_coverage(
-    months: Iterable[tuple[int, int]], origin: str = "import",
-) -> int:
-    """Mark ``(year, month)`` pairs as accounted for (missing-month safety net).
-
-    ``origin`` is ``'import'`` (a confirmed statement covered the month, even when
-    it had zero transactions) or ``'manual'`` (the user dismissed a gap as a
-    no-activity month). Account-agnostic, idempotent: the UNIQUE(year, month)
-    constraint means re-recording a covered month is a silent no-op (an existing
-    'import' row is never downgraded by a later 'manual' dismiss). Returns the
-    number of newly inserted rows.
-    """
-    if origin not in ("import", "manual"):
-        raise ValueError(f"invalid coverage origin: {origin!r}")
-    now = datetime.now().isoformat(timespec="seconds")
-    added = 0
-    with _connect() as conn:
-        for year, month in months:
-            if not (1 <= int(month) <= 12):
-                raise ValueError(f"invalid coverage month: {month!r}")
-            cur = conn.execute(
-                "INSERT OR IGNORE INTO statement_coverage "
-                "(year, month, origin, created_at) VALUES (?, ?, ?, ?)",
-                (int(year), int(month), origin, now),
-            )
-            added += cur.rowcount
-    return added
-
-
-def get_coverage() -> list[sqlite3.Row]:
-    """Return every accounted-for month as rows of ``year, month, origin``."""
-    with _connect() as conn:
-        return conn.execute(
-            "SELECT year, month, origin FROM statement_coverage "
-            "ORDER BY year, month",
-        ).fetchall()
-
-
 def delete_batch(import_batch_id: str) -> dict:
     """Reverse a whole import in one transaction — every row that shares the tag.
 
@@ -459,38 +421,6 @@ def prune_investments_except(names: list[str]) -> int:
     return len(stale)
 
 
-def insert_investment_movement(
-    date: str,
-    investment_id: int,
-    operation: str,
-    amount: float,
-    description: Optional[str] = None,
-) -> int:
-    """Record a deposit or withdrawal and update the investment balance.
-
-    Atomically inserts the movement row and updates ``investments.current_balance``
-    within a single transaction. Notifies the dashboard via SSE after commit.
-
-    Returns:
-        The auto-incremented ``id`` of the new ``investment_movements`` row.
-    """
-    with _connect() as conn:
-        cur = conn.execute(
-            """INSERT INTO investment_movements
-               (date, investment_id, operation, amount, description)
-               VALUES (?,?,?,?,?)""",
-            (date, investment_id, operation, amount, description),
-        )
-        last_id = cur.lastrowid if cur.lastrowid is not None else -1
-        delta = amount if operation == "deposit" else -amount
-        conn.execute(
-            "UPDATE investments SET current_balance = current_balance + ? WHERE id = ?",
-            (delta, investment_id),
-        )
-    events.notify()
-    return last_id
-
-
 # bank → checking account that funds/receives an investment movement.
 _BANK_CHECKING = {"nubank": "nu-db", "inter": "inter-db"}
 
@@ -547,31 +477,17 @@ def register_investment_transfer(
 
 
 def update_investment_balance(investment_id: int, new_balance: float) -> None:
-    """Overwrite the current_balance of an investment to reflect real-world value."""
+    """Overwrite the current_balance of an investment to reflect real-world value.
+
+    Internal/test helper only — there is no write endpoint (B3 is the source of
+    truth for balances; ``register_investment_transfer`` adjusts them atomically).
+    """
     with _connect() as conn:
         conn.execute(
             "UPDATE investments SET current_balance=? WHERE id=?",
             (new_balance, investment_id),
         )
     events.notify()
-
-
-def get_investment_movement(movement_id: int) -> Optional[sqlite3.Row]:
-    """Fetch a single investment movement by its id."""
-    with _connect() as conn:
-        return conn.execute(
-            "SELECT * FROM investment_movements WHERE id = ?", (movement_id,)
-        ).fetchone()
-
-
-def upsert_budget(category_id: int, amount_limit: float) -> None:
-    """Insert or replace the spending limit for a category."""
-    with _connect() as conn:
-        conn.execute(
-            """INSERT INTO budgets (category_id, amount_limit) VALUES (?,?)
-               ON CONFLICT(category_id) DO UPDATE SET amount_limit=excluded.amount_limit""",
-            (category_id, amount_limit),
-        )
 
 
 # ── Import staging ──────────────────────────────────────────────────────────
