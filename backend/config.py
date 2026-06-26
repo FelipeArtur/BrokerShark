@@ -20,19 +20,16 @@ FRONTEND_DIR: Path = Path(__file__).parent.parent / "frontend"
 # Waitress worker threads. Single-user: a page load fires ~10 parallel API calls and
 # each open SSE tab parks one thread — 12 covers that without the old 32-thread waste.
 DASHBOARD_THREADS: int = int(os.getenv("DASHBOARD_THREADS", "12"))
-# Auto-shutdown after this many minutes with NO open tab (zero SSE clients) and no
-# requests — so a forgotten `./run.sh` frees its ~40 MB instead of lingering. The
-# app is idle-cheap (0% CPU), this just reclaims RAM when nobody's looking. 0 = never.
-IDLE_SHUTDOWN_MIN: int = int(os.getenv("IDLE_SHUTDOWN_MIN", "30"))
 
 # ── Ingestão ──────────────────────────────────────────────────────────────────
 # Identificadores do próprio dono nos campos de contraparte dos extratos (nome
 # e/ou fragmento de CPF, como aparecem na descrição). Usado para classificar
 # auto-Pix/TED entre as contas do usuário como transferência (counterpart='SELF'),
-# fora de despesas/receitas. Comma-separated; minúsculas; override por env.
+# fora de despesas/receitas. Comma-separated; minúsculas. Dado PESSOAL: definido
+# SÓ no .env (gitignored) — nunca um default hardcoded no código versionado.
 OWNER_SELF_KEYWORDS: tuple[str, ...] = tuple(
     k.strip().lower()
-    for k in os.getenv("OWNER_SELF_KEYWORDS", "joao da silva souza,000.000").split(",")
+    for k in os.getenv("OWNER_SELF_KEYWORDS", "").split(",")
     if k.strip()
 )
 

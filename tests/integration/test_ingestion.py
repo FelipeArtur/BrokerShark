@@ -85,9 +85,11 @@ def test_fatura_payments_classified_as_credit():
     assert fatura.method == "credit" and fatura.flow == "expense"
 
 
-def test_self_transfer_rows_marked_not_income_expense():
+def test_self_transfer_rows_marked_not_income_expense(monkeypatch):
     """Auto-Pix/TED entre contas do dono → counterpart='SELF', fora de receita/despesa."""
+    import config
     from core.ingestion import adapters
+    monkeypatch.setattr(config, "OWNER_SELF_KEYWORDS", ("joao da silva",))
     extrato = (
         "Data,Valor,Identificador,Descrição\n"
         "26/03/2026,-1400.00,uuid-st-out,Transferência enviada pelo Pix - Joao Da Silva Souza\n"

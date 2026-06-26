@@ -18,19 +18,12 @@ def _auto_categorize_income(conn: sqlite3.Connection) -> None:
     ).fetchall()}
     if not ids:
         return
-    sal = ids.get("Salário")
     pix = ids.get("PIX recebido")
     fre = ids.get("Freela")
     out = ids.get("Outro")
-    if sal:
-        conn.execute(
-            """UPDATE transactions SET category_id=?
-               WHERE flow='income' AND is_revenue=1 AND category_id IS NULL
-               AND (description LIKE '%EXEMPLO LTDA%'
-                    OR description LIKE '%EXEMPLO%'
-                    OR description LIKE '%JOAO DA SILVA SOUZA%')""",
-            (sal,),
-        )
+    # (Salary auto-categorization was owner-specific — it matched the owner's name/
+    # employer in descriptions. Dropped: personal data doesn't belong in versioned
+    # code, and categorization is manual by design. Generic patterns stay below.)
     if pix:
         conn.execute(
             """UPDATE transactions SET category_id=?
