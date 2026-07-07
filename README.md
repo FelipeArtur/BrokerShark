@@ -62,9 +62,13 @@ The dashboard runs in the **foreground** via `./run.sh` (logs straight to the te
 Ctrl-C to stop) — no always-on service, by design:
 
 ```bash
-./run.sh
+./run.sh          # serve only
+./run.sh --open   # serve + open the browser when the port answers
 # Dashboard: http://localhost:8080
 ```
+
+A desktop launcher (`~/.local/share/applications/brokershark.desktop`) points at
+`run.sh --open` in a terminal — one click to start, Ctrl-C to stop.
 
 Backup happens automatically on app open (snapshot refreshed if the DB changed); a manual
 run is still available:
