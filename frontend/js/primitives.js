@@ -391,7 +391,9 @@ function Drawer({ open, onClose, children, width = 480, title }) {
 function BankChip({ bank, accountId }) {
   const isNu = bank === "nubank" || (accountId && accountId.startsWith("nu"));
   const isInter = bank === "inter" || (accountId && accountId.startsWith("inter"));
-  const label = isNu ? "Nubank" : (isInter ? "Inter" : (bank || accountId));
+  // "outro" is the B3 parser's bucket for unrecognized issuers — label it "B3"
+  // (matches the "B3 / Outras" filter) instead of leaking the raw enum value.
+  const label = isNu ? "Nubank" : (isInter ? "Inter" : (bank === "outro" ? "B3" : (bank || accountId)));
   const cls = isNu ? "nubank" : (isInter ? "inter" : "");
   return React.createElement("span", { className: `chip ${cls}` }, label);
 }
