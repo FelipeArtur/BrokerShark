@@ -379,6 +379,21 @@ _VALID_EXPENSE_METHODS = {"credit", "pix", "ted", "debit"}
 _VALID_INCOME_TYPES = {"salary", "freelance", "pix", "other"}
 
 
+def _valid_iso_date(value: object) -> bool:
+    """True only for a real ``YYYY-MM-DD`` date.
+
+    Every month view groups by ``strftime('%Y-%m', date)`` — a malformed date is
+    accepted by SQLite but silently drops out of month groupings while still
+    counting in balances, so writes must reject it up front.
+    """
+    if not isinstance(value, str):
+        return False
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").strftime("%Y-%m-%d") == value
+    except ValueError:
+        return False
+
+
 @app.route("/api/account/<account_id>")
 def api_account_detail(account_id: str) -> Response:
     """Return all details for a single account in one call.
@@ -658,8 +673,15 @@ def api_post_transaction() -> Response:
         return jsonify({"error": "amount must be a positive number"}), 400
     if not description:
         return jsonify({"error": "description required"}), 400
-    if not date_str:
-        return jsonify({"error": "date required"}), 400
+    if not _valid_iso_date(date_str):
+        return jsonify({"error": "date must be YYYY-MM-DD"}), 400
+    # Validate FK up front (mirrors the PATCH endpoint): with foreign_keys=ON an
+    # unknown id would raise an unhandled IntegrityError (500).
+    if category_id is not None:
+        if not isinstance(category_id, int) or isinstance(category_id, bool):
+            return jsonify({"error": "category_id must be an integer"}), 400
+        if database.get_category(category_id) is None:
+            return jsonify({"error": "category_id not found"}), 400
 
     tx_id = database.insert_transaction(
         date=date_str,
@@ -702,8 +724,8 @@ def api_post_income() -> Response:
 
     if not isinstance(amount, (int, float)) or amount <= 0:
         return jsonify({"error": "amount must be a positive number"}), 400
-    if not date_str:
-        return jsonify({"error": "date required"}), 400
+    if not _valid_iso_date(date_str):
+        return jsonify({"error": "date must be YYYY-MM-DD"}), 400
 
     METHOD_MAP = {
         "salary": "salary", "freelance": "freelance",
@@ -773,8 +795,8 @@ def api_post_investment_movement() -> Response:
         return jsonify({"error": "amount must be a positive number"}), 400
     if operation not in ("deposit", "withdrawal"):
         return jsonify({"error": "operation must be deposit or withdrawal"}), 400
-    if not date_str:
-        return jsonify({"error": "date required"}), 400
+    if not _valid_iso_date(date_str):
+        return jsonify({"error": "date must be YYYY-MM-DD"}), 400
 
     investment = database.get_investment_by_name(inv_name)
     if investment is None:

@@ -146,3 +146,33 @@ def test_import_staging_edit_rejects_unknown_category(client):
     )
     assert resp.status_code == 400
 
+
+
+def test_expense_rejects_malformed_date(client):
+    # a malformed date is accepted by SQLite but silently drops out of every
+    # strftime('%Y-%m') month grouping while still counting in balances
+    for bad in ("01/05/2026", "2026-13-01", "2026-05-1", "yesterday", 20260501):
+        resp = client.post("/api/transactions", json={
+            "account_id": "nu-db", "method": "pix",
+            "amount": 50.0, "date": bad, "description": "x", "category_id": 1,
+        })
+        assert resp.status_code == 400, f"date {bad!r} was accepted"
+
+
+def test_expense_rejects_unknown_category(client):
+    # mirrors the PATCH endpoint: unknown FK must be a 400, not an
+    # unhandled IntegrityError 500 (foreign_keys=ON)
+    resp = client.post("/api/transactions", json={
+        "account_id": "nu-db", "method": "pix",
+        "amount": 50.0, "date": "2026-05-01", "description": "x",
+        "category_id": 999999,
+    })
+    assert resp.status_code == 400
+
+
+def test_income_rejects_malformed_date(client):
+    resp = client.post("/api/incomes", json={
+        "type": "salary", "account_id": "nu-db",
+        "amount": 100.0, "date": "05/2026",
+    })
+    assert resp.status_code == 400
