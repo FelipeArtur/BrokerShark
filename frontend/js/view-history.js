@@ -456,24 +456,24 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
             )),
             h("tbody", null,
               filteredTx.length === 0 && h("tr", null, h("td", { colSpan: 5, style: { textAlign: "center", padding: 40, color: "var(--fg-3)", fontSize: 13 } }, "Nenhuma transação.")),
-              ...filteredTx.map(t => {
-                const rowCats = catsByFlow[t.flow] || [];
-                return h(window.BS.TxRow, {
+              ...filteredTx.map(t =>
+                h(window.BS.TxRow, {
                   key: t.id, t, cols: ["date", "desc", "cat", "account", "amount"],
-                  onEditCategory, cats: rowCats,
-                  onInlineCategoryChange: async (txId, catId) => {
-                    const id = parseInt(catId);
+                  onEditCategory,
+                  // Sugestão do histórico (suggest-only): só grava neste clique.
+                  onApplySuggestion: async (tx) => {
                     try {
-                      await patchTransactionCategory(txId, id);
-                      window.dispatchEvent(new CustomEvent('bs-toast', { detail: { msg: "Categoria atualizada", kind: "success" } }));
-                      const name = rowCats.find(c => c.id === id)?.name || t.category;
-                      setMonthTx(prev => prev.map(x => x.id === txId ? { ...x, category_id: id, category: name } : x));
+                      await patchTransactionCategory(tx.id, tx.suggested_category_id);
+                      window.dispatchEvent(new CustomEvent('bs-toast', { detail: { msg: `Categorizado como ${tx.suggested_category_name}`, kind: "success" } }));
+                      setMonthTx(prev => prev.map(x => x.id === tx.id
+                        ? { ...x, category_id: tx.suggested_category_id, category: tx.suggested_category_name }
+                        : x));
                     } catch (e) {
                       window.dispatchEvent(new CustomEvent('bs-toast', { detail: { msg: "Erro ao atualizar", kind: "error" } }));
                     }
                   }
-                });
-              })
+                })
+              )
             )
           )
         )

@@ -425,7 +425,7 @@ function BrokerSharkLogo({ size = 28 }) {
 }
 
 /* ── TxRow ──────────────────────────────────────────────────────────────── */
-const TxRow = React.memo(({ t, cols, onEditCategory }) => {
+const TxRow = React.memo(({ t, cols, onEditCategory, onApplySuggestion }) => {
   const h = React.createElement;
   const isThirdParty = !!t.is_third_party;
   // Non-consumption cash legs (shared classifiers — window.BS.isSelf / isInvest)
@@ -457,10 +457,23 @@ const TxRow = React.memo(({ t, cols, onEditCategory }) => {
                     ...(t.flow === "income" ? { borderColor: "color-mix(in oklch, var(--pos) 30%, transparent)", color: "var(--pos)" } : {}),
                   }
                 }, t.category)
-              : h("span", {
-                  className: "data-tag",
-                  style: { borderStyle: "dashed", color: "var(--fg-3)" },
-                }, t.flow === "expense" ? "Sem categoria" : "Receita")
+              : (t.suggested_category_id != null && onApplySuggestion)
+                // Sugestão do histórico (suggest-only): 1 clique aplica, nada é
+                // auto-escrito — mesmo índice do preview de import / painel de lote.
+                ? h("button", {
+                    className: "data-tag",
+                    title: `Sugerida do histórico — clique para aplicar "${t.suggested_category_name}"`,
+                    onClick: e => { e.stopPropagation(); onApplySuggestion(t); },
+                    style: {
+                      borderStyle: "dashed", cursor: "pointer", background: "none",
+                      borderColor: "color-mix(in oklch, var(--accent) 45%, transparent)",
+                      color: "var(--accent)", fontFamily: "inherit",
+                    },
+                  }, `✓ ${t.suggested_category_name}?`)
+                : h("span", {
+                    className: "data-tag",
+                    style: { borderStyle: "dashed", color: "var(--fg-3)" },
+                  }, t.flow === "expense" ? "Sem categoria" : "Receita")
       ),
       cols.includes("account") && h("td", null, h(BankChip, { accountId: t.account_id, bank: t.bank })),
       cols.includes("amount") && h("td", { className: "num" },
@@ -479,7 +492,8 @@ const TxRow = React.memo(({ t, cols, onEditCategory }) => {
   prev.t.category === next.t.category &&
   prev.t.category_id === next.t.category_id &&
   prev.t.is_third_party === next.t.is_third_party &&
-  prev.t.display_name === next.t.display_name
+  prev.t.display_name === next.t.display_name &&
+  prev.t.suggested_category_id === next.t.suggested_category_id
 );
 
 // ── Transaction classification (single source — mirrors the backend rule) ──────

@@ -594,6 +594,10 @@ def get_month_transactions(month: int, year: int) -> list[dict]:
     stored as ``method='transfer'`` / ``is_revenue=0`` with no dest account) stay in the
     list so they remain visible, but the client must exclude them from despesa/receita
     totals — otherwise the Histórico headline numbers diverge from the rest of the app.
+
+    Uncategorized categorizable rows also carry ``suggested_category_id``/
+    ``suggested_category_name`` (history-learned, same index as the import preview
+    and the bulk panel). Suggest-only: nothing is written until the user applies it.
     """
     with _connect() as conn:
         rows = conn.execute(
@@ -611,7 +615,26 @@ def get_month_transactions(month: int, year: int) -> list[dict]:
                ORDER BY t.date ASC, t.id ASC""",
             (f"{year:04d}-{month:02d}",),
         ).fetchall()
-    return [dict(r) for r in rows]
+    out = [dict(r) for r in rows]
+    candidates = [
+        r for r in out
+        if r["category_id"] is None
+        and not r["is_third_party"]
+        and classification.is_categorizable(
+            r["flow"], r["method"], r["counterpart"] or None, r["is_revenue"]
+        )
+    ]
+    if candidates:
+        # Index built once per call, and only when the month actually has
+        # uncategorized rows — a fully categorized month skips the history fetch.
+        index = classification.build_category_index(
+            [dict(h) for h in get_categorized_history()]
+        )
+        for r in candidates:
+            sug = classification.suggest_from_index(r["description"] or "", r["flow"], index)
+            r["suggested_category_id"] = sug[0] if sug else None
+            r["suggested_category_name"] = sug[1] if sug else None
+    return out
 
 
 def get_patrimonio_history(months: int = 12) -> list[dict]:
