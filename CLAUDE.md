@@ -14,20 +14,15 @@ Desenvolvido com **Claude Code CLI**. `CLAUDE.md` = fonte única da verdade. **M
 
 ## Overview
 
-BrokerShark é uma **ferramenta pessoal de análise de dinheiro**, 100% local (Linux, 1 usuário). Pergunta central: **"quanto eu posso gastar agora?"** — depois, para onde o dinheiro vai ao longo do tempo.
+Ferramenta **pessoal** de análise de dinheiro, 100% local (Linux, 1 usuário). Pergunta central: **"quanto eu posso gastar agora?"** — depois, para onde o dinheiro vai.
 
-**O produto é a análise (web dashboard, `http://localhost:8080`):**
-- **Dinheiro** (home) — herói **Disponível pra gastar** (liquidez = saldo em conta) + "Este mês", contas, atividade e projeções.
-- **Histórico / Análise** — timeline dos meses com lançamentos, métricas mensais, fluxo 6m, investimentos, por categoria, Top PIX, tabela filtrável.
-- **Investimentos** — donut + posições editáveis + "+ Movimento".
+**O produto é a análise (web dashboard, `http://localhost:8080`), 3 telas:** **Dinheiro** (herói "Disponível pra gastar" = saldo em conta), **Histórico** (timeline mensal, métricas, por categoria, tabela filtrável), **Investimentos** (donut + posições). **Apoio (não é o centro):** import mensal de extratos (CSV) e posições B3 (xlsx) pela web.
 
-**Apoio (não é o centro):** importação mensal de extratos (CSV) e posições B3 (xlsx) pela web.
+> **Regra de ouro:** todo registro e edição acontece **exclusivamente na web** — não existe outro caminho de escrita (Telegram bot e IA local removidos 2026-06-11).
 
-> **Regra de ouro:** todo registro e edição acontece **exclusivamente na web**. Não existe outro caminho de escrita (Telegram bot e IA local foram removidos em 2026-06-11 — produto é web-only; diagnóstico/proposta Hermes arquivados no `git log`).
+> **North star:** fácil de alimentar + extremamente confiável. Registro = import de extratos em lote (preview editável antes de confirmar); correções = alinhamento de valores, não digitação manual. Re-import semanal do mês corrente só acrescenta a cauda nova (dedup).
 
-> **North star:** fácil de alimentar + extremamente confiável. Registro = **import de extratos em lote** (resumo editável antes de confirmar); correções na web = **alinhamento de valores**, não digitação manual. Re-import semanal do mês corrente só acrescenta a cauda nova (dedup).
-
-**User profile:** 1 usuário, Nubank + Inter (conta corrente). Débito **não é rotina** — defensivo: tolerar um `debit` avulso sem quebrar totais/breakdown. Investimentos: Caixinha Nubank, Porquinho Inter, Tesouro Direto, CDBs.
+**User profile:** 1 usuário, Nubank + Inter (conta corrente). Débito não é rotina — tolerar um `debit` avulso sem quebrar totais. Investimentos: Caixinha Nubank, Porquinho Inter, Tesouro Direto, CDBs.
 
 ---
 
@@ -35,33 +30,27 @@ BrokerShark é uma **ferramenta pessoal de análise de dinheiro**, 100% local (L
 
 ```
 backend/
-  main.py            # entrypoint — bootstrap + serve do dashboard em foreground (./run.sh)
+  main.py            # entrypoint — bootstrap + serve em foreground (./run.sh)
   config.py          # único arquivo que chama os.getenv()
-  bootstrap.py       # load_dotenv + config.validate + logging + DB path (reusado por jobs)
+  bootstrap.py       # load_dotenv + config.validate + logging (reusado por jobs)
   core/
     database.py      # data layer — facade público (re-export → core/db/)
     db/              # schema.py (conn-factory seam), crud.py, analytics.py, categories.py, _sql.py (consumption clause)
-    domain/          # classification.py — PURO (sem DB/IO): rotulagem no import
-    ingestion/       # adapters.py (parse), dedup.py (classify), service.py, b3.py
+    domain/          # classification.py — PURO (sem DB/IO): rotulagem + sugestão de categoria
+    ingestion/       # adapters.py (parse), dedup.py, service.py, b3.py
     events.py        # SSE pub/sub — notify() após escrita
-    backup.py        # snapshot mensal (conn.backup WAL-safe, run_backup tri-state/restore)
-  jobs/backup.py     # entrypoint do timer (python -m, exit≠0 só em falha REAL)
-  dashboard/server.py      # Flask + Waitress (12 threads cfg, SSE)
+    backup.py        # snapshot mensal (conn.backup WAL-safe, run_backup tri-state, restore)
+  jobs/              # backup.py, restore.py (entrypoints python -m; exit≠0 só em falha real)
+  dashboard/server.py  # Flask + Waitress (12 threads, SSE)
 frontend/
   js/  api.js, primitives.js, view-overview.js, view-history.js, view-investments.js, app.js
 .githooks/  pre-commit (Health Stack gate — ligado via core.hooksPath .githooks)
-         # deploy/ foi apagado 2026-06-23 — runtime decidido: foreground resource-minimal (ver git log)
-tests/   conftest.py (raiz, fixture db compartilhada);
-         unit/        — puro, sem DB (test_classification, test_jobs) — roda em ~0.04s
-         integration/ — DB/Flask/backup (database, ingestion, b3, backup, delete,
-                        import_batch, investments, server_writes, golden_totals, db_seam)
+tests/   conftest.py (raiz, fixture db compartilhada); unit/ (puro, ~0.04s); integration/ (DB/Flask/backup)
 ```
 
 ---
 
 ## Architecture
-
-### Data flow
 
 ```
 User (web form / CSV import — ÚNICO caminho de escrita)
@@ -75,21 +64,21 @@ core/events.notify() — SSE push ao browser (< 1s)
 
 - **SQLite é a fonte única.** Sem write-back externo. Toda escrita pela web.
 - **A análise é o produto.** Import é apoio.
-- **Runtime: foreground, resource-minimal (decisão 2026-06-24).** Dashboard roda em foreground via **`./run.sh`** (`main.py` bloqueia no `waitress.serve`, logs no terminal). **Footprint:** ~0% CPU ocioso (threads bloqueiam, não giram), ~43 MB RSS vivo, **zero** parado. `DASHBOARD_THREADS` (12). Conscientemente **sem serviço always-on** — o dono quer consumo mínimo, só roda quando usa; parar = Ctrl+C no `./run.sh`. Backup amarrado a **abrir o app** (`backup.request_startup_snapshot()` no boot, change-gated/off-thread — ver Automated Jobs); sem scheduler. Avulso manual ainda dá: `PYTHONPATH=backend .venv/bin/python -m jobs.backup`. **Restore seguro: `python -m jobs.restore`** (wrapper com guard fail-closed: recusa se o dashboard está servindo na porta — restaurar sob o writer vivo corrompe; `--latest`/caminho/picker/`--list`; confirma; falha fechada sem TTY salvo `--yes`). Miolo em `core/backup.py::restore_backup` (verify + sidecar `.pre-restore` + swap atômico). Parar/subir o app ainda é manual (Ctrl+C no `./run.sh` → restore → `./run.sh`). O modelo antigo (systemd user units + linger + OnFailure alert) está no `git log` (commit `08db96c`~) caso o rethink de runtime decida ressuscitá-lo. **(Cortes 2026-06-26: removidos auto-shutdown por ociosidade, rede de segurança de import `statement_coverage`, budgets, leituras de `investment_movements`/endpoint balance 409, e o refresh de backup pós-import — simplificação de escopo. Ver `git log`.)**
-- **Segurança de rede:** bind em `127.0.0.1` + guard de Host/Origin em `server.py` (DNS-rebinding/CSRF) — a API não tem auth, então isso é load-bearing. Reforços (VibeSec): rejeita `Sec-Fetch-Site: cross-site` (defense-in-depth do Origin); headers `nosniff`/`X-Frame-Options DENY`/`Permissions-Policy`/no-store em `/api/`; **CSP toda `'self'`** (`script-src`/`style-src`/`font-src`/`connect-src` — libs E fontes vendorizadas, sem CDN, sem Babel/`unsafe-eval`; `base-uri`/`form-action 'self'`); **DB SQLite chmod 0600** no `init_db` (`_restrict_db_permissions` — sem auth, perms de arquivo são a fronteira at-rest); upload cap 8MB + B3 cap 16MB comprimido **e 200MB descomprimido** (anti zip-bomb, in-memory sem zip-slip, openpyxl sem XXE); `bulk_categorize` dedupe+cap (10k)+chunk (≤900, sob o limite de vars do SQLite). SQL 100% parametrizado (f-strings só interpolam fragmentos estáticos de cláusula). Gate: `tests/integration/test_hardening.py`.
+- **Runtime: foreground, resource-minimal (decisão 2026-06-24).** Sobe via **`./run.sh`** (`--open` abre o browser quando a porta responde); `main.py` bloqueia no `waitress.serve`; parar = Ctrl+C. ~0% CPU ocioso, ~43 MB RSS, zero parado. **Sem serviço always-on nem scheduler, conscientemente** — o dono quer consumo mínimo. Backup amarrado a **abrir o app** (ver Backup); restore seguro = `python -m jobs.restore`. O modelo systemd antigo está no `git log` (`08db96c`~). Cortes de escopo 2026-06-26 (auto-shutdown, statement_coverage, budgets, refresh pós-import): `git log`.
+- **Segurança de rede (load-bearing — a API não tem auth):** bind `127.0.0.1` + guard Host/Origin em `server.py` (DNS-rebinding/CSRF); rejeita `Sec-Fetch-Site: cross-site`; headers `nosniff`/`X-Frame-Options DENY`/`Permissions-Policy`/no-store em `/api/`; **CSP toda `'self'`** (libs e fontes vendorizadas, sem CDN, sem `unsafe-eval`; `base-uri`/`form-action 'self'`); **DB chmod 0600** no `init_db` (sem auth, perms de arquivo = fronteira at-rest); upload cap 8MB, B3 16MB comprimido / **200MB descomprimido** (anti zip-bomb, in-memory, openpyxl sem XXE); `bulk_categorize` dedupe + cap 10k + chunk ≤900 (limite de vars do SQLite). SQL 100% parametrizado (f-strings só p/ fragmentos estáticos de cláusula). Gate: `tests/integration/test_hardening.py`.
 
 ### Invariantes financeiras (load-bearing — não quebrar)
 
-- **Consumption-expense rule (canônica):** totais de despesa filtram `flow='expense' AND dest_account_id IS NULL AND method != 'transfer' AND COALESCE(is_third_party,0)=0` — uma transferência (leg de investimento) **nunca** é despesa. **Fonte única:** `core/db/_sql.py::consumption_expense_clause(alias)` (parametrizado por alias — joins usam `t.`, single-table não). Os ~15 sites da família consumption em `analytics.py` chamam o helper; o front replica só a flag `is_revenue` (`/api/month-transactions`), não o WHERE. **Não aplicar o helper** a income (`is_revenue=1`), legs de investimento (`method='transfer'`, ver `_APLIC`/`_RESG`) nem patrimônio (`dest_account_id IS NULL` **sem** filtro de method) — são cláusulas diferentes. Gate de regressão: `tests/integration/test_golden_totals.py`.
-- **Patrimônio:** `get_patrimonio_history()` = só saldo de conta corrente (`initial_balances + income − expenses`). Movimentos de investimento são excluídos; o saldo de investimento entra no display via `investments.current_balance`. **Patrimônio NÃO filtra por method**.
-- **`is_revenue`** (Integer em `transactions`): `1` p/ receita real, `0` p/ self-transfer. Controla totais de receita, resumos de conta e patrimônio. **Sempre passar explícito** em `insert_transaction()` — nunca confiar em default de migração.
-- **`counterpart='SELF'`** (auto-Pix/TED entre contas próprias): nem despesa, nem receita, nem investimento. Saída → `flow='expense', method='transfer', counterpart='SELF'`; entrada → `flow='income', is_revenue=0, counterpart='SELF'`. Ambas visíveis (tag "transferência"), saldos preservados, fora de Despesas/Receitas e de `investment_net`. Classificado no import por `adapters._is_self_transfer` (allow-list `config.OWNER_SELF_KEYWORDS`).
+- **Consumption-expense rule (canônica):** totais de despesa filtram `flow='expense' AND dest_account_id IS NULL AND method != 'transfer' AND COALESCE(is_third_party,0)=0` — uma transferência (leg de investimento) **nunca** é despesa. **Fonte única:** `core/db/_sql.py::consumption_expense_clause(alias)` (joins usam `t.`, single-table não). Os ~15 sites em `analytics.py` chamam o helper; o front replica só a flag `is_revenue`, não o WHERE. **Não aplicar o helper** a income (`is_revenue=1`), legs de investimento (`method='transfer'`) nem patrimônio (`dest_account_id IS NULL` **sem** filtro de method) — cláusulas diferentes. Gate: `tests/integration/test_golden_totals.py`.
+- **Patrimônio:** `get_patrimonio_history()` = só saldo de conta corrente (`initial_balances + income − expenses`). Movimentos de investimento excluídos; saldo de investimento entra no display via `investments.current_balance`. **Patrimônio NÃO filtra por method.**
+- **`is_revenue`** (Integer): `1` = receita real, `0` = self-transfer. Controla totais de receita, resumos de conta e patrimônio. **Sempre passar explícito** em `insert_transaction()` — nunca confiar em default de migração.
+- **`counterpart='SELF'`** (auto-Pix/TED entre contas próprias): nem despesa, nem receita, nem investimento. Saída → `flow='expense', method='transfer', counterpart='SELF'`; entrada → `flow='income', is_revenue=0, counterpart='SELF'`. Visíveis (tag "transferência"), saldos preservados, fora de Despesas/Receitas e de `investment_net`. Classificado no import por `adapters._is_self_transfer` (allow-list `config.OWNER_SELF_KEYWORDS`).
 - **Transferência interna:** `flow='expense', method='transfer', dest_account_id=<dest>` — excluída dos resumos via `AND dest_account_id IS NULL`.
-- **Fluxo de investimento (fonte única = transações, não `investment_movements`, que está vazia):** aplicação = `expense/method='transfer'/dest NULL`; resgate = `income/is_revenue=0/dest NULL`. `free_balance = receitas − despesas − investment_net`. "+ Movimento" grava via `crud.register_investment_transfer` (leg na conta corrente do banco **+** ajusta `current_balance` atomicamente) — **não** escreve `investment_movements` (essa tabela é subtraída dos saldos e causaria dupla contagem).
-- **B3 = tabela verdade (posições de corretora):** o relatório B3 é a fonte autoritativa de toda posição que passa pela tabela `investments` (Tesouro, CDB, NuInvest…). `b3.load_b3_positions` **full-sync**: upsert por nome + `crud.prune_investments_except(nomes_do_relatório)` apaga qualquer posição ausente do relatório (vencida/resgatada) — espelho fiel, sem saldo obsoleto. **Read-only:** não há endpoint de escrita de saldo (override manual seria clobberado no próximo import); ajuste = re-importar. `crud.update_investment_balance` sobrevive só como helper interno/testes. `prune_investments_except([])` é no-op (relatório vazio = falha de parse, nunca "apaga tudo"). Caixinha/Porquinho não estão na tabela → nunca são podadas.
-- **Posição derivada do extrato (só Caixinha Nubank):** essa reserva vive **só** no ledger (nunca chega à tabela `investments` nem à B3), então `analytics.get_ledger_savings_positions()` a deriva = `Σ(aplicações) − Σ(resgates)` das pernas `transfer` por keyword de poupança (`rdb`/`caixinha`/`dinheiro guardado`, banco nubank), excluindo SELF/third-party. `/api/investments` anexa a derivada (`id=null, derived=true`); patrimônio passa a contar. **Só Caixinha porque é RDB (não custodiada na B3).** **Porquinho Inter NÃO é derivado** — é CDB custodiado na B3, então vem da tabela verdade (uma posição CDB Inter); derivá-lo contaria em dobro (e dá saldo negativo num pote drenado, pois a derivação é só fluxo de principal, ignora rendimento). Suas pernas `aplicação/resgate` continuam classificadas como investimento (`_INVESTMENT_KEYWORDS` mantém `porquinho`/`cdb porq`), alimentando `investment_net`/o valor B3. **Nunca incluir keyword de corretora (NuInvest/Tesouro/Porquinho)** na derivação. **B3 vence empate de nome:** `/api/investments` descarta derivada cujo `name` já existe como posição B3. Sem a derivação da Caixinha o saldo RDB some do patrimônio.
-- **Exclusão segura** (`crud.delete_transaction`, confirmação prévia em `ConfirmDeleteModal`): SELF apaga os dois legs; legs de investimento do modal revertem `current_balance`. `restore_transactions`/`POST /api/transactions/restore` existem como primitivo dormente (nenhuma UI aciona).
-- **Import reversível** (`crud.delete_batch`, contraparte deliberada do guard por linha): cada confirm marca as linhas inseridas com um `import_batch_id` de sessão (gerado no cliente, compartilhado entre os confirms de um drop multi-conta). `delete_batch` remove o lote inteiro. Reverte `current_balance` de legs de investimento e devolve um payload p/ `restore_transactions`. UI: toast com "Desfazer" (janela de 5 s) após importar; `DELETE /api/import/batch/<id>`.
+- **Fluxo de investimento (fonte única = transações; `investment_movements` está vazia):** aplicação = `expense/method='transfer'/dest NULL`; resgate = `income/is_revenue=0/dest NULL`. `free_balance = receitas − despesas − investment_net`. "+ Movimento" grava via `crud.register_investment_transfer` (leg na conta corrente **+** ajusta `current_balance` atomicamente) — **não** escreve `investment_movements` (é subtraída dos saldos → dupla contagem).
+- **B3 = tabela verdade (posições de corretora):** o relatório B3 é a fonte autoritativa da tabela `investments` (Tesouro, CDB, NuInvest…). `b3.load_b3_positions` **full-sync**: upsert por nome + `crud.prune_investments_except(nomes_do_relatório)` — espelho fiel, sem saldo obsoleto. **Read-only:** sem endpoint de escrita de saldo (override manual seria clobberado no próximo import); ajuste = re-importar. `prune_investments_except([])` é no-op (relatório vazio = falha de parse, nunca "apaga tudo"). Caixinha/Porquinho não estão na tabela → nunca são podadas.
+- **Posição derivada do extrato (só Caixinha Nubank):** reserva que vive **só** no ledger (nunca chega a `investments`/B3). `analytics.get_ledger_savings_positions()` deriva = `Σ(aplicações) − Σ(resgates)` das pernas `transfer` por keyword de poupança (`rdb`/`caixinha`/`dinheiro guardado`, banco nubank), excluindo SELF/third-party. `/api/investments` anexa a derivada (`id=null, derived=true`); patrimônio conta. **Só Caixinha porque é RDB (não custodiada na B3).** **Porquinho Inter NÃO é derivado** — é CDB custodiado na B3 (derivá-lo contaria em dobro; a derivação ignora rendimento e fica negativa num pote drenado). Suas pernas continuam classificadas como investimento (`_INVESTMENT_KEYWORDS` mantém `porquinho`/`cdb porq`). **Nunca incluir keyword de corretora (NuInvest/Tesouro/Porquinho)** na derivação. **B3 vence empate de nome:** derivada cujo `name` já existe como posição B3 é descartada. Sem a derivação da Caixinha o saldo RDB some do patrimônio.
+- **Exclusão segura** (`crud.delete_transaction`, confirmação em `ConfirmDeleteModal`): SELF apaga os dois legs; legs de investimento revertem `current_balance`. `restore_transactions`/`POST /api/transactions/restore` = primitivo dormente (nenhuma UI aciona).
+- **Import reversível** (`crud.delete_batch`): cada confirm marca as linhas com um `import_batch_id` de sessão (gerado no cliente, compartilhado entre confirms de um drop multi-conta). `delete_batch` remove o lote inteiro, reverte `current_balance` de legs de investimento e devolve payload p/ `restore_transactions`. UI: toast "Desfazer" (5 s); `DELETE /api/import/batch/<id>`.
 
 ---
 
@@ -98,12 +87,11 @@ core/events.notify() — SSE push ao browser (< 1s)
 | Component | Technology |
 |---|---|
 | Language | Python 3.14 (venv) — código usa 3.12+ |
-| Database | SQLite (WAL mode) |
-| Backup | snapshot local mensal no HDD (retém 12), `conn.backup()` WAL-safe, refresh pós-import |
-| Scheduler | **nenhum, por decisão** — backup-on-open; avulso manual via `python -m jobs.backup` |
-| Dashboard API | Flask 3.1 + Waitress 3.0 (`DASHBOARD_THREADS`=12, foreground via `./run.sh`) |
-| Frontend | React 18 + Chart.js (`frontend/js/vendor/`) + fontes Inter/JetBrains Mono (`frontend/fonts/` + `frontend/css/fonts.css`) **todos vendorizados localmente, sem CDN** → app roda **100% offline** (zero URL externa no `index.html`). **Sem build step e sem Babel** — JS puro hyperscript (`React.createElement`, nunca JSX); cada arquivo de app em IIFE (escopo próprio; sem colisão de `const` global). |
-| Real-time | SSE via `events.py` (no polling, < 1s) |
+| Database | SQLite (WAL, `foreign_keys=ON`) |
+| Backup | snapshot mensal no HDD (retém 12), `conn.backup()` WAL-safe, backup-on-open |
+| Dashboard | Flask 3.1 + Waitress 3.0 (`DASHBOARD_THREADS`=12, foreground via `./run.sh`) |
+| Frontend | React 18 + Chart.js + fontes Inter/JetBrains Mono, **tudo vendorizado, sem CDN** → 100% offline. **Sem build step/Babel** — hyperscript puro (`React.createElement`, nunca JSX); cada arquivo em IIFE. |
+| Real-time | SSE via `events.py` (sem polling, < 1s) |
 
 ---
 
@@ -119,14 +107,12 @@ transactions (id, date, flow, method, account_id, amount,
               -- external_id: UUID Nubank, dedup | display_name: nome editável (UI)
               -- is_third_party: 1 = fora de todos os cálculos pessoais
               -- original_amount: valor parseado do extrato (auditoria de edição no preview)
-              -- import_batch_id: tag de sessão de import (1 por "drop", pode abranger
-              --   vários staging batches/contas) → import reversível em bloco via
-              --   crud.delete_batch. NULL p/ entradas manuais (índice PARCIAL enxuto).
+              -- import_batch_id: tag de sessão de import (1 por "drop") → reversível em
+              --   bloco via crud.delete_batch. NULL p/ entradas manuais (índice PARCIAL).
 investments (id, name, type, bank, current_balance)
 investment_movements (id, date, investment_id, operation, amount, description)
-              -- VAZIA por design (write-path real = transações via register_investment_transfer).
-              -- Mantida só como subtração defensiva (no-op) em get_account_balance/
-              -- get_all_accounts_with_balance/_checking_balance_at. Sem leitura/escrita viva.
+              -- VAZIA por design (write-path real = transações). Mantida só como
+              -- subtração defensiva (no-op) nos saldos. Sem leitura/escrita viva.
 ```
 
 `method` CHECK: `pix | credit | ted | transfer | debit | salary | freelance | pix_received | other` (os 4 últimos são subtipos de receita — sem eles, `INSERT OR IGNORE` descartava receitas em silêncio num DB novo). `is_third_party` é excluído de saldos e resumos.
@@ -135,63 +121,58 @@ investment_movements (id, date, investment_id, operation, amount, description)
 
 ## Web Import (ingestão mensal)
 
-Upload pelo botão **"+ Importar"** (modal `ImportModal`: solta **vários arquivos** do mês → atribui a conta de cada um → preview agrupado por conta, **editável** → confirmar). Pipeline em `backend/core/ingestion/` — todo acesso a DB via `crud`/`analytics`.
+Botão **"+ Importar"** (`ImportModal`: solta vários arquivos → atribui conta → preview por conta, editável → confirmar). Pipeline em `backend/core/ingestion/`; DB só via `crud`/`analytics`.
 
-- **Fontes:** `nu-db` (extrato Nubank, UUID dedup), `inter-db` (extrato Inter, 5-line preamble).
-- **Multi-arquivo:** o front manda todos os `file` da **mesma conta** num só POST (`preview_import_multi`) p/ dedup no conjunto combinado — um POST por arquivo reintroduziria dupes entre arquivos. Drop multi-conta = vários confirms compartilhando um `import_batch_id` (sessão), reversível como uma unidade.
-- **Preview editável:** cada linha `new` pode ter amount/apelido ajustados inline (`PATCH /api/import/staging/<batch>/<row>`); divergência vs extrato vira `amount_divergence` (auditoria via `original_amount`).
-- **Staging:** linhas vão p/ `import_staging` (status `new`/`duplicate`/`skipped`); `confirm` promove as `new` (marcando `import_batch_id`) e apaga o batch. Nada é escrito em `transactions` até confirmar.
-- **Dedup:** Nubank por `external_id` (índice UNIQUE parcial + `INSERT OR IGNORE`); Inter por contagem de ocorrência em `(account, date, round(amount,2), description)` — re-upload cumulativo só adiciona a cauda nova.
-- **Classificação no import:** investimentos (Aplicação RDB/NuInvest/Caixinha/Porquinho…) → `method='transfer', is_revenue=0`; auto-Pix/TED → `counterpart='SELF'`; **pagamento de fatura** (saída de conta corrente com `fatura` na descrição, `adapters._is_fatura_payment`) → `method='credit'` (aparece na aba **Crédito**, não TED). Ambos os parsers passam saída de conta corrente por `_checking_expense_method` (fatura→credit, pix→pix, débito→debit, resto→ted). **Stand-in:** o pagamento da fatura continua sendo despesa real (`flow=expense`, não `transfer`) **enquanto** não há tratamento de fatura itemizada — ver invariante de reconciliação futura.
-- **Reconciliação de fatura (FUTURO — não implementado):** quando a fatura itemizada do cartão for importada, o **pagamento** da fatura deixa de ser despesa (vira liquidação, fora dos totais) e os **itens** viram as despesas reais `credit`, alocadas ao mês correto pelo período do extrato (casar valor da fatura com a soma dos itens). Sem isso, contar pagamento **+** itens dobraria a despesa. Até lá, o pagamento `credit` é o proxy.
-- **Categorização = manual, com sugestão suggest-only:** importados entram com `category_id=NULL` → filtro "Sem categoria" + edição inline no Histórico (`<select>` por linha → `PATCH /api/transactions/<id>`). Sem **auto-aplicação** por regras. O preview de import mostra um `<select>` inline pré-selecionado com uma categoria **sugerida do histórico** (mesmo comerciante categorizado antes): `analytics.get_categorized_history()` → `domain.classification.build_category_index()` indexa `(flow, merchant_key) → (category_id, name)` (mais frequente, desempate pela mais recente; `merchant_key` tira acentos/dígitos/tokens estruturais do extrato); só linhas `is_categorizable` recebem sugestão (mirror da consumption/revenue-rule — leg de transfer/SELF/investimento nunca). **Suggest-only:** o `category_id` da staging row **nunca** é auto-escrito; troca manual persiste na hora (`PATCH /api/import/staging`), sugestão intocada só é gravada **no confirm** e só p/ linhas incluídas. Gate: `tests/integration/test_import_suggestions.py`. **Categorização em lote (Histórico):** botão "Categorizar em lote · N sem categoria" abre painel que agrupa os não-categorizados por `merchant_key` (`analytics.get_uncategorized_merchants(year, month)`, maior gasto primeiro, com sugestão do mesmo índice — que aprende de TODO o histórico); 1 escolha grava em todas as ocorrências via `crud.bulk_categorize` (`POST /api/transactions/categorize-bulk`). **Escopado ao mês selecionado** (`GET /api/uncategorized-merchants?year=&month=`) — segue o mês na tela, nunca vira pilha all-time. O card "por categoria" vazio (tudo "Outro") vira CTA pro mesmo painel. Gate: `tests/integration/test_bulk_categorize.py`.
-- **B3 (xlsx):** `core/ingestion/b3.py` parseia posições do Relatório B3 → `investments` (**full-sync**: upsert por nome + poda das ausentes; Renda Fixa = valor CURVA, Tesouro = Valor líquido). Lido em memória (sem zip-slip), cap de tamanho, openpyxl não resolve XXE. Ver invariante "B3 = tabela verdade".
+- **Fontes:** `nu-db` (Nubank, UUID dedup), `inter-db` (Inter, 5-line preamble).
+- **Multi-arquivo:** arquivos da **mesma conta** vão num só POST (`preview_import_multi`) p/ dedup no conjunto combinado. Drop multi-conta = vários confirms compartilhando `import_batch_id`, reversível como unidade.
+- **Staging:** linhas em `import_staging` (`new`/`duplicate`/`skipped`); `confirm` promove as `new` e apaga o batch. Nada toca `transactions` até confirmar. Preview editável: `PATCH /api/import/staging/<batch>/<row>` (amount/apelido; divergência vs extrato → `amount_divergence`, auditoria via `original_amount`).
+- **Dedup:** Nubank por `external_id` (UNIQUE parcial + `INSERT OR IGNORE`); Inter por contagem de ocorrência em `(account, date, round(amount,2), description)` — re-upload cumulativo só adiciona a cauda nova.
+- **Classificação no import:** investimentos → `method='transfer', is_revenue=0`; auto-Pix/TED → `counterpart='SELF'`; **pagamento de fatura** (saída com `fatura` na descrição, `adapters._is_fatura_payment`) → `method='credit'`. Saídas de conta corrente passam por `_checking_expense_method` (fatura→credit, pix→pix, débito→debit, resto→ted). **Stand-in:** pagamento de fatura é despesa real (`flow=expense`) **enquanto** não há fatura itemizada.
+- **Reconciliação de fatura (FUTURO — não implementado):** com a fatura itemizada, o pagamento vira liquidação (fora dos totais) e os itens viram as despesas `credit` do mês correto (casar valor da fatura com a soma dos itens). Sem isso, pagamento **+** itens dobraria a despesa.
+- **Categorização = manual, sugestão suggest-only:** importados entram `category_id=NULL`. Índice aprendido do histórico: `analytics.get_categorized_history()` → `domain.classification.build_category_index()` = `(flow, merchant_key) → categoria` (mais frequente, desempate pela mais recente); só linhas `is_categorizable` (mirror da consumption/revenue-rule — transfer/SELF/investimento nunca). **Nunca auto-escrever** a sugestão; ela é gravada só quando o usuário age. Três superfícies: (1) preview de import — `<select>` pré-selecionado, gravado no confirm (`test_import_suggestions.py`); (2) painel **"Categorizar em lote"** no Histórico — agrupa por `merchant_key` (`get_uncategorized_merchants(year, month)`, escopado ao mês na tela), 1 escolha grava todas as ocorrências via `crud.bulk_categorize` (`test_bulk_categorize.py`); (3) tabela do Histórico — linha sem categoria mostra chip clicável `✓ Sugerida?` (campos `suggested_category_*` em `/api/month-transactions`), 1 clique aplica via PATCH (`test_month_suggestions.py`).
+- **B3 (xlsx):** `b3.py` parseia Relatório B3 → `investments` (full-sync; Renda Fixa = valor CURVA, Tesouro = Valor líquido). In-memory, cap de tamanho. Ver invariante "B3 = tabela verdade".
 
 ---
 
 ## Dashboard API (resumo)
 
-Escrita (toda validada no servidor): `POST /api/transactions` (despesa), `POST /api/incomes` (receita/transferência), `POST /api/investment-movements` (grava leg via `register_investment_transfer`), `PATCH /api/transactions/<id>` (category_id/display_name/is_third_party), `DELETE /api/transactions/<id>`, `POST /api/transactions/restore`. (Sem endpoint de escrita de saldo de investimento: B3 é a verdade.) Import: `POST /api/import/preview` (aceita **múltiplos `file`** da mesma conta — dedup no conjunto combinado), `GET /api/import/staging/<batch_id>` (linhas trazem `counterpart` + `suggested_category_id`/`suggested_category_name` — sugestão suggest-only do histórico), `PATCH /api/import/staging/<batch_id>/<row_id>` (edita amount/category_id/display_name no preview → `amount_divergence`; ecoa a linha com a sugestão preservada), `POST /api/import/confirm` (recebe e ecoa `import_batch_id`), `DELETE /api/import/batch/<id>` (reverte o lote inteiro).
+Escrita (validada no servidor): `POST /api/transactions` (despesa), `POST /api/incomes`, `POST /api/investment-movements` (via `register_investment_transfer`), `PATCH /api/transactions/<id>` (category_id/display_name/is_third_party), `DELETE /api/transactions/<id>`, `POST /api/transactions/restore`, `POST /api/transactions/categorize-bulk` (`{ids, category_id}`). Import: `POST /api/import/preview` (múltiplos `file` da mesma conta), `GET/PATCH /api/import/staging/...`, `POST /api/import/confirm` (ecoa `import_batch_id`), `DELETE /api/import/batch/<id>`. (Sem endpoint de escrita de saldo de investimento: B3 é a verdade.)
 
-Leitura: `/api/available` (herói liquidez), `/api/summary`, `/api/accounts`, `/api/investments`, `/api/investment-evolution`, `/api/monthly` (`?present=1` = só meses com dados), `/api/categories`, `/api/transactions`, `/api/recent-activity`, `/api/patrimonio-history`, `/api/liquidity-history`, `/api/daily-spend` (mês calendário zero-filled), `/api/month-transactions` (inclui `is_revenue` p/ o front replicar a consumption-rule), `/api/categories-full`, `/api/pix-top`, `/api/expenses-by-method`, `/api/backup-status` (frescor do snapshot), `/api/uncategorized-merchants` (não-categorizados agrupados por comerciante p/ o painel de lote), `POST /api/transactions/categorize-bulk` (`{ids, category_id}`), `/api/events` (SSE).
-
-`/api/monthly` item: `{ label:"Mar/26", month:3, year:2026, income, expenses }` (`month`/`year` int em todas as variantes).
+Leitura: `/api/available`, `/api/summary`, `/api/accounts`, `/api/investments`, `/api/investment-evolution`, `/api/monthly` (`?present=1`; item = `{label:"Mar/26", month, year, income, expenses}`), `/api/categories`, `/api/categories-full`, `/api/transactions`, `/api/recent-activity`, `/api/patrimonio-history`, `/api/liquidity-history`, `/api/daily-spend`, `/api/month-transactions` (inclui `is_revenue` + `suggested_category_*` p/ linhas sem categoria), `/api/pix-top`, `/api/expenses-by-method`, `/api/backup-status`, `/api/uncategorized-merchants`, `/api/events` (SSE).
 
 ---
 
 ## Frontend — 3 telas
 
-Navegação (`app.js` `SECTIONS`): **Visão do Mês** (`OverviewView`), **Histórico** (`HistoryView`), **Investimentos** (`InvestmentsView`). Atalhos `1`/`2`/`3`.
+Navegação (`app.js` `SECTIONS`): **Visão do Mês**, **Histórico**, **Investimentos** — atalhos `1`/`2`/`3`.
 
-- **Dinheiro** = "como estou agora". Herói **Disponível pra gastar** (`/api/available`, saldos em conta) num pane-ledger; direita = ledger **Patrimônio líquido** (Contas + Investimentos). Sempre mês atual. Projeções advisory (run-rate, rotuladas como estimativa). Clicar numa **conta corrente** → Histórico filtrado pela conta.
-- **Histórico** = "o que aconteceu". Seletor de meses com dados, 4 métricas (número + Δ vs média), gráfico fluxo 6m (`DualLine`), por categoria, Top PIX (lado a lado), tabela filtrável (flow · método · categoria · conta · busca) com categorização inline e filtro "Sem categoria".
-- **Investimentos** — donut (`Donut`) + Σ `current_balance` + lista editável por posição + "+ Movimento" (`MovementModal`).
-- **Configurações** (`TweaksPanel`): tema, atalho p/ Categorias (`CategoriesPanel`), restaurar padrões.
-- **Charts** (`primitives.js`): Chart.js = `DualLine` (Histórico) e `Donut` (Investimentos); a Home (`OverviewView`) usa `Sparkline`/`TrendLine` SVG inline p/ direção de tendência (patrimônio/liquidez "vs mês passado"). Todos recebem dados reais da API, sem placeholder.
+- **Dinheiro** = "como estou agora". Herói **Disponível pra gastar** (`/api/available`) + ledger Patrimônio líquido. Sempre mês atual; projeções advisory (run-rate). Clicar numa conta corrente → Histórico filtrado.
+- **Histórico** = "o que aconteceu". Seletor de meses, 4 métricas (Δ vs média), fluxo 6m (`DualLine`), por categoria, Top PIX, tabela filtrável (flow · método · categoria · conta · busca) com categorização inline, chip de sugestão e filtro "Sem categoria".
+- **Investimentos** — donut (`Donut`) + Σ `current_balance` + posições + "+ Movimento" (`MovementModal`).
+- **Configurações** (`TweaksPanel`): tema, Categorias (`CategoriesPanel`), restaurar padrões.
+- **Charts** (`primitives.js`): Chart.js = `DualLine`/`Donut`; Home usa `Sparkline`/`TrendLine` SVG inline. Todos com dados reais da API, sem placeholder.
 
 ---
 
-## Automated Jobs
+## Backup & Restore
 
-Um único job: **backup local mensal** (`core/backup.py`, entrypoint `jobs/backup.py`, timer diário 07h `Persistent=true`). Tier diário removido em 2026-06-12 por decisão do dono — **mensal-apenas**.
+Um único job (`core/backup.py`; entrypoints `jobs/backup.py`, `jobs/restore.py`). **Mensal-apenas** (decisão 2026-06-12): 1 arquivo/mês em `/mnt/HDD_Arquivos/Backups/brokershark` (`brokershark_YYYY-MM.db`, retém 12). Glob estrito — prune nunca toca arquivos estranhos. Keyed em **ausência do arquivo** (não "hoje é dia 1º") → catch-up tardio ainda gera o snapshot.
 
-- **1 arquivo por mês** em `/mnt/HDD_Arquivos/Backups/brokershark` (`brokershark_YYYY-MM.db`, retém 12). Glob estrito — prune nunca conta/apaga arquivos estranhos (incl. snapshots diários legados `YYYY-MM-DD.db`). Keyed em **ausência do arquivo** (não em "hoje é dia 1º") → catch-up tardio ainda gera o snapshot do mês.
-- **`run_backup` é tri-state** (`created|skipped|failed`): o entrypoint sai ≠0 só em falha REAL (visível em `systemctl --user --failed` + alerta de desktop via `OnFailure=brokershark-backup-alert.service`); skip do mesmo mês não alarma. Booleano não distingue os dois — foi assim que falhas ficaram silenciosas no passado.
-- **Checagem diária = retry:** `Persistent=true` repõe execuções **perdidas** (PC desligado), nunca execuções **falhadas** — HDD desmontado na virada do mês é coberto na manhã seguinte.
-- **Escrita atômica:** `.tmp` + integrity-check + `os.replace` — snapshot falho nunca destrói o último bom. No boot, `_sweep_stale_tmps` varre `.tmp` órfãos de um snapshot morto a meio (kill durante a escrita), com guard de idade (60s) p/ não tocar um snapshot em voo.
-- **Backup-on-open (sem scheduler — decisão 2026-06-24; refresh pós-import removido 2026-06-26):** o backup é amarrado a **usar o app**, não a um timer always-on (que contraria o runtime resource-minimal). `run_dashboard` dispara `backup.request_startup_snapshot()` no boot → thread daemon roda `_snapshot_if_stale`: refresca o snapshot do mês **só se** a live DB mudou desde o último (compara `snap.mtime` vs `_live_db_mtime` = maior mtime entre o `.db` e o `-wal` não-checkpointado) e poda. Re-abrir sem editar = **no-op** (não gira o HDD); editar/categorizar e reabrir = recaptura no próximo open. Off-thread → spin-up do HDD nunca bloqueia o serve; exceção na thread é logada, nunca derruba o dashboard. O timer mensal (`python -m jobs.backup`) segue válido mas não é mais necessário. **⚠ Sharp edge:** o gate é mtime + filename por mês — abrir o app apontado p/ um DB_PATH diferente/mais novo faz o startup snapshot **sobrescrever** o backup do mês com esse DB. Nunca bootar contra o BACKUP_DIR real com um DB de teste.
-- **Indicador de frescor:** `GET /api/backup-status` → `backup.last_backup_info()` = `{exists, name, age_seconds}` do snapshot mais novo. Rodapé do dashboard mostra "backup hoje/há Nd" e **alarma** quando stale (>7d) ou ausente (`exists=false`, ex. HDD desmontado) — uma falha silenciosa de backup (o footgun histórico) fica visível. Gate: `tests/integration/test_backup.py`.
-- **Restore:** `PYTHONPATH=backend .venv/bin/python -m jobs.restore` (`--list` p/ ver, `--latest` ou caminho p/ restaurar, `--yes` p/ pular confirmação). Guard fail-closed recusa rodar com o dashboard servindo (corromperia). Faz verify + sidecar `.pre-restore` (undo) + swap atômico via `core/backup.py::restore_backup`. Parar o `./run.sh` antes; subir depois. Desfazer = copiar o `.pre-restore` de volta com o app parado.
+- **Backup-on-open (sem scheduler — 2026-06-24):** `run_dashboard` dispara `backup.request_startup_snapshot()` no boot → thread daemon roda `_snapshot_if_stale`: refresca o snapshot do mês **só se** a live DB mudou (compara `snap.mtime` vs maior mtime entre `.db` e `-wal`) e poda. Re-abrir sem editar = no-op (não gira o HDD). Off-thread → HDD nunca bloqueia o serve; exceção é logada, nunca derruba o dashboard. **⚠ Sharp edge:** o gate é mtime + filename por mês — bootar com um DB_PATH diferente/mais novo **sobrescreve** o backup do mês. Nunca bootar contra o BACKUP_DIR real com DB de teste.
+- **`run_backup` tri-state** (`created|skipped|failed`): entrypoint sai ≠0 só em falha REAL; skip do mesmo mês não alarma. (Booleano não distinguia — falhas já ficaram silenciosas no passado.)
+- **Escrita atômica:** `.tmp` + integrity-check + `os.replace` — snapshot falho nunca destrói o último bom. `_sweep_stale_tmps` no boot varre `.tmp` órfãos (guard de idade 60s).
+- **Indicador de frescor:** `GET /api/backup-status` → `{exists, name, age_seconds}`. Rodapé mostra "backup hoje/há Nd" e **alarma** stale (>7d) ou ausente (HDD desmontado) — falha silenciosa fica visível. Gate: `tests/integration/test_backup.py`.
+- **Restore seguro:** `PYTHONPATH=backend .venv/bin/python -m jobs.restore` (`--list`/`--latest`/caminho/picker; confirma; falha fechada sem TTY salvo `--yes`). Guard fail-closed: recusa com o dashboard servindo na porta (restaurar sob o writer vivo corrompe). Miolo `core/backup.py::restore_backup`: verify + sidecar `.pre-restore` (undo) + swap atômico. Fluxo: Ctrl+C no `./run.sh` → restore → `./run.sh`.
+- Avulso manual: `PYTHONPATH=backend .venv/bin/python -m jobs.backup`.
 
 ---
 
 ## Development Guidelines
 
-- **Type hints obrigatórias** em toda assinatura (verificadas por mypy).
-- **Todo SQL via `core/database.py`** (facade) → `core/db/*` — sem SQL inline fora de `core/db/`. Fragmentos compartilhados (consumption clause) em `core/db/_sql.py`. Lógica pura sem SQL (classificação de import) em `core/domain/`.
+- **Type hints obrigatórias** em toda assinatura (mypy).
+- **Todo SQL via `core/database.py`** (facade) → `core/db/*` — sem SQL inline fora de `core/db/`. Fragmentos compartilhados em `core/db/_sql.py`. Lógica pura sem SQL em `core/domain/`.
 - `PRAGMA journal_mode=WAL` + `PRAGMA foreign_keys=ON` no connect.
-- `main.py` **bloqueia em foreground** (`waitress.serve`) e sai ≠0 em ambiente inválido. Hoje sobe via `./run.sh` (sem supervisor — se cair, sobe na mão; o modelo systemd antigo está no `git log`).
-- **Health Stack (antes de commitar):** `ruff check backend tests` + `mypy` + `pytest` verdes. Config em `pyproject.toml` (ruff = E/F/B; mypy estrito em `core/`, relaxado na borda de framework em `dashboard.server`). **Enforçado** por hook versionado `.githooks/pre-commit` (ligado via `git config core.hooksPath .githooks`) — bloqueia o commit se algo estiver vermelho. Bypass pontual: `git commit --no-verify`. (Existe porque o pivot checking-only chegou a commitar um `POST /api/transactions` que dava 500 sem rodar o stack — `c2c467a`.)
+- **Health Stack (antes de commitar):** `ruff check backend tests` + `mypy backend` + `pytest` verdes. Config em `pyproject.toml` (ruff E/F/B; mypy estrito em `core/`, relaxado em `dashboard.server`). **Enforçado** pelo hook `.githooks/pre-commit` (`git config core.hooksPath .githooks`); bypass pontual `git commit --no-verify`. (Existe porque um pivot já commitou endpoint 500 sem rodar o stack — `c2c467a`.)
 
 ---
 
@@ -203,20 +184,18 @@ DASHBOARD_PORT=8080
 OWNER_SELF_KEYWORDS=seu nome completo,fragmento-cpf         # detecta auto-Pix/TED (SELF)
 ```
 
-> `LOCAL_BACKUP_DIR` (`/mnt/HDD_Arquivos/Backups/brokershark`) e a retenção (12 mensais) são hardcoded em `config.py`. `validate()` fail-fasta em `DB_PATH` inutilizável (resolvido p/ absoluto e logado).
+> `LOCAL_BACKUP_DIR` e retenção (12) hardcoded em `config.py`. `validate()` fail-fasta em `DB_PATH` inutilizável.
 
 ---
 
 ## Running Locally
 
-Runtime atual = **foreground via `./run.sh`** (sem always-on, por decisão — systemd antigo no `git log`). Backup roda manual (`PYTHONPATH=backend .venv/bin/python -m jobs.backup`). Rodar em foreground:
-
 ```bash
-cp .env.example .env   # preencher DB_PATH (absoluto)
-source .venv/bin/activate.fish
+cp .env.example .env       # preencher DB_PATH (absoluto)
+python -m venv .venv && source .venv/bin/activate.fish
 pip install -r requirements.txt
-python backend/main.py
-# Dashboard at http://localhost:8080  (parar o serviço antes, ou usar outra DASHBOARD_PORT)
+./run.sh                   # ou ./run.sh --open (abre o browser)
+# Dashboard: http://localhost:8080 — Ctrl+C para parar
 ```
 
 ---
