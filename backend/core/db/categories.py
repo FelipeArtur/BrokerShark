@@ -153,6 +153,5 @@ def delete_category(category_id: int, reassign_to_id: int) -> int:
                 raise ValueError("Existem lançamentos, é obrigatório reatribuir para exclusão.")
             affected = 0
 
-        conn.execute("DELETE FROM budgets WHERE category_id=?", (category_id,))
         conn.execute("DELETE FROM categories WHERE id=?", (category_id,))
         return affected

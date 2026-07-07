@@ -6,8 +6,8 @@
     PYTHONPATH=backend python -m jobs.restore <path>      # restore a specific backup file
     PYTHONPATH=backend python -m jobs.restore --latest --yes   # skip the confirmation prompt
 
-This is the safe wrapper the deleted ``deploy/restore.sh`` used to provide (TODOS
-T-C P1). The money-critical guard: it REFUSES to run while the dashboard is serving
+This is the safe wrapper the deleted ``deploy/restore.sh`` used to provide.
+The money-critical guard: it REFUSES to run while the dashboard is serving
 — restoring while the app holds the DB open (WAL) corrupts it. The dashboard is the
 only process that opens this DB, so "is the port serving?" is the authoritative
 liveness check for this architecture.

@@ -4,11 +4,11 @@
 
 ## gstack
 
-Use the `/browse` skill from gstack for all web browsing. **Never** use `mcp__claude-in-chrome__*` tools. Skills disponíveis: `/office-hours`, `/plan-ceo-review`, `/plan-eng-review`, `/plan-design-review`, `/design-consultation`, `/design-review`, `/review`, `/ship`, `/land-and-deploy`, `/qa`, `/investigate`, `/autoplan`, `/spec`, `/context-save`, `/context-restore`, `/learn`, entre outras.
+Use the `/browse` skill from gstack for all web browsing. **Never** use `mcp__claude-in-chrome__*` tools. Skills disponíveis: `/office-hours`, `/plan-ceo-review`, `/plan-eng-review`, `/plan-design-review`, `/design-consultation`, `/design-shotgun`, `/design-html`, `/review`, `/ship`, `/land-and-deploy`, `/canary`, `/benchmark`, `/browse`, `/connect-chrome`, `/qa`, `/qa-only`, `/design-review`, `/setup-browser-cookies`, `/setup-deploy`, `/setup-gbrain`, `/retro`, `/investigate`, `/document-release`, `/document-generate`, `/codex`, `/cso`, `/autoplan`, `/plan-devex-review`, `/devex-review`, `/careful`, `/freeze`, `/guard`, `/unfreeze`, `/gstack-upgrade`, `/learn`.
 
 ## AI Development Tools
 
-Co-desenvolvido com **Claude Code CLI** e **Gemini CLI**. `CLAUDE.md` = fonte da verdade (Claude); `GEMINI.md` = guia conciso (Gemini); `.claude/commands/` = slash-commands. **Mudança permanente (categoria/conta/schema) → atualizar os dois arquivos.**
+Desenvolvido com **Claude Code CLI**. `CLAUDE.md` = fonte única da verdade. **Mudança permanente (categoria/conta/schema) → atualizar este arquivo.** (GEMINI.md/Gemini CLI e TODOS.md removidos em 2026-07-07 — histórico no `git log`.)
 
 ---
 
@@ -50,7 +50,7 @@ backend/
 frontend/
   js/  api.js, primitives.js, view-overview.js, view-history.js, view-investments.js, app.js
 .githooks/  pre-commit (Health Stack gate — ligado via core.hooksPath .githooks)
-         # deploy/ foi apagado 2026-06-23 — estratégia de runtime/restore em rethink (TODOS T-C)
+         # deploy/ foi apagado 2026-06-23 — runtime decidido: foreground resource-minimal (ver git log)
 tests/   conftest.py (raiz, fixture db compartilhada);
          unit/        — puro, sem DB (test_classification, test_jobs) — roda em ~0.04s
          integration/ — DB/Flask/backup (database, ingestion, b3, backup, delete,
@@ -75,7 +75,7 @@ core/events.notify() — SSE push ao browser (< 1s)
 
 - **SQLite é a fonte única.** Sem write-back externo. Toda escrita pela web.
 - **A análise é o produto.** Import é apoio.
-- **Runtime: foreground, resource-minimal (deploy em rethink — ver TODOS T-C).** Dashboard roda em foreground via **`./run.sh`** (`main.py` bloqueia no `waitress.serve`, logs no terminal). **Footprint:** ~0% CPU ocioso (threads bloqueiam, não giram), ~43 MB RSS vivo, **zero** parado. `DASHBOARD_THREADS` (12). Conscientemente **sem serviço always-on** — o dono quer consumo mínimo, só roda quando usa; parar = Ctrl+C no `./run.sh`. Backup amarrado a **abrir o app** (`backup.request_startup_snapshot()` no boot, change-gated/off-thread — ver Automated Jobs); sem scheduler. Avulso manual ainda dá: `PYTHONPATH=backend .venv/bin/python -m jobs.backup`. **Restore seguro: `python -m jobs.restore`** (wrapper com guard fail-closed: recusa se o dashboard está servindo na porta — restaurar sob o writer vivo corrompe; `--latest`/caminho/picker/`--list`; confirma; falha fechada sem TTY salvo `--yes`). Miolo em `core/backup.py::restore_backup` (verify + sidecar `.pre-restore` + swap atômico). Parar/subir o app ainda é manual (Ctrl+C no `./run.sh` → restore → `./run.sh`). O modelo antigo (systemd user units + linger + OnFailure alert) está no `git log` (commit `08db96c`~) caso o rethink de runtime decida ressuscitá-lo. **(Cortes 2026-06-26: removidos auto-shutdown por ociosidade, rede de segurança de import `statement_coverage`, budgets, leituras de `investment_movements`/endpoint balance 409, e o refresh de backup pós-import — simplificação de escopo. Ver `git log`.)**
+- **Runtime: foreground, resource-minimal (decisão 2026-06-24).** Dashboard roda em foreground via **`./run.sh`** (`main.py` bloqueia no `waitress.serve`, logs no terminal). **Footprint:** ~0% CPU ocioso (threads bloqueiam, não giram), ~43 MB RSS vivo, **zero** parado. `DASHBOARD_THREADS` (12). Conscientemente **sem serviço always-on** — o dono quer consumo mínimo, só roda quando usa; parar = Ctrl+C no `./run.sh`. Backup amarrado a **abrir o app** (`backup.request_startup_snapshot()` no boot, change-gated/off-thread — ver Automated Jobs); sem scheduler. Avulso manual ainda dá: `PYTHONPATH=backend .venv/bin/python -m jobs.backup`. **Restore seguro: `python -m jobs.restore`** (wrapper com guard fail-closed: recusa se o dashboard está servindo na porta — restaurar sob o writer vivo corrompe; `--latest`/caminho/picker/`--list`; confirma; falha fechada sem TTY salvo `--yes`). Miolo em `core/backup.py::restore_backup` (verify + sidecar `.pre-restore` + swap atômico). Parar/subir o app ainda é manual (Ctrl+C no `./run.sh` → restore → `./run.sh`). O modelo antigo (systemd user units + linger + OnFailure alert) está no `git log` (commit `08db96c`~) caso o rethink de runtime decida ressuscitá-lo. **(Cortes 2026-06-26: removidos auto-shutdown por ociosidade, rede de segurança de import `statement_coverage`, budgets, leituras de `investment_movements`/endpoint balance 409, e o refresh de backup pós-import — simplificação de escopo. Ver `git log`.)**
 - **Segurança de rede:** bind em `127.0.0.1` + guard de Host/Origin em `server.py` (DNS-rebinding/CSRF) — a API não tem auth, então isso é load-bearing. Reforços (VibeSec): rejeita `Sec-Fetch-Site: cross-site` (defense-in-depth do Origin); headers `nosniff`/`X-Frame-Options DENY`/`Permissions-Policy`/no-store em `/api/`; **CSP toda `'self'`** (`script-src`/`style-src`/`font-src`/`connect-src` — libs E fontes vendorizadas, sem CDN, sem Babel/`unsafe-eval`; `base-uri`/`form-action 'self'`); **DB SQLite chmod 0600** no `init_db` (`_restrict_db_permissions` — sem auth, perms de arquivo são a fronteira at-rest); upload cap 8MB + B3 cap 16MB comprimido **e 200MB descomprimido** (anti zip-bomb, in-memory sem zip-slip, openpyxl sem XXE); `bulk_categorize` dedupe+cap (10k)+chunk (≤900, sob o limite de vars do SQLite). SQL 100% parametrizado (f-strings só interpolam fragmentos estáticos de cláusula). Gate: `tests/integration/test_hardening.py`.
 
 ### Invariantes financeiras (load-bearing — não quebrar)
@@ -100,7 +100,7 @@ core/events.notify() — SSE push ao browser (< 1s)
 | Language | Python 3.14 (venv) — código usa 3.12+ |
 | Database | SQLite (WAL mode) |
 | Backup | snapshot local mensal no HDD (retém 12), `conn.backup()` WAL-safe, refresh pós-import |
-| Scheduler | **nenhum por ora** — deploy em rethink (TODOS T-C); backup rodado manual |
+| Scheduler | **nenhum, por decisão** — backup-on-open; avulso manual via `python -m jobs.backup` |
 | Dashboard API | Flask 3.1 + Waitress 3.0 (`DASHBOARD_THREADS`=12, foreground via `./run.sh`) |
 | Frontend | React 18 + Chart.js (`frontend/js/vendor/`) + fontes Inter/JetBrains Mono (`frontend/fonts/` + `frontend/css/fonts.css`) **todos vendorizados localmente, sem CDN** → app roda **100% offline** (zero URL externa no `index.html`). **Sem build step e sem Babel** — JS puro hyperscript (`React.createElement`, nunca JSX); cada arquivo de app em IIFE (escopo próprio; sem colisão de `const` global). |
 | Real-time | SSE via `events.py` (no polling, < 1s) |
@@ -190,7 +190,7 @@ Um único job: **backup local mensal** (`core/backup.py`, entrypoint `jobs/backu
 - **Type hints obrigatórias** em toda assinatura (verificadas por mypy).
 - **Todo SQL via `core/database.py`** (facade) → `core/db/*` — sem SQL inline fora de `core/db/`. Fragmentos compartilhados (consumption clause) em `core/db/_sql.py`. Lógica pura sem SQL (classificação de import) em `core/domain/`.
 - `PRAGMA journal_mode=WAL` + `PRAGMA foreign_keys=ON` no connect.
-- `main.py` **bloqueia em foreground** (`waitress.serve`) e sai ≠0 em ambiente inválido. Hoje sobe via `./run.sh` (sem supervisor — se cair, sobe na mão; auto-restart era o systemd, agora pausado/apagado — ver TODOS T-C).
+- `main.py` **bloqueia em foreground** (`waitress.serve`) e sai ≠0 em ambiente inválido. Hoje sobe via `./run.sh` (sem supervisor — se cair, sobe na mão; o modelo systemd antigo está no `git log`).
 - **Health Stack (antes de commitar):** `ruff check backend tests` + `mypy` + `pytest` verdes. Config em `pyproject.toml` (ruff = E/F/B; mypy estrito em `core/`, relaxado na borda de framework em `dashboard.server`). **Enforçado** por hook versionado `.githooks/pre-commit` (ligado via `git config core.hooksPath .githooks`) — bloqueia o commit se algo estiver vermelho. Bypass pontual: `git commit --no-verify`. (Existe porque o pivot checking-only chegou a commitar um `POST /api/transactions` que dava 500 sem rodar o stack — `c2c467a`.)
 
 ---
@@ -209,7 +209,7 @@ OWNER_SELF_KEYWORDS=seu nome completo,fragmento-cpf         # detecta auto-Pix/T
 
 ## Running Locally
 
-Runtime atual = **foreground via `./run.sh`** (a estratégia always-on/systemd está em rethink — ver TODOS T-C). Backup roda manual (`PYTHONPATH=backend .venv/bin/python -m jobs.backup`). Rodar em foreground:
+Runtime atual = **foreground via `./run.sh`** (sem always-on, por decisão — systemd antigo no `git log`). Backup roda manual (`PYTHONPATH=backend .venv/bin/python -m jobs.backup`). Rodar em foreground:
 
 ```bash
 cp .env.example .env   # preencher DB_PATH (absoluto)

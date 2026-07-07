@@ -1,10 +1,10 @@
 """Entry point — boots the web dashboard and serves it in the foreground.
 
-Runs in the foreground via ``./run.sh`` (deploy strategy in rethink — see TODOS T-C):
-the process blocks on the WSGI server, logs to stdout, and exits non-zero on a bad
-environment. The periodic backup runs separately (``backend/jobs/backup.py``, fired
-manually for now). ``bootstrap`` is imported first so ``.env`` loads before ``config``
-is read.
+Runs in the foreground via ``./run.sh`` (no always-on service, by design): the
+process blocks on the WSGI server, logs to stdout, and exits non-zero on a bad
+environment. Backup is snapshotted on open (``backup.request_startup_snapshot``);
+a manual run also exists (``backend/jobs/backup.py``). ``bootstrap`` is imported
+first so ``.env`` loads before ``config`` is read.
 """
 from bootstrap import bootstrap
 

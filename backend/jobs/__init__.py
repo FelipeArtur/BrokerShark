@@ -1,4 +1,4 @@
-"""Oneshot job entrypoints (run manually for now — deploy/scheduler in rethink, TODOS T-C).
+"""Oneshot job entrypoints (run manually — no scheduler, by design).
 
 Run from the repo root with the backend dir on the path:
 
