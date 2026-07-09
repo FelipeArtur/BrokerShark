@@ -1,32 +1,14 @@
-# ── Python ──────────────────────────────────────────────────────────────
-.venv/
-venv/
-env/
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-*.egg-info/
-dist/
-build/
-
-# ── Caches de ferramentas (ruff/mypy/pytest) ────────────────────────────
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-
-# ── Node ────────────────────────────────────────────────────────────────
+# ── Node / build ────────────────────────────────────────────────────────
 node_modules/
+__pycache__/
 
 # ── Segredos / ambiente ─────────────────────────────────────────────────
-# .env tem credenciais; .env.example é o template versionado.
 .env
 .env.*
-!.env.example
 credentials/
 
 # ── Dados locais (nunca versionar) ──────────────────────────────────────
-# data/ = SQLite (DB_PATH). docs/ = artefatos locais (PRODUCT.md = dados pessoais).
+# data/ = SQLite (ledger pessoal). docs/ = artefatos locais (dados pessoais).
 data/
 backups/
 logs/
