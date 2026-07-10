@@ -332,16 +332,25 @@ for (const { f } of b3Files) {
   }
   b3Log.push(`  ${rep.refDate} (${basename(f)}): ${rep.positions.length} posições [${rep.sheets.join(", ") || "sem abas"}]`);
 }
-// Soft-close: o consolidado B3 traz TODAS as abas com posição — aba ausente num
-// relatório mais novo significa zero posições daquele tipo (confirmado nos dados:
-// MGLU3 some do anual 2024; CDBs do Porquinho somem no mensal de maio após os
-// resgates de 04/05 no extrato). Logo: ausente de QUALQUER relatório mais novo
-// → fechada na data do último snapshot.
+// Soft-close por tipo de aba:
+// - Tesouro/RV: o consolidado sempre lista o que existe — ausente de qualquer
+//   relatório mais novo → fechada (MGLU3 some do anual-2024; Prefixado 2026 some
+//   da aba Tesouro em jan/2026 ao vencer).
+// - Renda Fixa (CDB Inter/Porquinho): a aba PISCA no consolidado — CDBs somem em
+//   jan/fev/mar e maio de 2026 com o Porquinho vivo no extrato (aplicação de
+//   30/04 nem aparece no relatório de abril; registro em custódia atrasa). Aba
+//   RF ausente = SEM INFORMAÇÃO, não zero. Só fecha quando um relatório mais
+//   novo COM aba RF presente deixa de listar a posição.
 const newestReport = b3Files.at(-1)?.ref ?? "";
+const closeInv = db.prepare("UPDATE investments SET closed_at = ? WHERE id = ?");
 for (const [invId, seen] of posSeen) {
   const lastSeen = seen.dates.sort().at(-1)!;
-  if (lastSeen < newestReport) {
-    db.prepare("UPDATE investments SET closed_at = ? WHERE id = ?").run(lastSeen, invId);
+  if (lastSeen >= newestReport) continue;
+  if (seen.kind === "rf") {
+    const laterWithSheet = (reportsByKind.get("rf") ?? []).some((d) => d > lastSeen);
+    if (laterWithSheet) closeInv.run(lastSeen, invId);
+  } else {
+    closeInv.run(lastSeen, invId);
   }
 }
 
