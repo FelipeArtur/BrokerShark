@@ -140,6 +140,20 @@ export function analyticsRoutes(db: DatabaseSync): Route[] {
   }
 
   // ── GET /api/pix-top ──────────────────────────────────────────────────
+  // counterpart só é gravado no pareamento SELF; a contraparte de um pix comum
+  // vive na description — extraída aqui (prefixos Nubank/Inter + cauda CPF/CNPJ).
+  function pixCounterpart(desc: string): string {
+    return String(desc ?? "")
+      .replace(/"/g, "")
+      .replace(/^transfer[êe]ncia enviada pelo pix\s*[-–]?\s*/i, "")
+      .replace(/^pix enviado:?\s*/i, "")
+      .replace(/cp\s*:\s*\d+\s*-\s*/i, "")
+      .replace(/\s*[-–]\s*(?:•••|\d{3}\.\d{3}\.|\d{2}\.\d{3}\.\d{3}\/).*$/u, "")
+      .replace(/\s+Agência:.*$/iu, "")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+  }
+
   function getPixTop(req: Req, res: Res) {
     const { month: cm, year: cy } = currentMonth();
     const month = qsInt(req, "month") ?? cm;
@@ -147,23 +161,31 @@ export function analyticsRoutes(db: DatabaseSync): Route[] {
     const { start, end } = monthRange(month, year);
 
     const rows = db.prepare(`
-      SELECT counterpart, SUM(amount_cents) AS total_cents, COUNT(*) AS count
+      SELECT description, counterpart, amount_cents
       FROM transactions
       WHERE date >= ? AND date <= ?
         AND flow = 'expense'
         AND method = 'pix'
-        AND counterpart IS NOT NULL
-        AND counterpart != 'SELF'
-      GROUP BY counterpart
-      ORDER BY total_cents DESC
-      LIMIT 20
+        AND (counterpart IS NULL OR counterpart != 'SELF')
+        AND is_settlement = 0
+        AND is_third_party = 0
     `).all(start, end) as any[];
 
-    json(res, rows.map(r => ({
-      counterpart: r.counterpart,
-      total: r.total_cents / 100,
-      count: r.count,
-    })));
+    const groups = new Map<string, { counterpart: string; total_cents: number; count: number }>();
+    for (const r of rows) {
+      const name = r.counterpart ?? pixCounterpart(r.description);
+      if (!name) continue;
+      const key = name.toLowerCase();
+      const g = groups.get(key) ?? { counterpart: name, total_cents: 0, count: 0 };
+      g.total_cents += r.amount_cents;
+      g.count += 1;
+      groups.set(key, g);
+    }
+
+    json(res, [...groups.values()]
+      .sort((a, b) => b.total_cents - a.total_cents)
+      .slice(0, 20)
+      .map(g => ({ counterpart: g.counterpart, total: g.total_cents / 100, count: g.count })));
   }
 
   // ── GET /api/expenses-by-method ────────────────────────────────────────
@@ -199,20 +221,27 @@ export function analyticsRoutes(db: DatabaseSync): Route[] {
     const year = qsInt(req, "year") ?? cy;
     const { start, end } = monthRange(month, year);
 
-    // Merchants sem categoria, agrupados por display_name ou description
+    // Merchants sem categoria, agrupados por (display_name|description, flow).
+    // Só linhas categorizáveis: despesa de consumo (regra completa) ou receita real.
+    // ids agregados → o painel de lote categoriza todas as ocorrências de uma vez.
     const rows = db.prepare(`
       SELECT
         COALESCE(t.display_name, t.description) AS merchant_key,
-        COUNT(*) AS count
+        t.flow,
+        COUNT(*) AS count,
+        SUM(t.amount_cents) AS total_cents,
+        MIN(t.description) AS sample_description,
+        GROUP_CONCAT(t.id) AS ids
       FROM transactions t
       WHERE t.category_id IS NULL
         AND t.date >= ? AND t.date <= ?
-        AND t.flow = 'expense'
-        AND t.method != 'transfer'
-        AND t.is_settlement = 0
-        AND t.dest_account_id IS NULL
-      GROUP BY merchant_key
-      ORDER BY count DESC
+        AND (
+          (t.flow = 'expense' AND t.method != 'transfer' AND t.is_settlement = 0
+            AND t.is_third_party = 0 AND t.dest_account_id IS NULL)
+          OR (t.flow = 'income' AND t.is_revenue = 1 AND t.is_third_party = 0)
+        )
+      GROUP BY merchant_key, t.flow
+      ORDER BY total_cents DESC
     `).all(start, end) as any[];
 
     // Tentar sugerir categoria via rules
@@ -237,7 +266,11 @@ export function analyticsRoutes(db: DatabaseSync): Route[] {
       }
       return {
         merchant_key: r.merchant_key,
+        flow: r.flow,
         count: r.count,
+        total: r.total_cents / 100,
+        sample_description: r.sample_description,
+        ids: String(r.ids).split(",").map(Number),
         suggested_category_id: sugId,
         suggested_category_name: sugName,
       };

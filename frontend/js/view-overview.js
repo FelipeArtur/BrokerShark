@@ -1,9 +1,9 @@
 /* IIFE-wrapped: own scope (replaces Babel's per-file isolation) */
 (function () {
 /* view-overview.js — OverviewView (tela "Dinheiro") + CategoriesPanel */
-/* global React, fetchSummary, fetchAvailable, fetchAccounts,
+/* global React, fetchAvailable, fetchAccounts,
           fetchMonthTransactions, fetchCashflowStatement, fetchInvestments,
-          fetchPatrimonioHistory, fetchExpenseCategoriesFull, postCategory, deleteCategory,
+          fetchLiquidityHistory, fetchExpenseCategoriesFull, postCategory, deleteCategory,
           fetchRecentTransactions, patchTransaction, fetchMonthlyFull */
 
 const { useState: _ovSt, useEffect: _ovEf, useMemo: _ovMemo } = React;
@@ -15,16 +15,14 @@ const { fmtBRL, fmtBRLCompact, fmtDateBR, BankChip, DualLine, Modal, PT_MONTHS, 
 function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey, filterMonth, onImport }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
 
-  const [summary, setSummary]       = _ovSt(null);
   const [available, setAvailable]   = _ovSt(null);
   const [availErr, setAvailErr]     = _ovSt(false);
   const [loadErr, setLoadErr]       = _ovSt(false);
   const [retryTick, setRetryTick]   = _ovSt(0);
-    const [accounts, setAccounts]     = _ovSt([]);
+  const [accounts, setAccounts]     = _ovSt([]);
   const [activity, setActivity]     = _ovSt([]);
   const [cashflow, setCashflow]     = _ovSt(null);
   const [investments, setInvestments] = _ovSt([]);
-  const [patrimonioHistory, setPatrimonioHistory] = _ovSt([]);
   const [liquidityHistory, setLiquidityHistory] = _ovSt([]);
 
   _ovEf(() => {
@@ -33,18 +31,14 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
     setAvailErr(false); setLoadErr(false);
     fetchAvailable().then(setAvailable).catch(() => setAvailErr(true));
     Promise.all([
-      fetchSummary({ month, year }),
       fetchAccounts(),
       fetchMonthTransactions((month && year) ? { month, year } : {}),
       fetchCashflowStatement((month && year) ? { month, year } : {}),
       fetchInvestments(),
-      fetchPatrimonioHistory(),
       fetchLiquidityHistory()
-    ]).then(([s, ac, a, cf, invs, ph, lh]) => {
-      setSummary(s);
+    ]).then(([ac, a, cf, invs, lh]) => {
       setAccounts(ac); setActivity(a); setCashflow(cf);
       setInvestments(invs);
-      setPatrimonioHistory(ph || []);
       setLiquidityHistory(lh || []);
     }).catch(() => setLoadErr(true));
   }, [refreshKey, filterMonth, retryTick]);
@@ -55,7 +49,7 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
     h("button", { className: "btn btn-ghost", style: { color: "var(--neg)", padding: "6px 12px", border: "1px solid color-mix(in oklch, var(--neg) 30%, transparent)", borderRadius: 6, fontWeight: 600 }, onClick: () => setRetryTick(t => t + 1) }, "Tentar de novo")
   );
 
-  if (!summary) return h("div", { style: { padding: 24, color: "var(--fg-2)" } }, "Carregando…");
+  if (!cashflow) return h("div", { style: { padding: 24, color: "var(--fg-2)" } }, "Carregando…");
 
   // Checking accounts only, for the "Contas correntes" card.
   const checkingAccounts = accounts.filter(a => a.type === "checking");
@@ -77,16 +71,11 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
     ? (cashflow.income_total - displayExpense - cashflow.investment_net)
     : 0;
 
-  // Trend deltas are computed WITHIN each history series (last − previous), comparing
-  // like with like. (Previously the patrimônio delta mixed the live full number —
-  // caixa + investimentos — with the cash-based history series, which
-  // excludes investments, yielding a misleading delta. A true historical net worth
-  // can't be reconstructed: investments only carry a current snapshot, no monthly
-  // history. So the trend reflects the reconstructable monthly series; the headline
-  // number stays the precise current patrimônio.)
+  // Trend do patrimônio = /api/liquidity-history: caixa mensal + carteira de
+  // investimentos com carry-forward de snapshots — MESMA composição do headline
+  // (caixa + investimentos), então o delta "vs mês passado" compara igual com igual.
   const _seriesDelta = (hist) => hist.length > 1
     ? hist[hist.length - 1].value - hist[hist.length - 2].value : null;
-  const deltaPatrimonio = _seriesDelta(patrimonioHistory);
   const deltaLiquidez = _seriesDelta(liquidityHistory);
 
   function Sparkline({ data, width = 120, height = 40, color = "var(--accent)", fill = "var(--accent-bg)" }) {
@@ -314,10 +303,8 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
     ),
 
     // ── 2. PATRIMÔNIO ──
-    // Headline = precise current patrimônio (caixa + investimentos), with its
-    // real breakdown in the popover. The trend is the reconstructable 12-month series
-    // (investments have no monthly history, so the sparkline conveys direction, and the
-    // delta is within-series — honest month-over-month, not the old mixed comparison).
+    // Headline = patrimônio atual preciso (caixa + investimentos), breakdown real no
+    // popover. Trend/delta = liquidity-history (mesma composição, mês a mês).
     h("div", { className: "panel", style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 24, padding: "20px 28px", flexShrink: 0 } },
       h("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
         h("div", { style: { fontSize: 13, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700 } }, "Patrimônio líquido global"),
@@ -335,7 +322,7 @@ function OverviewView({ onJumpToAccount, onEditCategory, onDeleteTx, refreshKey,
           )
         )
       ),
-      h(TrendLine, { history: patrimonioHistory, delta: deltaPatrimonio, color: "var(--accent)", width: 180 })
+      h(TrendLine, { history: liquidityHistory, delta: deltaLiquidez, color: "var(--accent)", width: 180 })
     ),
 
     // ── 3. ATIVIDADE DO MÊS ──

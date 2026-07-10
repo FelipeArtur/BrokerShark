@@ -116,7 +116,7 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
   const totalExp    = expenses.reduce((s, t) => s + t.amount, 0);
   const totalInc    = income.reduce((s, t)  => s + t.amount, 0);
   const investOut   = monthTx.filter(t => t.flow === "expense" && t.method === "transfer" && !isSelf(t) && !t.is_third_party).reduce((s, t) => s + t.amount, 0);
-  const investIn    = monthTx.filter(t => t.flow === "income"  && t.is_revenue !== 1 && !isSelf(t) && !t.is_third_party).reduce((s, t) => s + t.amount, 0);
+  const investIn    = monthTx.filter(t => t.flow === "income"  && t.method === "transfer" && t.is_revenue !== 1 && !isSelf(t) && !t.is_third_party).reduce((s, t) => s + t.amount, 0);
   const investNet   = investOut - investIn;          // + = aplicou líquido, − = resgatou líquido
   const net         = totalInc - totalExp - investNet; // saldo livre (igual à Visão do Mês)
 
@@ -347,7 +347,7 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
             
             return items.map((c, i) => {
               const globalPct = totalExp ? (c.total / totalExp) * 100 : 0;
-              
+
               return h("div", { key: i, style: { display: "flex", flexDirection: "column", gap: 6 } },
                 h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline" } },
                   h("span", { style: { fontSize: 13, fontWeight: 600, color: "var(--fg-0)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, c.name || c.label),
@@ -362,6 +362,23 @@ function HistoryView({ refreshKey, onEditCategory, onDeleteTx, initialAccount, o
               );
             });
           })()
+        ),
+
+        // Top contrapartes PIX do mês selecionado (exclui pernas SELF no backend)
+        pixTop.length > 0 && h("div", { style: { marginTop: 24, paddingTop: 20, borderTop: "1px solid var(--line-1)" } },
+          h("div", { style: { fontSize: 12, fontWeight: 700, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 14 } }, "Top PIX do mês"),
+          h("div", { style: { display: "flex", flexDirection: "column", gap: 10 } },
+            pixTop.slice(0, 5).map((p, i) =>
+              h("div", { key: i, style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 } },
+                h("span", { style: { fontSize: 13, color: "var(--fg-1)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } },
+                  window.BS.prettifyDesc(p.counterpart)),
+                h("div", { style: { display: "flex", gap: 10, alignItems: "baseline", flexShrink: 0 } },
+                  h("span", { className: "mono", style: { fontSize: 11, color: "var(--fg-3)" } }, `${p.count}×`),
+                  h("span", { className: "mono", style: { fontSize: 13, fontWeight: 700, color: "var(--fg-1)" } }, fmtBRL(p.total))
+                )
+              )
+            )
+          )
         )
       )
     ),

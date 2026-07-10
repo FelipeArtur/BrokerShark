@@ -15,6 +15,8 @@ function txToJson(r: any): Record<string, unknown> {
     description: r.description,
     category_id: r.category_id,
     category_name: r.category_name ?? null,
+    // alias v1: TxRow/HistoryView leem `t.category`
+    category: r.category_name ?? null,
     dest_account_id: r.dest_account_id,
     counterpart: r.counterpart,
     is_revenue: r.is_revenue,

@@ -433,7 +433,8 @@ const TxRow = React.memo(({ t, cols, onEditCategory, onApplySuggestion }) => {
   // Non-consumption cash legs (shared classifiers — window.BS.isSelf / isInvest)
   const _self   = isSelf(t);
   const _invest = isInvest(t);
-  const amtColor = _self ? "var(--info)" : _invest ? "var(--reserve)" : (t.flow === "expense" ? "var(--neg)" : "var(--pos)");
+  const _settle = !!t.is_settlement;
+  const amtColor = _self || _settle ? "var(--info)" : _invest ? "var(--reserve)" : (t.flow === "expense" ? "var(--neg)" : "var(--pos)");
   const rows = [
     h("tr", { 
       key: t.id, 
@@ -448,7 +449,9 @@ const TxRow = React.memo(({ t, cols, onEditCategory, onApplySuggestion }) => {
         )
       ),
       cols.includes("cat") && h("td", null,
-        _self
+        _settle
+          ? h("span", { className: "data-tag", style: { borderColor: "color-mix(in oklch, var(--info) 30%, transparent)", color: "var(--info)" }, title: "liquidação de fatura — os gastos reais são os itens da fatura; contar o pagamento dobraria o consumo" }, "pagamento de fatura")
+          : _self
           ? h("span", { className: "data-tag", style: { borderColor: "color-mix(in oklch, var(--info) 30%, transparent)", color: "var(--info)" }, title: "transferência entre suas contas — não conta como despesa nem receita" }, "transferência")
           : _invest
             ? h("span", { className: "data-tag", style: { borderColor: "color-mix(in oklch, var(--reserve) 30%, transparent)", color: "var(--reserve)" }, title: "movimento de investimento — não conta como despesa nem receita" }, "investimento")
@@ -499,14 +502,18 @@ const TxRow = React.memo(({ t, cols, onEditCategory, onApplySuggestion }) => {
 );
 
 // ── Transaction classification (single source — mirrors the backend rule) ──────
-// Same semantics as core/db/_sql.py::consumption_expense_clause + the SELF/investment
-// invariants in CLAUDE.md. The API already filters internal transfers (dest_account_id)
-// server-side, so the client only re-checks method/is_revenue/is_third_party. Null-safe
-// so callers can pass a possibly-undefined tx. Keep these the ONLY copies in the front.
+// Same semantics as the consumption-expense rule in CLAUDE.md: flow='expense' AND
+// method != 'transfer' AND is_settlement=0 AND is_third_party=0 AND dest_account_id
+// IS NULL. The v2 API returns ALL legs (settlements included) — the client must
+// apply the full rule, otherwise a fatura payment double-counts against its own
+// itemized charges. Null-safe so callers can pass a possibly-undefined tx.
+// Keep these the ONLY copies in the front.
 const isSelf               = t => t?.counterpart === "SELF";
-const isConsumptionExpense = t => t?.flow === "expense" && t.method !== "transfer" && !t.is_third_party;
+const isConsumptionExpense = t => t?.flow === "expense" && t.method !== "transfer"
+  && !t.is_settlement && !t.is_third_party && t.dest_account_id == null;
 const isRevenue            = t => t?.flow === "income"  && t.is_revenue === 1 && !t.is_third_party;
-const isInvest             = t => !!t && !isSelf(t) && (t.method === "transfer" || (t.flow === "income" && !t.is_revenue));
+const isInvest             = t => !!t && !isSelf(t) && !t.is_settlement
+  && (t.method === "transfer" || (t.flow === "income" && !t.is_revenue));
 
 window.BS = window.BS || {};
 Object.assign(window.BS, {

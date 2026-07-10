@@ -59,7 +59,11 @@ function InvestmentsView({ refreshKey }) {
   const typeLabel = (t) => _INV_TYPE_LABEL[t] || (t ? t[0].toUpperCase() + t.slice(1) : "Investimento");
 
   const filteredInvestments = _s3Memo(() => investments.filter(inv => {
-    if (bankFilter !== "all" && inv.bank !== bankFilter) return false;
+    if (bankFilter === "b3") {
+      // "B3 / Outras" = qualquer emissor fora dos dois bancos do usuário
+      // (o parser B3 marca emissores não reconhecidos como bank='outro').
+      if (inv.bank === "nubank" || inv.bank === "inter") return false;
+    } else if (bankFilter !== "all" && inv.bank !== bankFilter) return false;
     if (categoryFilter && typeLabel(inv.type) !== categoryFilter) return false;
     return true;
   }), [investments, bankFilter, categoryFilter]);
@@ -174,7 +178,7 @@ function InvestmentsView({ refreshKey }) {
         h("span", { style: { fontSize: 12, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700 } }, "12 meses")
       ),
       h("div", { style: { height: 260, paddingBottom: 16 } },
-        h(SingleAreaChart, { data: evolution.map(e => ({ label: e.label, value: e.cumulative })), height: 240, color: "var(--accent)" })
+        h(SingleAreaChart, { data: evolution.slice(-12).map(e => ({ label: e.label, value: e.cumulative })), height: 240, color: "var(--accent)" })
       )
     )
   );

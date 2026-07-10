@@ -2,17 +2,20 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { Req, Res, Route } from "./helpers.ts";
 import { json, error, readBody, qs, qsStr, compilePath, broadcast, today } from "./helpers.ts";
+import { monthlyPortfolioSeries } from "../domain/positions.ts";
 
 export function investmentRoutes(db: DatabaseSync): Route[] {
 
   // ── GET /api/investments ───────────────────────────────────────────────
   function getInvestments(req: Req, res: Res) {
     const bank = qsStr(req, "bank");
-    const conditions: string[] = [];
+    // Carteira ATUAL: posições soft-closed ficam fora — o último snapshot delas é
+    // histórico (CDB vencido/resgatado), somá-lo inflaria total e patrimônio.
+    const conditions: string[] = ["i.closed_at IS NULL"];
     const params: unknown[] = [];
     if (bank) { conditions.push("i.bank = ?"); params.push(bank); }
 
-    const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+    const where = `WHERE ${conditions.join(" AND ")}`;
 
     // Último snapshot de cada investimento
     const rows = db.prepare(`
@@ -42,53 +45,34 @@ export function investmentRoutes(db: DatabaseSync): Route[] {
       derived: r.snap_source === "derived" ? 1 : 0,
     }));
 
-    // Caixinha derivada: buscar investimentos do grupo "Caixinha" e somar
-    // via transações de transfer → dest_account_id IS NULL
-    const caixinhaInvs = db.prepare(`
-      SELECT id FROM investments WHERE group_name = 'Caixinha'
-    `).all() as any[];
-
-    if (caixinhaInvs.length > 0) {
-      // Verificar se já existe investimento caixinha nos resultados
-      const hasCaixinha = result.some(r => r.group_name === "Caixinha");
-      if (!hasCaixinha) {
-        // Somar saldo de todos os investimentos caixinha
-        let totalCents = 0;
-        for (const inv of caixinhaInvs) {
-          const snap = db.prepare(`
-            SELECT net_cents FROM position_snapshots
-            WHERE investment_id = ? ORDER BY ref_date DESC LIMIT 1
-          `).get(inv.id) as any;
-          if (snap) totalCents += snap.net_cents;
-        }
-        // Não precisamos adicionar — já estão nos resultados individuais
-      }
-    }
-
     json(res, result);
   }
 
   // ── GET /api/investment-evolution ──────────────────────────────────────
+  // Série mensal contínua: último snapshot de cada investimento por mês,
+  // carry-forward entre relatórios, posição zera após o soft-close.
   function getInvestmentEvolution(_req: Req, res: Res) {
-    const rows = db.prepare(`
-      SELECT ref_date AS date, SUM(net_cents) AS total_cents
-      FROM (
-        SELECT ps1.*
-        FROM position_snapshots ps1
-        INNER JOIN (
-          SELECT investment_id, ref_date, MAX(id) AS max_id
-          FROM position_snapshots
-          GROUP BY investment_id, ref_date
-        ) ps2 ON ps1.id = ps2.max_id
-      ) latest
-      GROUP BY ref_date
-      ORDER BY ref_date
+    const snaps = db.prepare(`
+      SELECT investment_id, ym, net_cents FROM (
+        SELECT ps.investment_id, strftime('%Y-%m', ps.ref_date) AS ym, ps.net_cents,
+          ROW_NUMBER() OVER (
+            PARTITION BY ps.investment_id, strftime('%Y-%m', ps.ref_date)
+            ORDER BY ps.ref_date DESC, ps.id DESC
+          ) AS rn
+        FROM position_snapshots ps
+      ) WHERE rn = 1 ORDER BY ym
     `).all() as any[];
 
-    json(res, rows.map(r => ({
-      date: r.date,
-      total: r.total_cents / 100,
-    })));
+    const closedYm = new Map<number, string>(
+      (db.prepare(
+        "SELECT id, strftime('%Y-%m', closed_at) AS ym FROM investments WHERE closed_at IS NOT NULL"
+      ).all() as any[]).map(r => [r.id, r.ym]),
+    );
+
+    json(res, monthlyPortfolioSeries(snaps, closedYm).map(p => {
+      const [y, m] = p.ym.split("-");
+      return { label: `${m}/${y}`, cumulative: p.total_cents / 100 };
+    }));
   }
 
   // ── POST /api/investment-movements ─────────────────────────────────────

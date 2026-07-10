@@ -1186,7 +1186,7 @@ function App() {
           h("span", null, "BrokerShark"),
           h("div", { style: { display: "flex", gap: 16, alignItems: "center" } },
             h(BackupIndicator, { refreshKey }),
-            h("span", { style: { fontFamily: "var(--ff-mono)" } }, "localhost:8080 · SQLite")
+            h("span", { style: { fontFamily: "var(--ff-mono)" } }, `${location.host} · SQLite`)
           )
         )
       )

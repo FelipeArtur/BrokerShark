@@ -2,6 +2,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { Req, Res, Route } from "./helpers.ts";
 import { json, error, qs, qsStr, compilePath, broadcast, readBody, currentMonth, monthRange } from "./helpers.ts";
+import { monthlyPortfolioSeries } from "../domain/positions.ts";
 
 export function accountRoutes(db: DatabaseSync): Route[] {
   // ── GET /api/accounts ──────────────────────────────────────────────────
@@ -208,29 +209,33 @@ export function accountRoutes(db: DatabaseSync): Route[] {
       ORDER BY ym
     `).all() as any[];
 
-    // Posições de investimento por mês (último snapshot de cada investimento no mês)
-    const investSnapshots = db.prepare(`
-      SELECT strftime('%Y-%m', ref_date) AS ym, SUM(net_cents) AS total_net
-      FROM (
-        SELECT ps.*, ROW_NUMBER() OVER (
-          PARTITION BY ps.investment_id, strftime('%Y-%m', ps.ref_date)
-          ORDER BY ps.ref_date DESC, ps.id DESC
-        ) AS rn
+    // Carteira mensal com carry-forward (snapshots são esparsos entre relatórios);
+    // meses após o último snapshot herdam o último total conhecido.
+    const snaps = db.prepare(`
+      SELECT investment_id, ym, net_cents FROM (
+        SELECT ps.investment_id, strftime('%Y-%m', ps.ref_date) AS ym, ps.net_cents,
+          ROW_NUMBER() OVER (
+            PARTITION BY ps.investment_id, strftime('%Y-%m', ps.ref_date)
+            ORDER BY ps.ref_date DESC, ps.id DESC
+          ) AS rn
         FROM position_snapshots ps
-      ) sub
-      WHERE rn = 1
-      GROUP BY ym
-      ORDER BY ym
+      ) WHERE rn = 1 ORDER BY ym
     `).all() as any[];
-
-    const investMap = new Map<string, number>();
-    for (const r of investSnapshots) investMap.set(r.ym, r.total_net ?? 0);
+    const closedYm = new Map<number, string>(
+      (db.prepare(
+        "SELECT id, strftime('%Y-%m', closed_at) AS ym FROM investments WHERE closed_at IS NOT NULL"
+      ).all() as any[]).map(r => [r.id, r.ym]),
+    );
+    const series = monthlyPortfolioSeries(snaps, closedYm);
+    const investMap = new Map(series.map(p => [p.ym, p.total_cents]));
+    const lastSnapYm = series.length ? series[series.length - 1].ym : "";
+    const lastTotal = series.length ? series[series.length - 1].total_cents : 0;
 
     let runningChecking = totalInitial;
     const out: { label: string; value: number }[] = [];
     for (const r of monthlyChecking) {
       runningChecking += r.income_cents - r.expense_cents;
-      const investCents = investMap.get(r.ym) ?? 0;
+      const investCents = investMap.get(r.ym) ?? (r.ym > lastSnapYm ? lastTotal : 0);
       const [y, m] = r.ym.split("-");
       out.push({ label: `${m}/${y}`, value: (runningChecking + investCents) / 100 });
     }
