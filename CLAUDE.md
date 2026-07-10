@@ -16,7 +16,7 @@ Desenvolvido com **Claude Code CLI**. `CLAUDE.md` = fonte única da verdade. **M
 
 Ferramenta **pessoal** de análise de dinheiro, 100% local (Linux, 1 usuário). Pergunta central: **"quanto eu posso gastar agora?"** — depois, para onde o dinheiro vai.
 
-**v2 rewrite — TypeScript.** O backend Python/Flask foi removido (histórico preservado no git). O novo backend é TypeScript rodando sobre Node ≥ 26 (native type-stripping, sem build step). A fase atual é **ingestão/backfill**; o servidor web (Hono + SSE) e a reconexão do frontend são planejados para fases futuras.
+**v2 rewrite — TypeScript.** O backend Python/Flask foi removido (histórico preservado no git). O novo backend é TypeScript rodando sobre Node ≥ 26 (native type-stripping, sem build step). Ingestão (backfill) e servidor web (node:http + SSE, zero deps) prontos; **falta**: endpoints de import incremental via UI (`/api/import/*` — hoje respondem 404; usar backfill).
 
 **O produto é a análise (web dashboard — 3 telas):** **Dinheiro** (herói "Disponível pra gastar" = saldo em conta), **Histórico** (timeline mensal, métricas, por categoria, tabela filtrável), **Investimentos** (donut + posições). **Apoio (não é o centro):** import de extratos e posições B3.
 
@@ -45,6 +45,14 @@ backend-ts/
       interExtrato.ts   # extrato Inter CSV (running-balance check)
       interFatura.ts    # fatura Inter CSV (itens itemizados)
       b3.ts             # relatório consolidado B3 xlsx (posições + snapshots)
+    routes/
+      helpers.ts        # micro-router (compilePath), json/error, SSE broadcaster, qs/body
+      accounts.ts       # contas, /api/available, histórias de saldo/patrimônio/liquidez
+      transactions.ts   # CRUD + busca + restore (undo) + categorize-bulk
+      categories.ts     # totais por categoria + CRUD de categorias
+      analytics.ts      # summary, monthly, daily-spend, pix-top, cashflow
+      investments.ts    # posições (último snapshot), evolução, movimento manual
+    server.ts           # node:http: dispatch das rotas + SSE /api/events + frontend estático
     jobs/
       backfill.ts       # CLI: reconstrói o DB do zero a partir do acervo de exports
 frontend/
@@ -66,7 +74,7 @@ backfill.ts — parse + INSERT (SQLite, centavos inteiros)
       ↓
 data/brokershark-v2.db (WAL, 0600)
       ↓
-[fase futura] Hono server → React frontend (SSE)
+server.ts (node:http, 127.0.0.1:8000) → React frontend (SSE /api/events)
 ```
 
 ### Key principles
@@ -98,7 +106,7 @@ data/brokershark-v2.db (WAL, 0600)
 | Database | SQLite via `node:sqlite` (builtin, WAL, `foreign_keys=ON`, file mode 0600) |
 | Parsing | own CSV parsers; `xlsx` for B3 reports (única npm dependency) |
 | Frontend | React 18 + Chart.js + fontes Inter/JetBrains Mono, **tudo vendorizado, sem CDN** → 100% offline. **Sem build step** — hyperscript puro (`React.createElement`, nunca JSX); cada arquivo em IIFE. |
-| Server | Hono + SSE — **planejado (fase futura)**, preservará o API contract v1 |
+| Server | `node:http` + micro-router próprio + SSE (`/api/events`) — zero deps, bind 127.0.0.1, preserva o API contract v1 |
 
 ---
 
@@ -185,6 +193,7 @@ Pipeline sequencial:
 cd backend-ts
 npm install       # instala xlsx
 node src/jobs/backfill.ts "<dir do acervo>"   # → data/brokershark-v2.db
+npm start         # server em http://127.0.0.1:8000 (PORT ou --port N para mudar)
 ```
 
 ---
