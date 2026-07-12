@@ -20,29 +20,14 @@ async function _patch(url, body) {
 }
 
 /* ── Read endpoints ─────────────────────────────────────────────────────── */
-async function fetchSummary({ bank, month, year, period } = {}) { return _get(`/api/summary${_params({ bank, month, year, period })}`); }
-async function fetchMonthly(bank)                          { return _get(`/api/monthly${_qs(bank)}`); }
-async function fetchCategories({ bank, month, year, period } = {}) { return _get(`/api/categories${_params({ bank, month, year, period })}`); }
-async function fetchExpensesByMethod(bank) { return _get(`/api/expenses-by-method${_qs(bank)}`); }
 async function fetchInvestments(bank)      { return _get(`/api/investments${_qs(bank)}`); }
 async function fetchAccounts(bank)         { return _get(`/api/accounts${_qs(bank)}`); }
-
-async function fetchAccountDetail(id)      { return _get(`/api/account/${encodeURIComponent(id)}`); }
-async function fetchCategoriesByAccount(id){ return _get(`/api/categories${_params({ account: id })}`); }
-async function fetchMonthlyByAccount(id)   { return _get(`/api/monthly${_params({ account: id })}`); }
-async function fetchAccountHistory(id)     { return _get(`/api/account-history${_params({ account: id })}`); }
-async function fetchRecentTransactions(id, { limit = 100, month = null, year = null } = {}) {
-  return _get(`/api/transactions${_params({ account: id, limit, month, year })}`);
-}
 async function fetchExpenseCategories()         { return _get("/api/expense-categories"); }
 async function fetchExpenseCategoriesFull()     { return _get("/api/expense-categories-full"); }
 async function fetchCategoriesFull(flow = "expense") { return _get(`/api/categories-full${_params({ flow })}`); }
 
 /* ── New v2 read endpoints ──────────────────────────────────────────────── */
-async function fetchDailySpend({ month, year } = {})  { return _get(`/api/daily-spend${_params({ month, year })}`); }
-async function fetchRecentActivity()       { return _get("/api/recent-activity"); }
 async function fetchMonthTransactions({ month, year } = {}) { return _get(`/api/month-transactions${_params({ month, year })}`); }
-async function fetchPatrimonioHistory()    { return _get("/api/patrimonio-history"); }
 async function fetchLiquidityHistory()     { return _get("/api/liquidity-history"); }
 async function searchTransactions(q)       { return _get(`/api/search?q=${encodeURIComponent(q)}`); }
 async function fetchMonthlyFull(bank)      { return _get(`/api/monthly${_params({ bank, present: 1 })}`); }

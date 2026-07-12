@@ -7,11 +7,12 @@ const { useState: _s3St, useEffect: _s3Ef, useMemo: _s3Memo } = React;
 const { fmtBRL, BankChip, SingleAreaChart, Donut } = window.BS;
 
 const _INV_TYPE_LABEL = {
-  savings:  "Poupança",
-  treasury: "Tesouro Direto",
+  rdb:      "Caixinha (RDB)",
   cdb:      "CDB / Renda fixa",
+  tesouro:  "Tesouro Direto",
   lci:      "LCI / Renda fixa",
   lca:      "LCA / Renda fixa",
+  savings:  "Poupança",
 };
 
 // Curated cold palette, led by the brand cyan (hue 200) and well-separated by
@@ -64,16 +65,17 @@ function InvestmentsView({ refreshKey }) {
       // (o parser B3 marca emissores não reconhecidos como bank='outro').
       if (inv.bank === "nubank" || inv.bank === "inter") return false;
     } else if (bankFilter !== "all" && inv.bank !== bankFilter) return false;
-    if (categoryFilter && typeLabel(inv.type) !== categoryFilter) return false;
+    if (categoryFilter && (inv.group_name || typeLabel(inv.type)) !== categoryFilter) return false;
     return true;
   }), [investments, bankFilter, categoryFilter]);
 
   const total = filteredInvestments.reduce((sum, inv) => sum + (inv.balance || 0), 0);
 
   const grouped = _s3Memo(() => {
+    // Mesmo agrupamento do widget do dashboard: group_name (Porquinho) > tipo.
     const g = {};
     filteredInvestments.forEach(inv => {
-      const t = typeLabel(inv.type);
+      const t = inv.group_name || typeLabel(inv.type);
       if (!g[t]) g[t] = [];
       g[t].push(inv);
     });

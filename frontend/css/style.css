@@ -387,6 +387,148 @@ button.data-tag:hover { border-color: var(--fg-2); color: var(--fg-0); backgroun
   box-shadow: 0 8px 32px oklch(0% 0 0 / 0.45);
 }
 
+/* ── Dashboard único (v3) ─────────────────────────────────────────────────
+   Shell de uma tela: topbar → faixa KPI fixa → grid de widgets → drill-downs
+   em overlay. Densidade "painel de operação": muita informação por bloco,
+   hierarquia por peso/cor, não por espaço. */
+
+.v3-topbar {
+  height: 52px; flex-shrink: 0;
+  display: flex; align-items: center; gap: 16px; padding: 0 24px;
+  background: var(--bg-0); border-bottom: 1px solid var(--line-1);
+  position: sticky; top: 0; z-index: 20;
+}
+
+/* Seletor de mês global — rege os widgets de fluxo (posição é sempre "agora") */
+.month-nav { display: flex; align-items: center; gap: 2px; }
+.month-nav-btn {
+  width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
+  border-radius: var(--r-2); color: var(--fg-2); font-size: 15px;
+  transition: background 0.12s, color 0.12s;
+}
+.month-nav-btn:hover:not(:disabled) { background: var(--bg-2); color: var(--fg-0); }
+.month-nav-btn:disabled { opacity: 0.3; cursor: default; }
+.month-nav-label {
+  min-width: 122px; text-align: center; font-size: 13px; font-weight: 700;
+  color: var(--fg-0); letter-spacing: -0.01em; white-space: nowrap;
+}
+.month-nav-today {
+  margin-left: 4px; padding: 3px 10px; border-radius: 999px;
+  font-size: 11px; font-weight: 700; color: var(--accent);
+  background: var(--accent-bg);
+  border: 1px solid color-mix(in oklch, var(--accent) 30%, transparent);
+  transition: background 0.12s;
+}
+.month-nav-today:hover { background: color-mix(in oklch, var(--accent) 20%, transparent); }
+
+/* Faixa KPI — sempre visível (sticky sob a topbar) */
+.kpi-strip {
+  position: sticky; top: 52px; z-index: 15;
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  background: var(--bg-0); border-bottom: 1px solid var(--line-1);
+}
+.kpi {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 14px 24px 12px;
+  border-right: 1px solid var(--line-1);
+  min-width: 0;
+}
+.kpi:last-child { border-right: none; }
+.kpi-label {
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.07em; color: var(--fg-3); white-space: nowrap;
+}
+.kpi-value {
+  font-family: var(--ff-mono); font-size: 26px; font-weight: 700;
+  letter-spacing: -0.025em; line-height: 1; color: var(--fg-0); white-space: nowrap;
+}
+.kpi-hero .kpi-value { font-size: 30px; }
+.kpi-sub {
+  display: flex; align-items: baseline; gap: 8px 10px; flex-wrap: wrap;
+  font-size: 11px; color: var(--fg-3);
+}
+.kpi-delta { font-family: var(--ff-mono); font-weight: 700; font-size: 11px; }
+
+/* Grid de widgets */
+.dash-main { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; align-items: center; }
+.dash-grid {
+  width: 100%; max-width: 1600px;
+  display: grid; grid-template-columns: repeat(12, 1fr);
+  gap: 14px; padding: 16px 24px 8px;
+}
+.wg { grid-column: span 12; }
+.wg-8 { grid-column: span 8; }
+.wg-6 { grid-column: span 6; }
+.wg-4 { grid-column: span 4; }
+@media (max-width: 1280px) {
+  .wg-8 { grid-column: span 12; }
+  .wg-4 { grid-column: span 6; }
+}
+@media (max-width: 900px) {
+  .wg-4, .wg-6 { grid-column: span 12; }
+  .kpi-strip { grid-template-columns: 1fr 1fr; }
+  .kpi:nth-child(2) { border-right: none; }
+  .kpi:nth-child(-n+2) { border-bottom: 1px solid var(--line-1); }
+}
+
+.widget {
+  background: var(--bg-1); border: 1px solid var(--line-1);
+  border-radius: var(--r-4); display: flex; flex-direction: column;
+  min-width: 0; overflow: hidden;
+}
+.widget-h {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 16px; border-bottom: 1px solid var(--line-1); flex-shrink: 0;
+}
+.widget-title {
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.07em; color: var(--fg-2); white-space: nowrap;
+}
+.widget-body { padding: 14px 16px; display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.widget-open {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 8px; border-radius: var(--r-1);
+  font-size: 10px; font-weight: 600; color: var(--fg-2);
+  border: 1px solid var(--line-1); transition: all 0.12s; white-space: nowrap;
+}
+.widget-open:hover { color: var(--fg-0); border-color: var(--line-2); background: var(--bg-2); }
+
+/* Timeline mensal — 12 slots clicáveis, barras receita×despesa */
+.tl-slot {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px;
+  padding: 6px 2px 5px; border-radius: var(--r-2);
+  border: 1px solid transparent; transition: all 0.1s; min-width: 0;
+}
+.tl-slot:hover:not(:disabled) { background: var(--bg-2); }
+.tl-slot:disabled { cursor: default; opacity: 0.35; }
+.tl-slot.picked {
+  background: var(--accent-bg);
+  border-color: color-mix(in oklch, var(--accent) 40%, transparent);
+}
+.tl-bars { display: flex; align-items: flex-end; gap: 2px; height: 56px; width: 100%; justify-content: center; }
+.tl-bar { width: 38%; max-width: 12px; border-radius: 2px 2px 0 0; min-height: 2px; }
+.tl-mon {
+  font-size: 9px; font-family: var(--ff-mono); text-transform: uppercase;
+  color: var(--fg-3); font-weight: 500; letter-spacing: 0.02em;
+}
+.tl-slot.picked .tl-mon { color: var(--accent); font-weight: 700; }
+.tl-net { font-size: 9px; font-family: var(--ff-mono); font-weight: 600; }
+
+/* Drill-down — overlay de tela cheia (camada, não navegação) */
+.drill {
+  position: fixed; inset: 0; z-index: 70;
+  background: var(--bg-0); display: flex; flex-direction: column;
+  animation: fade-in 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.drill-h {
+  height: 52px; flex-shrink: 0;
+  display: flex; align-items: center; gap: 16px; padding: 0 24px;
+  background: var(--bg-0); border-bottom: 1px solid var(--line-1);
+}
+.drill-title { font-size: 14px; font-weight: 700; color: var(--fg-0); letter-spacing: -0.01em; }
+.drill-body { flex: 1; overflow-y: auto; display: flex; flex-direction: column; align-items: center; }
+.drill-content { width: 100%; max-width: 1600px; padding: 20px 24px 40px; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;

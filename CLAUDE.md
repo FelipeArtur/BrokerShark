@@ -18,7 +18,7 @@ Ferramenta **pessoal** de análise de dinheiro, 100% local (Linux, 1 usuário). 
 
 **v2 rewrite — TypeScript.** O backend Python/Flask foi removido (histórico preservado no git). O novo backend é TypeScript rodando sobre Node ≥ 26 (native type-stripping, sem build step). Ingestão (backfill) e servidor web (node:http + SSE, zero deps) prontos; **falta**: endpoints de import incremental via UI (`/api/import/*` — hoje respondem 404; usar backfill).
 
-**O produto é a análise (web dashboard — 3 telas):** **Dinheiro** (herói "Disponível pra gastar" = saldo em conta), **Histórico** (timeline mensal, métricas, por categoria, tabela filtrável), **Investimentos** (donut + posições). **Apoio (não é o centro):** import de extratos e posições B3.
+**O produto é a análise (web dashboard — tela única, sem abas):** faixa KPI fixa (**Disponível pra gastar** herói · **Patrimônio total** com Δ mensal · **Saldo livre do mês** · **Investido** com Δ) + grid de widgets (fluxo mês a mês clicável = seletor de mês global, contas, categorias, investimentos, top PIX, atividade). Detalhe abre em **drill-down overlay** (tecla 2 = tabela completa de transações; 3 = posições de investimento), nunca navegação. Seletor de mês global rege os widgets de fluxo; posição é sempre "agora"; default = mês mais recente COM dados. **Apoio (não é o centro):** import de extratos e posições B3.
 
 > **North star:** fácil de alimentar + extremamente confiável. Dinheiro em **centavos inteiros** — sem floats no ledger.
 
@@ -35,29 +35,43 @@ backend-ts/
     db/
       schema.sql        # DDL v2 — fonte única do schema
       open.ts           # openDb/initSchema/restrictPermissions (node:sqlite builtin)
-    domain/
+    domain/             # lógica PURA (sem DB/IO)
       money.ts          # parseMoneyCents (string→centavos inteiros), fmtCents, parseDateBR
-      classify.ts       # classificação PURA (sem DB/IO): isInvestment, isCaixinhaLeg, checkingExpenseMethod
-    ingest/
+      classify.ts       # isInvestment, isCaixinhaLeg, checkingExpenseMethod
+      dates.ts          # currentMonth, monthRange, today
+      positions.ts      # monthlyPortfolioSeries (carry-forward de snapshots)
+    ingest/             # parsers dos exports (1 arquivo por formato)
       types.ts          # TxRecord, ParsedFile
       csv.ts            # parser CSV genérico
       nubankExtrato.ts  # extrato Nubank CSV (UUID dedup)
       interExtrato.ts   # extrato Inter CSV (running-balance check)
       interFatura.ts    # fatura Inter CSV (itens itemizados)
       b3.ts             # relatório consolidado B3 xlsx (posições + snapshots)
-    routes/
-      helpers.ts        # micro-router (compilePath), json/error, SSE broadcaster, qs/body
-      accounts.ts       # contas, /api/available, histórias de saldo/patrimônio/liquidez
-      transactions.ts   # CRUD + busca + restore (undo) + categorize-bulk
-      categories.ts     # totais por categoria + CRUD de categorias
-      analytics.ts      # summary, monthly, daily-spend, pix-top, cashflow
-      investments.ts    # posições (último snapshot), evolução, movimento manual
-    server.ts           # node:http: dispatch das rotas + SSE /api/events + frontend estático
+    http/               # infraestrutura HTTP (1 preocupação por arquivo)
+      respond.ts        # json/error, readBody (limite 1MB, HttpError), query-string
+      router.ts         # compilePath + dispatch
+      sse.ts            # broadcaster /api/events + keepalive
+      static.ts         # frontend estático (guarda de traversal, mapa /static/)
+      security.ts       # host allowlist (anti DNS-rebinding) + headers (CSP etc.)
+      validate.ts       # isIsoDate, isPositiveAmount, isIntId… (writes validam tudo)
+    routes/             # handlers finos por domínio; SQL nomeado no topo
+      accounts.ts       # /api/accounts, /api/available, /api/liquidity-history
+      transactions.ts   # listagens, busca, PATCH/DELETE + undo, bulk, lançamento manual
+      categories.ts     # categories-full, expense-categories(-full), POST/DELETE
+      analytics.ts      # monthly, cashflow-statement, pix-top, uncategorized-merchants
+      investments.ts    # carteira (abertas), evolução, movimento manual
+    server.ts           # bootstrap: config → db → pipeline (host→headers→SSE→rotas→estático)
     jobs/
-      backfill.ts       # CLI: reconstrói o DB do zero a partir do acervo de exports
+      backfill.ts       # orquestrador (1 tela): fases em jobs/backfill/
+      backfill/         # files, seeds, txInsert, extratos, faturas, selfPairs,
+                        # caixinha, b3Sync, verify — 1 fase por arquivo
 frontend/
   index.html            # React 18 SPA (hyperscript puro, sem build step)
-  js/                   # api.js, primitives.js, view-overview.js, view-history.js, view-investments.js, app.js
+  js/                   # api.js · primitives.js (inclui Overlay de drill-down)
+                        # view-dashboard.js (a tela única: KPIs + widgets)
+                        # view-history.js (TxExplorer — drill de transações)
+                        # view-investments.js (drill de investimentos)
+                        # view-overview.js (só CategoriesPanel) · app.js (shell)
   css/                  # estilos
   fonts/                # Inter, JetBrains Mono — vendorizados (100% offline)
   img/                  # assets
@@ -82,7 +96,8 @@ server.ts (node:http, 127.0.0.1:8000) → React frontend (SSE /api/events)
 - **SQLite é a fonte única.** `node:sqlite` builtin (zero deps nativas), WAL mode, `foreign_keys=ON`, `synchronous=NORMAL`.
 - **Dinheiro = centavos inteiros.** `parseMoneyCents()` decompõe a string em inteiro+fração — jamais passa por float intermediário. `amount_cents`, `initial_balance_cents`, `net_cents`, etc.
 - **Backfill por reconstrução.** O DB de saída é recriado do zero a cada run — idempotência sem lógica de migração incremental (para a fase de ingestão).
-- **DB chmod 0600** — sem auth na app, perms de arquivo = fronteira at-rest.
+- **DB chmod 0600** — sem auth na app, perms de arquivo = fronteira at-rest (backfill E server aplicam; WAL/SHM incluídos).
+- **Fronteiras do server local:** bind 127.0.0.1 + allowlist de Host (anti DNS-rebinding) + CSP self-only/nosniff/frame-deny + body cap 1MB + writes 100% validados server-side (data, FKs, whitelists de method/flow/operation).
 
 ### Invariantes financeiras (load-bearing — não quebrar)
 

@@ -8,17 +8,12 @@
 
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
 const {
-  fmtBRL, fmtDateBR, Modal, useToasts, SegmentControl, BankChip, BrokerSharkLogo,
-  PT_SHORT,
-  OverviewView, HistoryView, InvestmentsView,
+  fmtBRL, fmtDateBR, Modal, Overlay, useToasts, SegmentControl, BankChip, BrokerSharkLogo,
+  PT_MONTHS, PT_SHORT,
+  DashboardView, TxExplorer, InvestmentsView,
   CategoriesPanel,
   isSelf, isInvest,
 } = window.BS;
-
-function _currentMonth() {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-}
 
 /* ── SVG icons ──────────────────────────────────────────────────────────── */
 function IconSearch({ size = 17 }) {
@@ -1020,10 +1015,31 @@ function BackupIndicator({ refreshKey }) {
   }, txt);
 }
 
+/* ── MonthNav — seletor de mês global (topbar + header dos drills) ──────────
+   Navega só nos meses que TÊM dados (bounds = /api/monthly); "Hoje" volta ao
+   mês mais recente. Widgets de fluxo seguem este seletor; posição (saldo,
+   patrimônio, investido) é sempre "agora". */
+function MonthNav({ monthly, monthSel, onPick }) {
+  const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
+  if (!monthly.length || !monthSel) return null;
+  const idx = monthly.findIndex(m => m.year === monthSel.year && m.month === monthSel.month);
+  const now = new Date();
+  const isCalCurrent = monthSel.year === now.getFullYear() && monthSel.month === now.getMonth() + 1;
+  const isLatest = idx === monthly.length - 1;
+  const pick = i => { const m = monthly[i]; if (m) onPick({ year: m.year, month: m.month }); };
+  return h("div", { className: "month-nav", role: "group", "aria-label": "Mês analisado" },
+    h("button", { className: "month-nav-btn", disabled: idx <= 0, onClick: () => pick(idx - 1), title: "Mês anterior", "aria-label": "Mês anterior" }, "‹"),
+    h("span", { className: "month-nav-label" },
+      `${PT_MONTHS[monthSel.month]} ${monthSel.year}`,
+      isCalCurrent && h("span", { style: { marginLeft: 6, fontSize: 9, fontWeight: 700, color: "var(--info)", textTransform: "uppercase", letterSpacing: "0.05em" } }, "atual")),
+    h("button", { className: "month-nav-btn", disabled: idx < 0 || isLatest, onClick: () => pick(idx + 1), title: "Próximo mês", "aria-label": "Próximo mês" }, "›"),
+    !isLatest && h("button", { className: "month-nav-today", onClick: () => pick(monthly.length - 1) }, "Hoje")
+  );
+}
+
 function App() {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   const [tw, setTw] = useTweaks();
-  const [section, setSection] = useState("money");
   const [editTx, setEditTx] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);  // tx aguardando confirmação de exclusão
   const [tweaksOpen, setTweaksOpen] = useState(false);
@@ -1031,11 +1047,23 @@ function App() {
   const [importOpen, setImportOpen] = useState(false);
   const [categoriesOpen, setCategoriesOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [historyAccount, setHistoryAccount] = useState(null); // drill-down: filter Histórico by account
+  const [monthly, setMonthly] = useState([]);           // série /api/monthly — bounds do seletor
+  const [monthSel, setMonthSel] = useState(null);       // mês global: {year, month}
+  const [drill, setDrill] = useState(null);             // null | {kind:"tx", bulk?} | {kind:"inv"}
   const { push, Toaster } = useToasts();
 
-  // Dinheiro is always "now"; the period selector lives inside Histórico.
-  const currentMonth = _currentMonth();
+  // Série mensal → default do seletor = mês mais recente COM dados (um mês
+  // calendário ainda vazio abriria o painel todo zerado).
+  useEffect(() => {
+    fetchMonthlyFull().then(data => {
+      setMonthly(data);
+      setMonthSel(prev => {
+        if (prev && data.some(m => m.year === prev.year && m.month === prev.month)) return prev;
+        const last = data[data.length - 1];
+        return last ? { year: last.year, month: last.month } : null;
+      });
+    }).catch(() => {});
+  }, [refreshKey]);
 
   // Boot: populate account names for data-driven BankChip
   useEffect(() => {
@@ -1062,15 +1090,20 @@ function App() {
     return () => { clearTimeout(debounce); es?.close(); };
   }, []);
 
-  // Keyboard shortcuts (functional, no visual hints shown)
+  // Atalhos: 1 = painel (fecha drill) · 2 = transações · 3 = investimentos ·
+  // / = busca · i = importar · c = categorias. Esc fecha overlays (Overlay
+  // cuida do próprio Esc).
   useEffect(() => {
-    const SECTION_MAP = { "1": "money", "2": "history", "3": "investments" };
     function onKey(e) {
       if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || e.target.tagName === "SELECT") return;
-      if (e.key === "Escape") { setSearchModalOpen(false); setTweaksOpen(false); }
-      if (e.key === "/") { e.preventDefault(); setSearchModalOpen(true); }
-      if (e.key === "c" || e.key === "C") { e.preventDefault(); setSection("categorize"); }
-      if (SECTION_MAP[e.key]) setSection(SECTION_MAP[e.key]);
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === "Escape") { setSearchModalOpen(false); setTweaksOpen(false); return; }
+      if (e.key === "/") { e.preventDefault(); setSearchModalOpen(true); return; }
+      if (e.key === "1") setDrill(null);
+      if (e.key === "2") setDrill(d => d?.kind === "tx" ? null : { kind: "tx" });
+      if (e.key === "3") setDrill(d => d?.kind === "inv" ? null : { kind: "inv" });
+      if (e.key === "i" || e.key === "I") setImportOpen(true);
+      if (e.key === "c" || e.key === "C") setCategoriesOpen(true);
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -1100,96 +1133,63 @@ function App() {
     }
   }
 
-  const SECTIONS = [
-    { id: "money",       label: "Visão do Mês", shortcut: "1" },
-    { id: "history",     label: "Histórico",    shortcut: "2" },
-    { id: "investments", label: "Investimentos",shortcut: "3" },
-  ];
+  const footer = h("footer", { style: { width: "100%", maxWidth: 1600, marginTop: "auto", padding: "10px 24px 18px", fontSize: 11, color: "var(--fg-3)", display: "flex", justifyContent: "space-between", alignItems: "center" } },
+    h("span", null, "BrokerShark"),
+    h("div", { style: { display: "flex", gap: 16, alignItems: "center" } },
+      h(BackupIndicator, { refreshKey }),
+      h("span", { style: { fontFamily: "var(--ff-mono)" } }, `${location.host} · SQLite`)
+    )
+  );
 
   return h("div", { id: "app", style: { height: "100vh", display: "flex", flexDirection: "column", background: "var(--bg-0)" } },
 
-    // ── Premium Topbar
-    h("header", { style: { 
-      height: 60, padding: "0 32px", 
-      display: "flex", alignItems: "center", justifyContent: "space-between",
-      background: "var(--bg-0)", borderBottom: "1px solid var(--line-1)",
-      position: "sticky", top: 0, zIndex: 10
-    } },
-      
-      // Left: Logo & Nav
-      h("div", { style: { display: "flex", alignItems: "center", gap: 48 } },
-        h("div", { style: { display: "flex", alignItems: "center", gap: 12, cursor: "pointer" }, onClick: () => setSection("money") },
-          h(BrokerSharkLogo, { size: 24 })
-        ),
-        h("nav", { style: { display: "flex", gap: 8 } },
-          SECTIONS.map(s => h("button", {
-            key: s.id, onClick: () => setSection(s.id),
-            style: { 
-              padding: "6px 14px", borderRadius: 6, fontSize: 13, fontWeight: 600, border: "none", cursor: "pointer",
-              color: section === s.id ? "var(--bg-0)" : "var(--fg-1)",
-              background: section === s.id ? "var(--fg-0)" : "transparent",
-              transition: "all 0.15s", display: "flex", alignItems: "center", gap: 8
-            },
-            onMouseEnter: e => { if(section !== s.id) { e.currentTarget.style.color = "var(--fg-0)"; e.currentTarget.style.background = "var(--bg-1)"; } },
-            onMouseLeave: e => { if(section !== s.id) { e.currentTarget.style.color = "var(--fg-1)"; e.currentTarget.style.background = "transparent"; } }
-          }, 
-            s.label,
-            s.shortcut && h("kbd", { style: { 
-              fontFamily: "var(--ff-mono)", fontSize: 10, fontWeight: 600,
-              color: section === s.id ? "color-mix(in oklch, var(--bg-0) 70%, transparent)" : "var(--fg-3)", 
-              background: section === s.id ? "color-mix(in oklch, var(--bg-0) 15%, transparent)" : "var(--bg-1)", 
-              border: section === s.id ? "none" : "1px solid var(--line-1)",
-              padding: "0 5px", borderRadius: 4, height: 18, display: "inline-flex", alignItems: "center"
-            } }, s.shortcut)
-          ))
-        )
+    // ── Topbar: logo · mês global · busca · config · importar (sem abas)
+    h("header", { className: "v3-topbar" },
+      h("div", { style: { display: "flex", alignItems: "center", cursor: "pointer" }, onClick: () => setDrill(null), title: "Painel (1)" },
+        h(BrokerSharkLogo, { size: 24 })
       ),
-
-      // Right: Actions
-      h("div", { style: { display: "flex", alignItems: "center", gap: 12 } },
-        
-
-        // Settings (Configurações) — abre o TweaksPanel (tema · categorias · reset)
-        h("button", {
-          onClick: () => setTweaksOpen(true),
-          title: "Configurações",
-          style: { width: 32, height: 32, borderRadius: 6, background: "var(--bg-1)", border: "1px solid var(--line-1)", color: "var(--fg-1)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, transition: "background 0.1s" },
-          onMouseEnter: e => e.currentTarget.style.background = "var(--bg-2)",
-          onMouseLeave: e => e.currentTarget.style.background = "var(--bg-1)"
-        }, h(IconSettings, { size: 15 })),
-
-        // Prominent Import Button
-        h("button", { 
-          onClick: () => setImportOpen(true),
-          style: { height: 32, padding: "0 16px", borderRadius: 6, background: "var(--fg-0)", color: "var(--bg-0)", border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, transition: "transform 0.1s" },
-          onMouseEnter: e => e.currentTarget.style.transform = "scale(1.02)",
-          onMouseLeave: e => e.currentTarget.style.transform = "scale(1)"
-        }, h(IconImport, { size: 14 }), "Importar Dados")
-      )
+      h(MonthNav, { monthly, monthSel, onPick: setMonthSel }),
+      h("div", { style: { flex: 1 } }),
+      h("button", {
+        onClick: () => setSearchModalOpen(true), title: "Buscar transações (/)",
+        style: { display: "flex", alignItems: "center", gap: 8, height: 30, padding: "0 10px", borderRadius: 6, background: "var(--bg-1)", border: "1px solid var(--line-1)", color: "var(--fg-2)", fontSize: 12, transition: "all 0.1s" },
+        onMouseEnter: e => { e.currentTarget.style.background = "var(--bg-2)"; e.currentTarget.style.color = "var(--fg-0)"; },
+        onMouseLeave: e => { e.currentTarget.style.background = "var(--bg-1)"; e.currentTarget.style.color = "var(--fg-2)"; }
+      }, h(IconSearch, { size: 14 }), "Buscar", h("span", { className: "kbd" }, "/")),
+      h("button", {
+        onClick: () => setTweaksOpen(true), title: "Configurações",
+        style: { width: 30, height: 30, borderRadius: 6, background: "var(--bg-1)", border: "1px solid var(--line-1)", color: "var(--fg-1)", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.1s" },
+        onMouseEnter: e => e.currentTarget.style.background = "var(--bg-2)",
+        onMouseLeave: e => e.currentTarget.style.background = "var(--bg-1)"
+      }, h(IconSettings, { size: 15 })),
+      h("button", {
+        onClick: () => setImportOpen(true),
+        style: { height: 30, padding: "0 14px", borderRadius: 6, background: "var(--fg-0)", color: "var(--bg-0)", border: "none", fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", gap: 7 }
+      }, h(IconImport, { size: 13 }), "Importar")
     ),
 
-    // ── Body
-    h("main", { style: { flex: 1, overflowY: "auto", position: "relative" } },
-      h("div", { style: { width: "100%", maxWidth: 1200, margin: "0 auto", padding: "48px 0", minHeight: "100%", display: "flex", flexDirection: "column" } },
-        section === "money"      && h(OverviewView, {
-          onJumpToAccount: (accId) => { setHistoryAccount(accId || null); setSection("history"); },
-          onEditCategory: setEditTx, onDeleteTx: handleDeleteTx, refreshKey, filterMonth: currentMonth,
-          onImport: () => setImportOpen(true)
-        }),
-        section === "history"    && h(HistoryView, {
-          onEditCategory: setEditTx, onDeleteTx: handleDeleteTx, refreshKey,
-          initialAccount: historyAccount, onAccountConsumed: () => setHistoryAccount(null)
-        }),
-        section === "investments" && h(InvestmentsView, { refreshKey }),
+    // ── Dashboard (única tela; drills abrem por cima, estado preservado)
+    h(DashboardView, {
+      monthSel, monthly, onPickMonth: setMonthSel, refreshKey,
+      onOpenTx: (opts) => setDrill({ kind: "tx", bulk: !!(opts && opts.bulk) }),
+      onOpenInv: () => setDrill({ kind: "inv" }),
+      onEditCategory: setEditTx,
+      onImport: () => setImportOpen(true),
+      footer,
+    }),
 
-        h("footer", { style: { marginTop: "auto", paddingTop: 64, paddingBottom: 24, fontSize: 11, color: "var(--fg-3)", display: "flex", justifyContent: "space-between", alignItems: "center" } },
-          h("span", null, "BrokerShark"),
-          h("div", { style: { display: "flex", gap: 16, alignItems: "center" } },
-            h(BackupIndicator, { refreshKey }),
-            h("span", { style: { fontFamily: "var(--ff-mono)" } }, `${location.host} · SQLite`)
-          )
-        )
-      )
+    // ── Drill-downs
+    h(Overlay, {
+      open: drill?.kind === "tx", onClose: () => setDrill(null), title: "Transações",
+      headerExtra: h(MonthNav, { monthly, monthSel, onPick: setMonthSel }),
+    },
+      drill?.kind === "tx" && h(TxExplorer, {
+        monthSel, refreshKey, onEditCategory: setEditTx,
+        openBulk: !!drill.bulk, onBulkConsumed: () => setDrill({ kind: "tx" }),
+      })
+    ),
+    h(Overlay, { open: drill?.kind === "inv", onClose: () => setDrill(null), title: "Investimentos" },
+      drill?.kind === "inv" && h(InvestmentsView, { refreshKey })
     ),
 
     // ── Modals & overlays

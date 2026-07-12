@@ -242,6 +242,7 @@ function Modal({ open, onClose, title, children, width = 480 }) {
     const get  = () => Array.from(dialogRef.current.querySelectorAll(sel));
     get()[0]?.focus();
     function trap(e) {
+      if (e.key === "Escape") { e.stopPropagation(); onClose && onClose(); return; }
       if (e.key !== "Tab") return;
       const nodes = get();
       if (!nodes.length) { e.preventDefault(); return; }
@@ -387,6 +388,41 @@ function Drawer({ open, onClose, children, width = 480, title }) {
   );
 }
 
+/* ── Overlay ─────────────────────────────────────────────────────────────
+   Drill-down de tela cheia: camada por cima do dashboard (o estado da tela
+   de trás fica intacto). Esc fecha; `headerExtra` injeta controles no topo
+   (ex.: navegação de mês do explorador de transações). */
+function Overlay({ open, onClose, title, headerExtra, children }) {
+  _useEffect(() => {
+    if (!open) return;
+    document.body.style.overflow = "hidden";
+    function onKey(e) {
+      if (e.key === "Escape") {
+        if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT" || e.target.tagName === "TEXTAREA") { e.target.blur(); return; }
+        onClose();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => { document.body.style.overflow = ""; window.removeEventListener("keydown", onKey); };
+  }, [open, onClose]);
+
+  if (!open) return null;
+  return React.createElement("div", { className: "drill", role: "dialog", "aria-modal": "true", "aria-label": title },
+    React.createElement("div", { className: "drill-h" },
+      React.createElement("button", {
+        onClick: onClose, className: "btn btn-ghost btn-sm", "aria-label": "Voltar ao painel",
+        style: { gap: 6, color: "var(--fg-2)", marginLeft: -8 }
+      }, "‹ Painel"),
+      React.createElement("span", { className: "drill-title" }, title),
+      headerExtra || null,
+      React.createElement("span", { style: { marginLeft: "auto", display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "var(--fg-3)" } },
+        React.createElement("span", { className: "kbd" }, "Esc"), "fechar")
+    ),
+    React.createElement("div", { className: "drill-body" },
+      React.createElement("div", { className: "drill-content" }, children))
+  );
+}
+
 /* ── BankChip ───────────────────────────────────────────────────────────── */
 function BankChip({ bank, accountId }) {
   const isNu = bank === "nubank" || (accountId && accountId.startsWith("nu"));
@@ -520,7 +556,7 @@ Object.assign(window.BS, {
   fmtBRL, fmtBRLCompact, fmtDateBR, prettifyDesc,
   PT_MONTHS, PT_SHORT, fmtCycleDate,
   DualLine, Donut,
-  Modal, Drawer, useToasts, BankChip, SegmentControl,
+  Modal, Drawer, Overlay, useToasts, BankChip, SegmentControl,
   BrokerSharkLogo, TxRow,
   isSelf, isConsumptionExpense, isRevenue, isInvest,
 });
