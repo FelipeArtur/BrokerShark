@@ -1,0 +1,45 @@
+/** caixinha.ts — Caixinha Nubank: posição derivada do ledger (invariante).
+ *
+ *  RDB fora da B3. Saldo = Σ(aplicações) − Σ(resgates) das pernas de poupança;
+ *  snapshots mensais 'derived' (último saldo corrente de cada mês).
+ *  O Porquinho Inter NÃO passa por aqui — é CDB custodiado na B3.
+ */
+import type { DatabaseSync } from "node:sqlite";
+
+export interface CaixinhaResult { investmentId: number; balanceCents: number; legs: number }
+
+export function deriveCaixinha(db: DatabaseSync, caixinhaTxIds: number[]): CaixinhaResult {
+  const investmentId = Number(db.prepare(`
+    INSERT INTO investments (name, match_key, type, bank, source, group_name)
+    VALUES ('Caixinha Nubank', 'ledger:caixinha-nubank', 'rdb', 'nubank', 'ledger', NULL)
+  `).run().lastInsertRowid);
+
+  if (!caixinhaTxIds.length) return { investmentId, balanceCents: 0, legs: 0 };
+
+  const ph = caixinhaTxIds.map(() => "?").join(",");
+  db.prepare(`UPDATE transactions SET investment_id = ? WHERE id IN (${ph})`)
+    .run(investmentId, ...caixinhaTxIds);
+
+  const legs = db.prepare(`
+    SELECT date, flow, amount_cents FROM transactions
+    WHERE investment_id = ? ORDER BY date
+  `).all(investmentId) as unknown as { date: string; flow: string; amount_cents: number }[];
+
+  const byMonth = new Map<string, number>();
+  let running = 0;
+  for (const l of legs) {
+    running += l.flow === "expense" ? l.amount_cents : -l.amount_cents;
+    byMonth.set(l.date.slice(0, 7), running); // último running do mês
+  }
+
+  const insSnap = db.prepare(`
+    INSERT INTO position_snapshots (investment_id, ref_date, net_cents, source)
+    VALUES (?,?,?,'derived')
+  `);
+  for (const [month, bal] of byMonth) {
+    const [y, mo] = month.split("-").map(Number) as [number, number];
+    const last = new Date(y, mo, 0).getDate();
+    insSnap.run(investmentId, `${month}-${String(last).padStart(2, "0")}`, bal);
+  }
+  return { investmentId, balanceCents: running, legs: caixinhaTxIds.length };
+}

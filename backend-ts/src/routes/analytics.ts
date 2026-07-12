@@ -1,71 +1,38 @@
-/** analytics.ts — rotas analíticas (summary, monthly, daily-spend, cashflow, etc.). */
+/** analytics.ts — agregações do dashboard.
+ *
+ * /api/monthly (série receita×despesa), /api/pix-top (contrapartes do mês),
+ * /api/uncategorized-merchants (painel de lote), /api/cashflow-statement
+ * (balanço do mês da Visão do Mês).
+ */
 import type { DatabaseSync } from "node:sqlite";
-import type { Req, Res, Route } from "./helpers.ts";
-import { json, error, qs, qsStr, qsInt, compilePath, currentMonth, monthRange } from "./helpers.ts";
+import type { Req, Res } from "../http/respond.ts";
+import { json, qsStr, qsInt } from "../http/respond.ts";
+import type { Route } from "../http/router.ts";
+import { compilePath } from "../http/router.ts";
+import { currentMonth, monthRange } from "../domain/dates.ts";
+
+/** Somas de um período: receita real, despesa de consumo, fluxo de investimento. */
+const FLOW_SUMS = `
+  COALESCE(SUM(CASE
+    WHEN t.flow='income' AND t.is_revenue=1
+    THEN t.amount_cents ELSE 0 END), 0) AS income_cents,
+  COALESCE(SUM(CASE
+    WHEN t.flow='expense' AND t.method != 'transfer'
+      AND t.is_settlement=0 AND t.is_third_party=0
+      AND t.dest_account_id IS NULL
+    THEN t.amount_cents ELSE 0 END), 0) AS expense_cents,
+  COALESCE(SUM(CASE
+    WHEN t.flow='expense' AND t.method='transfer'
+      AND t.dest_account_id IS NULL AND t.is_settlement=0
+    THEN t.amount_cents ELSE 0 END), 0) AS invest_out_cents,
+  COALESCE(SUM(CASE
+    WHEN t.flow='income' AND t.is_revenue=0 AND t.method='transfer'
+    THEN t.amount_cents ELSE 0 END), 0) AS invest_in_cents
+`;
 
 export function analyticsRoutes(db: DatabaseSync): Route[] {
-
-  // ── GET /api/summary ───────────────────────────────────────────────────
-  function getSummary(req: Req, res: Res) {
-    const bank = qsStr(req, "bank");
-    const period = qsStr(req, "period");
-    const { month: cm, year: cy } = currentMonth();
-    const month = qsInt(req, "month") ?? cm;
-    const year = qsInt(req, "year") ?? cy;
-
-    const conditions: string[] = [];
-    const params: unknown[] = [];
-
-    if (bank) { conditions.push("a.bank = ?"); params.push(bank); }
-
-    if (period && period !== "all") {
-      const months = parseInt(period);
-      if (months > 0) {
-        const d = new Date();
-        d.setMonth(d.getMonth() - months);
-        conditions.push("t.date >= ?");
-        params.push(d.toISOString().slice(0, 10));
-      }
-    } else {
-      const { start, end } = monthRange(month, year);
-      conditions.push("t.date >= ? AND t.date <= ?");
-      params.push(start, end);
-    }
-
-    const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
-
-    const row = db.prepare(`
-      SELECT
-        COALESCE(SUM(CASE
-          WHEN t.flow='income' AND t.is_revenue=1
-          THEN t.amount_cents ELSE 0 END), 0) AS income_cents,
-        COALESCE(SUM(CASE
-          WHEN t.flow='expense' AND t.method != 'transfer'
-            AND t.is_settlement=0 AND t.is_third_party=0
-            AND t.dest_account_id IS NULL
-          THEN t.amount_cents ELSE 0 END), 0) AS expense_cents,
-        COALESCE(SUM(CASE
-          WHEN t.flow='expense' AND t.method='transfer'
-            AND t.dest_account_id IS NULL AND t.is_settlement=0
-          THEN t.amount_cents ELSE 0 END), 0) AS invest_out_cents,
-        COALESCE(SUM(CASE
-          WHEN t.flow='income' AND t.is_revenue=0 AND t.method='transfer'
-          THEN t.amount_cents ELSE 0 END), 0) AS invest_in_cents,
-        COUNT(t.id) AS transaction_count
-      FROM transactions t
-      LEFT JOIN accounts a ON a.id = t.account_id
-      ${where}
-    `).get(...params) as any;
-
-    json(res, {
-      income: row.income_cents / 100,
-      expenses: row.expense_cents / 100,
-      investment_net: (row.invest_out_cents - row.invest_in_cents) / 100,
-      transaction_count: row.transaction_count,
-    });
-  }
-
-  // ── GET /api/monthly ───────────────────────────────────────────────────
+  // ── GET /api/monthly?bank=&account=&present= ──────────────────────────
+  // Série mensal receita×despesa. present=1 inclui o mês corrente.
   function getMonthly(req: Req, res: Res) {
     const bank = qsStr(req, "bank");
     const account = qsStr(req, "account");
@@ -73,32 +40,20 @@ export function analyticsRoutes(db: DatabaseSync): Route[] {
 
     const conditions: string[] = [];
     const params: unknown[] = [];
-
     if (bank) { conditions.push("a.bank = ?"); params.push(bank); }
     if (account) { conditions.push("t.account_id = ?"); params.push(account); }
-
-    // Excluir mês corrente se present != 1
     if (present !== "1") {
       const { month: cm, year: cy } = currentMonth();
-      const currentYm = `${cy}-${String(cm).padStart(2, "0")}`;
       conditions.push("strftime('%Y-%m', t.date) < ?");
-      params.push(currentYm);
+      params.push(`${cy}-${String(cm).padStart(2, "0")}`);
     }
-
     const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
 
     const rows = db.prepare(`
       SELECT
         strftime('%Y', t.date) AS year,
         CAST(strftime('%m', t.date) AS INTEGER) AS month,
-        SUM(CASE
-          WHEN t.flow='income' AND t.is_revenue=1
-          THEN t.amount_cents ELSE 0 END) AS income_cents,
-        SUM(CASE
-          WHEN t.flow='expense' AND t.method != 'transfer'
-            AND t.is_settlement=0 AND t.is_third_party=0
-            AND t.dest_account_id IS NULL
-          THEN t.amount_cents ELSE 0 END) AS expense_cents
+        ${FLOW_SUMS}
       FROM transactions t
       LEFT JOIN accounts a ON a.id = t.account_id
       ${where}
@@ -115,31 +70,26 @@ export function analyticsRoutes(db: DatabaseSync): Route[] {
     })));
   }
 
-  // ── GET /api/daily-spend ───────────────────────────────────────────────
-  function getDailySpend(req: Req, res: Res) {
+  // ── GET /api/cashflow-statement?month=&year= ──────────────────────────
+  function getCashflowStatement(req: Req, res: Res) {
     const { month: cm, year: cy } = currentMonth();
     const month = qsInt(req, "month") ?? cm;
     const year = qsInt(req, "year") ?? cy;
     const { start, end } = monthRange(month, year);
 
-    const rows = db.prepare(`
-      SELECT CAST(strftime('%d', date) AS INTEGER) AS day,
-        SUM(amount_cents) AS total_cents
-      FROM transactions
-      WHERE date >= ? AND date <= ?
-        AND flow = 'expense'
-        AND method != 'transfer'
-        AND is_settlement = 0
-        AND is_third_party = 0
-        AND dest_account_id IS NULL
-      GROUP BY day
-      ORDER BY day
-    `).all(start, end) as any[];
+    const row = db.prepare(`
+      SELECT ${FLOW_SUMS} FROM transactions t WHERE t.date >= ? AND t.date <= ?
+    `).get(start, end) as any;
 
-    json(res, rows.map(r => ({ day: r.day, amount: r.total_cents / 100 })));
+    json(res, {
+      month, year,
+      income_total: row.income_cents / 100,
+      expense_total: row.expense_cents / 100,
+      investment_net: (row.invest_out_cents - row.invest_in_cents) / 100,
+    });
   }
 
-  // ── GET /api/pix-top ──────────────────────────────────────────────────
+  // ── GET /api/pix-top?month=&year= ─────────────────────────────────────
   // counterpart só é gravado no pareamento SELF; a contraparte de um pix comum
   // vive na description — extraída aqui (prefixos Nubank/Inter + cauda CPF/CNPJ).
   function pixCounterpart(desc: string): string {
@@ -188,42 +138,15 @@ export function analyticsRoutes(db: DatabaseSync): Route[] {
       .map(g => ({ counterpart: g.counterpart, total: g.total_cents / 100, count: g.count })));
   }
 
-  // ── GET /api/expenses-by-method ────────────────────────────────────────
-  function getExpensesByMethod(req: Req, res: Res) {
-    const bank = qsStr(req, "bank");
-    const conditions: string[] = [
-      "t.flow = 'expense'",
-      "t.method != 'transfer'",
-      "t.is_settlement = 0",
-      "t.is_third_party = 0",
-      "t.dest_account_id IS NULL",
-    ];
-    const params: unknown[] = [];
-    if (bank) { conditions.push("a.bank = ?"); params.push(bank); }
-    const where = `WHERE ${conditions.join(" AND ")}`;
-
-    const rows = db.prepare(`
-      SELECT t.method, SUM(t.amount_cents) AS total_cents
-      FROM transactions t
-      LEFT JOIN accounts a ON a.id = t.account_id
-      ${where}
-      GROUP BY t.method
-      ORDER BY total_cents DESC
-    `).all(...params) as any[];
-
-    json(res, rows.map(r => ({ method: r.method, total: r.total_cents / 100 })));
-  }
-
-  // ── GET /api/uncategorized-merchants ───────────────────────────────────
+  // ── GET /api/uncategorized-merchants?month=&year= ─────────────────────
+  // Linhas categorizáveis sem categoria, agrupadas por (comerciante, flow),
+  // com ids agregados p/ o categorize-bulk e sugestão via rules.
   function getUncategorizedMerchants(req: Req, res: Res) {
     const { month: cm, year: cy } = currentMonth();
     const month = qsInt(req, "month") ?? cm;
     const year = qsInt(req, "year") ?? cy;
     const { start, end } = monthRange(month, year);
 
-    // Merchants sem categoria, agrupados por (display_name|description, flow).
-    // Só linhas categorizáveis: despesa de consumo (regra completa) ou receita real.
-    // ids agregados → o painel de lote categoriza todas as ocorrências de uma vez.
     const rows = db.prepare(`
       SELECT
         COALESCE(t.display_name, t.description) AS merchant_key,
@@ -244,26 +167,17 @@ export function analyticsRoutes(db: DatabaseSync): Route[] {
       ORDER BY total_cents DESC
     `).all(start, end) as any[];
 
-    // Tentar sugerir categoria via rules
     const rules = db.prepare(
-      "SELECT matcher, value FROM rules WHERE action='category' AND enabled=1 ORDER BY priority"
+      "SELECT matcher, value FROM rules WHERE action='category' AND enabled=1 ORDER BY priority ASC, id ASC"
     ).all() as any[];
-
-    const catMap = new Map<number, string>();
-    const cats = db.prepare("SELECT id, name FROM categories").all() as any[];
-    for (const c of cats) catMap.set(c.id, c.name);
+    const catName = new Map<number, string>(
+      (db.prepare("SELECT id, name FROM categories").all() as any[]).map(c => [c.id, c.name]),
+    );
 
     json(res, rows.map(r => {
-      let sugId: number | null = null;
-      let sugName: string | null = null;
-      const lower = (r.merchant_key ?? "").toLowerCase();
-      for (const rule of rules) {
-        if (lower.includes(rule.matcher)) {
-          sugId = Number(rule.value);
-          sugName = catMap.get(sugId) ?? null;
-          break;
-        }
-      }
+      const hay = String(r.merchant_key ?? "").toLowerCase();
+      const rule = rules.find(x => hay.includes(String(x.matcher).toLowerCase()));
+      const sugId = rule ? Number(rule.value) : null;
       return {
         merchant_key: r.merchant_key,
         flow: r.flow,
@@ -272,55 +186,16 @@ export function analyticsRoutes(db: DatabaseSync): Route[] {
         sample_description: r.sample_description,
         ids: String(r.ids).split(",").map(Number),
         suggested_category_id: sugId,
-        suggested_category_name: sugName,
+        suggested_category_name: sugId != null ? catName.get(sugId) ?? null : null,
       };
     }));
   }
 
-  // ── GET /api/cashflow-statement ────────────────────────────────────────
-  function getCashflowStatement(req: Req, res: Res) {
-    const { month: cm, year: cy } = currentMonth();
-    const month = qsInt(req, "month") ?? cm;
-    const year = qsInt(req, "year") ?? cy;
-    const { start, end } = monthRange(month, year);
-
-    const row = db.prepare(`
-      SELECT
-        COALESCE(SUM(CASE
-          WHEN flow='income' AND is_revenue=1
-          THEN amount_cents ELSE 0 END), 0) AS income_cents,
-        COALESCE(SUM(CASE
-          WHEN flow='expense' AND method != 'transfer'
-            AND is_settlement=0 AND is_third_party=0
-            AND dest_account_id IS NULL
-          THEN amount_cents ELSE 0 END), 0) AS expense_cents,
-        COALESCE(SUM(CASE
-          WHEN flow='expense' AND method='transfer'
-            AND dest_account_id IS NULL AND is_settlement=0
-          THEN amount_cents ELSE 0 END), 0) AS invest_out_cents,
-        COALESCE(SUM(CASE
-          WHEN flow='income' AND is_revenue=0 AND method='transfer'
-          THEN amount_cents ELSE 0 END), 0) AS invest_in_cents
-      FROM transactions
-      WHERE date >= ? AND date <= ?
-    `).get(start, end) as any;
-
-    json(res, {
-      month, year,
-      income_total: row.income_cents / 100,
-      expense_total: row.expense_cents / 100,
-      investment_net: (row.invest_out_cents - row.invest_in_cents) / 100,
-    });
-  }
-
   const cp = compilePath;
   return [
-    { method: "GET", ...cp("/api/summary"), handler: getSummary },
     { method: "GET", ...cp("/api/monthly"), handler: getMonthly },
-    { method: "GET", ...cp("/api/daily-spend"), handler: getDailySpend },
-    { method: "GET", ...cp("/api/pix-top"), handler: getPixTop },
-    { method: "GET", ...cp("/api/expenses-by-method"), handler: getExpensesByMethod },
-    { method: "GET", ...cp("/api/uncategorized-merchants"), handler: getUncategorizedMerchants },
     { method: "GET", ...cp("/api/cashflow-statement"), handler: getCashflowStatement },
+    { method: "GET", ...cp("/api/pix-top"), handler: getPixTop },
+    { method: "GET", ...cp("/api/uncategorized-merchants"), handler: getUncategorizedMerchants },
   ];
 }

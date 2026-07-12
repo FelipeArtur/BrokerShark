@@ -1,0 +1,83 @@
+/** verify.ts — relatório final: saldos por conta (vs banco), investimentos, B3. */
+import type { DatabaseSync } from "node:sqlite";
+import { fmtCents } from "../../domain/money.ts";
+import type { Acervo } from "./files.ts";
+import type { InsertStats } from "./txInsert.ts";
+import type { InterImport } from "./extratos.ts";
+import type { CaixinhaResult } from "./caixinha.ts";
+
+export interface BackfillReport {
+  dbPath: string;
+  acervo: Acervo;
+  nuStats: InsertStats;
+  inter: InterImport;
+  faturaReport: string[];
+  selfPairs: string[];
+  caixinha: CaixinhaResult;
+  b3Log: string[];
+}
+
+export function printReport(db: DatabaseSync, r: BackfillReport): void {
+  const q = <T>(sql: string, ...p: unknown[]) => db.prepare(sql).all(...(p as never[])) as T[];
+  type Row = Record<string, number | string | null>;
+
+  console.log("═".repeat(70));
+  console.log("BACKFILL v2 —", r.dbPath);
+  console.log("═".repeat(70));
+  console.log(`\n■ Extratos Nubank: ${r.acervo.nubank.length} arquivos → ${r.nuStats.inserted} tx (${r.nuStats.dup} dup UUID, ${r.nuStats.skipped} ignoradas)`);
+  console.log(`■ Extratos Inter:  ${r.acervo.inter.length} arquivos → ${r.inter.stats.inserted} tx (${r.inter.stats.dup} dup, ${r.inter.stats.skipped} ignoradas)`);
+  console.log(`■ Faturas Inter:   ${r.acervo.faturas.length} arquivos`);
+  for (const l of r.faturaReport) console.log(l);
+  console.log(`■ Pareamento SELF: ${r.selfPairs.length} pares`);
+  for (const l of r.selfPairs) console.log(l);
+  if (r.inter.warnings.length) {
+    console.log(`\n⚠ Avisos Inter (${r.inter.warnings.length}):`);
+    for (const w of r.inter.warnings) console.log("  " + w);
+  }
+
+  console.log("\n■ Saldo por conta (initial + receitas − despesas, ledger completo):");
+  for (const a of q<Row>(`
+    SELECT a.id, a.initial_balance_cents AS init,
+           COALESCE(SUM(CASE WHEN t.flow='income'  THEN t.amount_cents END),0) AS inc,
+           COALESCE(SUM(CASE WHEN t.flow='expense' THEN t.amount_cents END),0) AS exp
+    FROM accounts a LEFT JOIN transactions t ON t.account_id = a.id AND t.is_settlement = 0
+    WHERE a.type = 'checking' GROUP BY a.id
+  `)) {
+    // liquidação de fatura É saída de caixa — soma à parte para o saldo real
+    const settle = (q<Row>(
+      "SELECT COALESCE(SUM(amount_cents),0) AS s FROM transactions WHERE account_id=? AND is_settlement=1",
+      a.id,
+    )[0]!.s as number);
+    const bal = (a.init as number) + (a.inc as number) - (a.exp as number) - settle;
+    console.log(`  ${a.id}: ${fmtCents(bal)}  (inicial ${fmtCents(a.init as number)}, liquidações de fatura ${fmtCents(settle)})`);
+    if (a.id === "inter-db" && r.inter.closingCents !== undefined) {
+      const ok = bal === r.inter.closingCents;
+      console.log(`    check vs saldo do banco no último extrato: ${fmtCents(r.inter.closingCents)} ${ok ? "✓ BATE" : "✗ NÃO BATE"}`);
+    }
+  }
+
+  console.log("\n■ Investimentos:");
+  for (const inv of q<Row>(`
+    SELECT i.id, i.name, i.type, i.bank, i.group_name, i.closed_at,
+           (SELECT net_cents FROM position_snapshots s WHERE s.investment_id = i.id ORDER BY ref_date DESC LIMIT 1) AS last_net,
+           (SELECT ref_date  FROM position_snapshots s WHERE s.investment_id = i.id ORDER BY ref_date DESC LIMIT 1) AS last_date,
+           (SELECT COUNT(*)  FROM position_snapshots s WHERE s.investment_id = i.id) AS snaps
+    FROM investments i ORDER BY i.closed_at IS NOT NULL, i.type, i.name
+  `)) {
+    const flag = inv.closed_at ? `FECHADA ${inv.closed_at}` : "aberta";
+    const grp = inv.group_name ? ` [${inv.group_name}]` : "";
+    console.log(`  #${inv.id} ${inv.name}${grp} (${inv.type}/${inv.bank}) — ${flag}, ${inv.snaps} snapshots, último ${inv.last_date}: ${fmtCents((inv.last_net as number) ?? 0)}`);
+  }
+  console.log(`  Caixinha (derivada do ledger): ${fmtCents(r.caixinha.balanceCents)} em ${r.caixinha.legs} pernas`);
+  console.log("\n■ B3 processado:");
+  for (const l of r.b3Log) console.log(l);
+
+  const totals = q<Row>(`
+    SELECT COUNT(*) AS n,
+      SUM(CASE WHEN flow='income'  AND is_revenue=1 THEN amount_cents ELSE 0 END) AS receitas,
+      SUM(CASE WHEN flow='expense' AND method != 'transfer' AND is_settlement=0
+                AND is_third_party=0 AND dest_account_id IS NULL THEN amount_cents ELSE 0 END) AS despesas
+    FROM transactions
+  `)[0]!;
+  console.log(`\n■ Ledger: ${totals.n} transações | receitas reais ${fmtCents(totals.receitas as number)} | despesas de consumo ${fmtCents(totals.despesas as number)}`);
+}
