@@ -449,49 +449,71 @@ button.data-tag:hover { border-color: var(--fg-2); color: var(--fg-0); backgroun
 }
 .kpi-delta { font-family: var(--ff-mono); font-weight: 700; font-size: 11px; }
 
-/* Grid de widgets */
-.dash-main { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; align-items: center; }
-.dash-grid {
-  width: 100%; max-width: 1600px;
+/* Grid de widgets — tela única (1920×1080): topbar + KPIs + UMA linha de
+   widgets de altura fixa + a tabela ocupa TODO o resto (scroll interno).
+   Sem max-width, sem margens laterais — a página inteira é o painel. */
+.dash-main {
+  flex: 1; min-height: 0;
+  display: flex; flex-direction: column;
+  gap: 10px; padding: 10px;
+  overflow-y: auto;  /* só entra em ação se a altura não bastar (telas curtas) */
+}
+.widget-row {
   display: grid; grid-template-columns: repeat(12, 1fr);
-  gap: 14px; padding: 16px 24px 8px;
+  gap: 10px; flex-shrink: 0; height: 280px;
 }
-.wg { grid-column: span 12; }
-.wg-8 { grid-column: span 8; }
-.wg-6 { grid-column: span 6; }
-.wg-4 { grid-column: span 4; }
-@media (max-width: 1280px) {
-  .wg-8 { grid-column: span 12; }
-  .wg-4 { grid-column: span 6; }
-}
-@media (max-width: 900px) {
-  .wg-4, .wg-6 { grid-column: span 12; }
-  .kpi-strip { grid-template-columns: 1fr 1fr; }
-  .kpi:nth-child(2) { border-right: none; }
-  .kpi:nth-child(-n+2) { border-bottom: 1px solid var(--line-1); }
+.wg-2 { grid-column: span 2; }
+.wg-3 { grid-column: span 3; }
+@media (max-width: 1500px) {
+  /* Notebook: 3 widgets por linha, 2 linhas; tabela ainda leva o resto. */
+  .widget-row { height: auto; grid-template-columns: repeat(6, 1fr); grid-auto-rows: 250px; }
+  .wg-2, .wg-3 { grid-column: span 2; }
 }
 
 .widget {
   background: var(--bg-1); border: 1px solid var(--line-1);
   border-radius: var(--r-4); display: flex; flex-direction: column;
-  min-width: 0; overflow: hidden;
+  min-width: 0; min-height: 0; overflow: hidden;
 }
 .widget-h {
   display: flex; align-items: center; gap: 10px;
-  padding: 10px 16px; border-bottom: 1px solid var(--line-1); flex-shrink: 0;
+  padding: 8px 14px; border-bottom: 1px solid var(--line-1); flex-shrink: 0;
 }
 .widget-title {
   font-size: 10px; font-weight: 700; text-transform: uppercase;
   letter-spacing: 0.07em; color: var(--fg-2); white-space: nowrap;
 }
-.widget-body { padding: 14px 16px; display: flex; flex-direction: column; min-height: 0; flex: 1; }
-.widget-open {
-  margin-left: auto; display: inline-flex; align-items: center; gap: 6px;
-  padding: 3px 8px; border-radius: var(--r-1);
-  font-size: 10px; font-weight: 600; color: var(--fg-2);
-  border: 1px solid var(--line-1); transition: all 0.12s; white-space: nowrap;
+.widget-body {
+  padding: 12px 14px; display: flex; flex-direction: column;
+  min-height: 0; flex: 1; overflow-y: auto;
 }
-.widget-open:hover { color: var(--fg-0); border-color: var(--line-2); background: var(--bg-2); }
+
+/* Tabela — o "Excel" do painel: filtros no topo, corpo com scroll interno,
+   totais sempre visíveis no rodapé do widget */
+.table-widget { flex: 1; min-height: 260px; display: flex; flex-direction: column; }
+.table-toolbar {
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  padding: 8px 14px; border-bottom: 1px solid var(--line-1); flex-shrink: 0;
+}
+.table-scroll { flex: 1; min-height: 0; overflow-y: auto; }
+.table-totals {
+  flex-shrink: 0; display: flex; gap: 32px; align-items: baseline;
+  padding: 8px 16px; border-top: 1px solid var(--line-2); background: var(--bg-1);
+  font-size: 11px; color: var(--fg-3);
+}
+.table-totals .mono { font-size: 14px; font-weight: 700; }
+th.sortable { cursor: pointer; user-select: none; transition: color 0.1s; }
+th.sortable:hover { color: var(--fg-0); }
+.sort-ind { margin-left: 4px; font-size: 8px; color: var(--accent); }
+
+/* Linhas de "saúde dos dados" no painel geral */
+.stat-row {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+  padding: 5px 0; border-bottom: 1px dashed var(--line-1); font-size: 11px;
+}
+.stat-row:last-child { border-bottom: none; }
+.stat-row .k { color: var(--fg-3); white-space: nowrap; }
+.stat-row .v { color: var(--fg-1); font-weight: 600; text-align: right; }
 
 /* Timeline mensal — 12 slots clicáveis, barras receita×despesa */
 .tl-slot {
@@ -513,21 +535,6 @@ button.data-tag:hover { border-color: var(--fg-2); color: var(--fg-0); backgroun
 }
 .tl-slot.picked .tl-mon { color: var(--accent); font-weight: 700; }
 .tl-net { font-size: 9px; font-family: var(--ff-mono); font-weight: 600; }
-
-/* Drill-down — overlay de tela cheia (camada, não navegação) */
-.drill {
-  position: fixed; inset: 0; z-index: 70;
-  background: var(--bg-0); display: flex; flex-direction: column;
-  animation: fade-in 0.18s cubic-bezier(0.16, 1, 0.3, 1);
-}
-.drill-h {
-  height: 52px; flex-shrink: 0;
-  display: flex; align-items: center; gap: 16px; padding: 0 24px;
-  background: var(--bg-0); border-bottom: 1px solid var(--line-1);
-}
-.drill-title { font-size: 14px; font-weight: 700; color: var(--fg-0); letter-spacing: -0.01em; }
-.drill-body { flex: 1; overflow-y: auto; display: flex; flex-direction: column; align-items: center; }
-.drill-content { width: 100%; max-width: 1600px; padding: 20px 24px 40px; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

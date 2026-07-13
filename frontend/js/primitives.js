@@ -388,41 +388,6 @@ function Drawer({ open, onClose, children, width = 480, title }) {
   );
 }
 
-/* ── Overlay ─────────────────────────────────────────────────────────────
-   Drill-down de tela cheia: camada por cima do dashboard (o estado da tela
-   de trás fica intacto). Esc fecha; `headerExtra` injeta controles no topo
-   (ex.: navegação de mês do explorador de transações). */
-function Overlay({ open, onClose, title, headerExtra, children }) {
-  _useEffect(() => {
-    if (!open) return;
-    document.body.style.overflow = "hidden";
-    function onKey(e) {
-      if (e.key === "Escape") {
-        if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT" || e.target.tagName === "TEXTAREA") { e.target.blur(); return; }
-        onClose();
-      }
-    }
-    window.addEventListener("keydown", onKey);
-    return () => { document.body.style.overflow = ""; window.removeEventListener("keydown", onKey); };
-  }, [open, onClose]);
-
-  if (!open) return null;
-  return React.createElement("div", { className: "drill", role: "dialog", "aria-modal": "true", "aria-label": title },
-    React.createElement("div", { className: "drill-h" },
-      React.createElement("button", {
-        onClick: onClose, className: "btn btn-ghost btn-sm", "aria-label": "Voltar ao painel",
-        style: { gap: 6, color: "var(--fg-2)", marginLeft: -8 }
-      }, "‹ Painel"),
-      React.createElement("span", { className: "drill-title" }, title),
-      headerExtra || null,
-      React.createElement("span", { style: { marginLeft: "auto", display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "var(--fg-3)" } },
-        React.createElement("span", { className: "kbd" }, "Esc"), "fechar")
-    ),
-    React.createElement("div", { className: "drill-body" },
-      React.createElement("div", { className: "drill-content" }, children))
-  );
-}
-
 /* ── BankChip ───────────────────────────────────────────────────────────── */
 function BankChip({ bank, accountId }) {
   const isNu = bank === "nubank" || (accountId && accountId.startsWith("nu"));
@@ -517,6 +482,8 @@ const TxRow = React.memo(({ t, cols, onEditCategory, onApplySuggestion }) => {
                   }, t.flow === "expense" ? "Sem categoria" : "Receita")
       ),
       cols.includes("account") && h("td", null, h(BankChip, { accountId: t.account_id, bank: t.bank })),
+      cols.includes("method") && h("td", { className: "mono", style: { fontSize: 10, color: "var(--fg-2)", textTransform: "uppercase" } },
+        ({ pix: "PIX", pix_received: "PIX", credit: "CRÉDITO", ted: "TED", transfer: "TRANSF", debit: "DÉBITO", salary: "SALÁRIO", freelance: "FREELA" })[t.method] || t.method || "—"),
       cols.includes("amount") && h("td", { className: "num" },
         h("div", { style: { display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 6, width: "100%" } },
           h("span", { style: { color: "var(--fg-3)", fontSize: 10 } }, t.flow === "expense" ? "−" : "+"),
@@ -556,7 +523,7 @@ Object.assign(window.BS, {
   fmtBRL, fmtBRLCompact, fmtDateBR, prettifyDesc,
   PT_MONTHS, PT_SHORT, fmtCycleDate,
   DualLine, Donut,
-  Modal, Drawer, Overlay, useToasts, BankChip, SegmentControl,
+  Modal, Drawer, useToasts, BankChip, SegmentControl,
   BrokerSharkLogo, TxRow,
   isSelf, isConsumptionExpense, isRevenue, isInvest,
 });

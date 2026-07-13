@@ -8,9 +8,9 @@
 
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
 const {
-  fmtBRL, fmtDateBR, Modal, Overlay, useToasts, SegmentControl, BankChip, BrokerSharkLogo,
+  fmtBRL, fmtDateBR, Modal, useToasts, SegmentControl, BankChip, BrokerSharkLogo,
   PT_MONTHS, PT_SHORT,
-  DashboardView, TxExplorer, InvestmentsView,
+  DashboardView,
   CategoriesPanel,
   isSelf, isInvest,
 } = window.BS;
@@ -72,41 +72,35 @@ function useTweaks() {
   return [tw, setTw];
 }
 
-/* ── TweaksPanel — dropdown de Configurações (tema · categorias · reset) ──── */
-function TweaksPanel({ tw, setTw, onClose, onOpenCategories }) {
+/* ── MenuPanel — o menu único da topbar (⋯): Importar · Categorias · Tema.
+   Substitui os botões espalhados (config, busca, importar) — a topbar fica
+   só logo + mês + menu. Busca continua no atalho "/". */
+function MenuPanel({ tw, setTw, onClose, onOpenCategories, onImport }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
-  const isDefault = tw.theme === TWEAK_DEFAULTS.theme;
-  return h("div", { className: "tweaks-panel fade-in", role: "dialog", "aria-label": "Configurações" },
-    h("div", { className: "eyebrow", style: { marginBottom: 10 } }, "Configurações"),
-
-    // Tema
-    h("div", { style: { display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 } },
-      h("span", { style: { fontSize: 12, color: "var(--fg-2)" } }, "Tema"),
+  return h("div", { className: "tweaks-panel fade-in", role: "menu", "aria-label": "Menu" },
+    h("button", {
+      className: "btn btn-ghost", role: "menuitem",
+      style: { width: "100%", justifyContent: "flex-start", height: 34, gap: 8 },
+      onClick: () => { onClose(); onImport(); },
+    }, h(IconImport, { size: 14 }), "Importar dados", h("span", { className: "kbd", style: { marginLeft: "auto" } }, "i")),
+    h("button", {
+      className: "btn btn-ghost", role: "menuitem",
+      style: { width: "100%", justifyContent: "flex-start", height: 34, gap: 8 },
+      onClick: () => { onClose(); onOpenCategories(); },
+    }, h(IconSettings, { size: 14 }), "Gerenciar categorias", h("span", { className: "kbd", style: { marginLeft: "auto" } }, "c")),
+    h("button", {
+      className: "btn btn-ghost", role: "menuitem",
+      style: { width: "100%", justifyContent: "flex-start", height: 34, gap: 8 },
+      onClick: () => { onClose(); window.dispatchEvent(new CustomEvent("bs-open-search")); },
+    }, h(IconSearch, { size: 14 }), "Buscar transações", h("span", { className: "kbd", style: { marginLeft: "auto" } }, "/")),
+    h("div", { style: { height: 1, background: "var(--line-1)", margin: "8px 0" } }),
+    h("div", { style: { display: "flex", flexDirection: "column", gap: 6 } },
+      h("span", { style: { fontSize: 11, color: "var(--fg-2)" } }, "Tema"),
       h(SegmentControl, {
         options: [{ value: "Dark", label: "Escuro" }, { value: "Light", label: "Claro" }],
         value: tw.theme, onChange: v => setTw("theme", v), columns: 2,
       })
-    ),
-
-    h("div", { style: { height: 1, background: "var(--line-1)", margin: "4px 0 10px" } }),
-
-    // Atalho p/ Categorias
-    h("button", {
-      className: "btn btn-ghost",
-      style: { width: "100%", justifyContent: "flex-start", height: 34 },
-      onClick: () => { onClose(); onOpenCategories(); },
-    }, h(IconSettings, { size: 14 }), "Gerenciar categorias"),
-
-    // Restaurar padrões
-    h("button", {
-      className: "btn btn-ghost",
-      style: { width: "100%", justifyContent: "flex-start", height: 34, color: isDefault ? "var(--fg-3)" : "var(--fg-2)" },
-      disabled: isDefault,
-      onClick: () => setTw("theme", TWEAK_DEFAULTS.theme),
-    }, "Restaurar padrões"),
-
-    h("div", { style: { display: "flex", justifyContent: "flex-end", marginTop: 8 } },
-      h("button", { className: "btn btn-sm", onClick: onClose }, "Fechar"))
+    )
   );
 }
 
@@ -176,112 +170,98 @@ function CategoryEditor({ tx, onClose, onSave }) {
   const amtColor = _self ? "var(--info)" : _invest ? "var(--reserve)" : (flowIsExpense ? "var(--neg)" : "var(--pos)");
   const sign = flowIsExpense ? "−" : "+";
 
-  return h(Modal, { open: !!tx, onClose, title: "Perfil da Transação", width: 460 },
-    tx && h("div", { style: { display: "flex", flexDirection: "column", gap: 32 } },
-      
-      // Hero Header Block - Seamless Integration
-      h("div", { style: { display: "flex", flexDirection: "column" } },
-        
-        // Top Row: Type & Date vs Bank
-        h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 } },
-          h("div", { style: { display: "flex", flexDirection: "column", gap: 4 } },
-            h("div", { style: { fontSize: 10, color: amtColor, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 800 } }, 
-               _self ? "Transferência Própria" : _invest ? "Movimento de Invest" : flowIsExpense ? "Comprovante de Despesa" : "Comprovante de Receita"
-            ),
-            h("div", { className: "mono", style: { fontSize: 12, color: "var(--fg-2)" } }, fmtDateBR(tx.date))
-          ),
-          h(window.BS.BankChip, { accountId: tx.account_id, bank: tx.bank })
-        ),
-        
-        // Amount & Display Name
-        h("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
-          h("span", { className: "mono", style: { fontSize: 44, fontWeight: 700, letterSpacing: "-0.03em", color: amtColor, lineHeight: 1 } },
-            sign + fmtBRL(tx.amount)
-          ),
-          h("div", { style: { fontSize: 20, fontWeight: 700, color: "var(--fg-0)", wordBreak: "break-word", lineHeight: 1.2 } },
-            displayName || window.BS.prettifyDesc(tx.description)
-          )
-        ),
+  // Label no padrão do painel (mesma voz do .kpi-label)
+  const fieldLabel = (text) => h("span", {
+    style: { fontSize: 10, color: "var(--fg-3)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em" }
+  }, text);
 
-        // Technical details strip (cleaner)
-        h("div", { style: { display: "flex", gap: 32, marginTop: 32, paddingTop: 24, borderTop: "1px dashed var(--line-2)" } },
-          h("div", { style: { display: "flex", flexDirection: "column", gap: 6, flex: 1, minWidth: 0 } },
-             h("span", { style: { color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700, fontSize: 10 } }, "Nome Original"),
-             h("span", { className: "mono", style: { color: "var(--fg-1)", fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, tx.description)
-          ),
-          h("div", { style: { display: "flex", flexDirection: "column", gap: 6 } },
-             h("span", { style: { color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700, fontSize: 10 } }, "Método"),
-             h("span", { className: "mono", style: { color: "var(--fg-1)", fontSize: 12, textTransform: "uppercase" } }, methodLabel || "—")
-          )
+  return h(Modal, { open: !!tx, onClose, title: "Lançamento", width: 440 },
+    tx && h("div", { style: { display: "flex", flexDirection: "column", gap: 20 } },
+
+      // Cabeçalho: tipo · data · banco → valor → nome
+      h("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
+        h("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
+          h("span", { style: { fontSize: 10, color: amtColor, textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 700 } },
+            _self ? "Transferência própria" : _invest ? "Investimento" : flowIsExpense ? "Despesa" : "Receita"),
+          h("span", { className: "mono", style: { fontSize: 11, color: "var(--fg-3)" } }, fmtDateBR(tx.date)),
+          h("span", { style: { marginLeft: "auto" } }, h(window.BS.BankChip, { accountId: tx.account_id, bank: tx.bank }))
+        ),
+        h("span", { className: "mono", style: { fontSize: 30, fontWeight: 700, letterSpacing: "-0.025em", color: amtColor, lineHeight: 1 } },
+          sign + fmtBRL(tx.amount)),
+        h("div", { style: { fontSize: 15, fontWeight: 600, color: "var(--fg-0)", wordBreak: "break-word", lineHeight: 1.3 } },
+          displayName || window.BS.prettifyDesc(tx.description))
+      ),
+
+      // Detalhes técnicos — uma linha discreta
+      h("div", { style: { display: "flex", gap: 24, paddingTop: 12, borderTop: "1px dashed var(--line-1)" } },
+        h("div", { style: { display: "flex", flexDirection: "column", gap: 4, flex: 1, minWidth: 0 } },
+          fieldLabel("Nome original"),
+          h("span", { className: "mono", title: tx.description, style: { color: "var(--fg-2)", fontSize: 11, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, tx.description)),
+        h("div", { style: { display: "flex", flexDirection: "column", gap: 4, flexShrink: 0 } },
+          fieldLabel("Método"),
+          h("span", { className: "mono", style: { color: "var(--fg-2)", fontSize: 11, textTransform: "uppercase" } }, methodLabel || "—"))
+      ),
+
+      // Apelido
+      h("div", { style: { display: "flex", flexDirection: "column", gap: 6 } },
+        fieldLabel("Apelido"),
+        h("input", {
+          className: "input", type: "text", maxLength: 100,
+          placeholder: window.BS.prettifyDesc(tx.description)?.slice(0, 50) || "Ex: Almoço padaria…",
+          value: displayName,
+          onChange: e => setDisplayName(e.target.value),
+          style: { height: 34, fontSize: 13 }
+        })
+      ),
+
+      // Categoria — seleção pelo accent (mesma linguagem do mês ativo na timeline)
+      flowIsExpense && h("div", { style: { display: "flex", flexDirection: "column", gap: 6 } },
+        fieldLabel("Categoria"),
+        h("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6 } },
+          cats.map(c => h("button", {
+            key: c.id, type: "button",
+            onClick: () => setSelected(c.id),
+            "aria-pressed": selected === c.id,
+            style: {
+              padding: "7px 8px", borderRadius: 6, textAlign: "center",
+              fontSize: 11, fontWeight: selected === c.id ? 700 : 500,
+              background: selected === c.id ? "var(--accent-bg)" : "var(--bg-0)",
+              border: `1px solid ${selected === c.id ? "color-mix(in oklch, var(--accent) 45%, transparent)" : "var(--line-1)"}`,
+              color: selected === c.id ? "var(--accent)" : "var(--fg-1)",
+              whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", transition: "all 0.12s", cursor: "pointer"
+            }
+          }, c.name))
         )
       ),
 
-      // Edit Form Block
-      h("div", { style: { display: "flex", flexDirection: "column", gap: 32 } },
-
-        // Name
-        h("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
-          h("label", { style: { fontSize: 11, color: "var(--fg-2)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" } }, "Renomear Transação"),
-          h("input", {
-            className: "input", type: "text", maxLength: 100,
-            placeholder: window.BS.prettifyDesc(tx.description)?.slice(0, 50) || "Ex: Almoço Padaria...",
-            value: displayName,
-            onChange: e => setDisplayName(e.target.value),
-            style: { fontSize: 15, height: 44, borderRadius: 8, padding: "0 16px", background: "var(--bg-1)", border: "1px solid var(--line-1)" }
-          })
-        ),
-
-        // Category
-        flowIsExpense && h("div", { style: { display: "flex", flexDirection: "column", gap: 12 } },
-          h("div", { style: { fontSize: 11, color: "var(--fg-2)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" } }, "Classificação"),
-          h("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 } },
-            cats.map(c => h("button", {
-              key: c.id, type: "button",
-              onClick: () => setSelected(c.id),
-              "aria-pressed": selected === c.id,
-              style: {
-                padding: "10px 8px", borderRadius: 8, textAlign: "center",
-                fontSize: 12, fontWeight: selected === c.id ? 700 : 500,
-                background: selected === c.id ? "var(--fg-0)" : "var(--bg-1)",
-                border: selected === c.id ? "1px solid var(--fg-0)" : "1px solid var(--line-1)",
-                color: selected === c.id ? "var(--bg-0)" : "var(--fg-1)",
-                whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", transition: "all 0.15s", cursor: "pointer"
-              }
-            }, c.name))
-          )
-        ),
-
-        // Third Party toggle
-        h("button", {
-          type: "button",
-          onClick: handleToggleThirdParty,
-          style: {
-            display: "flex", alignItems: "center", justifyContent: "space-between",
-            padding: "14px 16px", borderRadius: 8, textAlign: "left",
-            background: isThirdParty ? "var(--warn-bg)" : "var(--bg-1)",
-            border: isThirdParty ? "1px solid var(--warn)" : "1px solid var(--line-1)",
-            color: isThirdParty ? "var(--warn)" : "var(--fg-2)",
-            fontSize: 12, fontWeight: isThirdParty ? 600 : 500, cursor: "pointer", transition: "all 0.15s"
-          }
-        },
-          h("span", {}, isThirdParty ? "Transação de terceiros (Ocultada)" : "Marcar como transação de terceiros"),
-          h(IconLock, { open: !isThirdParty })
-        ),
-
-        err && h("div", { style: { fontSize: 12, color: "var(--neg)", background: "color-mix(in oklch, var(--neg) 10%, transparent)", padding: "12px 16px", borderRadius: 8 } }, err)
+      // Terceiros
+      h("button", {
+        type: "button",
+        onClick: handleToggleThirdParty,
+        style: {
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "9px 12px", borderRadius: 6, textAlign: "left",
+          background: isThirdParty ? "var(--warn-bg)" : "var(--bg-0)",
+          border: `1px solid ${isThirdParty ? "color-mix(in oklch, var(--warn) 45%, transparent)" : "var(--line-1)"}`,
+          color: isThirdParty ? "var(--warn)" : "var(--fg-2)",
+          fontSize: 11, fontWeight: isThirdParty ? 600 : 500, cursor: "pointer", transition: "all 0.12s"
+        }
+      },
+        h("span", {}, isThirdParty ? "Transação de terceiros — fora dos gastos" : "Marcar como transação de terceiros"),
+        h(IconLock, { size: 14, open: !isThirdParty })
       ),
 
-      // Footer Actions
-      h("div", { style: { display: "flex", gap: 12, justifyContent: "space-between", alignItems: "center", paddingTop: 16 } },
+      err && h("div", { style: { fontSize: 12, color: "var(--neg)", background: "color-mix(in oklch, var(--neg) 10%, transparent)", padding: "10px 12px", borderRadius: 6 } }, err),
+
+      // Ações
+      h("div", { style: { display: "flex", gap: 8, justifyContent: "space-between", alignItems: "center", paddingTop: 4 } },
         h("button", {
-          className: "btn btn-ghost",
+          className: "btn btn-ghost btn-sm",
           onClick: handleDelete, disabled: deleting,
-          style: { color: "var(--neg)", fontSize: 13, fontWeight: 700, padding: "0 16px", marginLeft: -16, height: 44, borderRadius: 8 }
-        }, deleting ? "Excluindo…" : "Excluir lançamento"),
-        h("div", { style: { display: "flex", gap: 12 } },
-          h("button", { className: "btn btn-primary", onClick: save, disabled: saving, style: { padding: "0 24px", height: 44, fontSize: 13, fontWeight: 700, borderRadius: 8 } },
-            saving ? "Salvando…" : "Salvar Alterações")
-        )
+          style: { color: "var(--neg)", fontWeight: 600, marginLeft: -8 }
+        }, deleting ? "Excluindo…" : "Excluir"),
+        h("button", { className: "btn btn-primary", onClick: save, disabled: saving, style: { padding: "0 20px", height: 32 } },
+          saving ? "Salvando…" : "Salvar")
       )
     )
   );
@@ -987,35 +967,7 @@ function ConfirmDeleteModal({ tx, onCancel, onConfirm }) {
    api.js → re-render) e dos modais transversais: TransactionPanel (edição),
    ConfirmDeleteModal, ImportModal e TweaksPanel. As telas (Overview/History/
    Investments) recebem callbacks e nunca falam entre si diretamente. */
-// Footer backup freshness. Backup is tied to opening the app (no scheduler), so this
-// is normally "hoje"; an old age means the snapshot didn't refresh — e.g. the HDD is
-// unmounted — surfacing a silent backup failure. Refetches once after the background
-// startup snapshot has had time to land.
-function BackupIndicator({ refreshKey }) {
-  const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
-  const [info, setInfo] = useState(null);
-  useEffect(() => {
-    const load = () => fetchBackupStatus().then(setInfo).catch(() => {});
-    load();
-    const t = setTimeout(load, 4000);  // catch the bg startup snapshot completing
-    return () => clearTimeout(t);
-  }, [refreshKey]);
-  if (!info) return null;
-  let txt, stale;
-  if (!info.exists) {
-    txt = "sem backup"; stale = true;
-  } else {
-    const d = Math.floor((info.age_seconds || 0) / 86400);
-    txt = "backup " + (d <= 0 ? "hoje" : d === 1 ? "há 1 dia" : `há ${d} dias`);
-    stale = d > 7;
-  }
-  return h("span", {
-    title: info.exists ? `Último backup: ${info.name}` : "Nenhum backup encontrado — o HDD está montado?",
-    style: { fontFamily: "var(--ff-mono)", color: stale ? "var(--warn)" : "var(--fg-3)" },
-  }, txt);
-}
-
-/* ── MonthNav — seletor de mês global (topbar + header dos drills) ──────────
+/* ── MonthNav — seletor de mês global ────────────────────────────────────────
    Navega só nos meses que TÊM dados (bounds = /api/monthly); "Hoje" volta ao
    mês mais recente. Widgets de fluxo seguem este seletor; posição (saldo,
    patrimônio, investido) é sempre "agora". */
@@ -1049,7 +1001,6 @@ function App() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [monthly, setMonthly] = useState([]);           // série /api/monthly — bounds do seletor
   const [monthSel, setMonthSel] = useState(null);       // mês global: {year, month}
-  const [drill, setDrill] = useState(null);             // null | {kind:"tx", bulk?} | {kind:"inv"}
   const { push, Toaster } = useToasts();
 
   // Série mensal → default do seletor = mês mais recente COM dados (um mês
@@ -1090,23 +1041,20 @@ function App() {
     return () => { clearTimeout(debounce); es?.close(); };
   }, []);
 
-  // Atalhos: 1 = painel (fecha drill) · 2 = transações · 3 = investimentos ·
-  // / = busca · i = importar · c = categorias. Esc fecha overlays (Overlay
-  // cuida do próprio Esc).
+  // Atalhos: / = busca · i = importar · c = categorias · Esc fecha overlays.
   useEffect(() => {
     function onKey(e) {
       if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || e.target.tagName === "SELECT") return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === "Escape") { setSearchModalOpen(false); setTweaksOpen(false); return; }
       if (e.key === "/") { e.preventDefault(); setSearchModalOpen(true); return; }
-      if (e.key === "1") setDrill(null);
-      if (e.key === "2") setDrill(d => d?.kind === "tx" ? null : { kind: "tx" });
-      if (e.key === "3") setDrill(d => d?.kind === "inv" ? null : { kind: "inv" });
       if (e.key === "i" || e.key === "I") setImportOpen(true);
       if (e.key === "c" || e.key === "C") setCategoriesOpen(true);
     }
+    function onOpenSearch() { setSearchModalOpen(true); }
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("bs-open-search", onOpenSearch);
+    return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("bs-open-search", onOpenSearch); };
   }, []);
 
   // Delete path: gated by an explicit confirmation (setConfirmDelete) — no undo.
@@ -1133,64 +1081,28 @@ function App() {
     }
   }
 
-  const footer = h("footer", { style: { width: "100%", maxWidth: 1600, marginTop: "auto", padding: "10px 24px 18px", fontSize: 11, color: "var(--fg-3)", display: "flex", justifyContent: "space-between", alignItems: "center" } },
-    h("span", null, "BrokerShark"),
-    h("div", { style: { display: "flex", gap: 16, alignItems: "center" } },
-      h(BackupIndicator, { refreshKey }),
-      h("span", { style: { fontFamily: "var(--ff-mono)" } }, `${location.host} · SQLite`)
-    )
-  );
-
   return h("div", { id: "app", style: { height: "100vh", display: "flex", flexDirection: "column", background: "var(--bg-0)" } },
 
-    // ── Topbar: logo · mês global · busca · config · importar (sem abas)
+    // ── Topbar mínima: logo · mês global · menu único
     h("header", { className: "v3-topbar" },
-      h("div", { style: { display: "flex", alignItems: "center", cursor: "pointer" }, onClick: () => setDrill(null), title: "Painel (1)" },
-        h(BrokerSharkLogo, { size: 24 })
-      ),
+      h(BrokerSharkLogo, { size: 24 }),
       h(MonthNav, { monthly, monthSel, onPick: setMonthSel }),
       h("div", { style: { flex: 1 } }),
       h("button", {
-        onClick: () => setSearchModalOpen(true), title: "Buscar transações (/)",
-        style: { display: "flex", alignItems: "center", gap: 8, height: 30, padding: "0 10px", borderRadius: 6, background: "var(--bg-1)", border: "1px solid var(--line-1)", color: "var(--fg-2)", fontSize: 12, transition: "all 0.1s" },
-        onMouseEnter: e => { e.currentTarget.style.background = "var(--bg-2)"; e.currentTarget.style.color = "var(--fg-0)"; },
-        onMouseLeave: e => { e.currentTarget.style.background = "var(--bg-1)"; e.currentTarget.style.color = "var(--fg-2)"; }
-      }, h(IconSearch, { size: 14 }), "Buscar", h("span", { className: "kbd" }, "/")),
-      h("button", {
-        onClick: () => setTweaksOpen(true), title: "Configurações",
-        style: { width: 30, height: 30, borderRadius: 6, background: "var(--bg-1)", border: "1px solid var(--line-1)", color: "var(--fg-1)", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.1s" },
+        onClick: () => setTweaksOpen(o => !o), title: "Menu",
+        "aria-label": "Menu", "aria-expanded": tweaksOpen,
+        style: { width: 30, height: 30, borderRadius: 6, background: tweaksOpen ? "var(--bg-2)" : "transparent", border: "1px solid " + (tweaksOpen ? "var(--line-2)" : "transparent"), color: "var(--fg-1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 700, letterSpacing: "0.1em", transition: "all 0.1s" },
         onMouseEnter: e => e.currentTarget.style.background = "var(--bg-2)",
-        onMouseLeave: e => e.currentTarget.style.background = "var(--bg-1)"
-      }, h(IconSettings, { size: 15 })),
-      h("button", {
-        onClick: () => setImportOpen(true),
-        style: { height: 30, padding: "0 14px", borderRadius: 6, background: "var(--fg-0)", color: "var(--bg-0)", border: "none", fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", gap: 7 }
-      }, h(IconImport, { size: 13 }), "Importar")
+        onMouseLeave: e => { if (!tweaksOpen) e.currentTarget.style.background = "transparent"; }
+      }, "⋯")
     ),
 
-    // ── Dashboard (única tela; drills abrem por cima, estado preservado)
+    // ── A tela única
     h(DashboardView, {
       monthSel, monthly, onPickMonth: setMonthSel, refreshKey,
-      onOpenTx: (opts) => setDrill({ kind: "tx", bulk: !!(opts && opts.bulk) }),
-      onOpenInv: () => setDrill({ kind: "inv" }),
       onEditCategory: setEditTx,
       onImport: () => setImportOpen(true),
-      footer,
     }),
-
-    // ── Drill-downs
-    h(Overlay, {
-      open: drill?.kind === "tx", onClose: () => setDrill(null), title: "Transações",
-      headerExtra: h(MonthNav, { monthly, monthSel, onPick: setMonthSel }),
-    },
-      drill?.kind === "tx" && h(TxExplorer, {
-        monthSel, refreshKey, onEditCategory: setEditTx,
-        openBulk: !!drill.bulk, onBulkConsumed: () => setDrill({ kind: "tx" }),
-      })
-    ),
-    h(Overlay, { open: drill?.kind === "inv", onClose: () => setDrill(null), title: "Investimentos" },
-      drill?.kind === "inv" && h(InvestmentsView, { refreshKey })
-    ),
 
     // ── Modals & overlays
     searchModalOpen && h(SearchModal, {
@@ -1226,10 +1138,11 @@ function App() {
       },
     }),
     tweaksOpen && h("div", { className: "tweaks-overlay", onClick: () => setTweaksOpen(false) }),
-    tweaksOpen && h(TweaksPanel, {
+    tweaksOpen && h(MenuPanel, {
       tw, setTw,
       onClose: () => setTweaksOpen(false),
       onOpenCategories: () => setCategoriesOpen(true),
+      onImport: () => setImportOpen(true),
     }),
 
     categoriesOpen && h(window.BS.Drawer, {

@@ -1,25 +1,21 @@
 /* IIFE-wrapped: own scope (replaces Babel's per-file isolation) */
 (function () {
-/* view-dashboard.js — DashboardView: a tela única do BrokerShark.
-   Faixa KPI fixa (Disponível · Patrimônio · Balanço do mês · Investido) +
-   grid de widgets (timeline, contas, categorias, investimentos, PIX,
-   atividade). Detalhe abre em drill-down (Overlay) — nunca navegação. */
+/* view-dashboard.js — DashboardView: a tela única do BrokerShark (1920×1080).
+   Topbar + faixa KPI + UMA linha de widgets (visão geral, fluxo, contas,
+   categorias, investimentos) + tabela full-width com scroll interno.
+   Nada de navegação: tudo visível, detalhe é filtro/ordenação na tabela. */
 /* global React, fetchAvailable, fetchAccounts, fetchMonthTransactions,
           fetchCashflowStatement, fetchInvestments, fetchLiquidityHistory,
-          fetchInvestmentEvolution, fetchPixTop, fetchUncategorizedMerchants */
+          fetchInvestmentEvolution, fetchUncategorizedMerchants, fetchBackupStatus */
 
 const { useState: _dSt, useEffect: _dEf, useMemo: _dMemo } = React;
-const { fmtBRL, fmtBRLCompact, PT_MONTHS, PT_SHORT, Donut,
-        isConsumptionExpense, isRevenue, isSelf } = window.BS;
+const { fmtBRL, fmtBRLCompact, fmtDateBR, PT_MONTHS, PT_SHORT,
+        isConsumptionExpense } = window.BS;
 
 const INV_TYPE_LABEL = {
   rdb: "Caixinha (RDB)", cdb: "CDB / Renda fixa", tesouro: "Tesouro Direto",
   lci: "LCI / Renda fixa", lca: "LCA / Renda fixa", savings: "Poupança",
 };
-const INV_COLORS = [
-  "oklch(78% 0.13 200)", "oklch(67% 0.17 305)", "oklch(74% 0.13 172)",
-  "oklch(63% 0.16 270)", "oklch(72% 0.14 240)", "oklch(58% 0.13 255)",
-];
 
 /* Δ assinado (mono, pos/neg) — o vocabulário único de "variação vs mês" */
 function Delta({ value, suffix = "vs mês anterior", invert = false }) {
@@ -30,6 +26,24 @@ function Delta({ value, suffix = "vs mês anterior", invert = false }) {
     h("span", { className: "kpi-delta", style: { color: good ? "var(--pos)" : "var(--neg)" } },
       (value >= 0 ? "+" : "−") + fmtBRL(Math.abs(value))),
     h("span", { style: { color: "var(--fg-3)" } }, suffix)
+  );
+}
+
+function Sparkline({ data, width = 150, height = 36, color = "var(--accent)" }) {
+  const h = React.createElement;
+  if (!data || data.length < 2) return null;
+  const min = Math.min(...data), max = Math.max(...data);
+  const range = max - min || 1;
+  const coords = data.map((v, i) => [
+    (i / (data.length - 1)) * width,
+    height - ((v - min) / range) * (height - 4) - 2,
+  ]);
+  const points = coords.map(([x, y]) => `${x},${y}`).join(" ");
+  const area = `${coords[0][0]},${height} ${points} ${coords[coords.length - 1][0]},${height}`;
+  // width = viewBox lógico; o svg estica pro contêiner (stroke não escala)
+  return h("svg", { width: "100%", height, viewBox: `0 0 ${width} ${height}`, preserveAspectRatio: "none", style: { display: "block" }, "aria-hidden": true },
+    h("polygon", { points: area, fill: "var(--accent-bg)", stroke: "none" }),
+    h("polyline", { fill: "none", stroke: color, strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", vectorEffect: "non-scaling-stroke", points })
   );
 }
 
@@ -100,8 +114,79 @@ function KpiStrip({ available, availErr, accounts, cashflow, investTotal,
   );
 }
 
-/* ── TimelineWidget — o controle de mês É o gráfico ──────────────────────
-   12 slots por ano, barras receita×despesa; clique seleciona o mês global. */
+/* ── GeneralWidget — visão geral: patrimônio+evolução, resumo, saúde ─────── */
+function GeneralWidget({ cashflow, liquidityHistory, monthly, monthSel,
+                         monthTx, uncatCount, backup }) {
+  const h = (t, p, ...c) => React.createElement(t, p, ...c);
+
+  const inc = cashflow ? cashflow.income_total : 0;
+  const exp = cashflow ? cashflow.expense_total : 0;
+  const invNet = cashflow ? cashflow.investment_net : 0;
+  const livre = inc - exp - invNet;
+  const monName = monthSel ? PT_MONTHS[monthSel.month].toLowerCase() : "";
+
+  // Resumo em uma frase — leitura de relance, números exatos
+  const parts = [];
+  parts.push(h("span", { key: "i" }, "Recebeu ", h("b", { className: "mono", style: { color: "var(--pos)" } }, "+" + fmtBRL(inc))));
+  parts.push(h("span", { key: "e" }, ", gastou ", h("b", { className: "mono", style: { color: "var(--neg)" } }, "−" + fmtBRL(exp))));
+  if (invNet > 0) parts.push(h("span", { key: "v" }, ", aplicou ", h("b", { className: "mono", style: { color: "var(--reserve)" } }, fmtBRL(invNet))));
+  if (invNet < 0) parts.push(h("span", { key: "v" }, ", resgatou ", h("b", { className: "mono", style: { color: "var(--info)" } }, fmtBRL(-invNet))));
+  parts.push(h("span", { key: "s" }, " → sobrou ", h("b", { className: "mono", style: { color: livre >= 0 ? "var(--pos)" : "var(--neg)" } }, (livre >= 0 ? "+" : "−") + fmtBRL(Math.abs(livre))), "."));
+
+  const patDelta = liquidityHistory.length > 1
+    ? liquidityHistory[liquidityHistory.length - 1].value - liquidityHistory[liquidityHistory.length - 2].value : null;
+
+  // Saúde dos dados
+  const first = monthly[0], last = monthly[monthly.length - 1];
+  const cobertura = first && last
+    ? `${PT_SHORT[first.month]}/${first.year} → ${PT_SHORT[last.month]}/${last.year} · ${monthly.length} meses` : "—";
+  const lastTxDate = monthTx.length
+    ? monthTx.reduce((m, t) => (t.date > m ? t.date : m), monthTx[0].date) : null;
+  let backupTxt = "—", backupStale = false;
+  if (backup) {
+    if (!backup.exists) { backupTxt = "sem backup"; backupStale = true; }
+    else {
+      const d = Math.floor((backup.age_seconds || 0) / 86400);
+      backupTxt = d <= 0 ? "hoje" : d === 1 ? "há 1 dia" : `há ${d} dias`;
+      backupStale = d > 7;
+    }
+  }
+
+  return h("div", { className: "widget wg-3" },
+    h("div", { className: "widget-h" },
+      h("span", { className: "widget-title" }, "Visão geral"),
+      patDelta != null && h("span", { style: { marginLeft: "auto", display: "inline-flex", gap: 6, alignItems: "baseline" } },
+        h("span", { className: "kpi-delta", style: { color: patDelta >= 0 ? "var(--pos)" : "var(--neg)" } },
+          (patDelta >= 0 ? "+" : "−") + fmtBRLCompact(patDelta)),
+        h("span", { style: { fontSize: 9, color: "var(--fg-3)", textTransform: "uppercase" } }, "patrimônio"))
+    ),
+    h("div", { className: "widget-body", style: { gap: 10 } },
+      // Evolução do patrimônio (12 meses) — caixa + carteira, mesma composição do KPI
+      h("div", { style: { flexShrink: 0 } },
+        h(Sparkline, { data: liquidityHistory.slice(-12).map(p => p.value), height: 40 })
+      ),
+      // Resumo do mês em texto
+      h("div", { style: { fontSize: 12, lineHeight: 1.55, color: "var(--fg-1)" } },
+        h("span", { style: { color: "var(--fg-3)", textTransform: "capitalize" } }, monName, ": "), ...parts),
+      // Saúde dos dados
+      h("div", { style: { marginTop: "auto", display: "flex", flexDirection: "column" } },
+        h("div", { className: "stat-row" }, h("span", { className: "k" }, "Cobertura"), h("span", { className: "v mono" }, cobertura)),
+        h("div", { className: "stat-row" },
+          h("span", { className: "k" }, "Lançamentos no mês"),
+          h("span", { className: "v mono" }, `${monthTx.length}`,
+            uncatCount > 0 && h("span", { style: { color: "var(--warn)", marginLeft: 6 } }, `· ${uncatCount} sem categoria`))),
+        h("div", { className: "stat-row" },
+          h("span", { className: "k" }, "Último lançamento"),
+          h("span", { className: "v mono" }, lastTxDate ? fmtDateBR(lastTxDate) : "—")),
+        h("div", { className: "stat-row" },
+          h("span", { className: "k" }, "Backup"),
+          h("span", { className: "v mono", style: backupStale ? { color: "var(--warn)" } : null, title: backup && backup.exists ? backup.name : "O HDD está montado?" }, backupTxt))
+      )
+    )
+  );
+}
+
+/* ── TimelineWidget — o controle de mês É o gráfico ──────────────────────── */
 function TimelineWidget({ monthly, monthSel, onPickMonth }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
   const now = new Date();
@@ -112,36 +197,35 @@ function TimelineWidget({ monthly, monthSel, onPickMonth }) {
   const slots = [];
   for (let m = 1; m <= 12; m++) slots.push({ month: m, data: monthly.find(x => x.year === activeYear && x.month === m) });
   const maxV = Math.max(...slots.map(s => s.data ? Math.max(s.data.income, s.data.expenses) : 0), 1);
-
   const sel = monthSel && monthly.find(x => x.year === monthSel.year && x.month === monthSel.month);
 
-  return h("div", { className: "widget wg-8" },
+  return h("div", { className: "widget wg-3" },
     h("div", { className: "widget-h" },
       h("span", { className: "widget-title" }, "Fluxo mês a mês"),
-      h("div", { style: { display: "flex", gap: 14, marginLeft: 12 } },
+      h("span", { style: { marginLeft: "auto", display: "flex", gap: 10, fontSize: 9, color: "var(--fg-3)", alignItems: "center" } },
+        h("span", { style: { display: "inline-flex", alignItems: "center", gap: 3 } },
+          h("span", { style: { width: 7, height: 7, borderRadius: 2, background: "var(--pos)" } }), "rec"),
+        h("span", { style: { display: "inline-flex", alignItems: "center", gap: 3 } },
+          h("span", { style: { width: 7, height: 7, borderRadius: 2, background: "var(--neg)" } }), "desp"))
+    ),
+    h("div", { className: "widget-body", style: { gap: 8, overflow: "hidden" } },
+      h("div", { style: { display: "flex", gap: 10, overflowX: "auto", scrollbarWidth: "none", flexShrink: 0 } },
         years.map(y => h("button", {
           key: y, onClick: () => setBrowsingYear(y),
           style: {
-            fontSize: 11, fontFamily: "var(--ff-mono)", fontWeight: activeYear === y ? 700 : 500,
-            color: activeYear === y ? "var(--fg-0)" : "var(--fg-3)", padding: "2px 0",
+            fontSize: 10, fontFamily: "var(--ff-mono)", fontWeight: activeYear === y ? 700 : 500,
+            color: activeYear === y ? "var(--fg-0)" : "var(--fg-3)", padding: "1px 0", flexShrink: 0,
             borderBottom: activeYear === y ? "2px solid var(--accent)" : "2px solid transparent",
           }
         }, y))
       ),
-      h("span", { style: { marginLeft: "auto", display: "flex", gap: 12, fontSize: 10, color: "var(--fg-3)", alignItems: "center" } },
-        h("span", { style: { display: "inline-flex", alignItems: "center", gap: 4 } },
-          h("span", { style: { width: 8, height: 8, borderRadius: 2, background: "var(--pos)" } }), "receita"),
-        h("span", { style: { display: "inline-flex", alignItems: "center", gap: 4 } },
-          h("span", { style: { width: 8, height: 8, borderRadius: 2, background: "var(--neg)" } }), "despesa"))
-    ),
-    h("div", { className: "widget-body", style: { gap: 10 } },
-      h("div", { style: { display: "flex", gap: 4, alignItems: "stretch" } },
+      h("div", { style: { display: "flex", gap: 2, alignItems: "stretch", flex: 1, minHeight: 0 } },
         slots.map(slot => {
           const d = slot.data;
           const isPicked = d && monthSel && d.year === monthSel.year && d.month === monthSel.month;
           const isCur = activeYear === now.getFullYear() && slot.month === now.getMonth() + 1;
-          const hInc = d ? Math.max((d.income / maxV) * 54, d.income > 0 ? 2 : 0) : 0;
-          const hExp = d ? Math.max((d.expenses / maxV) * 54, d.expenses > 0 ? 2 : 0) : 0;
+          const hInc = d ? Math.max((d.income / maxV) * 52, d.income > 0 ? 2 : 0) : 0;
+          const hExp = d ? Math.max((d.expenses / maxV) * 52, d.expenses > 0 ? 2 : 0) : 0;
           const net = d ? d.income - d.expenses : 0;
           return h("button", {
             key: slot.month,
@@ -163,23 +247,20 @@ function TimelineWidget({ monthly, monthSel, onPickMonth }) {
           );
         })
       ),
-      // Resumo do mês selecionado — números exatos (as barras dão a forma)
-      sel && h("div", { style: { display: "flex", gap: 24, alignItems: "baseline", borderTop: "1px solid var(--line-1)", paddingTop: 10 } },
-        h("span", { style: { fontSize: 12, fontWeight: 700, color: "var(--fg-1)" } }, `${PT_MONTHS[sel.month]} ${sel.year}`),
-        h("span", { className: "mono", style: { fontSize: 12, color: "var(--pos)" } }, "+" + fmtBRL(sel.income)),
-        h("span", { className: "mono", style: { fontSize: 12, color: "var(--neg)" } }, "−" + fmtBRL(sel.expenses)),
-        h("span", { className: "mono", title: "receitas − despesas do mês (investimentos contam à parte)", style: { fontSize: 12, fontWeight: 700, color: (sel.income - sel.expenses) >= 0 ? "var(--pos)" : "var(--neg)" } },
-          "= " + ((sel.income - sel.expenses) >= 0 ? "+" : "−") + fmtBRL(Math.abs(sel.income - sel.expenses))),
-        (() => {  // Δ despesas vs mês anterior — a "modificação mês a mês" em uma frase
+      sel && h("div", { style: { display: "flex", gap: 12, alignItems: "baseline", borderTop: "1px solid var(--line-1)", paddingTop: 7, flexShrink: 0, flexWrap: "wrap" } },
+        h("span", { style: { fontSize: 11, fontWeight: 700, color: "var(--fg-1)" } }, `${PT_SHORT[sel.month]}/${sel.year}`),
+        h("span", { className: "mono", style: { fontSize: 11, color: "var(--pos)" } }, "+" + fmtBRL(sel.income)),
+        h("span", { className: "mono", style: { fontSize: 11, color: "var(--neg)" } }, "−" + fmtBRL(sel.expenses)),
+        (() => {
           const idx = monthly.indexOf(sel);
           const prev = idx > 0 ? monthly[idx - 1] : null;
           if (!prev) return null;
           const d = sel.expenses - prev.expenses;
-          return h("span", { style: { marginLeft: "auto", fontSize: 11, color: "var(--fg-3)" } },
-            "despesas ",
+          return h("span", { style: { marginLeft: "auto", fontSize: 10, color: "var(--fg-3)" } },
+            "desp ",
             h("span", { className: "mono", style: { fontWeight: 700, color: d <= 0 ? "var(--pos)" : "var(--neg)" } },
-              (d >= 0 ? "+" : "−") + fmtBRL(Math.abs(d))),
-            ` vs ${PT_SHORT[prev.month]}/${String(prev.year).slice(2)}`);
+              (d >= 0 ? "+" : "−") + fmtBRLCompact(d)),
+            ` vs ${PT_SHORT[prev.month]}`);
         })()
       )
     )
@@ -194,13 +275,13 @@ function AccountsWidget({ accounts, available }) {
   const total = available ? available.checking_total : checking.reduce((s, a) => s + (a.balance || 0), 0);
   const colorOf = a => (a.id || "").startsWith("nu") ? "var(--nubank)" : "var(--inter)";
 
-  return h("div", { className: "widget wg-4" },
+  return h("div", { className: "widget wg-2" },
     h("div", { className: "widget-h" },
       h("span", { className: "widget-title" }, "Contas"),
       h("span", { className: "mono", style: { marginLeft: "auto", fontSize: 12, fontWeight: 700, color: "var(--fg-0)" } }, fmtBRL(total))
     ),
     h("div", { className: "widget-body", style: { gap: 10 } },
-      total > 0 && checking.length > 1 && h("div", { style: { display: "flex", gap: 3, height: 5 } },
+      total > 0 && checking.length > 1 && h("div", { style: { display: "flex", gap: 3, height: 5, flexShrink: 0 } },
         checking.map(a => {
           const pct = ((a.balance || 0) / total) * 100;
           return pct > 0.5 && h("div", { key: a.id, title: `${a.name}: ${pct.toFixed(0)}%`, style: { width: pct + "%", background: colorOf(a), borderRadius: 2, opacity: 0.85 } });
@@ -209,14 +290,14 @@ function AccountsWidget({ accounts, available }) {
       h("div", { style: { display: "flex", flexDirection: "column" } },
         checking.map((a, i, arr) => h("div", {
           key: a.id,
-          style: { display: "flex", justifyContent: "space-between", alignItems: "center", height: 38, borderBottom: i < arr.length - 1 ? "1px dashed var(--line-1)" : "none" }
+          style: { display: "flex", flexDirection: "column", gap: 2, padding: "9px 0", borderBottom: i < arr.length - 1 ? "1px dashed var(--line-1)" : "none" }
         },
-          h("div", { style: { display: "flex", alignItems: "center", gap: 9 } },
-            h("span", { style: { width: 8, height: 8, borderRadius: "50%", background: colorOf(a) } }),
-            h("span", { style: { fontSize: 12, fontWeight: 600, color: "var(--fg-1)" } }, a.name),
-            total > 0 && h("span", { className: "mono", style: { fontSize: 10, color: "var(--fg-3)" } }, `${(((a.balance || 0) / total) * 100).toFixed(0)}%`)
+          h("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
+            h("span", { style: { width: 8, height: 8, borderRadius: "50%", background: colorOf(a), flexShrink: 0 } }),
+            h("span", { style: { fontSize: 11, fontWeight: 600, color: "var(--fg-1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, a.name),
+            total > 0 && h("span", { className: "mono", style: { fontSize: 9, color: "var(--fg-3)", marginLeft: "auto" } }, `${(((a.balance || 0) / total) * 100).toFixed(0)}%`)
           ),
-          h("span", { className: "mono", style: { fontSize: 13, fontWeight: 600, color: (a.balance || 0) < 0 ? "var(--neg)" : "var(--fg-0)" } }, fmtBRL(a.balance || 0))
+          h("span", { className: "mono", style: { fontSize: 15, fontWeight: 700, paddingLeft: 16, color: (a.balance || 0) < 0 ? "var(--neg)" : "var(--fg-0)" } }, fmtBRL(a.balance || 0))
         ))
       )
     )
@@ -224,7 +305,7 @@ function AccountsWidget({ accounts, available }) {
 }
 
 /* ── CategoriesWidget — pra onde o dinheiro foi no mês ───────────────────── */
-function CategoriesWidget({ monthTx, uncatCount, onOpenTx }) {
+function CategoriesWidget({ monthTx, uncatCount, onOpenBulk }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
   const expenses = monthTx.filter(isConsumptionExpense);
   const totalExp = expenses.reduce((s, t) => s + t.amount, 0);
@@ -238,39 +319,30 @@ function CategoriesWidget({ monthTx, uncatCount, onOpenTx }) {
     return Object.values(g).sort((a, b) => b.total - a.total);
   }, [monthTx]);
 
-  const limit = 7;
-  let items = byCat.slice(0, limit);
-  if (byCat.length > limit) {
-    const rest = byCat.slice(limit);
-    items = [...items, { name: `Outras (${rest.length})`, total: rest.reduce((s, x) => s + x.total, 0), isOther: true }];
-  }
-
-  return h("div", { className: "widget wg-4" },
+  return h("div", { className: "widget wg-2" },
     h("div", { className: "widget-h" },
-      h("span", { className: "widget-title" }, "Despesas por categoria"),
+      h("span", { className: "widget-title" }, "Categorias"),
       h("span", { className: "mono", style: { marginLeft: "auto", fontSize: 12, fontWeight: 700, color: "var(--neg)" } }, "−" + fmtBRL(totalExp))
     ),
-    h("div", { className: "widget-body", style: { gap: 9 } },
+    h("div", { className: "widget-body", style: { gap: 8 } },
       byCat.length === 0
-        ? h("div", { style: { color: "var(--fg-3)", fontSize: 12, textAlign: "center", padding: "24px 0" } }, "Nenhuma despesa no mês.")
-        : items.map((c, i) => {
+        ? h("div", { style: { color: "var(--fg-3)", fontSize: 11, textAlign: "center", padding: "20px 0" } }, "Nenhuma despesa no mês.")
+        : byCat.map((c, i) => {
             const pct = totalExp ? (c.total / totalExp) * 100 : 0;
-            return h("div", { key: i, style: { display: "flex", flexDirection: "column", gap: 4 } },
+            return h("div", { key: i, style: { display: "flex", flexDirection: "column", gap: 3, flexShrink: 0 } },
               h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 } },
-                h("span", { style: { fontSize: 12, fontWeight: 600, color: c.name === "Sem categoria" ? "var(--fg-3)" : "var(--fg-1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, c.name),
-                h("div", { style: { display: "flex", gap: 8, alignItems: "baseline", flexShrink: 0 } },
-                  h("span", { className: "mono", style: { fontSize: 10, color: "var(--fg-3)" } }, pct.toFixed(1) + "%"),
-                  h("span", { className: "mono", style: { fontSize: 12, fontWeight: 700, color: "var(--fg-0)" } }, fmtBRL(c.total)))
+                h("span", { style: { fontSize: 11, fontWeight: 600, color: c.name === "Sem categoria" ? "var(--fg-3)" : "var(--fg-1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, c.name),
+                h("span", { className: "mono", style: { fontSize: 11, fontWeight: 700, color: "var(--fg-0)", flexShrink: 0 } }, fmtBRL(c.total))
               ),
-              h("div", { style: { height: 4, background: "var(--bg-2)", borderRadius: 2, overflow: "hidden" } },
-                h("div", { style: { width: pct + "%", height: "100%", borderRadius: 2, background: c.isOther ? "var(--line-2)" : i === 0 ? "var(--accent)" : "var(--fg-2)" } }))
+              h("div", { style: { height: 3, background: "var(--bg-2)", borderRadius: 2, overflow: "hidden" } },
+                h("div", { style: { width: pct + "%", height: "100%", borderRadius: 2, background: c.name === "Sem categoria" ? "var(--line-2)" : i === 0 ? "var(--accent)" : "var(--fg-2)" } }))
             );
           }),
       uncatCount > 0 && h("button", {
-        onClick: () => onOpenTx({ bulk: true }),
+        onClick: onOpenBulk,
         style: {
-          marginTop: 2, alignSelf: "flex-start", padding: "4px 10px", borderRadius: 999,
-          fontSize: 11, fontWeight: 600, color: "var(--accent)", background: "var(--accent-bg)",
+          marginTop: "auto", alignSelf: "flex-start", padding: "3px 9px", borderRadius: 999, flexShrink: 0,
+          fontSize: 10, fontWeight: 600, color: "var(--accent)", background: "var(--accent-bg)",
           border: "1px solid color-mix(in oklch, var(--accent) 35%, transparent)",
         }
       }, `Categorizar em lote · ${uncatCount}`)
@@ -278,91 +350,60 @@ function CategoriesWidget({ monthTx, uncatCount, onOpenTx }) {
   );
 }
 
-/* ── InvestmentsWidget — resumo + drill (posições ficam no overlay) ──────── */
-function InvestmentsWidget({ investments, onOpenInv }) {
+/* ── InvestmentsWidget — todas as posições no card (sem drill) ────────────── */
+function InvestmentsWidget({ investments, evolution }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
   const typeLabel = t => INV_TYPE_LABEL[t] || (t ? t[0].toUpperCase() + t.slice(1) : "Investimento");
   const total = investments.reduce((s, i) => s + (i.balance || 0), 0);
-  const groups = _dMemo(() => {
-    // Agrupa como o usuário pensa: group_name (Porquinho) primeiro, tipo depois.
-    const g = {};
-    investments.forEach(inv => {
-      const k = inv.group_name || typeLabel(inv.type);
-      g[k] = (g[k] || 0) + (inv.balance || 0);
+  const invDelta = (evolution && evolution.length > 1)
+    ? evolution[evolution.length - 1].cumulative - evolution[evolution.length - 2].cumulative : null;
+
+  // Posições individuais, maiores primeiro; CDBs do Porquinho agregados numa
+  // linha (mesmo emissor, mesma natureza — o detalhe fino não muda decisão).
+  const rows = _dMemo(() => {
+    const out = [];
+    const porq = investments.filter(i => i.group_name === "Porquinho");
+    investments.filter(i => i.group_name !== "Porquinho").forEach(i => out.push({
+      name: i.name, sub: typeLabel(i.type), balance: i.balance || 0, derived: !!i.derived,
+    }));
+    if (porq.length) out.push({
+      name: `Porquinho Inter${porq.length > 1 ? ` ×${porq.length}` : ""}`,
+      sub: "CDB · B3", balance: porq.reduce((s, i) => s + (i.balance || 0), 0),
     });
-    return Object.entries(g).map(([name, balance]) => ({ name, balance }))
-      .sort((a, b) => b.balance - a.balance)
-      .map((x, i) => ({ ...x, color: INV_COLORS[i % INV_COLORS.length] }));
+    return out.sort((a, b) => b.balance - a.balance);
   }, [investments]);
 
-  return h("div", { className: "widget wg-4" },
+  return h("div", { className: "widget wg-2" },
     h("div", { className: "widget-h" },
       h("span", { className: "widget-title" }, "Investimentos"),
-      h("button", { className: "widget-open", onClick: () => onOpenInv() }, "posições ", h("span", { className: "kbd" }, "3"))
+      h("span", { className: "mono", style: { marginLeft: "auto", fontSize: 12, fontWeight: 700, color: "var(--reserve)" } }, fmtBRL(total))
     ),
-    h("div", { className: "widget-body", style: { gap: 12 } },
+    h("div", { className: "widget-body", style: { gap: 0 } },
       investments.length === 0
-        ? h("div", { style: { color: "var(--fg-3)", fontSize: 12, textAlign: "center", padding: "24px 0" } }, "Nenhum investimento — importe um relatório B3.")
-        : h("div", { style: { display: "flex", gap: 16, alignItems: "center" } },
-            h(Donut, { data: groups, size: 108, thickness: 16, valueKey: "balance", colors: groups.map(g => g.color) }),
-            h("div", { style: { display: "flex", flexDirection: "column", gap: 6, flex: 1, minWidth: 0 } },
-              groups.map((g, i) => h("div", { key: i, style: { display: "flex", alignItems: "center", gap: 8 } },
-                h("span", { style: { width: 8, height: 8, borderRadius: 2, background: g.color, flexShrink: 0 } }),
-                h("span", { style: { fontSize: 11, fontWeight: 600, color: "var(--fg-1)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, g.name),
-                h("span", { className: "mono", style: { fontSize: 10, color: "var(--fg-3)" } }, total ? ((g.balance / total) * 100).toFixed(0) + "%" : ""),
-                h("span", { className: "mono", style: { fontSize: 11, fontWeight: 700, color: "var(--fg-0)" } }, fmtBRL(g.balance))
-              ))
-            )
-          )
+        ? h("div", { style: { color: "var(--fg-3)", fontSize: 11, textAlign: "center", padding: "20px 0" } }, "Nenhum investimento — importe um relatório B3.")
+        : rows.map((r, i, arr) => h("div", {
+            key: i,
+            style: { display: "flex", flexDirection: "column", gap: 1, padding: "7px 0", borderBottom: i < arr.length - 1 ? "1px dashed var(--line-1)" : "none", flexShrink: 0 }
+          },
+            h("div", { style: { display: "flex", justifyContent: "space-between", gap: 8, alignItems: "baseline" } },
+              h("span", { title: r.name, style: { fontSize: 11, fontWeight: 600, color: "var(--fg-1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, r.name),
+              h("span", { className: "mono", style: { fontSize: 12, fontWeight: 700, color: "var(--fg-0)", flexShrink: 0 } }, fmtBRL(r.balance))
+            ),
+            h("span", { style: { fontSize: 9, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.04em" } },
+              r.sub, total ? ` · ${((r.balance / total) * 100).toFixed(1)}%` : "",
+              r.derived ? " · derivado" : "")
+          )),
+      invDelta != null && h("div", { style: { marginTop: "auto", paddingTop: 8, display: "flex", gap: 6, alignItems: "baseline", flexShrink: 0 } },
+        h("span", { style: { fontSize: 9, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.05em" } }, "Δ mês"),
+        h("span", { className: "kpi-delta", style: { color: invDelta >= 0 ? "var(--pos)" : "var(--info)" } },
+          (invDelta >= 0 ? "+" : "−") + fmtBRL(Math.abs(invDelta))),
+        invDelta < 0 && h("span", { style: { fontSize: 9, color: "var(--fg-3)" } }, "(resgate)"))
     )
-  );
-}
-
-/* ── PixTopWidget — maiores contrapartes PIX do mês ──────────────────────── */
-function PixTopWidget({ pixTop }) {
-  const h = (t, p, ...c) => React.createElement(t, p, ...c);
-  return h("div", { className: "widget wg-4" },
-    h("div", { className: "widget-h" }, h("span", { className: "widget-title" }, "Top PIX do mês")),
-    h("div", { className: "widget-body", style: { gap: 8 } },
-      pixTop.length === 0
-        ? h("div", { style: { color: "var(--fg-3)", fontSize: 12, textAlign: "center", padding: "24px 0" } }, "Nenhum PIX no mês.")
-        : pixTop.slice(0, 6).map((p, i) => h("div", { key: i, style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 } },
-            h("span", { style: { fontSize: 12, color: "var(--fg-1)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } },
-              window.BS.prettifyDesc(p.counterpart)),
-            h("div", { style: { display: "flex", gap: 8, alignItems: "baseline", flexShrink: 0 } },
-              h("span", { className: "mono", style: { fontSize: 10, color: "var(--fg-3)" } }, `${p.count}×`),
-              h("span", { className: "mono", style: { fontSize: 12, fontWeight: 700, color: "var(--fg-1)" } }, fmtBRL(p.total)))
-          ))
-    )
-  );
-}
-
-/* ── ActivityWidget — últimos lançamentos do mês, drill pra tabela cheia ─── */
-function ActivityWidget({ monthTx, onOpenTx, onEditCategory }) {
-  const h = (t, p, ...c) => React.createElement(t, p, ...c);
-  const rows = _dMemo(() =>
-    [...monthTx].sort((a, b) => (b.date || "").localeCompare(a.date || "") || (b.id - a.id)).slice(0, 9),
-  [monthTx]);
-  return h("div", { className: "widget wg" },
-    h("div", { className: "widget-h" },
-      h("span", { className: "widget-title" }, "Atividade do mês"),
-      h("span", { className: "mono", style: { fontSize: 10, color: "var(--fg-3)" } },
-        `${monthTx.length} ${monthTx.length === 1 ? "lançamento" : "lançamentos"}`),
-      h("button", { className: "widget-open", onClick: () => onOpenTx() }, "tabela completa ", h("span", { className: "kbd" }, "2"))
-    ),
-    monthTx.length === 0
-      ? h("div", { style: { padding: "28px 16px", textAlign: "center", color: "var(--fg-3)", fontSize: 12 } }, "Nenhum lançamento neste mês.")
-      : h("table", { className: "grid-table" },
-          h("tbody", null,
-            rows.map(t => h(window.BS.TxRow, { key: t.id, t, cols: ["date", "desc", "cat", "account", "amount"], onEditCategory }))
-          )
-        )
   );
 }
 
 /* ── DashboardView ────────────────────────────────────────────────────────── */
-function DashboardView({ monthSel, monthly, onPickMonth, refreshKey,
-                         onOpenTx, onOpenInv, onEditCategory, onImport, footer }) {
+function DashboardView({ monthSel, monthly, onPickMonth, refreshKey, onEditCategory, onImport }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
   const [available, setAvailable] = _dSt(null);
   const [availErr, setAvailErr] = _dSt(false);
@@ -372,15 +413,17 @@ function DashboardView({ monthSel, monthly, onPickMonth, refreshKey,
   const [investments, setInvestments] = _dSt([]);
   const [liquidityHistory, setLiquidityHistory] = _dSt([]);
   const [evolution, setEvolution] = _dSt([]);
+  const [backup, setBackup] = _dSt(null);
   const [cashflow, setCashflow] = _dSt(null);
   const [monthTx, setMonthTx] = _dSt([]);
-  const [pixTop, setPixTop] = _dSt([]);
   const [uncatCount, setUncatCount] = _dSt(0);
+  const [bulkOpen, setBulkOpen] = _dSt(false);
 
   // Dados de posição (independem do mês selecionado)
   _dEf(() => {
     setAvailErr(false); setLoadErr(false);
     fetchAvailable().then(setAvailable).catch(() => setAvailErr(true));
+    fetchBackupStatus().then(setBackup).catch(() => {});
     Promise.all([fetchAccounts(), fetchInvestments(), fetchLiquidityHistory(), fetchInvestmentEvolution()])
       .then(([ac, invs, lh, ev]) => {
         setAccounts(ac); setInvestments(invs);
@@ -394,7 +437,6 @@ function DashboardView({ monthSel, monthly, onPickMonth, refreshKey,
     const { month, year } = monthSel;
     fetchCashflowStatement({ month, year }).then(setCashflow).catch(() => {});
     fetchMonthTransactions({ month, year }).then(setMonthTx).catch(() => {});
-    fetchPixTop({ month, year }).then(setPixTop).catch(() => setPixTop([]));
     fetchUncategorizedMerchants({ year, month })
       .then(gs => setUncatCount(gs.reduce((s, g) => s + g.count, 0)))
       .catch(() => setUncatCount(0));
@@ -426,16 +468,18 @@ function DashboardView({ monthSel, monthly, onPickMonth, refreshKey,
 
   return h(React.Fragment, null,
     h(KpiStrip, { available, availErr, accounts, cashflow, investTotal, liquidityHistory, evolution, monthLabel }),
-    h("div", { className: "dash-main" },
-      h("div", { className: "dash-grid fade-in" },
+    h("div", { className: "dash-main fade-in" },
+      h("div", { className: "widget-row" },
+        h(GeneralWidget, { cashflow, liquidityHistory, monthly, monthSel, monthTx, uncatCount, backup }),
         h(TimelineWidget, { monthly, monthSel, onPickMonth }),
         h(AccountsWidget, { accounts, available }),
-        h(CategoriesWidget, { monthTx, uncatCount, onOpenTx }),
-        h(InvestmentsWidget, { investments, onOpenInv }),
-        h(PixTopWidget, { pixTop }),
-        h(ActivityWidget, { monthTx, onOpenTx, onEditCategory })
+        h(CategoriesWidget, { monthTx, uncatCount, onOpenBulk: () => setBulkOpen(true) }),
+        h(InvestmentsWidget, { investments, evolution })
       ),
-      footer || null
+      h(window.BS.TxTableWidget, {
+        monthSel, refreshKey, onEditCategory,
+        openBulk: bulkOpen, onBulkConsumed: () => setBulkOpen(false),
+      })
     )
   );
 }
