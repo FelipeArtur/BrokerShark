@@ -8,6 +8,7 @@ import type { Req } from "./respond.ts";
 import { HttpError } from "./respond.ts";
 
 const MAX_UPLOAD_BYTES = 20_000_000; // 20 MB — extratos longos + relatório B3
+const MAX_PARTS = 64; // extrato + fatura + B3 num drop normal é << 64
 
 export interface Part {
   name: string;
@@ -35,25 +36,18 @@ function boundaryOf(req: Req): string {
   return b;
 }
 
-/** Lê e fatia o corpo multipart em partes nomeadas (arquivos como Buffer). */
-export async function parseMultipart(req: Req): Promise<Part[]> {
-  const ct = req.headers["content-type"] ?? "";
-  if (!ct.toLowerCase().includes("multipart/form-data")) {
-    throw new HttpError(400, "esperado multipart/form-data");
-  }
-  const body = await readRaw(req);
-  const delim = Buffer.from(`--${boundaryOf(req)}`);
+/** Fatia um corpo multipart já em memória (puro, testável). */
+export function splitMultipart(body: Buffer, boundary: string, maxParts = MAX_PARTS): Part[] {
+  const delim = Buffer.from(`--${boundary}`);
   const parts: Part[] = [];
 
   let idx = body.indexOf(delim);
   while (idx >= 0) {
     const start = idx + delim.length;
-    // fim do stream: "--" logo após a boundary
-    if (body[start] === 0x2d && body[start + 1] === 0x2d) break;
+    if (body[start] === 0x2d && body[start + 1] === 0x2d) break; // "--" final
     const next = body.indexOf(delim, start);
     if (next < 0) break;
-    // segmento entre boundaries, sem o CRLF que precede a próxima boundary
-    const seg = body.subarray(start, next - 2);
+    const seg = body.subarray(start, next - 2); // remove o CRLF antes da próxima boundary
     const headEnd = seg.indexOf("\r\n\r\n");
     if (headEnd >= 0) {
       const rawHead = seg.subarray(0, headEnd).toString("utf-8");
@@ -62,11 +56,24 @@ export async function parseMultipart(req: Req): Promise<Part[]> {
       const name = /\bname="([^"]*)"/i.exec(cd)?.[1];
       const filename = /\bfilename="([^"]*)"/i.exec(cd)?.[1];
       const contentType = /content-type:\s*([^\r\n]+)/i.exec(rawHead)?.[1]?.trim();
-      if (name != null) parts.push({ name, filename, contentType, data });
+      if (name != null) {
+        if (parts.length >= maxParts) throw new HttpError(413, "arquivos demais");
+        parts.push({ name, filename, contentType, data });
+      }
     }
     idx = next;
   }
   return parts;
+}
+
+/** Lê o corpo multipart do stream e o fatia em partes nomeadas. */
+export async function parseMultipart(req: Req): Promise<Part[]> {
+  const ct = req.headers["content-type"] ?? "";
+  if (!ct.toLowerCase().includes("multipart/form-data")) {
+    throw new HttpError(400, "esperado multipart/form-data");
+  }
+  const body = await readRaw(req);
+  return splitMultipart(body, boundaryOf(req));
 }
 
 /** Primeira parte-arquivo (tem filename). */
