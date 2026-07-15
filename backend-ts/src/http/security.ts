@@ -26,6 +26,23 @@ export function hostAllowed(req: Req): boolean {
   return ALLOWED_HOSTNAMES.has(name.toLowerCase());
 }
 
+/**
+ * Defesa CSRF: sem auth, o adversário é uma página maliciosa no browser do
+ * usuário. `readBody` ignora Content-Type, então POSTs de escrita são
+ * atingíveis como "simple request". Rejeitamos escrita quando o Origin está
+ * presente e não é localhost. Origin ausente = não-browser (curl, backfill)
+ * ou GET same-origin — o allowlist de Host já cobre esse caso.
+ */
+export function originAllowed(req: Req): boolean {
+  const origin = req.headers.origin;
+  if (origin == null) return true;
+  try {
+    return ALLOWED_HOSTNAMES.has(new URL(origin).hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
 export function securityHeaders(res: Res): void {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
