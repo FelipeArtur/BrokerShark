@@ -17,7 +17,7 @@ import type { Route } from "./http/router.ts";
 import { dispatch } from "./http/router.ts";
 import { handleSse } from "./http/sse.ts";
 import { makeStatic } from "./http/static.ts";
-import { hostAllowed, securityHeaders } from "./http/security.ts";
+import { hostAllowed, securityHeaders, originAllowed } from "./http/security.ts";
 import { accountRoutes } from "./routes/accounts.ts";
 import { transactionRoutes } from "./routes/transactions.ts";
 import { categoryRoutes } from "./routes/categories.ts";
@@ -65,6 +65,10 @@ const server = createServer(async (req: Req, res: Res) => {
   try {
     if (!hostAllowed(req)) return error(res, "host não permitido", 403);
     securityHeaders(res);
+    // CSRF: escrita só de origem localhost (GET/HEAD são idempotentes/leitura)
+    if (method !== "GET" && method !== "HEAD" && !originAllowed(req)) {
+      return error(res, "origin não permitido", 403);
+    }
 
     if (method === "GET" && pathname === "/api/events") return handleSse(req, res);
     if (method === "GET" && pathname === "/api/backup-status") return handleBackupStatus(req, res);
