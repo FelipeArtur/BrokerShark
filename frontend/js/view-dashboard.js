@@ -48,7 +48,7 @@ function Sparkline({ data, width = 150, height = 36, color = "var(--accent)" }) 
 }
 
 /* ── KpiStrip — os 4 números que respondem "como estou" ─────────────────── */
-function KpiStrip({ available, availErr, accounts, cashflow, investTotal,
+const KpiStrip = React.memo(function KpiStrip({ available, availErr, accounts, cashflow, investTotal,
                     liquidityHistory, evolution, monthLabel }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
 
@@ -73,7 +73,7 @@ function KpiStrip({ available, availErr, accounts, cashflow, investTotal,
   return h("div", { className: "kpi-strip" },
     // 1. Disponível pra gastar — o herói; posição, sempre "agora"
     h("div", { className: "kpi kpi-hero" },
-      h("span", { className: "kpi-label" }, "Disponível pra gastar · agora"),
+      h("span", { className: "kpi-label" }, "Em Caixa (Disponível Agora)"),
       availErr
         ? h("span", { style: { fontSize: 13, fontWeight: 600, color: "var(--neg)" } }, "falha ao carregar")
         : h("span", { className: "kpi-value", style: { color: availNeg ? "var(--neg)" : "var(--pos)" } },
@@ -88,14 +88,14 @@ function KpiStrip({ available, availErr, accounts, cashflow, investTotal,
     ),
     // 2. Patrimônio total — caixa + investimentos, com Δ mensal
     h("div", { className: "kpi" },
-      h("span", { className: "kpi-label" }, "Patrimônio total"),
+      h("span", { className: "kpi-label" }, "Patrimônio Consolidado"),
       h("span", { className: "kpi-value", title: `Caixa ${fmtBRL(checkingTotal)} + investimentos ${fmtBRL(investTotal)}` },
         (patrimonio < 0 ? "−" : "") + fmtBRL(Math.abs(patrimonio))),
       h("span", { className: "kpi-sub" }, h(Delta, { value: patDelta, suffix: "vs mês passado" }))
     ),
     // 3. Balanço do mês selecionado — saldo livre + composição
     h("div", { className: "kpi" },
-      h("span", { className: "kpi-label" }, `Saldo livre · ${monthLabel}`),
+      h("span", { className: "kpi-label" }, `Resultado Líquido do Mês (${monthLabel})`),
       h("span", { className: "kpi-value", style: { color: livre >= 0 ? "var(--pos)" : (inc === 0 ? "var(--warn)" : "var(--neg)") } },
         (livre >= 0 ? "+" : "−") + fmtBRL(Math.abs(livre))),
       h("span", { className: "kpi-sub" },
@@ -107,15 +107,15 @@ function KpiStrip({ available, availErr, accounts, cashflow, investTotal,
     ),
     // 4. Total investido — com Δ mensal da carteira
     h("div", { className: "kpi" },
-      h("span", { className: "kpi-label" }, "Investido"),
+      h("span", { className: "kpi-label" }, "Total Investido"),
       h("span", { className: "kpi-value", style: { color: "var(--reserve)" } }, fmtBRL(investTotal)),
       h("span", { className: "kpi-sub" }, h(Delta, { value: invDelta, suffix: "vs mês passado" }))
     )
   );
-}
+});
 
 /* ── GeneralWidget — visão geral: patrimônio+evolução, resumo, saúde ─────── */
-function GeneralWidget({ cashflow, liquidityHistory, monthly, monthSel,
+const GeneralWidget = React.memo(function GeneralWidget({ cashflow, liquidityHistory, monthly, monthSel,
                          monthTx, uncatCount, backup }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
 
@@ -125,13 +125,28 @@ function GeneralWidget({ cashflow, liquidityHistory, monthly, monthSel,
   const livre = inc - exp - invNet;
   const monName = monthSel ? PT_MONTHS[monthSel.month].toLowerCase() : "";
 
-  // Resumo em uma frase — leitura de relance, números exatos
+  // Resumo em texto — leitura de relance, números exatos, mais descritivo
   const parts = [];
-  parts.push(h("span", { key: "i" }, "Recebeu ", h("b", { className: "mono", style: { color: "var(--pos)" } }, "+" + fmtBRL(inc))));
-  parts.push(h("span", { key: "e" }, ", gastou ", h("b", { className: "mono", style: { color: "var(--neg)" } }, "−" + fmtBRL(exp))));
-  if (invNet > 0) parts.push(h("span", { key: "v" }, ", aplicou ", h("b", { className: "mono", style: { color: "var(--reserve)" } }, fmtBRL(invNet))));
-  if (invNet < 0) parts.push(h("span", { key: "v" }, ", resgatou ", h("b", { className: "mono", style: { color: "var(--info)" } }, fmtBRL(-invNet))));
-  parts.push(h("span", { key: "s" }, " → sobrou ", h("b", { className: "mono", style: { color: livre >= 0 ? "var(--pos)" : "var(--neg)" } }, (livre >= 0 ? "+" : "−") + fmtBRL(Math.abs(livre))), "."));
+  parts.push(h("div", { key: "i", style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 2 } }, 
+    h("span", { style: { color: "var(--fg-2)" } }, "Entradas (receitas)"), 
+    h("b", { className: "mono", style: { color: "var(--pos)", fontSize: 13 } }, "+" + fmtBRL(inc))
+  ));
+  parts.push(h("div", { key: "e", style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 2 } }, 
+    h("span", { style: { color: "var(--fg-2)" } }, "Saídas (despesas)"), 
+    h("b", { className: "mono", style: { color: "var(--neg)", fontSize: 13 } }, "−" + fmtBRL(exp))
+  ));
+  if (invNet > 0) parts.push(h("div", { key: "v", style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 2 } }, 
+    h("span", { style: { color: "var(--fg-2)" } }, "Aplicações líquidas"), 
+    h("b", { className: "mono", style: { color: "var(--reserve)", fontSize: 13 } }, fmtBRL(invNet))
+  ));
+  if (invNet < 0) parts.push(h("div", { key: "v", style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 2 } }, 
+    h("span", { style: { color: "var(--fg-2)" } }, "Resgates líquidos"), 
+    h("b", { className: "mono", style: { color: "var(--info)", fontSize: 13 } }, fmtBRL(-invNet))
+  ));
+  parts.push(h("div", { key: "s", style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 6, paddingTop: 6, borderTop: "1px dashed var(--line-1)" } }, 
+    h("span", { style: { color: "var(--fg-1)", fontWeight: 600 } }, "Saldo livre no mês"), 
+    h("b", { className: "mono", style: { color: livre >= 0 ? "var(--pos)" : "var(--neg)", fontSize: 14 } }, (livre >= 0 ? "+" : "−") + fmtBRL(Math.abs(livre)))
+  ));
 
   const patDelta = liquidityHistory.length > 1
     ? liquidityHistory[liquidityHistory.length - 1].value - liquidityHistory[liquidityHistory.length - 2].value : null;
@@ -139,55 +154,53 @@ function GeneralWidget({ cashflow, liquidityHistory, monthly, monthSel,
   // Saúde dos dados
   const first = monthly[0], last = monthly[monthly.length - 1];
   const cobertura = first && last
-    ? `${PT_SHORT[first.month]}/${first.year} → ${PT_SHORT[last.month]}/${last.year} · ${monthly.length} meses` : "—";
+    ? `${PT_SHORT[first.month]}/${first.year} → ${PT_SHORT[last.month]}/${last.year} (${monthly.length} meses)` : "—";
   const lastTxDate = monthTx.length
     ? monthTx.reduce((m, t) => (t.date > m ? t.date : m), monthTx[0].date) : null;
   let backupTxt = "—", backupStale = false;
   if (backup) {
-    if (!backup.exists) { backupTxt = "sem backup"; backupStale = true; }
+    if (!backup.exists) { backupTxt = "Sem backup"; backupStale = true; }
     else {
       const d = Math.floor((backup.age_seconds || 0) / 86400);
-      backupTxt = d <= 0 ? "hoje" : d === 1 ? "há 1 dia" : `há ${d} dias`;
+      backupTxt = d <= 0 ? "Realizado hoje" : d === 1 ? "Realizado há 1 dia" : `Há ${d} dias`;
       backupStale = d > 7;
     }
   }
 
   return h("div", { className: "widget wg-3" },
     h("div", { className: "widget-h" },
-      h("span", { className: "widget-title" }, "Visão geral"),
+      h("span", { className: "widget-title" }, "Visão Geral do Mês"),
       patDelta != null && h("span", { style: { marginLeft: "auto", display: "inline-flex", gap: 6, alignItems: "baseline" } },
         h("span", { className: "kpi-delta", style: { color: patDelta >= 0 ? "var(--pos)" : "var(--neg)" } },
           (patDelta >= 0 ? "+" : "−") + fmtBRLCompact(patDelta)),
-        h("span", { style: { fontSize: 9, color: "var(--fg-3)", textTransform: "uppercase" } }, "patrimônio"))
+        h("span", { style: { fontSize: 9, color: "var(--fg-3)", textTransform: "uppercase" } }, "evolução patrimonial"))
     ),
-    h("div", { className: "widget-body", style: { gap: 10 } },
-      // Evolução do patrimônio (12 meses) — caixa + carteira, mesma composição do KPI
-      h("div", { style: { flexShrink: 0 } },
-        h(Sparkline, { data: liquidityHistory.slice(-12).map(p => p.value), height: 40 })
-      ),
+    h("div", { className: "widget-body", style: { gap: 16 } },
       // Resumo do mês em texto
-      h("div", { style: { fontSize: 12, lineHeight: 1.55, color: "var(--fg-1)" } },
-        h("span", { style: { color: "var(--fg-3)", textTransform: "capitalize" } }, monName, ": "), ...parts),
+      h("div", { style: { fontSize: 12, lineHeight: 1.4, color: "var(--fg-1)" } },
+        h("div", { style: { color: "var(--fg-0)", fontWeight: 700, textTransform: "capitalize", marginBottom: 8 } }, `Resumo de ${monName}`),
+        ...parts
+      ),
       // Saúde dos dados
       h("div", { style: { marginTop: "auto", display: "flex", flexDirection: "column" } },
-        h("div", { className: "stat-row" }, h("span", { className: "k" }, "Cobertura"), h("span", { className: "v mono" }, cobertura)),
+        h("div", { className: "stat-row" }, h("span", { className: "k" }, "Período analisado"), h("span", { className: "v mono" }, cobertura)),
         h("div", { className: "stat-row" },
-          h("span", { className: "k" }, "Lançamentos no mês"),
+          h("span", { className: "k" }, "Total de transações"),
           h("span", { className: "v mono" }, `${monthTx.length}`,
-            uncatCount > 0 && h("span", { style: { color: "var(--warn)", marginLeft: 6 } }, `· ${uncatCount} sem categoria`))),
+            uncatCount > 0 && h("span", { style: { color: "var(--warn)", marginLeft: 6 } }, `· ${uncatCount} pendentes`))),
         h("div", { className: "stat-row" },
-          h("span", { className: "k" }, "Último lançamento"),
+          h("span", { className: "k" }, "Última movimentação"),
           h("span", { className: "v mono" }, lastTxDate ? fmtDateBR(lastTxDate) : "—")),
         h("div", { className: "stat-row" },
-          h("span", { className: "k" }, "Backup"),
-          h("span", { className: "v mono", style: backupStale ? { color: "var(--warn)" } : null, title: backup && backup.exists ? backup.name : "O HDD está montado?" }, backupTxt))
+          h("span", { className: "k" }, "Status do Backup"),
+          h("span", { className: "v mono", style: backupStale ? { color: "var(--warn)" } : null, title: backup && backup.exists ? backup.name : "Unidade externa não detectada" }, backupTxt))
       )
     )
   );
-}
+});
 
 /* ── TimelineWidget — o controle de mês É o gráfico ──────────────────────── */
-function TimelineWidget({ monthly, monthSel, onPickMonth }) {
+const TimelineWidget = React.memo(function TimelineWidget({ monthly, monthSel, onPickMonth }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
   const now = new Date();
   const [browsingYear, setBrowsingYear] = _dSt(null);
@@ -265,10 +278,10 @@ function TimelineWidget({ monthly, monthSel, onPickMonth }) {
       )
     )
   );
-}
+});
 
 /* ── AccountsWidget — onde o caixa está ──────────────────────────────────── */
-function AccountsWidget({ accounts, available }) {
+const AccountsWidget = React.memo(function AccountsWidget({ accounts, available }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
   const checking = (accounts || []).filter(a => a.type === "checking")
     .sort((a, b) => ((a.id || "").startsWith("nu") ? 1 : 2) - ((b.id || "").startsWith("nu") ? 1 : 2));
@@ -302,10 +315,10 @@ function AccountsWidget({ accounts, available }) {
       )
     )
   );
-}
+});
 
 /* ── CategoriesWidget — pra onde o dinheiro foi no mês ───────────────────── */
-function CategoriesWidget({ monthTx, uncatCount, onOpenBulk }) {
+const CategoriesWidget = React.memo(function CategoriesWidget({ monthTx, uncatCount, onOpenBulk }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
   const expenses = monthTx.filter(isConsumptionExpense);
   const totalExp = expenses.reduce((s, t) => s + t.amount, 0);
@@ -348,10 +361,63 @@ function CategoriesWidget({ monthTx, uncatCount, onOpenBulk }) {
       }, `Categorizar em lote · ${uncatCount}`)
     )
   );
-}
+});
+
+/* ── FaturaWidget — Fatura de Cartão de Crédito do Mês ───────────────────── */
+const FaturaWidget = React.memo(function FaturaWidget({ monthTx }) {
+  const h = (t, p, ...c) => React.createElement(t, p, ...c);
+  
+  const { faturaItems, totalFatura, byBank } = _dMemo(() => {
+    const items = monthTx.filter(t => t.method === "credit" && !t.is_settlement);
+    const total = items.reduce((s, t) => s + (t.flow === "expense" ? t.amount : -t.amount), 0);
+    const banks = {};
+    items.forEach(t => {
+      const bank = (t.bank === "nubank" || (t.account_id && t.account_id.startsWith("nu"))) ? "Nubank" :
+                   (t.bank === "inter" || (t.account_id && t.account_id.startsWith("inter"))) ? "Inter" : "Outros";
+      banks[bank] = (banks[bank] || 0) + (t.flow === "expense" ? t.amount : -t.amount);
+    });
+    return { faturaItems: items, totalFatura: total, byBank: banks };
+  }, [monthTx]);
+
+  return h("div", { className: "widget wg-2" },
+    h("div", { className: "widget-h" },
+      h("span", { className: "widget-title" }, "Fatura do Cartão"),
+      h("span", { className: "mono", style: { marginLeft: "auto", fontSize: 12, fontWeight: 700, color: totalFatura > 0 ? "var(--neg)" : "var(--fg-0)" } }, (totalFatura >= 0 ? "−" : "+") + fmtBRL(Math.abs(totalFatura)))
+    ),
+    h("div", { className: "widget-body", style: { gap: 10 } },
+      faturaItems.length === 0
+        ? h("div", { style: { color: "var(--fg-3)", fontSize: 11, textAlign: "center", padding: "20px 0" } }, "Nenhuma despesa no crédito neste mês.")
+        : h(React.Fragment, null,
+            h("div", { style: { display: "flex", gap: 3, height: 5, flexShrink: 0 } },
+              Object.entries(byBank).map(([bank, amt]) => {
+                const pct = ((amt) / totalFatura) * 100;
+                const color = bank === "Nubank" ? "var(--nubank)" : bank === "Inter" ? "var(--inter)" : "var(--accent)";
+                return pct > 0.5 && h("div", { key: bank, title: `${bank}: ${pct.toFixed(0)}%`, style: { width: pct + "%", background: color, borderRadius: 2, opacity: 0.85 } });
+              })
+            ),
+            h("div", { style: { display: "flex", flexDirection: "column" } },
+              Object.entries(byBank).map(([bank, amt], i, arr) => {
+                const color = bank === "Nubank" ? "var(--nubank)" : bank === "Inter" ? "var(--inter)" : "var(--accent)";
+                return h("div", {
+                  key: bank,
+                  style: { display: "flex", flexDirection: "column", gap: 2, padding: "9px 0", borderBottom: i < arr.length - 1 ? "1px dashed var(--line-1)" : "none" }
+                },
+                  h("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
+                    h("span", { style: { width: 8, height: 8, borderRadius: "50%", background: color, flexShrink: 0 } }),
+                    h("span", { style: { fontSize: 11, fontWeight: 600, color: "var(--fg-1)" } }, `Fatura ${bank}`),
+                    totalFatura > 0 && h("span", { className: "mono", style: { fontSize: 9, color: "var(--fg-3)", marginLeft: "auto" } }, `${((amt / totalFatura) * 100).toFixed(0)}%`)
+                  ),
+                  h("span", { className: "mono", style: { fontSize: 15, fontWeight: 700, paddingLeft: 16, color: "var(--neg)" } }, (amt >= 0 ? "−" : "+") + fmtBRL(Math.abs(amt)))
+                );
+              })
+            )
+          )
+    )
+  );
+});
 
 /* ── InvestmentsWidget — todas as posições no card (sem drill) ────────────── */
-function InvestmentsWidget({ investments, evolution }) {
+const InvestmentsWidget = React.memo(function InvestmentsWidget({ investments, evolution }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
   const typeLabel = t => INV_TYPE_LABEL[t] || (t ? t[0].toUpperCase() + t.slice(1) : "Investimento");
   const total = investments.reduce((s, i) => s + (i.balance || 0), 0);
@@ -400,7 +466,7 @@ function InvestmentsWidget({ investments, evolution }) {
         invDelta < 0 && h("span", { style: { fontSize: 9, color: "var(--fg-3)" } }, "(resgate)"))
     )
   );
-}
+});
 
 /* ── DashboardView ────────────────────────────────────────────────────────── */
 function DashboardView({ monthSel, monthly, onPickMonth, refreshKey, onEditCategory, onImport }) {
@@ -456,12 +522,26 @@ function DashboardView({ monthSel, monthly, onPickMonth, refreshKey, onEditCateg
 
   // First-run: nada importado → convite único, sem widgets zerados
   const isFirstRun = available && available.checking_total === 0 && monthly.length === 0;
-  if (isFirstRun) return h("div", { className: "fade-in", style: { margin: "64px auto", maxWidth: 560 } },
-    h("div", { className: "panel", style: { padding: 32, display: "flex", flexDirection: "column", gap: 20 } },
-      h("div", { style: { fontSize: 16, fontWeight: 700, color: "var(--fg-0)" } }, "Sem dados ainda"),
-      h("div", { style: { fontSize: 13, color: "var(--fg-2)", lineHeight: 1.6 } },
-        "Importe extratos (Nubank/Inter .csv) e relatórios B3 (.xlsx) para ver quanto você pode gastar."),
-      h("button", { className: "btn btn-primary", style: { alignSelf: "flex-start" }, onClick: onImport }, "Importar arquivos")));
+  if (isFirstRun) return h("div", { style: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 40 } },
+    h("div", { className: "fade-in", style: { padding: "64px 40px", width: "100%", maxWidth: 640, display: "flex", flexDirection: "column", gap: 32, alignItems: "center", textAlign: "center", background: "linear-gradient(180deg, color-mix(in oklch, var(--accent) 3%, transparent), transparent 100%)", border: "1px solid color-mix(in oklch, var(--accent) 10%, transparent)", borderRadius: 24, boxShadow: "0 24px 48px oklch(0% 0 0 / 0.2), inset 0 1px 0 color-mix(in oklch, white 5%, transparent)" } },
+      h("div", { style: { display: "flex", justifyContent: "center", alignItems: "center", width: 88, height: 88, borderRadius: "50%", background: "linear-gradient(135deg, color-mix(in oklch, var(--info) 15%, transparent), color-mix(in oklch, var(--accent) 5%, transparent))", color: "var(--info)", marginBottom: 16, border: "1px solid color-mix(in oklch, var(--info) 20%, transparent)", boxShadow: "0 8px 32px color-mix(in oklch, var(--info) 10%, transparent)" } },
+        h("svg", { width: 44, height: 44, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round" },
+          h("path", { d: "M8 11 L8 2" }), h("path", { d: "M4 6 L8 2 L12 6" }), h("path", { d: "M2 14 L14 14" })
+        )
+      ),
+      h("h1", { style: { fontSize: 36, fontWeight: 800, color: "var(--fg-0)", letterSpacing: "-0.03em", margin: 0, lineHeight: 1.1, textShadow: "0 2px 8px oklch(0% 0 0 / 0.5)" } }, "Você no controle."),
+      h("p", { style: { fontSize: 16, color: "var(--fg-2)", lineHeight: 1.6, maxWidth: 440, margin: 0 } },
+        "Importe seus extratos (.csv) ou relatórios da B3 (.xlsx) para começar a responder à pergunta que importa: ",
+        h("strong", { style: { color: "var(--fg-0)", fontWeight: 600 } }, "Quanto posso gastar agora?")
+      ),
+      h("button", { className: "btn btn-primary", style: { cursor: "pointer", fontSize: 15, fontWeight: 700, height: 52, padding: "0 32px", borderRadius: 26, display: "flex", alignItems: "center", gap: 10, marginTop: 16, border: "none", background: "var(--accent)", color: "var(--bg-0)", boxShadow: "0 8px 24px color-mix(in oklch, var(--accent) 35%, transparent), inset 0 1px 0 color-mix(in oklch, white 20%, transparent)", transition: "transform 0.2s, box-shadow 0.2s" }, onClick: onImport, onMouseEnter: e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "0 12px 32px color-mix(in oklch, var(--accent) 45%, transparent), inset 0 1px 0 color-mix(in oklch, white 20%, transparent)"; }, onMouseLeave: e => { e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = "0 8px 24px color-mix(in oklch, var(--accent) 35%, transparent), inset 0 1px 0 color-mix(in oklch, white 20%, transparent)"; } },
+        h("svg", { width: 18, height: 18, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" },
+          h("path", { d: "M8 11 L8 2" }), h("path", { d: "M4 6 L8 2 L12 6" }), h("path", { d: "M2 14 L14 14" })
+        ),
+        "Importar meus arquivos"
+      )
+    )
+  );
 
   const investTotal = investments.reduce((s, i) => s + (i.balance || 0), 0);
   const monthLabel = monthSel ? `${PT_SHORT[monthSel.month]}/${String(monthSel.year).slice(2)}` : "—";
@@ -473,12 +553,14 @@ function DashboardView({ monthSel, monthly, onPickMonth, refreshKey, onEditCateg
         h(GeneralWidget, { cashflow, liquidityHistory, monthly, monthSel, monthTx, uncatCount, backup }),
         h(TimelineWidget, { monthly, monthSel, onPickMonth }),
         h(AccountsWidget, { accounts, available }),
+        h(FaturaWidget, { monthTx }),
         h(CategoriesWidget, { monthTx, uncatCount, onOpenBulk: () => setBulkOpen(true) }),
         h(InvestmentsWidget, { investments, evolution })
       ),
       h(window.BS.TxTableWidget, {
         monthSel, refreshKey, onEditCategory,
         openBulk: bulkOpen, onBulkConsumed: () => setBulkOpen(false),
+        monthTx, setMonthTx,
       })
     )
   );

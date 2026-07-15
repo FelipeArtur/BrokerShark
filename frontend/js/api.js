@@ -53,6 +53,7 @@ async function postInvestmentMovement({ investment_name, operation, amount, date
   return _post("/api/investment-movements", { investment_name, operation, amount, date, description });
 }
 async function postCategory(name, flow)       { return _post("/api/categories", { name, flow }); }
+async function patchCategory(id, name)        { return _patch(`/api/categories/${id}`, { name }); }
 async function deleteCategory(id, reassignToId) {
   const r = await fetch(`/api/categories/${id}`, {
     method: "DELETE",

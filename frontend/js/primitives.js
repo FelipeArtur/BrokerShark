@@ -364,10 +364,31 @@ function useToasts() {
 
 /* ── Drawer ─────────────────────────────────────────────────────────────── */
 function Drawer({ open, onClose, children, width = 480, title }) {
+  const drawerRef = _useRef(null);
+
   _useEffect(() => {
     if (open) document.body.style.overflow = "hidden";
     else document.body.style.overflow = "";
     return () => { document.body.style.overflow = ""; };
+  }, [open]);
+
+  _useEffect(() => {
+    if (!open || !drawerRef.current) return;
+    const prev = document.activeElement;
+    const sel  = 'button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])';
+    const get  = () => Array.from(drawerRef.current.querySelectorAll(sel));
+    get()[0]?.focus();
+    function trap(e) {
+      if (e.key === "Escape") { e.stopPropagation(); onClose && onClose(); return; }
+      if (e.key !== "Tab") return;
+      const nodes = get();
+      if (!nodes.length) { e.preventDefault(); return; }
+      const fi = nodes[0], la = nodes[nodes.length - 1];
+      if (e.shiftKey) { if (document.activeElement === fi) { e.preventDefault(); la?.focus(); } }
+      else            { if (document.activeElement === la) { e.preventDefault(); fi?.focus(); } }
+    }
+    document.addEventListener("keydown", trap);
+    return () => { document.removeEventListener("keydown", trap); prev?.focus(); };
   }, [open]);
 
   if (!open) return null;
@@ -376,7 +397,9 @@ function Drawer({ open, onClose, children, width = 480, title }) {
     style: { position: "fixed", inset: 0, background: "oklch(0% 0 0 / 0.4)", backdropFilter: "blur(2px)", zIndex: 200, display: "flex", justifyContent: "flex-end" }
   },
     React.createElement("div", {
+      ref: drawerRef,
       onClick: e => e.stopPropagation(),
+      role: "dialog", "aria-modal": "true",
       style: { width, maxWidth: "100%", height: "100%", background: "var(--bg-0)", boxShadow: "-8px 0 32px oklch(0% 0 0 / 0.2)", display: "flex", flexDirection: "column", animation: "slide-left 0.25s cubic-bezier(0.16, 1, 0.3, 1)" }
     },
       title && React.createElement("div", { style: { padding: "16px 24px", borderBottom: "1px solid var(--line-0)", display: "flex", justifyContent: "space-between", alignItems: "center" } },
@@ -444,9 +467,12 @@ const TxRow = React.memo(({ t, cols, onEditCategory, onApplySuggestion }) => {
     },
       cols.includes("date") && h("td", { className: "mono", style: { color: "var(--fg-3)", fontSize: 10 } }, fmtDateBR(t.date)),
       cols.includes("desc") && h("td", { style: { maxWidth: cols.includes("account") ? 260 : "none" } },
-        h("div", { style: { display: "flex", alignItems: "center", gap: 6, overflow: "hidden" } },
-          h("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: isThirdParty ? "var(--fg-3)" : "var(--fg-0)", fontWeight: 500, textDecoration: isThirdParty ? "line-through" : "none" } }, t.display_name || prettifyDesc(t.description)),
-          isThirdParty && h("span", { title: "Despesa de terceiros: não contabilizada", style: { fontSize: 9, padding: "2px 6px", borderRadius: 4, border: "1px dashed var(--fg-3)", color: "var(--fg-2)", fontWeight: 600, flexShrink: 0 } }, "TERCEIROS")
+        h("div", { style: { display: "flex", flexDirection: "column", gap: 2, overflow: "hidden" } },
+          h("div", { style: { display: "flex", alignItems: "center", gap: 6, overflow: "hidden" } },
+            h("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: isThirdParty ? "var(--fg-3)" : "var(--fg-0)", fontWeight: 700, fontSize: 13, textDecoration: isThirdParty ? "line-through" : "none" } }, t.display_name || prettifyDesc(t.description)),
+            isThirdParty && h("span", { title: "Despesa de terceiros: não contabilizada", style: { fontSize: 9, padding: "2px 6px", borderRadius: 4, border: "1px dashed var(--fg-3)", color: "var(--fg-2)", fontWeight: 600, flexShrink: 0 } }, "TERCEIROS")
+          ),
+          h("span", { style: { fontSize: 10, color: "var(--fg-3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, t.description)
         )
       ),
       cols.includes("cat") && h("td", null,
@@ -497,11 +523,16 @@ const TxRow = React.memo(({ t, cols, onEditCategory, onApplySuggestion }) => {
   return h(React.Fragment, null, ...rows);
 }, (prev, next) =>
   prev.t.id === next.t.id &&
+  prev.t.amount === next.t.amount &&
+  prev.t.date === next.t.date &&
+  prev.t.description === next.t.description &&
   prev.t.category === next.t.category &&
   prev.t.category_id === next.t.category_id &&
   prev.t.is_third_party === next.t.is_third_party &&
   prev.t.display_name === next.t.display_name &&
-  prev.t.suggested_category_id === next.t.suggested_category_id
+  prev.t.suggested_category_id === next.t.suggested_category_id &&
+  prev.onEditCategory === next.onEditCategory &&
+  prev.onApplySuggestion === next.onApplySuggestion
 );
 
 // ── Transaction classification (single source — mirrors the backend rule) ──────
