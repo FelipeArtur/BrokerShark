@@ -5,6 +5,7 @@ import type { Acervo } from "./files.ts";
 import type { InsertStats } from "./txInsert.ts";
 import type { InterImport } from "./extratos.ts";
 import type { CaixinhaResult } from "./caixinha.ts";
+import { reviewInvestments } from "./investReview.ts";
 
 export interface BackfillReport {
   dbPath: string;
@@ -91,5 +92,20 @@ export function printReport(db: DatabaseSync, r: BackfillReport): void {
     process.exit(1);
   } else {
     console.log("  ✓ Regra consumo-despesa e liquidações intactas");
+  }
+
+  const invRev = reviewInvestments(db);
+  console.log("\n■ Estratégia de investimentos:");
+  console.log(`  Total investido (posições abertas): ${fmtCents(invRev.panorama.totalCents)}`);
+  for (const t of invRev.panorama.byType) console.log(`    ${t.type}: ${fmtCents(t.cents)} (${t.pct}%)`);
+  if (invRev.panorama.topConcentration)
+    console.log(`  Maior concentração: ${invRev.panorama.topConcentration.name} (${invRev.panorama.topConcentration.pct}%)`);
+  console.log(`  Posições por fonte: ${invRev.panorama.bySource.map((s) => `${s.source}=${s.count}`).join(", ")}`);
+  if (invRev.violations.length) {
+    console.error(`  [ERRO] ${invRev.violations.length} violação(ões) de invariante de investimento:`);
+    for (const v of invRev.violations) console.error("    - " + v);
+    process.exit(1);
+  } else {
+    console.log("  ✓ Invariantes de investimento intactas");
   }
 }
