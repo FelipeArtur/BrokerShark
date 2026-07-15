@@ -1,13 +1,14 @@
 /** Backfill v2: constrói data/brokershark-v2.db a partir do acervo de exports.
  *
- *  Uso: node src/jobs/backfill.ts "<dir do acervo>" [<db de saída>]
+ *  Uso: node src/jobs/backfill.ts "<dir do acervo>" [<db de saída>] [--force]
  *
  *  Idempotente por reconstrução: o DB de saída é recriado do zero a cada run.
  *  Cada fase vive em jobs/backfill/<fase>.ts.
  */
-import { rmSync } from "node:fs";
+import { rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { openDb, initSchema, restrictPermissions } from "../db/open.ts";
+import { hasUserOverlay } from "./backfill/guard.ts";
 import { collectAcervo } from "./backfill/files.ts";
 import { seedAccountsAndCategories, seedRules } from "./backfill/seeds.ts";
 import { makeTxInserter } from "./backfill/txInsert.ts";
@@ -18,11 +19,27 @@ import { deriveCaixinha } from "./backfill/caixinha.ts";
 import { syncB3 } from "./backfill/b3Sync.ts";
 import { printReport } from "./backfill/verify.ts";
 
-const acervoDir = process.argv[2];
-const dbPath = process.argv[3] ?? join(import.meta.dirname, "../../../data/brokershark-v2.db");
+const positional = process.argv.slice(2).filter((a) => !a.startsWith("--"));
+const force = process.argv.includes("--force");
+const acervoDir = positional[0];
+const dbPath = positional[1] ?? join(import.meta.dirname, "../../../data/brokershark-v2.db");
 if (!acervoDir) {
-  console.error('uso: node src/jobs/backfill.ts "<dir do acervo>" [<db>]');
+  console.error('uso: node src/jobs/backfill.ts "<dir do acervo>" [<db>] [--force]');
   process.exit(1);
+}
+
+if (existsSync(dbPath) && !force) {
+  const existing = openDb(dbPath);
+  const overlay = hasUserOverlay(existing);
+  existing.close();
+  if (overlay) {
+    console.error(
+      "Abortado: o DB tem dados escritos pela UI (edições/lançamentos/importações).\n" +
+      "Um rebuild apagaria tudo. Use --force para reconstruir mesmo assim,\n" +
+      "ou importe novos meses pela UI (import incremental).",
+    );
+    process.exit(1);
+  }
 }
 
 const acervo = collectAcervo(acervoDir);
