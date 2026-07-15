@@ -80,4 +80,16 @@ export function printReport(db: DatabaseSync, r: BackfillReport): void {
     FROM transactions
   `)[0]!;
   console.log(`\n■ Ledger: ${totals.n} transações | receitas reais ${fmtCents(totals.receitas as number)} | despesas de consumo ${fmtCents(totals.despesas as number)}`);
+
+  console.log("\n■ Validação de Invariantes:");
+  const overCount = q<Row>(`
+    SELECT COUNT(*) AS n FROM transactions
+    WHERE is_settlement = 1 AND (method = 'transfer' OR is_third_party = 1)
+  `)[0]!.n as number;
+  if (overCount > 0) {
+    console.error(`  [ERRO] ${overCount} liquidações mal classificadas (poderia causar dupla contagem)!`);
+    process.exit(1);
+  } else {
+    console.log("  ✓ Regra consumo-despesa e liquidações intactas");
+  }
 }

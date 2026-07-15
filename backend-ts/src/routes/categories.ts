@@ -77,12 +77,27 @@ export function categoryRoutes(db: DatabaseSync): Route[] {
     json(res, { ok: true });
   }
 
+  // ── PATCH /api/categories/:id ─────────────────────────────────────────
+  async function updateCategory(req: Req, res: Res) {
+    const id = Number(req.params!.id);
+    if (!isIntId(id)) return error(res, "id inválido");
+    const body = await readBody<{ name?: unknown }>(req);
+    if (!isShortText(body.name, 60)) return error(res, "name obrigatório (≤60 chars)");
+    
+    db.prepare("UPDATE categories SET name = ? WHERE id = ?")
+      .run(String(body.name).trim(), id);
+      
+    broadcast();
+    json(res, { ok: true });
+  }
+
   const cp = compilePath;
   return [
     { method: "GET", ...cp("/api/categories-full"), handler: getCategoriesFull },
     { method: "GET", ...cp("/api/expense-categories"), handler: getExpenseCategories },
     { method: "GET", ...cp("/api/expense-categories-full"), handler: getExpenseCategoriesFull },
     { method: "POST", ...cp("/api/categories"), handler: createCategory },
+    { method: "PATCH", ...cp("/api/categories/:id"), handler: updateCategory },
     { method: "DELETE", ...cp("/api/categories/:id"), handler: deleteCategory },
   ];
 }

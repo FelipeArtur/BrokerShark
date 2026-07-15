@@ -23,6 +23,7 @@ import { transactionRoutes } from "./routes/transactions.ts";
 import { categoryRoutes } from "./routes/categories.ts";
 import { analyticsRoutes } from "./routes/analytics.ts";
 import { investmentRoutes } from "./routes/investments.ts";
+import { importRoutes } from "./routes/import.ts";
 
 // ── Config ─────────────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
@@ -46,6 +47,7 @@ const routes: Route[] = [
   ...categoryRoutes(db),
   ...analyticsRoutes(db),
   ...investmentRoutes(db),
+  ...importRoutes(db),
 ];
 
 // Snapshot de backup ainda não reimplementado no v2 — footer mostra "sem backup".

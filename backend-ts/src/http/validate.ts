@@ -1,5 +1,9 @@
-/** validate.ts — validações de entrada (puras; FKs são checadas nos handlers). */
-
+/** validate.ts — validações de entrada (puras; FKs são checadas nos handlers).
+ *
+ * Funções Type Guard para garantir que os inputs externos que chegam nas rotas
+ * (via req.body ou querystring) possuem o formato e os tipos corretos antes
+ * de qualquer processamento.
+ */
 export function isIsoDate(v: unknown): v is string {
   if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
   const [y, m, d] = v.split("-").map(Number);

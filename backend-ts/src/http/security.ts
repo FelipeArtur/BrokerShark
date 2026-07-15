@@ -9,6 +9,14 @@ import type { Req, Res } from "./respond.ts";
 
 const ALLOWED_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
 
+/**
+ * Verifica se a requisição veio de um host permitido (localhost/127.0.0.1).
+ * Essencial para prevenir ataques de DNS-Rebinding onde um site malicioso
+ * faz o browser do usuário resolver um domínio localmente.
+ * 
+ * @param req A requisição HTTP a ser verificada
+ * @returns boolean indicando se o host é permitido
+ */
 export function hostAllowed(req: Req): boolean {
   const host = req.headers.host ?? "";
   // separa porta preservando IPv6 ([::1]:8000)
