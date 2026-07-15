@@ -41,3 +41,35 @@ test("reviewInvestments: posição aberta sem snapshot viola", () => {
   addInv(db, { name: "Sem snap", match_key: "b3:nosnap", type: "acao", bank: "b3", source: "b3" });
   assert.ok(reviewInvestments(db).violations.some((v) => /sem nenhum snapshot/.test(v)));
 });
+
+test("reviewInvestments: Caixinha reconciliação mismatch → viola", () => {
+  const db = db0();
+  db.prepare("INSERT INTO accounts (id, bank, type, name) VALUES (?,?,?,?)")
+    .run("nu-db", "nubank", "checking", "Nubank Checking");
+  const cx = addInv(db, { name: "Caixinha Nubank", match_key: "ledger:caixinha-nubank", type: "rdb", bank: "nubank", source: "ledger" });
+  db.prepare("INSERT INTO transactions (date,flow,method,account_id,amount_cents,description,investment_id) VALUES (?,?,?,?,?,?,?)")
+    .run("2026-03-02", "expense", "transfer", "nu-db", 20000, "Aplicacao RDB", cx);
+  addSnap(db, cx, "2026-03-31", 99999, "derived");
+  const r = reviewInvestments(db);
+  assert.ok(r.violations.some((v) => /reconcilia/.test(v)));
+});
+
+test("reviewInvestments: Caixinha reconciliação match → NÃO viola", () => {
+  const db = db0();
+  db.prepare("INSERT INTO accounts (id, bank, type, name) VALUES (?,?,?,?)")
+    .run("nu-db", "nubank", "checking", "Nubank Checking");
+  const cx = addInv(db, { name: "Caixinha Nubank", match_key: "ledger:caixinha-nubank", type: "rdb", bank: "nubank", source: "ledger" });
+  db.prepare("INSERT INTO transactions (date,flow,method,account_id,amount_cents,description,investment_id) VALUES (?,?,?,?,?,?,?)")
+    .run("2026-03-02", "expense", "transfer", "nu-db", 20000, "Aplicacao RDB", cx);
+  addSnap(db, cx, "2026-03-31", 20000, "derived");
+  const r = reviewInvestments(db);
+  assert.ok(!r.violations.some((v) => /reconcilia/.test(v)));
+});
+
+test("reviewInvestments: snapshot com net negativo → viola", () => {
+  const db = db0();
+  const inv = addInv(db, { name: "Posição negativa", match_key: "b3:neg", type: "acao", bank: "b3", source: "b3" });
+  addSnap(db, inv, "2026-03-31", -100, "b3");
+  const r = reviewInvestments(db);
+  assert.ok(r.violations.some((v) => /negativo/.test(v)));
+});
