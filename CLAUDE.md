@@ -16,7 +16,7 @@ Desenvolvido com **Claude Code CLI**. `CLAUDE.md` = fonte única da verdade. **M
 
 Ferramenta **pessoal** de análise de dinheiro, 100% local (Linux, 1 usuário). Pergunta central: **"quanto eu posso gastar agora?"** — depois, para onde o dinheiro vai.
 
-**v2 rewrite — TypeScript.** O backend Python/Flask foi removido (histórico preservado no git). O novo backend é TypeScript rodando sobre Node ≥ 26 (native type-stripping, sem build step). Ingestão (backfill) e servidor web (node:http + SSE, zero deps) prontos; **falta**: endpoints de import incremental via UI (`/api/import/*` — hoje respondem 404; usar backfill).
+**v2 rewrite — TypeScript.** O backend Python/Flask foi removido (histórico preservado no git). O novo backend é TypeScript rodando sobre Node ≥ 26 (native type-stripping, sem build step). Ingestão (backfill) e servidor web (node:http + SSE, zero deps) prontos. **Import incremental via UI** (`/api/import/*`) implementado: extratos Nubank/Inter (CSV) + relatório B3 (xlsx) com preview/dedup/staging editável/confirm/reverter-lote; pós-insert re-pareia SELF e rederiva a Caixinha. Fatura Inter (cartão) só via backfill.
 
 **O produto é a análise (web dashboard — tela única, sem abas):** faixa KPI fixa (**Disponível pra gastar** herói · **Patrimônio total** com Δ mensal · **Saldo livre do mês** · **Investido** com Δ) + grid de widgets (fluxo mês a mês clicável = seletor de mês global, contas, categorias, investimentos, top PIX, atividade). Detalhe abre em **drill-down overlay** (tecla 2 = tabela completa de transações; 3 = posições de investimento), nunca navegação. Seletor de mês global rege os widgets de fluxo; posição é sempre "agora"; default = mês mais recente COM dados. **Apoio (não é o centro):** import de extratos e posições B3.
 
@@ -30,7 +30,7 @@ Ferramenta **pessoal** de análise de dinheiro, 100% local (Linux, 1 usuário). 
 
 ```
 backend-ts/
-  package.json          # deps: xlsx (única npm dep)
+  package.json          # deps: xlsx (única npm dep); npm test = node:test (co-locado src/**/*.test.ts)
   src/
     db/
       schema.sql        # DDL v2 — fonte única do schema
@@ -52,22 +52,25 @@ backend-ts/
       router.ts         # compilePath + dispatch
       sse.ts            # broadcaster /api/events + keepalive
       static.ts         # frontend estático (guarda de traversal, mapa /static/)
-      security.ts       # host allowlist (anti DNS-rebinding) + headers (CSP etc.)
+      security.ts       # host + Origin allowlist (anti DNS-rebinding + anti-CSRF) + headers (CSP etc.)
+      multipart.ts      # parser multipart/form-data (upload do import; cap 20MB / 64 partes)
       validate.ts       # isIsoDate, isPositiveAmount, isIntId… (writes validam tudo)
     routes/             # handlers finos por domínio; SQL nomeado no topo
       accounts.ts       # /api/accounts, /api/available, /api/liquidity-history
       transactions.ts   # listagens, busca, PATCH/DELETE + undo, bulk, lançamento manual
-      categories.ts     # categories-full, expense-categories(-full), POST/DELETE
+      categories.ts     # categories-full, expense-categories(-full), POST/PATCH/DELETE
       analytics.ts      # monthly, cashflow-statement, pix-top, uncategorized-merchants
       investments.ts    # carteira (abertas), evolução, movimento manual
-    server.ts           # bootstrap: config → db → pipeline (host→headers→SSE→rotas→estático)
+      import.ts         # /api/import/* — detect/preview/staging/confirm/batch + B3 (upload incremental)
+    server.ts           # bootstrap: config → db → pipeline (host→headers→Origin→SSE→rotas→estático)
     jobs/
-      backfill.ts       # orquestrador (1 tela): fases em jobs/backfill/
-      backfill/         # files, seeds, txInsert, extratos, faturas, selfPairs,
-                        # caixinha, b3Sync, verify — 1 fase por arquivo
+      backfill.ts       # orquestrador (1 tela): fases em jobs/backfill/ (aborta se DB tem overlay da UI; --force)
+      backfill/         # files, seeds, txInsert, extratos, faturas, selfPairs, caixinha,
+                        # b3Sync, guard (overlay da UI), investReview, verify — 1 fase por arquivo
 frontend/
   index.html            # React 18 SPA (hyperscript puro, sem build step)
-  js/                   # api.js · primitives.js (inclui Overlay de drill-down)
+  js/                   # api.js · icons.js · primitives.js (inclui Overlay de drill-down)
+                        # modal-transaction.js (editor de lançamento) · modal-import.js (import via UI)
                         # view-dashboard.js (a tela única: KPIs + widgets)
                         # view-history.js (TxExplorer — drill de transações)
                         # view-investments.js (drill de investimentos)
@@ -95,9 +98,9 @@ server.ts (node:http, 127.0.0.1:8000) → React frontend (SSE /api/events)
 
 - **SQLite é a fonte única.** `node:sqlite` builtin (zero deps nativas), WAL mode, `foreign_keys=ON`, `synchronous=NORMAL`.
 - **Dinheiro = centavos inteiros.** `parseMoneyCents()` decompõe a string em inteiro+fração — jamais passa por float intermediário. `amount_cents`, `initial_balance_cents`, `net_cents`, etc.
-- **Backfill por reconstrução.** O DB de saída é recriado do zero a cada run — idempotência sem lógica de migração incremental (para a fase de ingestão).
+- **Backfill por reconstrução (guardado).** O DB é recriado do zero a cada run. **Guarda anti-perda-de-dados** (`jobs/backfill/guard.ts`): se o DB existente tem dados escritos pela UI (`import_batch_id`/`display_name`/`is_third_party`), aborta em vez de apagar — a menos de `--force`. Meses novos entram pelo **import incremental via UI**, não por rebuild.
 - **DB chmod 0600** — sem auth na app, perms de arquivo = fronteira at-rest (backfill E server aplicam; WAL/SHM incluídos).
-- **Fronteiras do server local:** bind 127.0.0.1 + allowlist de Host (anti DNS-rebinding) + CSP self-only/nosniff/frame-deny + body cap 1MB + writes 100% validados server-side (data, FKs, whitelists de method/flow/operation).
+- **Fronteiras do server local:** bind 127.0.0.1 + allowlist de **Host** (anti DNS-rebinding) + allowlist de **Origin** nos métodos != GET/HEAD (anti-CSRF — `readBody` ignora Content-Type, então todo write exige Origin localhost) + CSP self-only/nosniff/frame-deny + body cap 1MB (upload multipart 20MB / 64 partes) + writes 100% validados server-side (data, FKs, whitelists de method/flow/operation).
 
 ### Invariantes financeiras (load-bearing — não quebrar)
 
@@ -160,7 +163,7 @@ migration_log (name TEXT PK, ran_at)
 - `self_pair_tx_id` → pareamento bidirecional das pernas SELF.
 - `is_settlement` → marca liquidações de fatura (excluídas de consumo).
 - `bank_category` → categoria dada pelo banco (faturas Inter).
-- `rules` → documenta a classificação aplicada (editável na UI futura).
+- `rules` → documenta a classificação aplicada; consultada para **sugestão de categoria** (month-transactions/import). Edição via UI ainda futura.
 
 ---
 
@@ -177,7 +180,9 @@ migration_log (name TEXT PK, ran_at)
 
 ## Backfill Pipeline
 
-`node src/jobs/backfill.ts "<dir do acervo>" [<db>]`
+`node src/jobs/backfill.ts "<dir do acervo>" [<db>] [--force]`
+
+> Aborta se o DB existente tiver dados escritos pela UI (guarda anti-perda; ver Key principles). `--force` reconstrói mesmo assim.
 
 Pipeline sequencial:
 1. **Schema + seeds** → contas (`nu-db`, `inter-db`, `inter-cc`) + categorias
@@ -188,7 +193,7 @@ Pipeline sequencial:
 6. **Caixinha** → posição ledger + snapshots mensais derivados
 7. **B3** → upsert por `match_key` + snapshots + soft-close
 8. **Rules seed** → documenta keywords de classificação
-9. **Verificação** → saldo por conta, reconciliação Inter, resumo de investimentos
+9. **Verificação** → saldo por conta, reconciliação Inter, resumo de investimentos, **invariantes** (regra consumo-despesa / liquidação) + **review de investimentos** (`investReview.ts`: invariantes que abortam — Porquinho não-derivado, Caixinha reconcilia com Σ pernas, posição aberta sem snapshot, net negativo — + panorama de alocação)
 
 ---
 
@@ -207,8 +212,9 @@ Pipeline sequencial:
 ```bash
 cd backend-ts
 npm install       # instala xlsx
-node src/jobs/backfill.ts "<dir do acervo>"   # → data/brokershark-v2.db
+node src/jobs/backfill.ts "<dir do acervo>"   # → data/brokershark-v2.db (--force p/ reconstruir sobre DB com dados da UI)
 npm start         # server em http://127.0.0.1:8000 (PORT ou --port N para mudar)
+npm test          # rede node:test (domain, parsers, invariantes) — co-locado src/**/*.test.ts
 ```
 
 ---
