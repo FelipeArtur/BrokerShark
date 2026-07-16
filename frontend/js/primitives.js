@@ -549,13 +549,32 @@ const isRevenue            = t => t?.flow === "income"  && t.is_revenue === 1 &&
 const isInvest             = t => !!t && !isSelf(t) && !t.is_settlement
   && (t.method === "transfer" || (t.flow === "income" && !t.is_revenue));
 
+// ── FilterBar (faceted-filter chip strip) ───────────────────────────────────
+function FilterBar({ filter, onRemove, onClear }) {
+  const h = (t, p, ...c) => React.createElement(t, p, ...c);
+  const chips = [];
+  filter.categories.forEach(v => chips.push(["categories", v, v]));
+  filter.banks.forEach(v => chips.push(["banks", v, v]));
+  filter.accounts.forEach(v => chips.push(["accounts", v, v]));
+  if (filter.flow !== "all") chips.push(["flow", filter.flow, filter.flow === "expense" ? "Despesas" : "Receitas"]);
+  if (filter.method !== "all") chips.push(["method", filter.method, filter.method.toUpperCase()]);
+  if (!chips.length && !filter.search) return null;
+  return h("div", { className: "filter-bar" },
+    chips.map(([kind, value, label]) => h("button", {
+      key: kind + ":" + value, className: "filter-chip", onClick: () => onRemove(kind, value),
+      title: "Remover filtro",
+    }, label, h("span", { className: "filter-chip-x" }, "×"))),
+    h("button", { className: "filter-chip filter-chip-clear", onClick: onClear }, "limpar tudo")
+  );
+}
+
 window.BS = window.BS || {};
 Object.assign(window.BS, {
   fmtBRL, fmtBRLCompact, fmtDateBR, prettifyDesc,
   PT_MONTHS, PT_SHORT, fmtCycleDate,
   DualLine, Donut,
   Modal, Drawer, useToasts, BankChip, SegmentControl,
-  BrokerSharkLogo, TxRow,
+  BrokerSharkLogo, TxRow, FilterBar,
   isSelf, isConsumptionExpense, isRevenue, isInvest,
 });
 

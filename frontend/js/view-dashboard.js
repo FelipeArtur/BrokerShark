@@ -484,6 +484,12 @@ function DashboardView({ monthSel, monthly, onPickMonth, refreshKey, onEditCateg
   const [monthTx, setMonthTx] = _dSt([]);
   const [uncatCount, setUncatCount] = _dSt(0);
   const [bulkOpen, setBulkOpen] = _dSt(false);
+  const [filter, setFilter] = _dSt(() => window.BS.emptyFilter());
+  const onToggleFacet = (kind, value) => setFilter(f => window.BS.toggleFacet(f, kind, value));
+  const setFilterField = (field, value) => setFilter(f => Object.assign({}, f, { [field]: value }));
+  const clearFilter = () => setFilter(window.BS.emptyFilter());
+  // Reset facets when the global month changes (stale facet values match nothing).
+  _dEf(() => { setFilter(window.BS.emptyFilter()); }, [monthSel]);
 
   // Dados de posição (independem do mês selecionado)
   _dEf(() => {
@@ -552,15 +558,20 @@ function DashboardView({ monthSel, monthly, onPickMonth, refreshKey, onEditCateg
       h("div", { className: "widget-row" },
         h(GeneralWidget, { cashflow, liquidityHistory, monthly, monthSel, monthTx, uncatCount, backup }),
         h(TimelineWidget, { monthly, monthSel, onPickMonth }),
-        h(AccountsWidget, { accounts, available }),
-        h(FaturaWidget, { monthTx }),
-        h(CategoriesWidget, { monthTx, uncatCount, onOpenBulk: () => setBulkOpen(true) }),
+        h(AccountsWidget, { accounts, available, filter, onToggleFacet }),
+        h(FaturaWidget, { monthTx, filter, onToggleFacet }),
+        h(CategoriesWidget, { monthTx, uncatCount, onOpenBulk: () => setBulkOpen(true), filter, onToggleFacet }),
         h(InvestmentsWidget, { investments, evolution })
       ),
+      h(window.BS.FilterBar, { filter, onRemove: (kind, value) => {
+          if (kind === "flow" || kind === "method") setFilterField(kind, "all");
+          else onToggleFacet(kind, value);
+        }, onClear: clearFilter }),
       h(window.BS.TxTableWidget, {
         monthSel, refreshKey, onEditCategory,
         openBulk: bulkOpen, onBulkConsumed: () => setBulkOpen(false),
         monthTx, setMonthTx,
+        filter, setFilterField, onToggleFacet,
       })
     )
   );

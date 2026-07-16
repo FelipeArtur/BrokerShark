@@ -59,3 +59,13 @@ html, body { background: var(--bg-0); }
 @media (prefers-reduced-motion: reduce) {
   .bs-boot, .bs-pop, .bs-shake, .bs-coin { animation: none !important; }
 }
+
+/* Faceted filter bar (chips above the tx table) */
+.filter-bar { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 10px; align-items: center; flex-shrink: 0; }
+.filter-chip {
+  font-family: var(--ff-sans); font-size: 9px; letter-spacing: 1px;
+  color: var(--accent-fg); background: var(--accent);
+  border: 2px solid var(--line-1); padding: 3px 7px; cursor: pointer; display: inline-flex; gap: 5px; align-items: center;
+}
+.filter-chip-x { font-weight: 700; }
+.filter-chip-clear { background: var(--neg); color: var(--bg-0); }
