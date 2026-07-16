@@ -2,6 +2,11 @@
 
 > Histórico completo (roadmap, hashes, logs de decisão datados, revisões de segurança) vive no `git log`. Este arquivo guarda só o que é load-bearing para não quebrar a lógica financeira.
 
+> **Este arquivo mora na raiz de propósito** — é auto-carregado em toda sessão. Movê-lo pra `docs/` o tiraria do contexto padrão e as invariantes financeiras abaixo deixariam de ser lidas.
+>
+> Documentação de apoio (não é auto-carregada; leia sob demanda):
+> `README.md` (raiz, porta de entrada) · `docs/DESIGN.md` (tokens/sistema visual) · `docs/PRODUCT.md` (usuário/escopo) · `docs/superpowers/` (specs, planos, auditorias datadas).
+
 ## gstack
 
 Use the `/browse` skill from gstack for all web browsing. **Never** use `mcp__claude-in-chrome__*` tools. Skills disponíveis: `/office-hours`, `/plan-ceo-review`, `/plan-eng-review`, `/plan-design-review`, `/design-consultation`, `/design-shotgun`, `/design-html`, `/review`, `/ship`, `/land-and-deploy`, `/canary`, `/benchmark`, `/browse`, `/connect-chrome`, `/qa`, `/qa-only`, `/design-review`, `/setup-browser-cookies`, `/setup-deploy`, `/setup-gbrain`, `/retro`, `/investigate`, `/document-release`, `/document-generate`, `/codex`, `/cso`, `/autoplan`, `/plan-devex-review`, `/devex-review`, `/careful`, `/freeze`, `/guard`, `/unfreeze`, `/gstack-upgrade`, `/learn`.

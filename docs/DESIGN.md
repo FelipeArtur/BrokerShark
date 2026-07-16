@@ -1,4 +1,4 @@
-# DESIGN.md — BrokerShark
+# docs/DESIGN.md — BrokerShark
 
 Sistema visual do dashboard. **Fonte dos tokens: `frontend/css/style.css` (`:root`)**;
 a camada estrutural pixel vive em `frontend/css/pixel.css`. Se este arquivo divergir do

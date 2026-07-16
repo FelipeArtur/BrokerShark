@@ -100,7 +100,10 @@ versionado.**
 ## Documentação
 
 - `CLAUDE.md` — fonte única da verdade: schema, contas, invariantes, arquitetura.
-- `DESIGN.md` — sistema visual (tokens, tipografia, layout, motion).
-- `PRODUCT.md` — usuário, propósito, escopo.
+  **Fica na raiz de propósito**: é auto-carregado em toda sessão de agente; em
+  `docs/` ele deixaria de entrar em contexto e viraria letra morta.
+- `docs/DESIGN.md` — sistema visual (tokens, tipografia, layout, motion).
+- `docs/PRODUCT.md` — usuário, propósito, escopo.
+- `docs/superpowers/` — specs, planos e auditorias datadas.
 - Histórico completo (roadmap, decisões datadas, revisões de segurança) vive no
   `git log`, não em arquivo.

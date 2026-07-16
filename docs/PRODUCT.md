@@ -20,7 +20,7 @@ BrokerShark é um painel pessoal de análise financeira. Pergunta central: **"qu
 
 Preciso, denso, adulto. "Painel de operação" — informação densa por bloco, tipografia compacta, números tabulares em destaque, hierarquia clara apesar da densidade. Ferramenta de dono, não app de consumidor: mostra o número, não o esconde.
 
-Identidade visual (remodel 2026-07): **pixel-art / 8-bit, paleta Balatro-CRT**, tema único dark. Accent cyan "água de tubarão" (`#5cc6ff`) mantido como identidade. Silkscreen (labels) + Departure Mono (números), vendorizadas. Cantos duros em todo lugar. Tokens em `DESIGN.md`.
+Identidade visual (remodel 2026-07): **pixel-art / 8-bit, paleta Balatro-CRT**, tema único dark. Accent cyan "água de tubarão" (`#5cc6ff`) mantido como identidade. Silkscreen (labels) + Departure Mono (números), vendorizadas. Cantos duros em todo lugar. Tokens em `docs/DESIGN.md`.
 
 ## Anti-references
 
