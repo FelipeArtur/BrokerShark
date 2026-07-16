@@ -1,0 +1,61 @@
+/* pixel.css — structural pixel-art layer (borders, CRT, dither, animations).
+   Palette comes from style.css tokens. Pixel is the only theme. */
+
+html, body { background: var(--bg-0); }
+* { image-rendering: pixelated; }
+
+/* Panels: hard black border + stepped drop shadow (Balatro feel) */
+.widget, .kpi, .modal, .drawer, .table-widget {
+  border: 3px solid var(--line-1) !important;
+  border-radius: 0 !important;
+  box-shadow: 4px 4px 0 #05060d !important;
+}
+.widget:not(.table-widget):hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 6px 6px 0 #05060d !important;
+}
+
+/* Uppercase pixel labels */
+.widget-title, .kpi-label, .label {
+  font-family: var(--ff-sans);
+  letter-spacing: 1px;
+}
+
+/* Scanline overlay — whole viewport, non-interactive, subtle */
+#app::after {
+  content: "";
+  position: fixed; inset: 0; z-index: 9999; pointer-events: none;
+  background: repeating-linear-gradient(0deg, rgba(0,0,0,0.14) 0 1px, transparent 1px 3px);
+  mix-blend-mode: multiply;
+}
+
+/* Dither fills for bars */
+.dither-pos { background: repeating-linear-gradient(45deg, var(--pos) 0 3px, #5cbf6e 3px 6px) !important; }
+.dither-neg { background: repeating-linear-gradient(45deg, var(--neg) 0 3px, #d8455a 3px 6px) !important; }
+.dither-warn { background: repeating-linear-gradient(45deg, var(--warn) 0 4px, #e0a93f 4px 8px) !important; }
+
+/* Filter chips */
+.facet-active { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* Keyframes */
+@keyframes bs-boot { 0% { opacity: 0; transform: scaleY(0.002); filter: brightness(3); } 40% { opacity: 1; transform: scaleY(1); } 100% { filter: none; } }
+@keyframes bs-coin { 0% { transform: translateY(0) scale(1); opacity: 1; } 100% { transform: translateY(-24px) scale(0.6); opacity: 0; } }
+@keyframes bs-pop { 0% { transform: scale(1); } 50% { transform: scale(1.12); } 100% { transform: scale(1); } }
+@keyframes bs-shake { 0%,100% { transform: translateX(0); } 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } }
+
+.bs-boot { animation: bs-boot 420ms steps(6) both; }
+.bs-pop { animation: bs-pop 180ms steps(3) both; }
+.bs-shake { animation: bs-shake 200ms steps(2) 2; }
+
+.bs-coin {
+  position: fixed; z-index: 10000; pointer-events: none;
+  font-family: var(--ff-mono); font-weight: 700; color: var(--warn);
+  animation: bs-coin 600ms steps(6) forwards;
+}
+
+/* Silent mascot sprite (logo corner) */
+.bs-mascot { image-rendering: pixelated; }
+
+@media (prefers-reduced-motion: reduce) {
+  .bs-boot, .bs-pop, .bs-shake, .bs-coin { animation: none !important; }
+}
