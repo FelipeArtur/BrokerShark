@@ -49,8 +49,12 @@ function Sparkline({ data, width = 150, height = 36, color = "var(--accent)" }) 
 
 /* ── KpiStrip — os 4 números que respondem "como estou" ─────────────────── */
 const KpiStrip = React.memo(function KpiStrip({ available, availErr, accounts, cashflow, investTotal,
-                    liquidityHistory, evolution, monthLabel }) {
+                    liquidityHistory, evolution, monthLabel, monthly }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
+
+  const monthlyNet = (monthly || []).map(m => m.income - m.expenses);
+  const streak = window.BS.savingsStreak(monthlyNet);
+  const ath = window.BS.isAllTimeHigh((liquidityHistory || []).map(s => s.value));
 
   const checkingTotal = available ? available.checking_total : 0;
   const patrimonio = checkingTotal + investTotal;
@@ -84,7 +88,11 @@ const KpiStrip = React.memo(function KpiStrip({ available, availErr, accounts, c
             (a.id || "").startsWith("nu") ? "Nu" : "Inter"),
           h("span", { className: "mono", style: { color: "var(--fg-1)", fontSize: 11 } }, fmtBRL(a.balance || 0))
         ))
-      )
+      ),
+      h("div", { style: { display: "flex", gap: 6, marginTop: 8 } },
+        streak > 0 && h("span", { className: "filter-chip", style: { background: "var(--bg-2)", color: "var(--warn)" } }, `🔥 ${streak}`),
+        ath && h("span", { className: "filter-chip", style: { background: "var(--bg-2)", color: "var(--accent)" } }, "🏆 recorde")
+      ),
     ),
     // 2. Patrimônio total — caixa + investimentos, com Δ mensal
     h("div", { className: "kpi" },
@@ -151,6 +159,9 @@ const GeneralWidget = React.memo(function GeneralWidget({ cashflow, liquidityHis
   const patDelta = liquidityHistory.length > 1
     ? liquidityHistory[liquidityHistory.length - 1].value - liquidityHistory[liquidityHistory.length - 2].value : null;
 
+  const target = (() => { const v = window.localStorage.getItem("bs.budgetCents"); return v ? parseInt(v) : null; })();
+  const bp = window.BS.budgetProgress(exp, target);
+
   // Saúde dos dados
   const first = monthly[0], last = monthly[monthly.length - 1];
   const cobertura = first && last
@@ -179,7 +190,14 @@ const GeneralWidget = React.memo(function GeneralWidget({ cashflow, liquidityHis
       // Resumo do mês em texto
       h("div", { style: { fontSize: 12, lineHeight: 1.4, color: "var(--fg-1)" } },
         h("div", { style: { color: "var(--fg-0)", fontWeight: 700, textTransform: "capitalize", marginBottom: 8 } }, `Resumo de ${monName}`),
-        ...parts
+        ...parts,
+        bp && h("div", { style: { marginTop: 8 } },
+          h("div", { className: "label", style: { fontSize: 9, color: "var(--fg-3)", marginBottom: 4 } }, "Orçamento do mês"),
+          h("div", { style: { height: 10, border: "2px solid var(--line-1)", background: "var(--bg-0)" } },
+            h("div", { className: bp.pct >= 100 ? "dither-neg" : "dither-warn", style: { height: "100%", width: bp.pct + "%" } })),
+          h("div", { className: "mono", style: { fontSize: 9, color: "var(--fg-3)", marginTop: 3 } },
+            `${fmtBRL(exp)} / ${fmtBRL(target)} · ${100 - bp.pct >= 0 ? (100 - bp.pct) : 0}% restante`)
+        )
       ),
       // Saúde dos dados
       h("div", { style: { marginTop: "auto", display: "flex", flexDirection: "column" } },
@@ -567,7 +585,7 @@ function DashboardView({ monthSel, monthly, onPickMonth, refreshKey, onEditCateg
   const monthLabel = monthSel ? `${PT_SHORT[monthSel.month]}/${String(monthSel.year).slice(2)}` : "—";
 
   return h(React.Fragment, null,
-    h(KpiStrip, { available, availErr, accounts, cashflow, investTotal, liquidityHistory, evolution, monthLabel }),
+    h(KpiStrip, { available, availErr, accounts, cashflow, investTotal, liquidityHistory, evolution, monthLabel, monthly }),
     h("div", { className: "dash-main fade-in" },
       h("div", { className: "widget-row" },
         h(GeneralWidget, { cashflow, liquidityHistory, monthly, monthSel, monthTx, uncatCount, backup }),
