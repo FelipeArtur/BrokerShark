@@ -8,12 +8,13 @@ __pycache__/
 credentials/
 
 # ── Dados locais (nunca versionar) ──────────────────────────────────────
-# data/ = SQLite (ledger pessoal). docs/ = artefatos locais (dados pessoais).
+# data/ = SQLite (ledger pessoal) — o ledger NUNCA é versionado.
+# docs/ saiu daqui: specs/planos/auditoria não têm dado pessoal (verificado:
+# nenhum valor em R$, nenhum número de conta) e valem como histórico de decisão.
 data/
 backups/
 logs/
 *.log
-docs/
 
 # ── Tooling de agentes (local, fora do VCS) ─────────────────────────────
 .agents/
@@ -32,3 +33,6 @@ docs/
 Thumbs.db
 
 .superpowers/
+
+# Tooling de agentes (local, fora do VCS)
+.impeccable/

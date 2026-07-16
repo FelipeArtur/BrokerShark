@@ -18,7 +18,9 @@ Ferramenta **pessoal** de análise de dinheiro, 100% local (Linux, 1 usuário). 
 
 **v2 rewrite — TypeScript.** O backend Python/Flask foi removido (histórico preservado no git). O novo backend é TypeScript rodando sobre Node ≥ 26 (native type-stripping, sem build step). Ingestão (backfill) e servidor web (node:http + SSE, zero deps) prontos. **Import incremental via UI** (`/api/import/*`) implementado: extratos Nubank/Inter (CSV) + relatório B3 (xlsx) com preview/dedup/staging editável/confirm/reverter-lote; pós-insert re-pareia SELF e rederiva a Caixinha. Fatura Inter (cartão) só via backfill.
 
-**O produto é a análise (web dashboard — tela única, sem abas):** faixa KPI fixa (**Disponível pra gastar** herói · **Patrimônio total** com Δ mensal · **Saldo livre do mês** · **Investido** com Δ) + grid de widgets (fluxo mês a mês clicável = seletor de mês global, contas, categorias, investimentos, top PIX, atividade). Detalhe abre em **drill-down overlay** (tecla 2 = tabela completa de transações; 3 = posições de investimento), nunca navegação. Seletor de mês global rege os widgets de fluxo; posição é sempre "agora"; default = mês mais recente COM dados. **Apoio (não é o centro):** import de extratos e posições B3.
+**O produto é a análise (web dashboard — tela única, sem abas):** faixa KPI fixa (**Disponível pra gastar** herói · **Patrimônio total** com Δ mensal · **Saldo livre do mês** · **Investido** com Δ) + grid de widgets (fluxo mês a mês clicável = seletor de mês global, contas, categorias, investimentos, top PIX, atividade). Detalhe abre em **drill-down overlay**, nunca navegação. Seletor de mês global rege os widgets de fluxo; posição é sempre "agora"; default = mês mais recente COM dados. **Apoio (não é o centro):** import de extratos e posições B3.
+
+**Navegação é por mouse.** Não há hotkey global — teclado serve só pra Esc (fecha modal/overlay), Tab (focus trap) e Enter (submit de form). Adicionar tecla muda que mexe na tela é regressão.
 
 > **North star:** fácil de alimentar + extremamente confiável. Dinheiro em **centavos inteiros** — sem floats no ledger.
 
@@ -38,7 +40,8 @@ backend-ts/
     domain/             # lógica PURA (sem DB/IO)
       money.ts          # parseMoneyCents (string→centavos inteiros), fmtCents, parseDateBR
       classify.ts       # isInvestment, isCaixinhaLeg, checkingExpenseMethod
-      dates.ts          # currentMonth, monthRange, today
+      dates.ts          # currentMonth, monthRange, prevRefMonth, today
+      budget.ts         # resolveBudget (override do mês → alvo fixo), isRefMonth
       positions.ts      # monthlyPortfolioSeries (carry-forward de snapshots)
     ingest/             # parsers dos exports (1 arquivo por formato)
       types.ts          # TxRecord, ParsedFile
@@ -58,23 +61,27 @@ backend-ts/
     routes/             # handlers finos por domínio; SQL nomeado no topo
       accounts.ts       # /api/accounts, /api/available, /api/liquidity-history
       transactions.ts   # listagens, busca, PATCH/DELETE + undo, bulk, lançamento manual
-      categories.ts     # categories-full, expense-categories(-full), POST/PATCH/DELETE
+      categories.ts     # categories-full (alvo+gasto+Δ), expense-categories(-full),
+                        # POST/PATCH/DELETE + PUT/DELETE /api/category-budget
       analytics.ts      # monthly, cashflow-statement, pix-top, uncategorized-merchants
       investments.ts    # carteira (abertas), evolução, movimento manual
       import.ts         # /api/import/* — detect/preview/staging/confirm/batch + B3 (upload incremental)
-    server.ts           # bootstrap: config → db → pipeline (host→headers→Origin→SSE→rotas→estático)
+    server.ts           # bootstrap: config → db → initSchema → pipeline
+                        # (host→headers→Origin→SSE→rotas→estático)
     jobs/
       backfill.ts       # orquestrador (1 tela): fases em jobs/backfill/ (aborta se DB tem overlay da UI; --force)
       backfill/         # files, seeds, txInsert, extratos, faturas, selfPairs, caixinha,
                         # b3Sync, guard (overlay da UI), investReview, verify — 1 fase por arquivo
 frontend/
   index.html            # React 18 SPA (hyperscript puro, sem build step)
-  js/                   # api.js · icons.js · primitives.js (inclui Overlay de drill-down)
+  js/                   # api.js · icons.js · primitives.js (Overlay de drill-down, Money, TxRow)
                         # modal-transaction.js (editor de lançamento) · modal-import.js (import via UI)
+                        # modal-bulk.js — categorização em lote por comerciante
                         # view-dashboard.js (a tela única: KPIs + widgets facetados)
-                        # view-history.js (TxExplorer — drill de transações)
-                        # view-investments.js (drill de investimentos)
+                        # view-history.js (TxTableWidget — a planilha, agrupada por categoria)
                         # view-overview.js (só CategoriesPanel) · app.js (shell)
+                        # money.js — ESPÉCIES de dinheiro (moneyKind/KIND_COLOR/fmtParts) — testada
+                        # tx-group.js — agrupamento da tabela (buildGroups/scaleFor/budgetState) — testada
                         # filter.js — lógica pura filtro facetado (applyFilter/toggleFacet/searchMatch) — testada node
                         # meta.js — derivações "score" (savingsStreak / isAllTimeHigh / budgetProgress) — testada
                         # juice.js — engine feedback (sfx WebAudio, coin/boot/pop/shake, mute default-off)
@@ -101,6 +108,7 @@ server.ts (node:http, 127.0.0.1:8000) → React frontend (SSE /api/events)
 ### Key principles
 
 - **SQLite é a fonte única.** `node:sqlite` builtin (zero deps nativas), WAL mode, `foreign_keys=ON`, `synchronous=NORMAL`.
+- **Schema aplica no boot; NÃO há migration runner.** `server.ts` roda `initSchema` ao subir e `schema.sql` é todo `CREATE ... IF NOT EXISTS` — então **tabela nova nasce sozinha num DB vivo**, sem rebuild. `migration_log` existe mas ninguém lê. Consequência de projeto: mudança aditiva → tabela nova (funciona). `ALTER`/rename/drop → **não tem por onde rodar** (o backfill aborta em DB com dados da UI); exigiria escrever um runner primeiro. Prefira tabela nova a coluna nova.
 - **Dinheiro = centavos inteiros.** `parseMoneyCents()` decompõe a string em inteiro+fração — jamais passa por float intermediário. `amount_cents`, `initial_balance_cents`, `net_cents`, etc.
 - **Backfill por reconstrução (guardado).** O DB é recriado do zero a cada run. **Guarda anti-perda-de-dados** (`jobs/backfill/guard.ts`): se o DB existente tem dados escritos pela UI (`import_batch_id`/`display_name`/`is_third_party`), aborta em vez de apagar — a menos de `--force`. Meses novos entram pelo **import incremental via UI**, não por rebuild.
 - **DB chmod 0600** — sem auth na app, perms de arquivo = fronteira at-rest (backfill E server aplicam; WAL/SHM incluídos).
@@ -111,12 +119,16 @@ server.ts (node:http, 127.0.0.1:8000) → React frontend (SSE /api/events)
 - **Fatura itemizada (v2):** itens da fatura Inter são os gastos reais (`credit` no `inter-cc`). O pagamento da fatura no extrato é uma **liquidação** (`is_settlement=1`) — excluída dos totais de consumo. Sem isso, consumo contaria em dobro (itens + pagamento).
 - **Reconciliação de fatura:** pagamento de valor EXATO do `total_cents` da fatura, janela −70/+35 dias do `ref_month`, casado por `invoice_id`. Pagamentos de fatura na cobertura das faturas importadas mas sem match exato são **liquidações parciais** (rotativo/débito automático).
 - **Self-transfers por pareamento de pernas (v2):** saída pix/ted numa conta + entrada de mesmo valor em conta diferente dentro de ±3 dias = `counterpart='SELF'`. Sem keyword allow-list (diferença do v1). Pernas SELF: `self_pair_tx_id` cruzado. Fora de despesas, receitas e investimento.
+  - **SELF é DERIVADO, nunca declarado.** `selfPairs.ts` reescreve a perna de saída pra `method='transfer'` — é disso que a regra consumo-despesa depende pra excluí-la (a regra não olha `counterpart`). Por isso o `POST /api/transactions` **recusa** `counterpart='SELF'`: uma perna SELF avulsa nasceria sem `self_pair_tx_id` e seria contada como gasto.
+  - Verificado no ledger: 19 pernas de saída (`expense`/`transfer`) + 19 de entrada (`income`/`pix`, `is_revenue=0`). Os dois lados são excluídos por campos diferentes.
 - **Investimentos = posições + snapshots:** `position_snapshots` datados (quantity, applied/gross/net). Yield é computado, nunca chutado. Posições soft-close (`closed_at`) quando somem dos relatórios mais novos — nunca DELETE.
 - **B3 = tabela verdade (posições de corretora).** Full-sync por `match_key` (ISIN/código/ticker). Soft-close por tipo de aba: **Tesouro/Ações/BDR** — o consolidado sempre lista o que existe; posição ausente de qualquer relatório mais novo → fechada. **Renda Fixa (CDB Inter)** — a aba PISCA no consolidado (CDBs do Porquinho vivos no extrato somem em jan/fev/mar/mai-2026; registro em custódia atrasa); aba RF ausente = sem informação, só fecha quando um relatório mais novo COM aba RF deixa de listar a posição. CDBs Inter = Porquinho (`group_name='Porquinho'`).
 - **Caixinha Nubank = posição derivada do ledger.** RDB fora da B3. Saldo = `Σ(aplicações) − Σ(resgates)` das pernas `transfer` por keyword de poupança (`rdb`/`caixinha`/`dinheiro guardado`, banco Nubank). `source='ledger'`. Snapshots mensais derivados no backfill.
 - **Porquinho Inter NÃO é derivado** — é CDB custodiado na B3 (derivá-lo contaria em dobro; a derivação ignora rendimento). Suas pernas continuam classificadas como investimento (`INVESTMENT_KEYWORDS` mantém `porquinho`/`cdb porq`).
-- **Consumption-expense rule:** totais de despesa de consumo = `flow='expense' AND method != 'transfer' AND is_settlement=0 AND is_third_party=0 AND dest_account_id IS NULL`. Transferência (leg de investimento) **nunca** é despesa de consumo.
+- **Consumption-expense rule:** totais de despesa de consumo = `flow='expense' AND method != 'transfer' AND is_settlement=0 AND is_third_party=0 AND dest_account_id IS NULL`. Transferência (leg de investimento) **nunca** é despesa de consumo. Receita real = `flow='income' AND is_revenue=1 AND is_third_party=0` — os dois lados excluem terceiros.
 - **`is_revenue`** (Integer): `1` = receita real, `0` = self-transfer ou movimento de investimento. Controla totais de receita.
+- **Espécies de dinheiro (front):** `money.js` → `moneyKind()` é a ÚNICA regra do frontend e devolve exatamente uma de seis espécies por linha: `settlement` · `transfer` · `invest` · `third_party` · `revenue` · `expense`. **A ordem de precedência é load-bearing** (liquidação antes de despesa senão o consumo dobra; SELF antes de investimento senão transferência vira aplicação). Equivale à regra consumo-despesa acima em toda linha alcançável — há teste combinatório que falha se divergir. Cor por espécie em `KIND_COLOR`; **verde é receita e só receita** (nunca reusar pra "dentro do alvo").
+- **Alvo de gasto:** `resolveBudget` (`domain/budget.ts`) → override do mês ?? alvo fixo ?? **null**. Categoria sem alvo é `null`, **nunca zero** — zero faria tudo nascer 100% estourado. Só categoria de despesa tem alvo.
 
 ---
 
@@ -137,6 +149,11 @@ server.ts (node:http, 127.0.0.1:8000) → React frontend (SSE /api/events)
 ```sql
 accounts (id TEXT PK, bank, type CHECK('checking'|'credit_card'), name, initial_balance_cents)
 categories (id INTEGER PK, name, flow CHECK('expense'|'income'))
+category_budgets (category_id FK ON DELETE CASCADE, ref_month TEXT DEFAULT '',
+                  amount_cents CHECK(>=0), PK(category_id, ref_month))
+                  -- ref_month='' = alvo fixo; 'YYYY-MM' = override do mês.
+                  -- '' e não NULL: NULLs são distintos num UNIQUE do SQLite,
+                  -- então PK com NULL deixaria dois alvos fixos na mesma categoria.
 invoices (id INTEGER PK, account_id FK, ref_month 'YYYY-MM', total_cents,
           payment_tx_id, source_file, UNIQUE(account_id, ref_month))
 investments (id INTEGER PK, name, match_key UNIQUE, code, type, bank, indexer,
@@ -218,7 +235,8 @@ cd backend-ts
 npm install       # instala xlsx
 node src/jobs/backfill.ts "<dir do acervo>"   # → data/brokershark-v2.db (--force p/ reconstruir sobre DB com dados da UI)
 npm start         # server em http://127.0.0.1:8000 (PORT ou --port N para mudar)
-npm test          # rede node:test (domain, parsers, invariantes) — co-locado src/**/*.test.ts
+npm test          # rede node:test — backend (src/**/*.test.ts, co-locado) + frontend
+                  # (../frontend/js/*.test.js: money, tx-group, filter, meta, juice)
 ```
 
 ---

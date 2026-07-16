@@ -1,55 +1,106 @@
 # BrokerShark
 
-A local tool to **understand and analyze my money**. Runs 100% on Linux, accounts at
-Nubank + Inter. It answers one question first — **"quanto eu posso gastar agora?"** —
-and then lets me dig into where the money goes.
+Ferramenta **pessoal** de análise de dinheiro. 100% local, Linux, um usuário, contas
+Nubank + Inter. Responde primeiro **"quanto eu posso gastar agora?"** — e só depois
+deixa cavar pra onde o dinheiro foi.
 
-**v2 rewrite in progress.** The Python/Flask backend was removed (git history has it);
-the new backend is TypeScript on Node's built-in tooling. The design doc lives in
-`docs/redesign-v2.md` (local, not versioned). The React frontend (`frontend/`) is kept
-as-is and will be served by the new backend.
+Sem API de banco, sem nuvem, sem telemetria: a entrada são os arquivos que os bancos
+já exportam.
 
-## What works today
+> **North star:** fácil de alimentar + extremamente confiável.
+> Dinheiro em **centavos inteiros** — sem float no ledger.
 
-- **Backfill** — builds the v2 SQLite database from the export archive (Nubank
-  statements 2020→2026, Inter statements, itemized Inter credit-card invoices,
-  B3 consolidated reports):
+## Rodando
 
-  ```bash
-  cd backend-ts
-  node src/jobs/backfill.ts "<dir do acervo>"   # → data/brokershark-v2.db
-  ```
+Requer **Node ≥ 26** (type-stripping nativo — o projeto não tem build step).
 
-  Idempotent by rebuild. Verified: Inter balance matches the bank's running balance
-  to the cent; all 7 invoices reconciled to their payments by exact amount; SELF
-  transfers detected by leg-pairing (no keyword allow-list).
+```bash
+cd backend-ts
+npm install                                    # instala xlsx (única dependência)
+node src/jobs/backfill.ts "<dir do acervo>"    # → data/brokershark-v2.db
+npm start                                      # http://127.0.0.1:8000
+npm test                                       # node:test (backend + frontend)
+```
 
-## What v2 does differently from v1
+O servidor sobe em `127.0.0.1:8000` (`PORT` no env ou `--port N` pra mudar).
 
-- **Money is integer cents** — no floats in the ledger.
-- **Itemized credit-card invoices** — invoice items are the real expenses; the bill
-  payment is a settlement (`is_settlement=1`), excluded from consumption totals.
-- **Investments = positions + snapshots** — every B3 report import writes a dated
-  snapshot (quantity, applied/gross/net value); yield is computed, never guessed.
-  Positions soft-close (never deleted) when they leave the reports.
-- **Self-transfers by leg-pairing** — opposite legs, same amount, ±3 days, across
-  own accounts.
+## O que faz
+
+- **Dashboard web** — tela única, sem abas: faixa KPI fixa (Disponível pra gastar ·
+  Patrimônio · Saldo livre do mês · Investido) + grid de widgets (fluxo mês a mês
+  clicável = seletor de mês global, contas, categorias, investimentos, top PIX).
+  Detalhe abre em **overlay de drill-down**, nunca navegação.
+- **Orçamento por categoria** — alvo fixo por categoria, com override opcional por mês.
+- **Backfill** — reconstrói o banco do zero a partir do acervo de exports.
+- **Import incremental via UI** — extratos Nubank/Inter (CSV) e relatório B3 (xlsx),
+  com preview, dedup, staging editável, confirmação e reverter-lote. Fatura Inter
+  (cartão) só via backfill.
+
+## Acervo
+
+O backfill descobre os arquivos **recursivamente e pelo nome**, então a árvore de pastas
+é livre. Os padrões reconhecidos:
+
+| Fonte | Padrão do arquivo | Formato |
+|---|---|---|
+| Extrato Nubank | `NU_<conta>_<DDMMMYYYY>_<DDMMMYYYY>.csv` | CSV (`Data,Valor,Identificador,Descrição`) |
+| Extrato Inter | `Extrato-DD-MM-YYYY-a-*.csv` | CSV (ponto-e-vírgula, preâmbulo de 5 linhas, saldo corrente conferido) |
+| Fatura Inter | `fatura-inter-YYYY-MM.csv` | CSV (categoria do banco + parcelas) |
+| Relatório B3 | `relatorio-consolidado-{anual-YYYY,mensal-YYYY-<mês>}.xlsx` | xlsx (Tesouro, Renda Fixa, Ações, BDR) |
+
+Arquivo que não casa com nenhum padrão é ignorado em silêncio — fatura do Nubank, por
+exemplo, não é suportada.
+
+## Invariantes financeiras
+
+O que não pode quebrar (detalhe e raciocínio em `CLAUDE.md` e nos comentários do código):
+
+- **Fatura itemizada** — os itens da fatura são os gastos reais; o pagamento no extrato
+  é uma **liquidação** (`is_settlement=1`), fora dos totais de consumo. Sem isso o
+  consumo contaria em dobro.
+- **Regra consumo-despesa** — `flow='expense' AND method != 'transfer' AND
+  is_settlement=0 AND is_third_party=0 AND dest_account_id IS NULL`. Transferência
+  nunca é despesa de consumo.
+- **Self-transfer por pareamento de pernas** — saída + entrada de mesmo valor, contas
+  diferentes, ±3 dias → `counterpart='SELF'`. Sem allow-list de keyword. SELF é
+  **derivado**, nunca declarado pelo cliente.
+- **Investimento = posições + snapshots datados** — rendimento é computado, nunca
+  chutado. Posição some do relatório → soft-close (`closed_at`), nunca DELETE.
+- **Caixinha Nubank é derivada do ledger** (RDB fora da B3); **Porquinho Inter não é** —
+  é CDB custodiado na B3, e derivá-lo contaria em dobro.
+
+O backfill valida as invariantes ao final e **aborta** se alguma quebrar.
+
+## Segurança
+
+App local sem auth — a máquina é o perímetro:
+
+- Banco em `0600` (backfill e servidor aplicam; WAL/SHM inclusos). Sem auth, permissão
+  de arquivo é a fronteira at-rest.
+- Bind em `127.0.0.1` + allowlist de **Host** (anti DNS-rebinding) + allowlist de
+  **Origin** em todo método != GET/HEAD (anti-CSRF).
+- CSP self-only, `nosniff`, frame-deny. O frontend é 100% vendorizado — nada externo é
+  legítimo.
+- Writes 100% validados no servidor (data, FKs, whitelist de method/flow/operation).
+- Body cap 1MB (upload multipart 20MB / 64 partes).
+
+O `.gitignore` mantém `data/`, `docs/` e `backups/` fora do VCS: **o ledger nunca é
+versionado.**
 
 ## Stack
 
-| Layer | Technology |
-|-------|-----------|
-| Language | TypeScript (Node ≥ 26, native type-stripping — no build step) |
-| Database | SQLite via `node:sqlite` (builtin, WAL, file mode 0600) |
-| Parsing | own CSV parsers; `xlsx` for B3 reports (only npm dependency) |
-| Frontend | React 18 + Chart.js, fully vendored, no CDN, no build step |
-| Server | Hono + SSE — **planned (phase 5)**, will preserve the v1 API contract |
+| Camada | Tecnologia |
+|---|---|
+| Linguagem | TypeScript (Node ≥ 26, type-stripping nativo — sem build step) |
+| Banco | SQLite via `node:sqlite` (builtin, WAL, `foreign_keys=ON`, modo 0600) |
+| Parsing | parsers CSV próprios; `xlsx` pros relatórios B3 (única dependência npm) |
+| Frontend | React 18 + Chart.js, vendorizados, sem CDN e sem build step (hyperscript puro, nunca JSX) |
+| Servidor | `node:http` + micro-router próprio + SSE (`/api/events`) — zero dependências |
 
-## Data sources (all local files, no bank APIs)
+## Documentação
 
-| Source | Format |
-|--------|--------|
-| Nubank statement | CSV (`Data,Valor,Identificador,Descrição`) — OFX planned |
-| Inter statement | CSV (semicolon, running-balance checked) — OFX planned |
-| Inter card invoice | CSV (bank category + installments) |
-| B3 consolidated report | xlsx (Tesouro, Renda Fixa, Ações, BDR) |
+- `CLAUDE.md` — fonte única da verdade: schema, contas, invariantes, arquitetura.
+- `DESIGN.md` — sistema visual (tokens, tipografia, layout, motion).
+- `PRODUCT.md` — usuário, propósito, escopo.
+- Histórico completo (roadmap, decisões datadas, revisões de segurança) vive no
+  `git log`, não em arquivo.
