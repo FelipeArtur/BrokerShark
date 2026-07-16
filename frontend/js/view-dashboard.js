@@ -204,18 +204,26 @@ const TimelineWidget = React.memo(function TimelineWidget({ monthly, monthSel, o
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
   const now = new Date();
   const [browsingYear, setBrowsingYear] = _dSt(null);
+  const [compare, setCompare] = _dSt(false);
   const activeYear = browsingYear || (monthSel ? monthSel.year : now.getFullYear());
   const years = [...new Set(monthly.map(m => m.year))].sort((a, b) => a - b);
 
   const slots = [];
-  for (let m = 1; m <= 12; m++) slots.push({ month: m, data: monthly.find(x => x.year === activeYear && x.month === m) });
+  for (let m = 1; m <= 12; m++) {
+    const data = monthly.find(x => x.year === activeYear && x.month === m);
+    const idx = monthly.indexOf(data);
+    const prev = idx > 0 ? monthly[idx - 1] : null;
+    slots.push({ month: m, data, prev });
+  }
   const maxV = Math.max(...slots.map(s => s.data ? Math.max(s.data.income, s.data.expenses) : 0), 1);
   const sel = monthSel && monthly.find(x => x.year === monthSel.year && x.month === monthSel.month);
 
   return h("div", { className: "widget wg-3" },
     h("div", { className: "widget-h" },
       h("span", { className: "widget-title" }, "Fluxo mês a mês"),
-      h("span", { style: { marginLeft: "auto", display: "flex", gap: 10, fontSize: 9, color: "var(--fg-3)", alignItems: "center" } },
+      h("button", { onClick: () => setCompare(c => !c), className: compare ? "filter-chip" : "filter-chip",
+        style: { marginLeft: "auto", opacity: compare ? 1 : 0.6 }, title: "Comparar com o mês anterior" }, "vs ant."),
+      h("span", { style: { display: "flex", gap: 10, fontSize: 9, color: "var(--fg-3)", alignItems: "center" } },
         h("span", { style: { display: "inline-flex", alignItems: "center", gap: 3 } },
           h("span", { style: { width: 7, height: 7, borderRadius: 2, background: "var(--pos)" } }), "rec"),
         h("span", { style: { display: "inline-flex", alignItems: "center", gap: 3 } },
@@ -237,8 +245,6 @@ const TimelineWidget = React.memo(function TimelineWidget({ monthly, monthSel, o
           const d = slot.data;
           const isPicked = d && monthSel && d.year === monthSel.year && d.month === monthSel.month;
           const isCur = activeYear === now.getFullYear() && slot.month === now.getMonth() + 1;
-          const hInc = d ? Math.max((d.income / maxV) * 52, d.income > 0 ? 2 : 0) : 0;
-          const hExp = d ? Math.max((d.expenses / maxV) * 52, d.expenses > 0 ? 2 : 0) : 0;
           const net = d ? d.income - d.expenses : 0;
           return h("button", {
             key: slot.month,
@@ -249,10 +255,7 @@ const TimelineWidget = React.memo(function TimelineWidget({ monthly, monthSel, o
               ? `${PT_MONTHS[slot.month]} ${activeYear} — receitas ${fmtBRL(d.income)} · despesas ${fmtBRL(d.expenses)} · saldo ${net >= 0 ? "+" : "−"}${fmtBRL(Math.abs(net))}`
               : `${PT_MONTHS[slot.month]} ${activeYear} (sem dados)`,
           },
-            h("div", { className: "tl-bars" },
-              h("div", { className: "tl-bar", style: { height: hInc, background: "var(--pos)", opacity: isPicked ? 1 : 0.75 } }),
-              h("div", { className: "tl-bar", style: { height: hExp, background: "var(--neg)", opacity: isPicked ? 1 : 0.75 } })
-            ),
+            h(window.BS.PixelBars, { slot, maxV, isPicked, compare }),
             h("span", { className: "tl-mon", style: isCur && !isPicked ? { color: "var(--fg-1)", fontWeight: 700 } : null },
               PT_SHORT[slot.month]),
             h("span", { className: "tl-net", style: { color: !d ? "transparent" : net >= 0 ? "var(--pos)" : "var(--neg)" } },
