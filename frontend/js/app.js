@@ -141,6 +141,9 @@ function App() {
     return () => { clearTimeout(debounce); es?.close(); };
   }, []);
 
+  // Boot: efeito CRT (uma vez, ao montar).
+  useEffect(() => { window.BS.juice.boot(document.getElementById("app")); }, []);
+
   // Atalhos: / = busca · i = importar · c = categorias · Esc fecha overlays.
   useEffect(() => {
     function onKey(e) {
@@ -189,7 +192,10 @@ function App() {
       ),
       h("button", { className: "btn btn-ghost", style: { height: 30, padding: "0 12px", gap: 6 }, onClick: () => setCategoriesOpen(true) },
         h(window.BS.IconSettings, { size: 14 }), "Categorias"
-      )
+      ),
+      h("button", { className: "btn btn-ghost", style: { height: 30, padding: "0 10px" },
+        title: "Som", onClick: (e) => { const m = window.BS.juice.nextMuted(window.BS.juice.muted()); window.BS.juice.setMuted(m); if (!m) window.BS.juice.sfx("blip"); e.currentTarget.textContent = m ? "🔇" : "🔊"; } },
+        window.BS.juice.muted() ? "🔇" : "🔊"),
     ),
 
     // ── A tela única
@@ -225,6 +231,7 @@ function App() {
             }
           : null;
         push(msg, n > 0 ? "success" : "info", undo);
+        if (res?.kind === "tx" && n > 0) { window.BS.juice.sfx("coin"); window.BS.juice.coinDrop(); }
         setRefreshKey(k => k + 1);
       },
     }),
