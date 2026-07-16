@@ -12,6 +12,14 @@ export function monthRange(month: number, year: number): { start: string; end: s
   return { start: `${year}-${mm}-01`, end: `${year}-${mm}-${String(lastDay).padStart(2, "0")}` };
 }
 
+/** 'YYYY-MM' anterior. Vira o ano sozinho: '2026-01' → '2025-12'. */
+export function prevRefMonth(refMonth: string): string {
+  const y = Number(refMonth.slice(0, 4));
+  const m = Number(refMonth.slice(5, 7));
+  const [py, pm] = m === 1 ? [y - 1, 12] : [y, m - 1];
+  return `${py}-${String(pm).padStart(2, "0")}`;
+}
+
 /** YYYY-MM-DD de hoje. */
 export function today(): string {
   const d = new Date();

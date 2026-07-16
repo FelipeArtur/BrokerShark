@@ -20,6 +20,17 @@ CREATE TABLE IF NOT EXISTS categories (
     flow  TEXT NOT NULL CHECK (flow IN ('expense', 'income'))
 );
 
+-- Alvo de gasto por categoria. ref_month='' é o alvo fixo (vale todo mês);
+-- ref_month='YYYY-MM' sobrescreve só aquele mês. Resolução: override ?? fixo ?? nenhum.
+-- '' em vez de NULL de propósito: NULLs são distintos num índice UNIQUE do SQLite,
+-- então PK com NULL deixaria cadastrar dois alvos fixos pra mesma categoria.
+CREATE TABLE IF NOT EXISTS category_budgets (
+    category_id  INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+    ref_month    TEXT NOT NULL DEFAULT '',
+    amount_cents INTEGER NOT NULL CHECK (amount_cents >= 0),
+    PRIMARY KEY (category_id, ref_month)
+);
+
 CREATE TABLE IF NOT EXISTS invoices (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     account_id    TEXT NOT NULL REFERENCES accounts(id),

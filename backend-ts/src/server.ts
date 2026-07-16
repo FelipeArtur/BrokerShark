@@ -10,7 +10,7 @@ import { createServer } from "node:http";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import { openDb, restrictPermissions } from "./db/open.ts";
+import { openDb, initSchema, restrictPermissions } from "./db/open.ts";
 import type { Req, Res } from "./http/respond.ts";
 import { error, json, HttpError } from "./http/respond.ts";
 import type { Route } from "./http/router.ts";
@@ -39,6 +39,10 @@ if (!existsSync(dbPath)) {
 }
 
 const db: DatabaseSync = openDb(dbPath);
+// schema.sql é todo CREATE ... IF NOT EXISTS: aplicar no boot cria tabela nova
+// (ex.: category_budgets) num DB vivo sem rebuild, e é no-op quando já existe.
+// NÃO substitui migration de verdade: ALTER/rename ainda exigiria um runner.
+initSchema(db);
 restrictPermissions(dbPath); // WAL/SHM recriados pelo server também ficam 0600
 
 const routes: Route[] = [

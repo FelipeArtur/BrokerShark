@@ -6,11 +6,40 @@ import type { Route } from "../http/router.ts";
 import { compilePath } from "../http/router.ts";
 import { broadcast } from "../http/sse.ts";
 import { isIntId, isShortText } from "../http/validate.ts";
+import { resolveBudget, isRefMonth, FIXED, type BudgetRow } from "../domain/budget.ts";
+import { prevRefMonth } from "../domain/dates.ts";
+
+/** Regra consumo-despesa / receita real — mesma de analytics.ts. Divergir aqui = total errado. */
+const SPENT_BY_CAT_SQL = `
+  SELECT category_id, COALESCE(SUM(amount_cents), 0) AS spent_cents
+  FROM transactions
+  WHERE category_id IS NOT NULL
+    AND date >= ? AND date <= ?
+    AND (
+      (flow = 'expense' AND method != 'transfer' AND is_settlement = 0
+        AND is_third_party = 0 AND dest_account_id IS NULL)
+      OR (flow = 'income' AND is_revenue = 1 AND is_third_party = 0)
+    )
+  GROUP BY category_id
+`;
 
 export function categoryRoutes(db: DatabaseSync): Route[] {
-  // ── GET /api/categories-full?flow= — lista p/ gestão (com contagem) ───
+  /** Gasto por categoria no mês 'YYYY-MM' (regra de consumo). */
+  function spentMap(refMonth: string): Map<number, number> {
+    const start = `${refMonth}-01`;
+    const end = `${refMonth}-31`;  // comparação lexical de data ISO — '-31' cobre qualquer mês
+    const rows = db.prepare(SPENT_BY_CAT_SQL).all(start, end) as any[];
+    return new Map(rows.map(r => [r.category_id as number, r.spent_cents as number]));
+  }
+
+  // ── GET /api/categories-full?flow=&month=YYYY-MM ──────────────────────
+  // Sem `month`: só contagem + alvo fixo. Com `month`: alvo vigente resolvido
+  // (override → fixo), gasto do mês e gasto do mês anterior (Δ do cabeçalho de grupo).
   function getCategoriesFull(req: Req, res: Res) {
     const flow = qsStr(req, "flow");
+    const month = qsStr(req, "month");
+    if (month && !isRefMonth(month)) return error(res, "month deve ser YYYY-MM");
+
     const where = flow ? "WHERE c.flow = ?" : "";
     const params = flow ? [flow] : [];
     const rows = db.prepare(`
@@ -21,7 +50,57 @@ export function categoryRoutes(db: DatabaseSync): Route[] {
       GROUP BY c.id
       ORDER BY c.name
     `).all(...params) as any[];
+
+    const budgets = db.prepare(
+      "SELECT category_id, ref_month, amount_cents FROM category_budgets"
+    ).all() as BudgetRow[];
+
+    const spent = month ? spentMap(month) : null;
+    const prevSpent = month ? spentMap(prevRefMonth(month)) : null;
+
+    for (const r of rows) {
+      const b = resolveBudget(budgets, r.id, month || FIXED);
+      r.budget_cents = b ? b.amount_cents : null;
+      r.budget_source = b ? b.source : null;
+      if (month) {
+        r.spent_cents = spent!.get(r.id) ?? 0;
+        r.prev_spent_cents = prevSpent!.get(r.id) ?? 0;
+      }
+    }
     json(res, rows);
+  }
+
+  // ── PUT /api/category-budget — grava alvo (fixo ou override do mês) ────
+  async function putCategoryBudget(req: Req, res: Res) {
+    const body = await readBody<{ category_id?: unknown; ref_month?: unknown; amount_cents?: unknown }>(req);
+    if (!isIntId(body.category_id)) return error(res, "category_id inválido");
+    if (!db.prepare("SELECT 1 FROM categories WHERE id = ? AND flow = 'expense'").get(body.category_id)) {
+      return error(res, "categoria de despesa não encontrada");
+    }
+    const refMonth = body.ref_month ?? FIXED;
+    if (!isRefMonth(refMonth)) return error(res, "ref_month deve ser '' ou YYYY-MM");
+    if (typeof body.amount_cents !== "number" || !Number.isInteger(body.amount_cents)
+      || body.amount_cents < 0 || body.amount_cents > 1_000_000_000) {
+      return error(res, "amount_cents deve ser inteiro >= 0");
+    }
+    db.prepare(`
+      INSERT INTO category_budgets (category_id, ref_month, amount_cents) VALUES (?, ?, ?)
+      ON CONFLICT (category_id, ref_month) DO UPDATE SET amount_cents = excluded.amount_cents
+    `).run(body.category_id, refMonth, body.amount_cents);
+    broadcast();
+    json(res, { ok: true });
+  }
+
+  // ── DELETE /api/category-budget — tira o alvo (override some → herda o fixo) ─
+  async function deleteCategoryBudget(req: Req, res: Res) {
+    const body = await readBody<{ category_id?: unknown; ref_month?: unknown }>(req);
+    if (!isIntId(body.category_id)) return error(res, "category_id inválido");
+    const refMonth = body.ref_month ?? FIXED;
+    if (!isRefMonth(refMonth)) return error(res, "ref_month deve ser '' ou YYYY-MM");
+    db.prepare("DELETE FROM category_budgets WHERE category_id = ? AND ref_month = ?")
+      .run(body.category_id, refMonth);
+    broadcast();
+    json(res, { ok: true });
   }
 
   // ── GET /api/expense-categories — dropdowns simples ───────────────────
@@ -96,6 +175,8 @@ export function categoryRoutes(db: DatabaseSync): Route[] {
     { method: "GET", ...cp("/api/categories-full"), handler: getCategoriesFull },
     { method: "GET", ...cp("/api/expense-categories"), handler: getExpenseCategories },
     { method: "GET", ...cp("/api/expense-categories-full"), handler: getExpenseCategoriesFull },
+    { method: "PUT", ...cp("/api/category-budget"), handler: putCategoryBudget },
+    { method: "DELETE", ...cp("/api/category-budget"), handler: deleteCategoryBudget },
     { method: "POST", ...cp("/api/categories"), handler: createCategory },
     { method: "PATCH", ...cp("/api/categories/:id"), handler: updateCategory },
     { method: "DELETE", ...cp("/api/categories/:id"), handler: deleteCategory },
