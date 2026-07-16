@@ -219,6 +219,12 @@ export function transactionRoutes(db: DatabaseSync): Route[] {
       if (!accountExists(body.account_id)) return error(res, "conta inexistente");
       const method = body.method ?? "other";
       if (!TX_METHODS.has(method)) return error(res, "method inválido");
+      // SELF é DERIVADO do pareamento de pernas (selfPairs.ts), nunca declarado:
+      // uma perna SELF avulsa nasceria sem self_pair_tx_id (quebra o cruzamento)
+      // e sem method='transfer' (a regra consumo-despesa a contaria como gasto).
+      if (body.counterpart === "SELF") {
+        return error(res, "counterpart 'SELF' é derivado do pareamento de pernas, não aceito no lançamento manual");
+      }
       if (body.category_id != null && !categoryExists(body.category_id)) {
         return error(res, "categoria inexistente");
       }
