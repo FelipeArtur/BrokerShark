@@ -17,15 +17,11 @@ const {
 } = window.BS;
 
 /* ── SVG icons moved to icons.js ────────────────────────────────────────── */
-/* ── Tweaks (localStorage) ──────────────────────────────────────────────── */
-const TWEAK_DEFAULTS = { theme: "Dark" };
-function useTweaks() {
-  const [tw, setTw] = useState(TWEAK_DEFAULTS);
+/* ── App shell init (no theme switching — pixel is the only look) ─────────── */
+function useAppInit() {
   useEffect(() => {
-    document.documentElement.dataset.theme   = "Dark";
-    document.documentElement.dataset.density = "comfortable";  // fixo
+    document.documentElement.dataset.density = "comfortable";
   }, []);
-  return [tw, setTw];
 }
 
 
@@ -96,7 +92,7 @@ function MonthNav({ monthly, monthSel, onPick }) {
 
 function App() {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
-  useTweaks(); // just initialize side effects
+  useAppInit();
   const [editTx, setEditTx] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);  // tx aguardando confirmação de exclusão
   const [searchModalOpen, setSearchModalOpen] = useState(false);

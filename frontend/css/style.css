@@ -1,44 +1,40 @@
 /* BrokerShark v2 — design tokens */
 
 :root {
-  /* Cold-blue neutrals (hue 250). Deeper page + crisper hairlines so panels
-     read as discrete surfaces, not grey-on-grey. */
-  --bg-0: oklch(12% 0.008 250);
-  --bg-1: oklch(17% 0.009 250);
-  --bg-2: oklch(21% 0.011 250);
-  --bg-3: oklch(25% 0.012 250);
-  --line-1: oklch(30% 0.013 250);
-  --line-2: oklch(38% 0.014 250);
+  /* Balatro-CRT pixel palette */
+  --bg-0: #0e0f1a;
+  --bg-1: #161829;
+  --bg-2: #1f2238;
+  --bg-3: #2a2d48;
+  --line-1: #000000;
+  --line-2: #3a3d63;
 
-  --fg-0: oklch(98% 0.005 250);
-  --fg-1: oklch(86% 0.008 250);
-  --fg-2: oklch(68% 0.010 250);
-  --fg-3: oklch(53% 0.012 250);
+  --fg-0: #fdf6e3;
+  --fg-1: #cdd0ee;
+  --fg-2: #9a9dc0;
+  --fg-3: #6a6d95;
 
-  /* Signature accent — "água de tubarão" cyan/teal (hue 200). The one
-     deliberate brand color: primary actions, focus, key emphasis. Kept
-     distinct from --info (blue, hue 255) so SELF transfers never read as
-     brand chrome. */
-  --accent: oklch(78% 0.13 200);
-  --accent-bg: oklch(78% 0.13 200 / 0.14);
-  --accent-fg: oklch(18% 0.04 215);
+  /* accent = cyan; keep the shark identity */
+  --accent: #5cc6ff;
+  --accent-bg: rgba(92, 198, 255, 0.16);
+  --accent-fg: #0e0f1a;
 
-  --pos: oklch(74% 0.15 150);
-  --pos-bg: oklch(74% 0.15 150 / 0.13);
-  --neg: oklch(70% 0.17 20);
-  --neg-bg: oklch(70% 0.17 20 / 0.13);
-  --warn: oklch(78% 0.15 75);
-  --warn-bg: oklch(78% 0.15 75 / 0.13);
-  --info: oklch(72% 0.12 255);
-  --info-bg: oklch(72% 0.12 255 / 0.12);
-  --reserve: oklch(72% 0.15 290);
-  --reserve-bg: oklch(72% 0.15 290 / 0.12);
+  --pos: #7be08a;
+  --pos-bg: rgba(123, 224, 138, 0.16);
+  --neg: #ff5b6e;
+  --neg-bg: rgba(255, 91, 110, 0.16);
+  --warn: #ffcf5c;
+  --warn-bg: rgba(255, 207, 92, 0.16);
+  --info: #5cc6ff;
+  --info-bg: rgba(92, 198, 255, 0.14);
+  --reserve: #c58cff;
+  --reserve-bg: rgba(197, 140, 255, 0.16);
 
-  --nubank: oklch(65% 0.18 305);
-  --inter:  oklch(75% 0.16 55);
+  --nubank: #c58cff;
+  --inter:  #ffab5c;
 
-  --ff-sans: "Inter", system-ui, -apple-system, sans-serif;
-  --ff-mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, monospace;
+  --ff-sans: "Silkscreen", "Inter", system-ui, sans-serif;
+  --ff-mono: "Departure Mono", "JetBrains Mono", ui-monospace, monospace;
 
   --fz-9: 10px; --fz-8: 11px; --fz-7: 12px; --fz-6: 13px;
   --fz-5: 14px; --fz-4: 16px; --fz-3: 19px; --fz-2: 24px;
@@ -47,7 +43,8 @@
   --s-1: 2px; --s-2: 4px; --s-3: 6px; --s-4: 8px;
   --s-5: 12px; --s-6: 16px; --s-7: 20px; --s-8: 24px; --s-9: 32px;
 
-  --r-1: 4px; --r-2: 6px; --r-3: 8px; --r-4: 10px; --r-5: 14px; --r-6: 16px;
+  /* pixel = hard corners everywhere */
+  --r-1: 0; --r-2: 0; --r-3: 0; --r-4: 0; --r-5: 0; --r-6: 0;
 
   --topbar-h: 52px;
   --sidebar-w: 320px;
@@ -55,40 +52,6 @@
 
 :root[data-density="compact"]     { --fz-6: 12px; --fz-5: 13px; --topbar-h: 44px; }
 :root[data-density="comfortable"] { --fz-6: 14px; --fz-5: 15px; --topbar-h: 60px; }
-
-:root[data-theme="Light"] {
-  /* Page sits slightly grey so white panels read as raised; lines a touch
-     darker for the same crisp separation as Dark. */
-  --bg-0: oklch(96.5% 0.004 250);
-  --bg-1: oklch(99.5% 0.002 250);
-  --bg-2: oklch(94% 0.006 250);
-  --bg-3: oklch(90% 0.008 250);
-  --line-1: oklch(87% 0.010 250);
-  --line-2: oklch(79% 0.012 250);
-
-  --fg-0: oklch(18% 0.012 250);
-  --fg-1: oklch(34% 0.012 250);
-  --fg-2: oklch(50% 0.012 250);
-  --fg-3: oklch(64% 0.012 250);
-
-  --accent: oklch(56% 0.14 210);
-  --accent-bg: oklch(56% 0.14 210 / 0.12);
-  --accent-fg: oklch(99% 0.01 210);
-
-  --pos: oklch(56% 0.17 150);
-  --pos-bg: oklch(56% 0.17 150 / 0.12);
-  --neg: oklch(55% 0.20 20);
-  --neg-bg: oklch(55% 0.20 20 / 0.12);
-  --warn: oklch(62% 0.16 70);
-  --warn-bg: oklch(62% 0.16 70 / 0.12);
-  --info: oklch(56% 0.16 255);
-  --info-bg: oklch(56% 0.16 255 / 0.12);
-  --reserve: oklch(56% 0.18 290);
-  --reserve-bg: oklch(56% 0.18 290 / 0.12);
-
-  --nubank: oklch(50% 0.24 305);
-  --inter:  oklch(65% 0.22 55);
-}
 
 *, *::before, *::after { 
   box-sizing: border-box;
