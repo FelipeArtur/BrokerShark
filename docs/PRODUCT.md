@@ -6,7 +6,7 @@ product
 
 ## Users
 
-Um único usuário (Felipe), no Linux desktop/notebook (≥1280px; mobile não é alvo), 100% local e offline. Contexto de uso: sessões curtas e frequentes para responder "quanto posso gastar agora?" e sessões mensais de manutenção (importar extratos, categorizar, conferir investimentos).
+Um único usuário (o dono), no Linux desktop/notebook (≥1280px; mobile não é alvo), 100% local e offline. Contexto de uso: sessões curtas e frequentes para responder "quanto posso gastar agora?" e sessões mensais de manutenção (importar extratos, categorizar, conferir investimentos).
 
 ## Product Purpose
 
