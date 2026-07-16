@@ -1,5 +1,12 @@
 /* IIFE-wrapped: own scope (replaces Babel's per-file isolation) */
 (function () {
+/**
+ * @file view-dashboard.js
+ * @brief DashboardView e seus widgets — a tela única: faixa KPI, grid de
+ *        widgets facetados e a tabela de lançamentos.
+ *
+ * UNIDADE: todo valor aqui é REAIS (float), como a API entrega.
+ */
 /* view-dashboard.js — DashboardView: a tela única do BrokerShark (1920×1080).
    Topbar + faixa KPI + UMA linha de widgets (visão geral, fluxo, contas,
    categorias, investimentos) + tabela full-width com scroll interno.
@@ -18,6 +25,13 @@ const INV_TYPE_LABEL = {
 };
 
 /* Δ assinado (mono, pos/neg) — o vocabulário único de "variação vs mês" */
+/**
+ * @brief Renderiza uma variação assinada, verde quando é boa.
+ * @param props.value variação em REAIS; null não renderiza nada
+ * @param props.suffix texto após o número (padrão "vs mês anterior")
+ * @param props.invert true quando cair é bom (ex.: despesa) — inverte a cor
+ * @return Fragment React com o Δ e o sufixo, ou null
+ */
 function Delta({ value, suffix = "vs mês anterior", invert = false }) {
   const h = React.createElement;
   if (value == null) return null;
@@ -29,6 +43,14 @@ function Delta({ value, suffix = "vs mês anterior", invert = false }) {
   );
 }
 
+/**
+ * @brief Renderiza um sparkline SVG com a área preenchida.
+ * @param props.data valores em REAIS, em ordem cronológica; < 2 pontos não rende
+ * @param props.width largura do viewBox lógico (padrão 150) — o svg estica
+ * @param props.height altura em px (padrão 36)
+ * @param props.color cor da linha (padrão "var(--accent)")
+ * @return elemento React <svg>, ou null quando não há série
+ */
 function Sparkline({ data, width = 150, height = 36, color = "var(--accent)" }) {
   const h = React.createElement;
   if (!data || data.length < 2) return null;
@@ -48,6 +70,24 @@ function Sparkline({ data, width = 150, height = 36, color = "var(--accent)" }) 
 }
 
 /* ── KpiStrip — os 4 números que respondem "como estou" ─────────────────── */
+/**
+ * @brief Renderiza a faixa de KPIs: disponível, patrimônio, resultado do mês e
+ *        total investido.
+ *
+ * Disponível e patrimônio são POSIÇÃO — valem "agora", não seguem o seletor de
+ * mês. Só o resultado líquido é do mês selecionado.
+ *
+ * @param props.available {available, checking_total} em REAIS; null enquanto carrega
+ * @param props.availErr true quando /api/available falhou
+ * @param props.accounts contas com `balance` em reais
+ * @param props.cashflow DRE do mês {income_total, expense_total, investment_net} em reais
+ * @param props.investTotal soma das posições abertas, em reais
+ * @param props.liquidityHistory série de patrimônio {value} em reais — dá o Δ e o recorde
+ * @param props.evolution série da carteira {cumulative} em reais — dá o Δ investido
+ * @param props.monthLabel rótulo curto do mês selecionado ("jul/26")
+ * @param props.monthly série mensal {income, expenses} em reais — dá o streak
+ * @return elemento React da faixa de KPIs
+ */
 const KpiStrip = React.memo(function KpiStrip({ available, availErr, accounts, cashflow, investTotal,
                     liquidityHistory, evolution, monthLabel, monthly }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
@@ -58,6 +98,11 @@ const KpiStrip = React.memo(function KpiStrip({ available, availErr, accounts, c
 
   const checkingTotal = available ? available.checking_total : 0;
   const patrimonio = checkingTotal + investTotal;
+  /**
+   * @brief Variação entre os dois últimos pontos de uma série.
+   * @param s série com {value} em REAIS
+   * @return diferença em reais, ou null quando não há dois pontos
+   */
   const seriesDelta = s => (s && s.length > 1) ? s[s.length - 1].value - s[s.length - 2].value : null;
   const patDelta = seriesDelta(liquidityHistory);
   const invDelta = (evolution && evolution.length > 1)
@@ -123,6 +168,18 @@ const KpiStrip = React.memo(function KpiStrip({ available, availErr, accounts, c
 });
 
 /* ── GeneralWidget — visão geral: patrimônio+evolução, resumo, saúde ─────── */
+/**
+ * @brief Renderiza o resumo do mês em texto + a saúde dos dados (cobertura,
+ *        pendências, última movimentação, backup).
+ * @param props.cashflow DRE do mês {income_total, expense_total, investment_net} em REAIS
+ * @param props.liquidityHistory série de patrimônio {value} em reais
+ * @param props.monthly série mensal {year, month} — dá o período coberto
+ * @param props.monthSel mês selecionado {month, year}
+ * @param props.monthTx transações do mês (`amount` em reais)
+ * @param props.uncatCount quantos lançamentos do mês seguem sem categoria
+ * @param props.backup {exists, name, age_seconds}; null enquanto carrega
+ * @return elemento React do widget
+ */
 const GeneralWidget = React.memo(function GeneralWidget({ cashflow, liquidityHistory, monthly, monthSel,
                          monthTx, uncatCount, backup }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
@@ -218,6 +275,18 @@ const GeneralWidget = React.memo(function GeneralWidget({ cashflow, liquidityHis
 });
 
 /* ── TimelineWidget — o controle de mês É o gráfico ──────────────────────── */
+/**
+ * @brief Renderiza o fluxo mês a mês; clicar num mês move o seletor global.
+ *
+ * Os 12 meses do ano navegado aparecem sempre, com ou sem dados: um buraco na
+ * série é informação. Mês sem dados fica desabilitado.
+ *
+ * @param props.monthly série mensal {year, month, income, expenses} em REAIS,
+ *        em ordem cronológica — a vizinhança na lista define o "mês anterior"
+ * @param props.monthSel mês selecionado {month, year}
+ * @param props.onPickMonth chamado com {year, month} do mês clicado
+ * @return elemento React do widget
+ */
 const TimelineWidget = React.memo(function TimelineWidget({ monthly, monthSel, onPickMonth }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
   const now = new Date();
@@ -302,6 +371,14 @@ const TimelineWidget = React.memo(function TimelineWidget({ monthly, monthSel, o
 });
 
 /* ── AccountsWidget — onde o caixa está ──────────────────────────────────── */
+/**
+ * @brief Renderiza os saldos das contas correntes como facetas clicáveis.
+ * @param props.accounts contas (`balance` em REAIS); só as de type "checking" entram
+ * @param props.available {checking_total} em reais — ausente, soma as contas
+ * @param props.filter filtro facetado, pra marcar a conta ativa
+ * @param props.onToggleFacet alterna a faceta "accounts" com o id da conta
+ * @return elemento React do widget
+ */
 const AccountsWidget = React.memo(function AccountsWidget({ accounts, available, filter, onToggleFacet }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
   const checking = (accounts || []).filter(a => a.type === "checking")
@@ -344,6 +421,19 @@ const AccountsWidget = React.memo(function AccountsWidget({ accounts, available,
 });
 
 /* ── CategoriesWidget — pra onde o dinheiro foi no mês ───────────────────── */
+/**
+ * @brief Renderiza o gasto do mês por categoria, como facetas clicáveis.
+ *
+ * Só despesa de CONSUMO entra (isConsumptionExpense): transferência,
+ * investimento e liquidação não são gasto, e somá-los aqui dobraria o total.
+ *
+ * @param props.monthTx transações do mês (`amount` em REAIS)
+ * @param props.uncatCount quantos lançamentos seguem sem categoria
+ * @param props.onOpenBulk abre a categorização em lote
+ * @param props.filter filtro facetado, pra marcar a categoria ativa
+ * @param props.onToggleFacet alterna a faceta "categories" com o nome da categoria
+ * @return elemento React do widget
+ */
 const CategoriesWidget = React.memo(function CategoriesWidget({ monthTx, uncatCount, onOpenBulk, filter, onToggleFacet }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
   const expenses = monthTx.filter(isConsumptionExpense);
@@ -393,6 +483,17 @@ const CategoriesWidget = React.memo(function CategoriesWidget({ monthTx, uncatCo
 });
 
 /* ── FaturaWidget — Fatura de Cartão de Crédito do Mês ───────────────────── */
+/**
+ * @brief Renderiza o consumo no crédito do mês, quebrado por banco.
+ *
+ * Conta os ITENS do crédito e exclui as liquidações (`is_settlement`): o
+ * pagamento da fatura é liquidação, e somá-lo aos itens dobraria o consumo.
+ *
+ * @param props.monthTx transações do mês (`amount` em REAIS)
+ * @param props.filter filtro facetado, pra marcar o banco ativo
+ * @param props.onToggleFacet alterna a faceta "banks" com o nome do banco
+ * @return elemento React do widget
+ */
 const FaturaWidget = React.memo(function FaturaWidget({ monthTx, filter, onToggleFacet }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
   
@@ -449,8 +550,20 @@ const FaturaWidget = React.memo(function FaturaWidget({ monthTx, filter, onToggl
 });
 
 /* ── InvestmentsWidget — todas as posições no card (sem drill) ────────────── */
+/**
+ * @brief Renderiza as posições abertas e o Δ mensal da carteira.
+ * @param props.investments posições abertas (`balance` em REAIS, `group_name`,
+ *        `derived` marcando a posição derivada do ledger — a Caixinha)
+ * @param props.evolution série da carteira {cumulative} em reais — dá o Δ do mês
+ * @return elemento React do widget
+ */
 const InvestmentsWidget = React.memo(function InvestmentsWidget({ investments, evolution }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
+  /**
+   * @brief Traduz o tipo da posição pro rótulo em pt-BR.
+   * @param t tipo cru ("rdb", "cdb", "tesouro"…)
+   * @return rótulo conhecido, ou o tipo capitalizado quando não mapeado
+   */
   const typeLabel = t => INV_TYPE_LABEL[t] || (t ? t[0].toUpperCase() + t.slice(1) : "Investimento");
   const total = investments.reduce((s, i) => s + (i.balance || 0), 0);
   const invDelta = (evolution && evolution.length > 1)
@@ -501,6 +614,23 @@ const InvestmentsWidget = React.memo(function InvestmentsWidget({ investments, e
 });
 
 /* ── DashboardView ────────────────────────────────────────────────────────── */
+/**
+ * @brief Renderiza a tela única: carrega os dados, mantém o filtro facetado e
+ *        monta KPIs, widgets e tabela.
+ *
+ * Dois carregamentos separados de propósito: posição (contas, investimentos,
+ * disponível) NÃO depende do mês selecionado; fluxo (DRE, lançamentos,
+ * pendências) segue o seletor global.
+ *
+ * @param props.monthSel mês selecionado {month, year}
+ * @param props.monthly série mensal {year, month, income, expenses} em REAIS
+ * @param props.onPickMonth move o seletor global de mês
+ * @param props.refreshKey muda para forçar a recarga de tudo
+ * @param props.onEditCategory abre o editor de uma transação
+ * @param props.onImport abre o modal de importação (usado no first-run)
+ * @return Fragment React com a faixa de KPIs e o grid, ou a tela de erro/
+ *         first-run quando é o caso
+ */
 function DashboardView({ monthSel, monthly, onPickMonth, refreshKey, onEditCategory, onImport }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
   const [available, setAvailable] = _dSt(null);
@@ -517,8 +647,19 @@ function DashboardView({ monthSel, monthly, onPickMonth, refreshKey, onEditCateg
   const [uncatCount, setUncatCount] = _dSt(0);
   const [bulkOpen, setBulkOpen] = _dSt(false);
   const [filter, setFilter] = _dSt(() => window.BS.emptyFilter());
+  /**
+   * @brief Alterna um valor numa faceta de conjunto do filtro compartilhado.
+   * @param kind "categories", "accounts" ou "banks"
+   * @param value valor clicado no widget
+   */
   const onToggleFacet = (kind, value) => setFilter(f => window.BS.toggleFacet(f, kind, value));
+  /**
+   * @brief Ajusta um campo escalar do filtro.
+   * @param field "flow", "method" ou "search"
+   * @param value novo valor do campo
+   */
   const setFilterField = (field, value) => setFilter(f => Object.assign({}, f, { [field]: value }));
+  /** @brief Limpa todas as facetas, voltando ao filtro neutro. */
   const clearFilter = () => setFilter(window.BS.emptyFilter());
   // Reset facets when the global month changes (stale facet values match nothing).
   _dEf(() => { setFilter(window.BS.emptyFilter()); }, [monthSel]);

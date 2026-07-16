@@ -1,5 +1,10 @@
 /* IIFE-wrapped: own scope (replaces Babel's per-file isolation) */
 (function () {
+/**
+ * @file modal-bulk.js
+ * @brief Modal de categorização em lote por comerciante: uma escolha etiqueta
+ *        todas as ocorrências do mês de uma vez.
+ */
 /* modal-bulk.js — categorização em lote por comerciante. Saiu de
    view-history.js: 177 linhas que não eram a tabela. */
 /* global React, postCategory */
@@ -8,6 +13,18 @@ const { fmtBRL } = window.BS;
 
 // Bulk-categorize panel: uncategorized transactions grouped by merchant (most-spent
 // first). Picking a category tags every occurrence at once (onApply → categorizeBulk).
+/**
+ * @brief Renderiza o painel de categorização em lote.
+ * @param props.groups comerciantes sem categoria {merchant_key, flow, count,
+ *        total, sample_description, suggested_category_id} — `total` em REAIS
+ * @param props.catsByFlow {expense, income} — opções por fluxo do comerciante
+ * @param props.monthLabel rótulo do mês exibido no título
+ * @param props.onApply chamado com (grupo, categoryId); grava via categorizeBulk
+ * @param props.onClose fecha o modal
+ * @param props.onRefreshCats recarrega as categorias após criar uma nova;
+ *        deve devolver as listas novas {expense, income}
+ * @return elemento React do modal
+ */
 function BulkCategorizeModal({ groups, catsByFlow, monthLabel, onApply, onClose, onRefreshCats }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
   const [pendingCats, setPendingCats] = React.useState({});
@@ -19,12 +36,22 @@ function BulkCategorizeModal({ groups, catsByFlow, monthLabel, onApply, onClose,
   const total = groups.reduce((s, g) => s + g.count, 0);
   const withSuggestions = groups.filter(g => g.suggested_category_id != null);
 
+  /**
+   * @brief Aplica, em sequência, a sugestão de todos os comerciantes que têm uma.
+   *
+   * Sequencial de propósito: cada onApply remove o grupo da lista, e disparar
+   * tudo em paralelo competiria pelo mesmo estado.
+   */
   const applyAllSuggestions = async () => {
     for (const g of withSuggestions) {
       await onApply(g, g.suggested_category_id);
     }
   };
 
+  /**
+   * @brief Cria a categoria digitada e já a aplica ao comerciante.
+   * @param g grupo do comerciante — o `flow` dele define o fluxo da nova categoria
+   */
   const handleCreateNew = async (g) => {
     if (!newCatName.trim() || isSavingNew) return;
     setIsSavingNew(true);
@@ -40,6 +67,11 @@ function BulkCategorizeModal({ groups, catsByFlow, monthLabel, onApply, onClose,
     } finally { setIsSavingNew(false); }
   };
 
+  /**
+   * @brief Deriva uma cor estável do nome do comerciante (avatar).
+   * @param str nome exibido do comerciante
+   * @return string oklch() — mesmo nome sempre devolve a mesma cor
+   */
   const stringToColor = (str) => {
     let hash = 0;
     for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);

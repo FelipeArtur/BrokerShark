@@ -1,5 +1,10 @@
 /* IIFE-wrapped: own scope (replaces Babel's per-file isolation) */
 (function () {
+/**
+ * @file view-overview.js
+ * @brief CategoriesPanel — gerenciamento de categorias (criar, renomear,
+ *        excluir com reatribuição), aberto como Drawer pelo painel de ajustes.
+ */
 /* view-overview.js — CategoriesPanel (a antiga tela "Dinheiro" virou o dashboard;
    ver view-dashboard.js) */
 /* global React, fetchCategoriesFull, postCategory, patchCategory, deleteCategory */
@@ -10,6 +15,13 @@ const { useState: _ovSt, useEffect: _ovEf } = React;
    Restaurada após o pivot ter apagado a declaração da função mas deixado o corpo
    (form + lista + modal de exclusão) preso dentro de OverviewView, que quebrava
    a tela Dinheiro com dados (`handleAdd`/`CategoriesPanel is not defined`). */
+/**
+ * @brief Renderiza o painel de gerenciamento de categorias.
+ * @param props.refreshKey muda para forçar a recarga da lista
+ * @param props.onRefresh avisa o shell que as categorias mudaram
+ * @param props.onClose fecha o painel; ausente esconde o botão ✕
+ * @return elemento React do painel
+ */
 function CategoriesPanel({ refreshKey, onRefresh, onClose }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   const [flow, setFlow] = _ovSt("expense");
@@ -25,6 +37,10 @@ function CategoriesPanel({ refreshKey, onRefresh, onClose }) {
 
   _ovEf(() => { fetchCategoriesFull(flow).then(setCats); }, [flow, refreshKey]);
 
+  /**
+   * @brief Cria a categoria digitada no formulário e recarrega a lista.
+   * @param e evento de submit do form
+   */
   async function handleAdd(e) {
     e.preventDefault();
     const name = newName.trim();
@@ -38,6 +54,12 @@ function CategoriesPanel({ refreshKey, onRefresh, onClose }) {
     } catch (ex) { setErr(ex.message); } finally { setAdding(false); }
   }
 
+  /**
+   * @brief Exclui a categoria do modal, reatribuindo os lançamentos dela.
+   *
+   * Exige um destino escolhido: excluir sem reatribuir deixaria lançamentos
+   * órfãos, indistinguíveis dos que ainda faltam categorizar.
+   */
   async function handleDelete() {
     if (!deleteModal || !reassignTo) return;
     setDeleting(true); setErr("");

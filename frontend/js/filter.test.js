@@ -1,7 +1,17 @@
+/**
+ * @file filter.test.js
+ * @brief Testes do filtro facetado: OR dentro da faceta, AND entre facetas,
+ *        busca por substring e contagem de facetas ativas.
+ */
 const { test } = require("node:test");
 const assert = require("node:assert");
 const F = require("./filter.js");
 
+/**
+ * @brief Monta uma transação normalizada de teste.
+ * @param o campos que sobrescrevem o padrão (despesa PIX, Mercado, Nubank)
+ * @return objeto no formato que matchesFilter espera
+ */
 const tx = (o) => Object.assign({ flow: "expense", method: "pix", category: "Mercado", bank: "Nubank", label: "zaffari supermercado" }, o);
 
 test("emptyFilter matches everything", () => {

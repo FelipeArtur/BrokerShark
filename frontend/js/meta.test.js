@@ -1,3 +1,7 @@
+/**
+ * @file meta.test.js
+ * @brief Testes das derivações da camada "score": streak, recorde e orçamento.
+ */
 const { test } = require("node:test");
 const assert = require("node:assert");
 const M = require("./meta.js");

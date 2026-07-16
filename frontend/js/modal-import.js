@@ -1,9 +1,25 @@
 /* IIFE-wrapped */
 (function () {
+/**
+ * @file modal-import.js
+ * @brief ImportModal (drop → detect → preview editável → confirm) e a célula
+ *        editável do preview. Extratos CSV por conta + relatório B3 xlsx.
+ */
 /* modal-import.js — Modal de importação e célula editável */
 
 const { useState, useEffect, useRef } = React;
 
+/**
+ * @brief Renderiza um valor que vira input ao clicar, com commit no blur/Enter.
+ * @param props.value valor atual — em REAIS quando kind="amount"
+ * @param props.kind "amount" (teclado decimal, fonte mono) ou "text"
+ * @param props.render formata o valor no modo leitura
+ * @param props.onCommit grava o rascunho; só é chamado se o valor mudou
+ * @param props.onError recebe a mensagem quando onCommit rejeita
+ * @param props.align alinhamento do texto (padrão "left")
+ * @param props.color cor do texto no modo leitura
+ * @return elemento React — <input> editando, <span> caso contrário
+ */
 function EditableCell({ value, kind, render, onCommit, onError, align = "left", color }) {
   const h = React.createElement;
   const [editing, setEditing] = useState(false);
@@ -16,7 +32,11 @@ function EditableCell({ value, kind, render, onCommit, onError, align = "left", 
     if (editing && inputRef.current) { inputRef.current.focus(); inputRef.current.select(); }
   }, [editing]);
 
+  /** @brief Entra no modo edição, semeando o rascunho com o valor atual. */
   function start() { setDraft(value == null ? "" : String(value)); setEditing(true); }
+  /**
+   * @brief Sai do modo edição e grava o rascunho, se ele mudou.
+   */
   async function commit() {
     setEditing(false);
     const same = String(draft) === String(value == null ? "" : value);
@@ -67,6 +87,13 @@ function EditableCell({ value, kind, render, onCommit, onError, align = "left", 
   }, saving ? "…" : render(value));
 }
 
+/**
+ * @brief Lê um valor digitado à mão no preview, em pt-BR ou en-US.
+ * @param raw texto do input ("R$ 1.234,56", "1234.56"); com vírgula, o ponto é
+ *        separador de milhar
+ * @return valor em REAIS arredondado ao centavo, ou null se não for um número
+ *         positivo — o ledger não aceita valor negativo (o sinal é o `flow`)
+ */
 function _parseAmountInput(raw) {
   let s = String(raw).trim().replace(/[R$\s]/g, "");
   if (s.includes(",")) s = s.replace(/\./g, "").replace(",", ".");
@@ -74,6 +101,13 @@ function _parseAmountInput(raw) {
   return (isFinite(n) && n > 0) ? Math.round(n * 100) / 100 : null;
 }
 
+/**
+ * @brief Renderiza o modal de importação incremental (extratos CSV + B3 xlsx).
+ * @param props.onClose fecha o modal sem importar
+ * @param props.onDone chamado no sucesso com {inserted, kind, importBatchId, b3};
+ *        `importBatchId` é o id de sessão que permite reverter o lote inteiro
+ * @return elemento React do modal
+ */
 function ImportModal({ onClose, onDone }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   const { Modal, BankChip, isSelf, isInvest, fmtDateBR, fmtBRL, fmtBRLCompact, IconImport } = window.BS;
@@ -82,10 +116,24 @@ function ImportModal({ onClose, onDone }) {
     { id: "nu-db",    label: names["nu-db"]    || "Nubank" },
     { id: "inter-db", label: names["inter-db"] || "Inter" },
   ];
+  /**
+   * @brief Devolve o nome legível de uma conta.
+   * @param id account_id ("nu-db"/"inter-db")
+   * @return rótulo da conta, ou o próprio id quando desconhecida
+   */
   const accLabel = id => (BANKS.find(b => b.id === id) || {}).label || id;
+  /**
+   * @brief Gera um id único para arquivo solto ou sessão de import.
+   * @return uuid v4 do browser, ou um id de fallback baseado em tempo + aleatório
+   */
   const uuid = () => (window.crypto && crypto.randomUUID)
     ? crypto.randomUUID()
     : "imp-" + Date.now() + "-" + Math.random().toString(16).slice(2);
+  /**
+   * @brief Dispara um toast global.
+   * @param msg texto exibido
+   * @param kind "error" (padrão), "success" ou "info"
+   */
   const toast = (msg, kind = "error") =>
     window.dispatchEvent(new CustomEvent("bs-toast", { detail: { msg, kind } }));
 
@@ -102,6 +150,11 @@ function ImportModal({ onClose, onDone }) {
 
   const step = (groups || b3s.length) ? 2 : 1;
 
+  /**
+   * @brief Aceita os arquivos soltos e dispara a detecção de conta dos CSVs.
+   * @param fileList FileList do drop ou do <input type=file>; só .csv (extrato)
+   *        e .xlsx (relatório B3) entram — o resto vira erro na tela
+   */
   function addFiles(fileList) {
     setErr(null);
     const incoming = Array.from(fileList || []).map(f => {
@@ -118,12 +171,28 @@ function ImportModal({ onClose, onDone }) {
       });
     });
   }
+  /**
+   * @brief Tira um arquivo da lista.
+   * @param key chave local do arquivo
+   */
   const removeFile = key => setFiles(prev => prev.filter(f => f.key !== key));
+  /**
+   * @brief Atribui a conta de um arquivo à mão (derruba a marca "auto").
+   * @param key chave local do arquivo
+   * @param account account_id escolhido, ou null pra limpar
+   */
   const setFileAccount = (key, account) =>
     setFiles(prev => prev.map(f => f.key === key ? { ...f, account, auto: false, detecting: false } : f));
 
   const canAnalyze = files.length > 0 && !busy && files.every(f => f.b3 || f.account);
 
+  /**
+   * @brief Manda os arquivos ao backend e monta o preview (passo 2).
+   *
+   * Os CSVs vão agrupados POR CONTA num único POST: é assim que o backend
+   * deduplica o conjunto todo (ver importPreview). Falha de uma conta ou de um
+   * B3 não derruba as outras — o erro fica no card do grupo.
+   */
   async function analyze() {
     setBusy(true); setErr(null);
     try {
@@ -175,10 +244,19 @@ function ImportModal({ onClose, onDone }) {
       .catch(() => {});
   }, [step]);
 
+  /**
+   * @brief Inclui/exclui uma linha do preview na importação.
+   * @param id id da linha em staging
+   */
   function toggle(id) {
     setExcluded(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   }
 
+  /**
+   * @brief Inclui ou exclui todas as linhas NOVAS de uma conta de uma vez.
+   * @param account account_id do grupo
+   * @param include true marca todas; false desmarca todas
+   */
   function setGroupAll(account, include) {
     const ids = (rowsByGroup[account] || []).filter(r => r.status === "new").map(r => r.id);
     setExcluded(prev => {
@@ -188,6 +266,14 @@ function ImportModal({ onClose, onDone }) {
     });
   }
 
+  /**
+   * @brief Edita uma linha do staging e reflete a resposta no preview.
+   * @param account account_id do grupo dono da linha
+   * @param batchId batch_id do preview daquela conta
+   * @param rowId id da linha em staging
+   * @param fields campos a alterar — `amount` em REAIS, category_id, display_name
+   * @return Promise que rejeita quando o backend recusa (o caller mostra o toast)
+   */
   async function editRow(account, batchId, rowId, fields) {
     const res = await window.patchStagingRow(batchId, rowId, fields);
     setRowsByGroup(prev => ({
@@ -198,12 +284,26 @@ function ImportModal({ onClose, onDone }) {
       g.account === account ? { ...g, amount_divergence: res.amount_divergence } : g));
   }
 
+  /**
+   * @brief Lista as linhas que serão de fato inseridas para uma conta.
+   * @param account account_id do grupo
+   * @return linhas com status "new" que não foram desmarcadas
+   */
   function groupNew(account) {
     return (rowsByGroup[account] || []).filter(r => r.status === "new" && !excluded.has(r.id));
   }
   const txWillImport = (groups || []).reduce((s, g) => s + groupNew(g.account).length, 0);
   const b3Count = b3s.filter(b => b.preview && b.preview.total > 0).length;
 
+  /**
+   * @brief Confirma a importação de todas as contas e relatórios B3 do drop.
+   *
+   * Antes de inserir, grava as sugestões de categoria que o usuário não trocou
+   * (suggest-only: só viram categoria de verdade neste passo). Todas as contas
+   * compartilham o MESMO id de sessão, pra que a importação reverta como um
+   * bloco no Histórico. Se alguma conta falhar, mostra o resumo em vez de
+   * fechar — o que entrou continua no ledger.
+   */
   async function confirm() {
     setBusy(true); setErr(null);
     const sessionId = uuid();
@@ -307,6 +407,12 @@ function ImportModal({ onClose, onDone }) {
           : null
   );
 
+  /**
+   * @brief Diz como a linha do preview será classificada ao entrar no ledger.
+   * @param r linha do staging (`amount` em REAIS)
+   * @return {tag, color, categorizable} — transferência e investimento não são
+   *         categorizáveis: não têm category_id (ver money.js)
+   */
   const classifyRow = r => {
     if (isSelf(r))   return { tag: "transferência", color: "var(--info)", categorizable: false };
     if (isInvest(r)) return { tag: "investimento", color: "var(--reserve)", categorizable: false };
@@ -314,6 +420,11 @@ function ImportModal({ onClose, onDone }) {
     if (r.flow === "income") return { tag: "receita", color: "var(--pos)", categorizable: true };
     return { tag: "despesa", color: "var(--neg)", categorizable: true };
   };
+  /**
+   * @brief Devolve cor e sinal do valor de uma linha do preview.
+   * @param r linha do staging
+   * @return {color, sign} — sinal segue o `flow`, cor segue a espécie
+   */
   const amtMeta = r => {
     const _self = isSelf(r);
     const _invest = isInvest(r);
@@ -322,6 +433,11 @@ function ImportModal({ onClose, onDone }) {
       sign: r.flow === "expense" ? "−" : "+",
     };
   };
+  /**
+   * @brief Monta o chip que anuncia a classificação da linha.
+   * @param cls resultado de classifyRow
+   * @return elemento React <span>
+   */
   const TagChip = (cls) => h("span", {
     title: `Será classificado como ${cls.tag}`,
     style: {
@@ -332,6 +448,16 @@ function ImportModal({ onClose, onDone }) {
     },
   }, cls.tag);
 
+  /**
+   * @brief Monta o select de categoria de uma linha do preview.
+   *
+   * Com sugestão pendente, o select já a EXIBE mas `category_id` segue null —
+   * quem grava é o confirm (suggest-only); o selo "sugerido" marca a diferença.
+   *
+   * @param g grupo (dá account e batch_id do PATCH)
+   * @param r linha do staging
+   * @return elemento React com o select e o selo de sugestão
+   */
   const CategorySelect = (g, r) => {
     const list = cats[r.flow] || [];
     const showingSuggestion = r.category_id == null && r.suggested_category_id != null;
@@ -363,6 +489,17 @@ function ImportModal({ onClose, onDone }) {
     );
   };
 
+  /**
+   * @brief Renderiza o card de preview de uma conta.
+   *
+   * Só as linhas novas são listadas; as duplicadas ficam ocultas e viram
+   * contagem. A "Ajuste de Saldo" aparece quando os valores editados divergem
+   * do extrato original — editar valor é permitido, mas nunca silencioso.
+   *
+   * @param g grupo {account, batch_id, counts, rows, amount_divergence, err} —
+   *        `amount_divergence` em REAIS
+   * @return elemento React do card
+   */
   const renderTxGroup = (g) => {
     const rows = rowsByGroup[g.account] || g.rows || [];
     const newRows = groupNew(g.account);
@@ -440,6 +577,11 @@ function ImportModal({ onClose, onDone }) {
     );
   };
 
+  /**
+   * @brief Renderiza o card de preview de um relatório B3.
+   * @param b {key, file, preview, err} — `preview.positions[].balance` em REAIS
+   * @return elemento React do card, com as posições novas e as atualizadas
+   */
   const renderB3 = (b) => h("div", { key: b.key, style: { border: "1px solid var(--line-1)", borderRadius: 12, overflow: "hidden" } },
     h("div", { style: { padding: "16px 20px", background: "var(--bg-1)", borderBottom: "1px solid var(--line-1)", display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--fg-2)" } },
       h("span", { style: { fontWeight: 700, fontSize: 14, color: "var(--fg-0)" } }, "Relatório B3 — posições"),

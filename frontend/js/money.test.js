@@ -1,7 +1,17 @@
+/**
+ * @file money.test.js
+ * @brief Rede de testes das espécies de dinheiro: precedência, exaustividade e
+ *        equivalência com a regra consumo-despesa do CLAUDE.md.
+ */
 const { test } = require("node:test");
 const assert = require("node:assert");
 const M = require("./money.js");
 
+/**
+ * @brief Monta uma transação de teste sobre um padrão de despesa PIX.
+ * @param o campos que sobrescrevem o padrão (`amount` em REAIS)
+ * @return objeto transação pronto pra moneyKind
+ */
 const tx = (o) => Object.assign(
   { flow: "expense", method: "pix", amount: 100, is_revenue: 0, is_settlement: 0, is_third_party: 0 },
   o,
@@ -79,8 +89,18 @@ test("equivale à regra consumo-despesa do CLAUDE.md em toda linha alcançável"
   // tem method='transfer' (selfPairs.ts a reescreve; o lançamento manual agora
   // recusa counterpart='SELF'). Se front e back divergirem aqui, o rodapé da
   // tabela deixa de bater com os KPIs.
+  /**
+   * @brief Reimplementa a regra canônica consumo-despesa (analytics.ts / CLAUDE.md).
+   * @param t transação candidata
+   * @return true quando a regra canônica contaria a linha como despesa de consumo
+   */
   const rule = (t) => t.flow === "expense" && t.method !== "transfer"
     && !t.is_settlement && !t.is_third_party && t.dest_account_id == null;
+  /**
+   * @brief Filtra as formas que a ingestão garante não existirem no ledger.
+   * @param t transação candidata
+   * @return false p/ perna SELF de saída fora de method='transfer' (inalcançável)
+   */
   const reachable = (t) => !(t.counterpart === "SELF" && t.method !== "transfer" && t.flow === "expense");
 
   let checked = 0;

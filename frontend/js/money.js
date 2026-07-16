@@ -1,3 +1,11 @@
+/**
+ * @file money.js
+ * @brief As espécies de dinheiro (KIND) e como elas aparecem — classificador,
+ *        cores, rótulos e formatação. Puro, sem React/DOM.
+ *
+ * UNIDADE: `t.amount` vem da API em REAIS (float). Centavos inteiros só
+ * existem no ledger/backend.
+ */
 /* money.js — as espécies de dinheiro e como elas aparecem.
    Puro (sem React/DOM). UMD dual tail: node require + window.BS. */
 (function (root, factory) {
@@ -37,8 +45,18 @@
     EXPENSE:     "expense",      // despesa de consumo
   };
 
-  /** Espécie da linha. `null` p/ tx ausente — os callers passam tx possivelmente
-   *  indefinida, e devolver EXPENSE faria `isConsumptionExpense(null)` virar true. */
+  /**
+   * @brief Classifica uma linha do ledger em exatamente uma espécie.
+   *
+   * Espécie da linha. `null` p/ tx ausente — os callers passam tx possivelmente
+   * indefinida, e devolver EXPENSE faria `isConsumptionExpense(null)` virar true.
+   *
+   * A ordem dos testes abaixo é a precedência documentada no topo do arquivo:
+   * mexer nela muda a classificação e quebra os totais.
+   *
+   * @param t transação (`amount` em REAIS); pode vir null/undefined
+   * @return uma das constantes KIND, ou null quando `t` é ausente
+   */
   function moneyKind(t) {
     if (!t) return null;
     if (t.is_settlement) return KIND.SETTLEMENT;
@@ -81,7 +99,14 @@
   /* Espécies que entram nos totais do rodapé. As outras são informativas. */
   const COUNTS_AS = { [KIND.REVENUE]: "in", [KIND.EXPENSE]: "out", [KIND.INVEST]: "invest" };
 
-  /* Sinal contábil: descreve a direção do dinheiro, mesmo em espécie que não soma. */
+  /**
+   * @brief Devolve o sinal contábil da linha.
+   *
+   * Sinal contábil: descreve a direção do dinheiro, mesmo em espécie que não soma.
+   *
+   * @param t transação (só `flow` é lido)
+   * @return "+" quando é entrada (flow='income'), "−" caso contrário
+   */
   function kindSign(t) {
     return (t && t.flow === "income") ? "+" : "−";
   }
@@ -89,6 +114,12 @@
   /* ── Formatação ──────────────────────────────────────────────────────────
      fmtParts decompõe pra UI atenuar os centavos. fmtBRL (primitives.js) segue
      existindo pros callers que querem string pronta (title/aria-label). */
+  /**
+   * @brief Formata um valor em pt-BR e separa a parte inteira dos centavos.
+   * @param v valor em REAIS; o sinal é ignorado (quem pinta o sinal é kindSign)
+   * @param opts.decimals casas decimais (padrão 2; 0 devolve cents vazio)
+   * @return {int, cents} — `int` já com separador de milhar, `cents` incluindo a vírgula
+   */
   function fmtParts(v, opts = {}) {
     const { decimals = 2 } = opts;
     const n = Math.abs(v ?? 0);

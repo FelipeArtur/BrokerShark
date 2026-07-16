@@ -1,3 +1,8 @@
+/**
+ * @file tx-group.js
+ * @brief Agrupamento da tabela de lançamentos por categoria/espécie, com alvo,
+ *        Δ vs. mês anterior e escala tipográfica. Puro, sem React/DOM.
+ */
 /* tx-group.js — agrupamento da tabela. Puro. UMD dual tail: node require + window.BS. */
 (function (root, factory) {
   const api = factory(
@@ -15,6 +20,11 @@
      agrupá-los por categoria jogaria os quatro no balde "Sem categoria" junto
      com os gastos que você realmente esqueceu de categorizar, que é justo o que
      você precisa achar ali. */
+  /**
+   * @brief Devolve a chave do grupo de uma transação.
+   * @param t transação (`amount` em REAIS)
+   * @return "cat:<id>" p/ despesa/receita (0 = sem categoria), ou "kind:<espécie>"
+   */
   function groupKeyOf(t) {
     const k = moneyKind(t);
     if (k === KIND.EXPENSE || k === KIND.REVENUE) return `cat:${t.category_id ?? 0}`;
@@ -24,7 +34,7 @@
   const UNCATEGORIZED = "Sem categoria";
 
   /**
-   * Agrupa as transações já filtradas.
+   * @brief Agrupa as transações já filtradas.
    *
    * UNIDADE: tudo aqui dentro é REAIS, igual ao resto do front (a API manda
    * `amount` em reais; só o ledger é centavos). `budget_cents`/`prev_spent_cents`
@@ -34,6 +44,9 @@
    * @param txs lista de transações (amount em reais)
    * @param catsById Map(id → {name, flow, budget_cents, budget_source, prev_spent_cents})
    * @returns grupos ordenados: categorias por total desc, espécies no fim.
+   *          Cada grupo traz {key, kind, isCat, categoryId, label, txs, total,
+   *          count, maxAmount, budget, budgetSource, prevSpent} — total/budget/
+   *          prevSpent/maxAmount em REAIS.
    */
   function buildGroups(txs, catsById) {
     const cats = catsById || new Map();
@@ -74,6 +87,11 @@
 
   /* Δ vs. mês anterior, em fração. null quando não há base (mês anterior zerado:
      "subiu ∞%" não informa nada). */
+  /**
+   * @brief Calcula a variação do grupo contra o mesmo grupo no mês anterior.
+   * @param g grupo de buildGroups (total e prevSpent em REAIS)
+   * @return fração assinada (0.5 = +50%), ou null quando não há base de comparação
+   */
   function groupDelta(g) {
     if (g.prevSpent == null || g.prevSpent === 0) return null;
     return (g.total - g.prevSpent) / g.prevSpent;
@@ -83,6 +101,12 @@
      Escala local, não global — senão o mês do aluguel achata todo o resto.
      Teto e piso fixos: legibilidade não é negociável. */
   const SCALE_MIN = 11, SCALE_MAX = 15;
+  /**
+   * @brief Devolve o corpo de fonte do valor, proporcional à fatia no grupo.
+   * @param amount valor da linha em REAIS (o sinal é ignorado)
+   * @param maxAmount maior valor DO MESMO grupo, em reais; 0/ausente devolve o piso
+   * @return corpo em px entre SCALE_MIN e SCALE_MAX, com uma casa decimal
+   */
   function scaleFor(amount, maxAmount) {
     if (!maxAmount || maxAmount <= 0) return SCALE_MIN;
     const share = Math.min(1, Math.abs(amount) / maxAmount);
@@ -92,6 +116,12 @@
   /* Estado do alvo (spent e budget em REAIS). Sem verde pra "dentro do alvo":
      verde já significa receita, e reusar quebraria a semântica das espécies.
      null = sem alvo, que a UI mostra diferente de "alvo de R$ 0,00". */
+  /**
+   * @brief Traduz gasto vs. alvo em razão e cor da barra.
+   * @param spent gasto do grupo em REAIS
+   * @param budget alvo do grupo em REAIS; null/≤0 = sem alvo
+   * @return {ratio, color} — neutro < 80%, atenção 80–100%, estouro > 100% — ou null
+   */
   function budgetState(spent, budget) {
     if (budget == null || budget <= 0) return null;
     const ratio = spent / budget;

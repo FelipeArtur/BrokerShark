@@ -1,8 +1,18 @@
+/**
+ * @file tx-group.test.js
+ * @brief Testes do agrupamento da tabela: espécie vira grupo próprio, conversão
+ *        centavos→reais na fronteira, alvo, Δ e escala local ao grupo.
+ */
 const { test } = require("node:test");
 const assert = require("node:assert");
 const G = require("./tx-group.js");
 const M = require("./money.js");
 
+/**
+ * @brief Monta uma transação de teste (despesa PIX de R$ 100 em "Mercado").
+ * @param o campos que sobrescrevem o padrão (`amount` em REAIS)
+ * @return objeto transação pronto pra buildGroups
+ */
 const tx = (o) => Object.assign(
   { id: 1, flow: "expense", method: "pix", amount: 100, category_id: 1, category: "Mercado",
     is_revenue: 0, is_settlement: 0, is_third_party: 0 },
