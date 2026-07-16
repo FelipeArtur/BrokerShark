@@ -14,7 +14,7 @@ import { currentMonth, monthRange } from "../domain/dates.ts";
 /** Somas de um período: receita real, despesa de consumo, fluxo de investimento. */
 const FLOW_SUMS = `
   COALESCE(SUM(CASE
-    WHEN t.flow='income' AND t.is_revenue=1
+    WHEN t.flow='income' AND t.is_revenue=1 AND t.is_third_party=0
     THEN t.amount_cents ELSE 0 END), 0) AS income_cents,
   COALESCE(SUM(CASE
     WHEN t.flow='expense' AND t.method != 'transfer'

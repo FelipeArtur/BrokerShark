@@ -11,6 +11,11 @@ test("despesa de consumo", () => {
   assert.equal(M.moneyKind(tx({ flow: "expense", method: "pix" })), M.KIND.EXPENSE);
 });
 
+test("tx ausente é null, não EXPENSE — senão isConsumptionExpense(null) vira true", () => {
+  assert.equal(M.moneyKind(null), null);
+  assert.equal(M.moneyKind(undefined), null);
+});
+
 test("receita real exige is_revenue=1", () => {
   assert.equal(M.moneyKind(tx({ flow: "income", method: "pix", is_revenue: 1 })), M.KIND.REVENUE);
 });

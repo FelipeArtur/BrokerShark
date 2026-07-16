@@ -6,9 +6,9 @@
   <title>BrokerShark — Painel Financeiro</title>
   <link rel="icon" type="image/x-icon" href="/static/img/favicon.ico" />
   <!-- Self-hosted fonts (vendored, no Google Fonts) → app is fully offline. -->
-  <link rel="stylesheet" href="/static/css/fonts.css?v=42" />
-  <link rel="stylesheet" href="/static/css/style.css?v=42" />
-  <link rel="stylesheet" href="/static/css/pixel.css?v=42" />
+  <link rel="stylesheet" href="/static/css/fonts.css?v=43" />
+  <link rel="stylesheet" href="/static/css/style.css?v=44" />
+  <link rel="stylesheet" href="/static/css/pixel.css?v=44" />
 </head>
 <body>
   <div id="root"></div>
@@ -21,18 +21,23 @@
   <script src="/static/js/vendor/chart.umd.min.js"></script>
 
   <!-- App scripts — plain JS, execute in order (shared global scope via window.BS) -->
-  <script src="/static/js/api.js?v=42"></script>
-  <script src="/static/js/icons.js?v=42"></script>
-  <script src="/static/js/primitives.js?v=42"></script>
-  <script src="/static/js/filter.js?v=42"></script>
-  <script src="/static/js/meta.js?v=42"></script>
-  <script src="/static/js/juice.js?v=42"></script>
-  <script src="/static/js/modal-transaction.js?v=42"></script>
-  <script src="/static/js/modal-import.js?v=42"></script>
-  <script src="/static/js/view-overview.js?v=42"></script>
-  <script src="/static/js/view-history.js?v=42"></script>
-  <script src="/static/js/pixel-bars.js?v=42"></script>
-  <script src="/static/js/view-dashboard.js?v=42"></script>
-  <script src="/static/js/app.js?v=42"></script>
+  <script src="/static/js/api.js?v=43"></script>
+  <script src="/static/js/icons.js?v=43"></script>
+  <!-- money.js antes de tx-group.js e primitives.js: os dois consomem moneyKind
+       via window.BS no momento em que o factory roda. -->
+  <script src="/static/js/money.js?v=43"></script>
+  <script src="/static/js/tx-group.js?v=43"></script>
+  <script src="/static/js/primitives.js?v=43"></script>
+  <script src="/static/js/filter.js?v=43"></script>
+  <script src="/static/js/meta.js?v=43"></script>
+  <script src="/static/js/juice.js?v=43"></script>
+  <script src="/static/js/modal-transaction.js?v=43"></script>
+  <script src="/static/js/modal-import.js?v=43"></script>
+  <script src="/static/js/modal-bulk.js?v=43"></script>
+  <script src="/static/js/view-overview.js?v=43"></script>
+  <script src="/static/js/view-history.js?v=43"></script>
+  <script src="/static/js/pixel-bars.js?v=43"></script>
+  <script src="/static/js/view-dashboard.js?v=43"></script>
+  <script src="/static/js/app.js?v=43"></script>
 </body>
 </html>

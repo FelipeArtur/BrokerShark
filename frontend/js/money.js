@@ -37,8 +37,10 @@
     EXPENSE:     "expense",      // despesa de consumo
   };
 
+  /** Espécie da linha. `null` p/ tx ausente — os callers passam tx possivelmente
+   *  indefinida, e devolver EXPENSE faria `isConsumptionExpense(null)` virar true. */
   function moneyKind(t) {
-    if (!t) return KIND.EXPENSE;
+    if (!t) return null;
     if (t.is_settlement) return KIND.SETTLEMENT;
     if (t.counterpart === "SELF" || t.dest_account_id != null) return KIND.TRANSFER;
     if (t.method === "transfer" || (t.flow === "income" && !t.is_revenue)) return KIND.INVEST;

@@ -14,6 +14,39 @@ function fmtBRL(v, opts = {}) {
   if (sign === "neg-only") return n < 0 ? "−" + s : s;
   return n < 0 ? "−" + s : s;
 }
+/* ── Money ────────────────────────────────────────────────────────────────
+   Um valor monetário. O SINAL carrega a cor da espécie; o número fica neutro
+   — com 6 espécies, pintar o número inteiro vira arco-íris numa tabela de 300
+   linhas. Os centavos entram atenuados e menores: o olho pega a ordem de
+   grandeza primeiro, que é o que se lê numa varredura.
+
+   `emphasis: true` pinta o número todo — pra poucos e grandes (KPI herói,
+   cabeçalho de grupo), onde a cor informa em vez de poluir.                  */
+function Money({ t, value, kind, size, emphasis = false, strike = false, title }) {
+  const h = React.createElement;
+  const k = kind || (t ? window.BS.moneyKind(t) : null);
+  const v = value != null ? value : (t ? t.amount : 0);
+  const sign = t ? window.BS.kindSign(t) : (v < 0 ? "−" : "+");
+  const color = k ? window.BS.KIND_COLOR[k] : "var(--fg-1)";
+  const { int, cents } = window.BS.fmtParts(v);
+  const dim = k === "settlement" ? 0.6 : 1;
+
+  return h("span", {
+    className: "mono",
+    title: title || (k ? window.BS.KIND_HINT[k] : undefined),
+    style: {
+      display: "inline-flex", alignItems: "baseline", gap: 2, opacity: dim,
+      textDecoration: strike ? "line-through" : "none",
+      fontSize: size ? `${size}px` : undefined,
+      fontVariantNumeric: "tabular-nums",
+    },
+  },
+    h("span", { style: { color, fontWeight: 700 } }, sign),
+    h("span", { style: { color: emphasis ? color : "var(--fg-1)", fontWeight: 600 } }, "R$ ", int),
+    cents && h("span", { style: { color: "var(--fg-3)", fontSize: "0.78em", fontWeight: 500 } }, cents)
+  );
+}
+
 function fmtBRLCompact(v) {
   const n = Math.abs(v ?? 0);
   if (n >= 1_000_000) return "R$ " + (n / 1_000_000).toFixed(1).replace(".", ",") + "M";
@@ -451,37 +484,52 @@ function BrokerSharkLogo({ size = 28 }) {
 }
 
 /* ── TxRow ──────────────────────────────────────────────────────────────── */
-const TxRow = React.memo(({ t, cols, onEditCategory, onApplySuggestion, catsByFlow, onInlineCategory }) => {
+const TxRow = React.memo(({ t, cols, onEditCategory, onApplySuggestion, catsByFlow, onInlineCategory,
+                           amountSize, selected, onToggleSelect, runningBalance }) => {
   const h = React.createElement;
-  const isThirdParty = !!t.is_third_party;
-  // Non-consumption cash legs (shared classifiers — window.BS.isSelf / isInvest)
-  const _self   = isSelf(t);
-  const _invest = isInvest(t);
-  const _settle = !!t.is_settlement;
-  const amtColor = _self || _settle ? "var(--info)" : _invest ? "var(--reserve)" : (t.flow === "expense" ? "var(--neg)" : "var(--pos)");
+  const K = window.BS.KIND;
+  const kind = window.BS.moneyKind(t);
+  const isThirdParty = kind === K.THIRD_PARTY;
+  const _self   = kind === K.TRANSFER;
+  const _invest = kind === K.INVEST;
+  const _settle = kind === K.SETTLEMENT;
   const rows = [
-    h("tr", { 
-      key: t.id, 
+    h("tr", {
+      key: t.id,
+      className: selected ? "row-active" : undefined,
       onClick: () => onEditCategory && onEditCategory(t),
-      style: { cursor: "pointer", opacity: isThirdParty ? 0.6 : 1, filter: isThirdParty ? "grayscale(100%)" : "none" }
+      // Third-party não é mais grayscale: tem cor própria (--warn) e some dos
+      // totais. Apagar a linha inteira escondia uma pendência que precisa voltar.
+      style: { cursor: "pointer" }
     },
+      onToggleSelect && h("td", { style: { width: 28 }, onClick: e => e.stopPropagation() },
+        h("input", {
+          type: "checkbox", checked: !!selected, "aria-label": "Selecionar lançamento",
+          onChange: () => onToggleSelect(t), style: { cursor: "pointer" },
+        })
+      ),
       cols.includes("date") && h("td", { className: "mono", style: { color: "var(--fg-3)", fontSize: 10 } }, fmtDateBR(t.date)),
       cols.includes("desc") && h("td", { style: { maxWidth: cols.includes("account") ? 260 : "none" } },
         h("div", { style: { display: "flex", flexDirection: "column", gap: 2, overflow: "hidden" } },
           h("div", { style: { display: "flex", alignItems: "center", gap: 6, overflow: "hidden" } },
-            h("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: isThirdParty ? "var(--fg-3)" : "var(--fg-0)", fontWeight: 700, fontSize: 13, textDecoration: isThirdParty ? "line-through" : "none" } }, t.display_name || prettifyDesc(t.description)),
-            isThirdParty && h("span", { title: "Despesa de terceiros: não contabilizada", style: { fontSize: 9, padding: "2px 6px", borderRadius: 4, border: "1px dashed var(--fg-3)", color: "var(--fg-2)", fontWeight: 600, flexShrink: 0 } }, "TERCEIROS")
+            h("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--fg-0)", fontWeight: 700, fontSize: 13 } }, t.display_name || prettifyDesc(t.description)),
+            isThirdParty && h("span", { title: window.BS.KIND_HINT[K.THIRD_PARTY], style: { fontSize: 9, padding: "2px 6px", borderRadius: 4, border: "1px dashed var(--warn)", color: "var(--warn)", fontWeight: 600, flexShrink: 0 } }, "TERCEIROS")
           ),
           h("span", { style: { fontSize: 10, color: "var(--fg-3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, t.description)
         )
       ),
       cols.includes("cat") && h("td", null,
-        _settle
-          ? h("span", { className: "data-tag", style: { borderColor: "color-mix(in oklch, var(--info) 30%, transparent)", color: "var(--info)" }, title: "liquidação de fatura — os gastos reais são os itens da fatura; contar o pagamento dobraria o consumo" }, "pagamento de fatura")
-          : _self
-          ? h("span", { className: "data-tag", style: { borderColor: "color-mix(in oklch, var(--info) 30%, transparent)", color: "var(--info)" }, title: "transferência entre suas contas — não conta como despesa nem receita" }, "transferência")
-          : _invest
-            ? h("span", { className: "data-tag", style: { borderColor: "color-mix(in oklch, var(--reserve) 30%, transparent)", color: "var(--reserve)" }, title: "movimento de investimento — não conta como despesa nem receita" }, "investimento")
+        (_settle || _self || _invest || isThirdParty)
+          // Espécie não-categorizável: a tag diz o que é, na cor da espécie.
+          ? h("span", {
+              className: "data-tag",
+              title: window.BS.KIND_HINT[kind],
+              style: {
+                borderColor: `color-mix(in oklch, ${window.BS.KIND_COLOR[kind]} 30%, transparent)`,
+                color: window.BS.KIND_COLOR[kind],
+              },
+            }, { settlement: "pagamento de fatura", transfer: "transferência",
+                 invest: "investimento", third_party: "de terceiros" }[kind])
             : (onInlineCategory && catsByFlow)
               // Recategorização inline: select em vez do rótulo estático.
               ? h("select", {
@@ -522,12 +570,14 @@ const TxRow = React.memo(({ t, cols, onEditCategory, onApplySuggestion, catsByFl
       cols.includes("method") && h("td", { className: "mono", style: { fontSize: 10, color: "var(--fg-2)", textTransform: "uppercase" } },
         ({ pix: "PIX", pix_received: "PIX", credit: "CRÉDITO", ted: "TED", transfer: "TRANSF", debit: "DÉBITO", salary: "SALÁRIO", freelance: "FREELA" })[t.method] || t.method || "—"),
       cols.includes("amount") && h("td", { className: "num" },
-        h("div", { style: { display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 6, width: "100%" } },
-          h("span", { style: { color: "var(--fg-3)", fontSize: 10 } }, t.flow === "expense" ? "−" : "+"),
-          h("span", { style: { color: amtColor, fontWeight: 600, textDecoration: isThirdParty ? "line-through" : "none" } },
-            fmtBRL(t.amount)
-          )
+        h("div", { style: { display: "flex", justifyContent: "flex-end", width: "100%" } },
+          h(Money, { t, size: amountSize })
         )
+      ),
+      // Saldo corrente: só existe agrupamento-off + conta única + ordem por data
+      // (ver TxTableWidget). Fora disso a coluna nem é pedida.
+      cols.includes("balance") && h("td", { className: "num mono", style: { fontSize: 10, color: "var(--fg-3)" } },
+        runningBalance == null ? "—" : fmtBRL(runningBalance)
       )
     )
   ];
@@ -542,25 +592,29 @@ const TxRow = React.memo(({ t, cols, onEditCategory, onApplySuggestion, catsByFl
   prev.t.is_third_party === next.t.is_third_party &&
   prev.t.display_name === next.t.display_name &&
   prev.t.suggested_category_id === next.t.suggested_category_id &&
+  prev.t.counterpart === next.t.counterpart &&
+  prev.t.is_settlement === next.t.is_settlement &&
+  prev.t.method === next.t.method &&
+  prev.amountSize === next.amountSize &&
+  prev.selected === next.selected &&
+  prev.runningBalance === next.runningBalance &&
+  prev.onToggleSelect === next.onToggleSelect &&
   prev.onEditCategory === next.onEditCategory &&
   prev.onApplySuggestion === next.onApplySuggestion &&
   prev.catsByFlow === next.catsByFlow &&
   prev.onInlineCategory === next.onInlineCategory
 );
 
-// ── Transaction classification (single source — mirrors the backend rule) ──────
-// Same semantics as the consumption-expense rule in CLAUDE.md: flow='expense' AND
-// method != 'transfer' AND is_settlement=0 AND is_third_party=0 AND dest_account_id
-// IS NULL. The v2 API returns ALL legs (settlements included) — the client must
-// apply the full rule, otherwise a fatura payment double-counts against its own
-// itemized charges. Null-safe so callers can pass a possibly-undefined tx.
-// Keep these the ONLY copies in the front.
-const isSelf               = t => t?.counterpart === "SELF";
-const isConsumptionExpense = t => t?.flow === "expense" && t.method !== "transfer"
-  && !t.is_settlement && !t.is_third_party && t.dest_account_id == null;
-const isRevenue            = t => t?.flow === "income"  && t.is_revenue === 1 && !t.is_third_party;
-const isInvest             = t => !!t && !isSelf(t) && !t.is_settlement
-  && (t.method === "transfer" || (t.flow === "income" && !t.is_revenue));
+// ── Transaction classification ────────────────────────────────────────────────
+// Derivados de moneyKind (money.js) — a ÚNICA regra do front. Antes eram quatro
+// predicados independentes, o que deixava is_third_party sem espécie: saía dos
+// totais mas era pintado como consumo. Ver money.js pra ordem de precedência e
+// pra equivalência com a regra consumo-despesa do CLAUDE.md.
+const isConsumptionExpense = t => window.BS.moneyKind(t) === "expense";
+const isRevenue            = t => window.BS.moneyKind(t) === "revenue";
+const isInvest             = t => window.BS.moneyKind(t) === "invest";
+const isSelf               = t => window.BS.moneyKind(t) === "transfer";
+const isThirdParty         = t => window.BS.moneyKind(t) === "third_party";
 
 // ── FilterBar (faceted-filter chip strip) ───────────────────────────────────
 function FilterBar({ filter, onRemove, onClear }) {
@@ -587,8 +641,8 @@ Object.assign(window.BS, {
   PT_MONTHS, PT_SHORT, fmtCycleDate,
   DualLine, Donut,
   Modal, Drawer, useToasts, BankChip, SegmentControl,
-  BrokerSharkLogo, TxRow, FilterBar,
-  isSelf, isConsumptionExpense, isRevenue, isInvest,
+  BrokerSharkLogo, TxRow, FilterBar, Money,
+  isSelf, isConsumptionExpense, isRevenue, isInvest, isThirdParty,
 });
 
 /* ── SingleAreaChart ───────────────────────────────────────────────────────────── */

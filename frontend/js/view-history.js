@@ -1,14 +1,14 @@
 /* IIFE-wrapped: own scope (replaces Babel's per-file isolation) */
 (function () {
 /* view-history.js — TxTableWidget: a "planilha" do painel.
-   Todos os lançamentos do mês selecionado, sempre carregados: filtros +
-   ordenação por cabeçalho + coluna de método + linha de totais fixa.
-   Scroll é interno ao widget — a página nunca rola. */
+   Lançamentos do mês selecionado, agrupados por categoria (espécie contábil
+   vira grupo próprio). Cabeçalho de grupo carrega o contexto — total, alvo,
+   Δ vs. mês anterior — e a linha fica limpa. Scroll é interno ao widget. */
 /* global React, fetchMonthTransactions, fetchCategoriesFull,
           patchTransactionCategory, fetchUncategorizedMerchants, categorizeBulk */
 
-const { useState: _s2St, useEffect: _s2Ef, useMemo: _s2Memo } = React;
-const { fmtBRL, PT_MONTHS, isConsumptionExpense, isRevenue } = window.BS;
+const { useState: _s2St, useEffect: _s2Ef, useMemo: _s2Memo, useCallback: _s2Cb } = React;
+const { fmtBRL, PT_MONTHS, isConsumptionExpense, isRevenue, isInvest } = window.BS;
 
 /* Chave de ordenação por coluna — datas/valores comparam certo, texto em pt-BR */
 const SORT_KEYS = {
@@ -21,12 +21,22 @@ const SORT_KEYS = {
   amount:   t => t.flow === "expense" ? -t.amount : t.amount,
 };
 
-function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkConsumed, monthTx, setMonthTx, filter, setFilterField, onToggleFacet }) {
+const COLLAPSE_KEY = "bs.tableCollapsed";
+const loadCollapsed = () => {
+  try { return new Set(JSON.parse(localStorage.getItem(COLLAPSE_KEY) || "[]")); }
+  catch { return new Set(); }
+};
+
+function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkConsumed, monthTx, setMonthTx,
+                         filter, setFilterField, onToggleFacet, accounts, catsIndex, isLatestMonth }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   const [bulkGroups, setBulkGroups] = _s2St([]);
   const [bulkOpen, setBulkOpen] = _s2St(false);
   const [sort, setSort] = _s2St({ key: "date", dir: -1 });  // mais recente primeiro
   const [catsByFlow, setCatsByFlow] = _s2St({ expense: [], income: [] });
+  const [grouped, setGrouped] = _s2St(true);
+  const [collapsed, setCollapsed] = _s2St(loadCollapsed);
+  const [selected, setSelected] = _s2St(() => new Set());
 
   _s2Ef(() => {
     Promise.all([fetchCategoriesFull("expense"), fetchCategoriesFull("income")])
@@ -48,6 +58,15 @@ function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkC
     const handler = e => setMonthTx(prev => prev.filter(tx => tx.id !== e.detail.id));
     window.addEventListener("bs-tx-optimistic-delete", handler);
     return () => window.removeEventListener("bs-tx-optimistic-delete", handler);
+  }, []);
+
+  const toggleCollapse = _s2Cb((key) => {
+    setCollapsed(prev => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      localStorage.setItem(COLLAPSE_KEY, JSON.stringify([...next]));
+      return next;
+    });
   }, []);
 
   const uncatCount = bulkGroups.reduce((s, g) => s + g.count, 0);
@@ -87,12 +106,73 @@ function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkC
     });
   }, [filteredTx, sort]);
 
+  const groups = _s2Memo(
+    () => grouped ? window.BS.buildGroups(sortedTx, catsIndex) : [],
+    [grouped, sortedTx, catsIndex],
+  );
+
+  /* ── Saldo corrente ───────────────────────────────────────────────────────
+     Só é VERDADE sob todas estas condições, e mostrar um saldo errado é pior
+     que não mostrar saldo nenhum:
+
+     - uma conta só      — somar Nubank com Inter não produz "saldo" de nada;
+     - sem agrupamento   — saldo é cronológico; agrupado por categoria, não é;
+     - ordenado por data — fora da ordem cronológica, saldo é mentira;
+     - mês mais recente  — o único ponto de partida disponível é o saldo ATUAL
+                           da conta (/api/accounts). Contar pra trás só fecha se
+                           não houver lançamento DEPOIS do mês exibido; num mês
+                           antigo o número seria silenciosamente errado.
+
+     O cálculo caminha sobre TODOS os lançamentos da conta no mês, não sobre a
+     lista filtrada: uma busca ativa esconde linhas, e pular uma linha
+     corromperia o saldo de todas as outras. As linhas visíveis mostram o saldo
+     real da conta após aquele lançamento, filtro ou não. */
+  const singleAccount = filter.accounts.size === 1 ? [...filter.accounts][0] : null;
+  const showBalance = !grouped && !!singleAccount && sort.key === "date" && !!isLatestMonth;
+  const balanceById = _s2Memo(() => {
+    if (!showBalance) return null;
+    const acct = (accounts || []).find(a => a.id === singleAccount);
+    if (!acct || acct.balance == null) return null;
+    const chrono = monthTx
+      .filter(t => t.account_id === singleAccount)
+      .sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id);
+    const map = new Map();
+    let bal = acct.balance;
+    for (let i = chrono.length - 1; i >= 0; i--) {
+      map.set(chrono[i].id, bal);
+      bal += (chrono[i].flow === "expense" ? chrono[i].amount : -chrono[i].amount);
+    }
+    return map;
+  }, [showBalance, singleAccount, accounts, monthTx]);
+
   const toggleSort = key =>
     setSort(prev => prev.key === key ? { key, dir: -prev.dir } : { key, dir: key === "date" || key === "amount" ? -1 : 1 });
 
+  // Totais do recorte filtrado (não do mês) — o rodapé responde sobre o que está listado.
   const filtExp = filteredTx.filter(isConsumptionExpense).reduce((s, t) => s + t.amount, 0);
   const filtInc = filteredTx.filter(isRevenue).reduce((s, t) => s + t.amount, 0);
+  // Investido: Σ da espécie invest, líquido (aplicação − resgate). Fora do Saldo:
+  // investir não é gastar nem ganhar, é o dinheiro mudando de bolso.
+  const filtInv = filteredTx.filter(isInvest)
+    .reduce((s, t) => s + (t.flow === "expense" ? t.amount : -t.amount), 0);
   const hasFilter = window.BS.facetCount(filter) > 0;
+
+  const toggleSelect = _s2Cb((t) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      next.has(t.id) ? next.delete(t.id) : next.add(t.id);
+      return next;
+    });
+  }, []);
+
+  const toggleSelectGroup = (g) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      const all = g.txs.every(t => next.has(t.id));
+      g.txs.forEach(t => all ? next.delete(t.id) : next.add(t.id));
+      return next;
+    });
+  };
 
   const Th = (key, label, style) => h("th", {
     className: "sortable", style,
@@ -100,6 +180,43 @@ function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkC
     title: "Ordenar",
     "aria-sort": sort.key === key ? (sort.dir > 0 ? "ascending" : "descending") : "none",
   }, label, sort.key === key && h("span", { className: "sort-ind" }, sort.dir > 0 ? "▲" : "▼"));
+
+  const cols = ["date", "desc", "cat", "account", "method", "amount"];
+  if (showBalance) cols.push("balance");
+  const colSpan = cols.length + 1; // +1 do checkbox
+
+  const rowFor = (t, g) => h(window.BS.TxRow, {
+    key: t.id, t, cols,
+    amountSize: g ? window.BS.scaleFor(t.amount, g.maxAmount) : undefined,
+    selected: selected.has(t.id),
+    onToggleSelect: toggleSelect,
+    runningBalance: balanceById ? balanceById.get(t.id) : undefined,
+    onEditCategory,
+    catsByFlow,
+    onInlineCategory: async (tx, categoryId) => {
+      const list = catsByFlow[tx.flow] || [];
+      const catName = list.find(c => c.id === categoryId)?.name || "";
+      try {
+        await patchTransactionCategory(tx.id, categoryId);
+        setMonthTx(prev => prev.map(x => x.id === tx.id ? { ...x, category_id: categoryId, category: catName } : x));
+        window.dispatchEvent(new CustomEvent("bs-toast", { detail: { msg: `Categoria: ${catName}`, kind: "success" } }));
+      } catch (e) {
+        window.dispatchEvent(new CustomEvent("bs-toast", { detail: { msg: "Erro ao categorizar", kind: "error" } }));
+      }
+    },
+    // Sugestão do histórico (suggest-only): só grava neste clique.
+    onApplySuggestion: async (tx) => {
+      try {
+        await patchTransactionCategory(tx.id, tx.suggested_category_id);
+        window.dispatchEvent(new CustomEvent("bs-toast", { detail: { msg: `Categorizado como ${tx.suggested_category_name}`, kind: "success" } }));
+        setMonthTx(prev => prev.map(x => x.id === tx.id
+          ? { ...x, category_id: tx.suggested_category_id, category: tx.suggested_category_name }
+          : x));
+      } catch (e) {
+        window.dispatchEvent(new CustomEvent("bs-toast", { detail: { msg: "Erro ao atualizar", kind: "error" } }));
+      }
+    }
+  });
 
   return h("div", { className: "widget table-widget" },
 
@@ -119,6 +236,13 @@ function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkC
         }
       }, `lote · ${uncatCount}`),
       h("div", { style: { flex: 1 } }),
+      h("button", {
+        className: `filter-pill${grouped ? " active" : ""}`,
+        onClick: () => setGrouped(g => !g),
+        title: grouped
+          ? "Agrupado por categoria — desagrupe pra ver em ordem cronológica (e o saldo corrente, com uma conta filtrada)"
+          : "Lista corrida — agrupe pra ver totais e alvo por categoria",
+      }, grouped ? "agrupado" : "corrido"),
       h("div", { className: "filter-pills" },
         [["all", "Tudo"], ["expense", "Despesas"], ["income", "Receitas"]].map(([k, l]) =>
           h("button", { key: k, className: `filter-pill${filter.flow === k ? " active" : ""}`,
@@ -140,61 +264,73 @@ function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkC
     h("div", { className: "table-scroll" },
       h("table", { className: "grid-table" },
         h("thead", null, h("tr", null,
+          h("th", { style: { width: 28 } }),
           Th("date", "Data", { width: 70 }),
           Th("desc", "Descrição"),
           Th("cat", "Categoria", { width: 150 }),
           Th("account", "Conta", { width: 90 }),
           Th("method", "Método", { width: 80 }),
-          Th("amount", "Valor", { textAlign: "right", width: 120 })
+          Th("amount", "Valor", { textAlign: "right", width: 130 }),
+          showBalance && h("th", { style: { textAlign: "right", width: 100 }, title: "Saldo da conta após o lançamento" }, "Saldo")
         )),
         h("tbody", null,
-          sortedTx.length === 0 && h("tr", null, h("td", { colSpan: 6, style: { textAlign: "center", padding: 40, color: "var(--fg-3)", fontSize: 13 } },
+          sortedTx.length === 0 && h("tr", null, h("td", { colSpan, style: { textAlign: "center", padding: 40, color: "var(--fg-3)", fontSize: 13 } },
             monthTx.length === 0 ? "Nenhum lançamento neste mês." : "Nenhum lançamento com esses filtros.")),
-          ...sortedTx.map(t =>
-            h(window.BS.TxRow, {
-              key: t.id, t, cols: ["date", "desc", "cat", "account", "method", "amount"],
-              onEditCategory,
-              catsByFlow,
-              onInlineCategory: async (tx, categoryId) => {
-                const list = catsByFlow[tx.flow] || [];
-                const catName = list.find(c => c.id === categoryId)?.name || "";
-                try {
-                  await patchTransactionCategory(tx.id, categoryId);
-                  setMonthTx(prev => prev.map(x => x.id === tx.id ? { ...x, category_id: categoryId, category: catName } : x));
-                  window.dispatchEvent(new CustomEvent("bs-toast", { detail: { msg: `Categoria: ${catName}`, kind: "success" } }));
-                } catch (e) {
-                  window.dispatchEvent(new CustomEvent("bs-toast", { detail: { msg: "Erro ao categorizar", kind: "error" } }));
-                }
-              },
-              // Sugestão do histórico (suggest-only): só grava neste clique.
-              onApplySuggestion: async (tx) => {
-                try {
-                  await patchTransactionCategory(tx.id, tx.suggested_category_id);
-                  window.dispatchEvent(new CustomEvent("bs-toast", { detail: { msg: `Categorizado como ${tx.suggested_category_name}`, kind: "success" } }));
-                  setMonthTx(prev => prev.map(x => x.id === tx.id
-                    ? { ...x, category_id: tx.suggested_category_id, category: tx.suggested_category_name }
-                    : x));
-                } catch (e) {
-                  window.dispatchEvent(new CustomEvent("bs-toast", { detail: { msg: "Erro ao atualizar", kind: "error" } }));
-                }
-              }
-            })
-          )
+
+          ...(grouped
+            ? groups.flatMap(g => {
+                const isOpen = !collapsed.has(g.key);
+                const rows = [h(GroupHeader, {
+                  key: g.key, g, isOpen, colSpan,
+                  onToggle: () => toggleCollapse(g.key),
+                  onToggleSelect: () => toggleSelectGroup(g),
+                  allSelected: g.txs.every(t => selected.has(t.id)),
+                  onFacet: g.isCat && onToggleFacet ? () => onToggleFacet("categories", g.label) : null,
+                })];
+                if (isOpen) g.txs.forEach(t => rows.push(rowFor(t, g)));
+                return rows;
+              })
+            : sortedTx.map(t => rowFor(t, null)))
         )
       )
     ),
 
+    // Barra de ação da seleção — só existe quando há seleção
+    selected.size > 0 && h(SelectionBar, {
+      count: selected.size,
+      onClear: () => setSelected(new Set()),
+      catsByFlow,
+      onCategorize: async (categoryId) => {
+        const ids = [...selected];
+        const all = [...(catsByFlow.expense || []), ...(catsByFlow.income || [])];
+        const catName = all.find(c => c.id === categoryId)?.name || "";
+        try {
+          await categorizeBulk(ids, categoryId);
+          setMonthTx(prev => prev.map(x => ids.includes(x.id) ? { ...x, category_id: categoryId, category: catName } : x));
+          setSelected(new Set());
+          window.dispatchEvent(new CustomEvent("bs-toast", { detail: { msg: `${ids.length} categorizados: ${catName}`, kind: "success" } }));
+        } catch {
+          window.dispatchEvent(new CustomEvent("bs-toast", { detail: { msg: "Erro ao categorizar em lote", kind: "error" } }));
+        }
+      },
+    }),
+
     // Totais do que está listado — sempre visíveis (o "rodapé de planilha")
     h("div", { className: "table-totals" },
-      h("span", null, "Entradas ", h("span", { className: "mono", style: { color: "var(--pos)" } }, "+" + fmtBRL(filtInc))),
-      h("span", null, "Saídas ", h("span", { className: "mono", style: { color: "var(--neg)" } }, "−" + fmtBRL(filtExp))),
-      h("span", null, "Saldo ", h("span", { className: "mono", style: { color: (filtInc - filtExp) >= 0 ? "var(--pos)" : "var(--neg)" } },
-        ((filtInc - filtExp) >= 0 ? "+" : "−") + fmtBRL(Math.abs(filtInc - filtExp)))),
+      h("span", null, "Entradas ", h(window.BS.Money, { value: filtInc, kind: "revenue", emphasis: true, t: { flow: "income" } })),
+      h("span", null, "Saídas ", h(window.BS.Money, { value: filtExp, kind: "expense", emphasis: true, t: { flow: "expense" } })),
+      h("span", { title: "Aplicações menos resgates. Fora do Saldo: investir não é gastar nem ganhar." },
+        "Investido ", h(window.BS.Money, { value: Math.abs(filtInv), kind: "invest", emphasis: true, t: { flow: filtInv >= 0 ? "expense" : "income" } })),
+      h("span", null, "Saldo ", h(window.BS.Money, {
+        value: Math.abs(filtInc - filtExp), emphasis: true,
+        kind: (filtInc - filtExp) >= 0 ? "revenue" : "expense",
+        t: { flow: (filtInc - filtExp) >= 0 ? "income" : "expense" },
+      })),
       h("span", { style: { marginLeft: "auto", fontSize: 10, color: "var(--fg-3)" } },
-        `${monthLabel} · transferências e investimentos fora dos totais`)
+        `${monthLabel} · ${hasFilter ? "totais do recorte filtrado" : "transferências e liquidações fora dos totais"}`)
     ),
 
-    bulkOpen && h(BulkCategorizeModal, {
+    bulkOpen && h(window.BS.BulkCategorizeModal, {
       groups: bulkGroups, catsByFlow, monthLabel, onApply: applyBulk, onClose: () => setBulkOpen(false),
       onRefreshCats: async () => {
         const [exp, inc] = await Promise.all([fetchCategoriesFull("expense"), fetchCategoriesFull("income")]);
@@ -205,181 +341,70 @@ function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkC
   );
 }
 
-// Bulk-categorize panel: uncategorized transactions grouped by merchant (most-spent
-// first). Picking a category tags every occurrence at once (onApply → categorizeBulk).
-function BulkCategorizeModal({ groups, catsByFlow, monthLabel, onApply, onClose, onRefreshCats }) {
-  const h = (t, p, ...c) => React.createElement(t, p, ...c);
-  const [pendingCats, setPendingCats] = React.useState({});
-  const [creatingFor, setCreatingFor] = React.useState(null);
-  const [newCatName, setNewCatName] = React.useState("");
-  const [isSavingNew, setIsSavingNew] = React.useState(false);
-  const Modal = window.BS.Modal;
-  const prettify = window.BS.prettifyDesc || (s => s);
-  const total = groups.reduce((s, g) => s + g.count, 0);
-  const withSuggestions = groups.filter(g => g.suggested_category_id != null);
+/* ── GroupHeader — o contexto mora aqui, a linha fica limpa ─────────────────
+   Total, alvo e Δ são da categoria, não do café de R$ 3. A barra de alvo só
+   aparece em despesa COM alvo definido: sem alvo ≠ alvo zero. */
+function GroupHeader({ g, isOpen, colSpan, onToggle, onToggleSelect, allSelected, onFacet }) {
+  const h = React.createElement;
+  const st = window.BS.budgetState(g.total, g.budget);
+  const delta = window.BS.groupDelta(g);
+  const color = window.BS.KIND_COLOR[g.kind];
 
-  const applyAllSuggestions = async () => {
-    for (const g of withSuggestions) {
-      await onApply(g, g.suggested_category_id);
-    }
-  };
+  return h("tr", { className: "group-header" },
+    h("td", { style: { width: 28 }, onClick: e => e.stopPropagation() },
+      h("input", { type: "checkbox", checked: allSelected, onChange: onToggleSelect,
+        "aria-label": `Selecionar grupo ${g.label}`, style: { cursor: "pointer" } })
+    ),
+    h("td", { colSpan: colSpan - 1, onClick: onToggle, style: { cursor: "pointer" } },
+      h("div", { style: { display: "flex", alignItems: "center", gap: 10, width: "100%" } },
+        h("span", { className: "mono", style: { color: "var(--fg-3)", fontSize: 9, width: 8 } }, isOpen ? "▾" : "▸"),
+        h("span", {
+          style: { fontWeight: 700, fontSize: 12, color: g.isCat ? "var(--fg-0)" : color,
+            cursor: onFacet ? "pointer" : "inherit" },
+          onClick: onFacet ? (e => { e.stopPropagation(); onFacet(); }) : undefined,
+          title: onFacet ? "Filtrar por esta categoria" : window.BS.KIND_HINT[g.kind],
+        }, g.label),
+        h("span", { className: "mono", style: { fontSize: 9, color: "var(--fg-3)" } }, `${g.count}`),
 
-  const handleCreateNew = async (g) => {
-    if (!newCatName.trim() || isSavingNew) return;
-    setIsSavingNew(true);
-    try {
-      await postCategory(newCatName.trim(), g.flow);
-      const newLists = await onRefreshCats();
-      const list = newLists[g.flow] || [];
-      const createdCat = list.find(c => c.name.toLowerCase() === newCatName.trim().toLowerCase());
-      if (createdCat) await onApply(g, createdCat.id);
-      setCreatingFor(null); setNewCatName("");
-    } catch (e) {
-      alert("Erro ao criar categoria: " + e.message);
-    } finally { setIsSavingNew(false); }
-  };
+        h(window.BS.Money, { value: g.total, kind: g.kind, emphasis: true,
+          t: { flow: g.kind === "revenue" ? "income" : "expense" } }),
 
-  const stringToColor = (str) => {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
-    return `oklch(75% 0.14 ${Math.abs(hash % 360)})`;
-  };
-
-  return h(Modal, { open: true, onClose, title: `Categorizar em lote — ${monthLabel}`, width: 720 },
-    h("div", { style: { display: "flex", flexDirection: "column" } },
-      h("div", { style: { fontSize: 14, color: "var(--fg-2)", marginBottom: 20, lineHeight: 1.5 } },
-        groups.length === 0
-          ? `Tudo categorizado em ${monthLabel}. 🎉`
-          : `${groups.length} ${groups.length === 1 ? "comerciante aguarda" : "comerciantes aguardam"} categorização. Isso afetará ${total} transações neste mês de uma só vez.`),
-      
-      withSuggestions.length > 0 && h("div", {
-        style: {
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-          padding: "16px 20px", marginBottom: 24, borderRadius: 12,
-          background: "linear-gradient(135deg, color-mix(in oklch, var(--accent) 15%, transparent), color-mix(in oklch, var(--accent) 5%, transparent))",
-          border: "1px solid color-mix(in oklch, var(--accent) 20%, transparent)",
-          boxShadow: "inset 0 1px 0 color-mix(in oklch, white 10%, transparent)"
-        }
-      },
-        h("div", { style: { display: "flex", flexDirection: "column", gap: 4 } },
-          h("span", { style: { fontSize: 14, fontWeight: 800, color: "var(--fg-0)", letterSpacing: "-0.01em" } }, `Temos ${withSuggestions.length} sugest${withSuggestions.length === 1 ? "ão" : "ões"} automáticas`),
-          h("span", { style: { fontSize: 12, color: "var(--fg-2)" } }, "Baseadas no seu histórico de compras.")
+        // Barra de alvo — só despesa com alvo. Sem verde: verde é receita.
+        st && h("div", { style: { display: "flex", alignItems: "center", gap: 6, minWidth: 160 } },
+          h("div", { style: { flex: 1, height: 6, background: "var(--bg-2)", border: "1px solid var(--line-1)", minWidth: 60 } },
+            h("div", { style: { width: `${Math.min(100, st.ratio * 100)}%`, height: "100%", background: st.color } })
+          ),
+          h("span", { className: "mono", style: { fontSize: 9, color: st.color, fontWeight: 700 },
+            title: `Alvo ${g.budgetSource === "month" ? "só deste mês" : "fixo"}: ${fmtBRL(g.budget)}` },
+            `${Math.round(st.ratio * 100)}%`)
         ),
-        h("button", {
-          onClick: applyAllSuggestions,
-          title: "Aplica todas as categorias sugeridas com um clique",
-          style: {
-            cursor: "pointer", padding: "10px 18px", borderRadius: 8,
-            fontSize: 13, fontWeight: 700, color: "var(--bg-0)",
-            background: "var(--accent)", border: "none",
-            boxShadow: "0 4px 12px color-mix(in oklch, var(--accent) 40%, transparent)"
-          }
-        }, "Aceitar e aplicar")
-      ),
-      
-      h("div", { style: { display: "flex", flexDirection: "column", gap: 12, maxHeight: "55vh", overflowY: "auto", paddingRight: 4 } },
-        groups.map(g => {
-          const list = catsByFlow[g.flow] || [];
-          const isPending = !!pendingCats[g.merchant_key];
-          const displayName = prettify(g.sample_description);
-          const initial = displayName.charAt(0).toUpperCase();
-          const avatarColor = stringToColor(displayName);
-          
-          return h("div", {
-            key: `${g.flow}-${g.merchant_key}`,
-            style: {
-              display: "flex", alignItems: "center", gap: 16,
-              padding: "16px", borderRadius: 12,
-              background: "var(--bg-1)", border: "1px solid var(--line-1)",
-              boxShadow: "0 4px 12px oklch(0% 0 0 / 0.05)",
-              transition: "transform 0.2s, box-shadow 0.2s"
-            }
-          },
-            h("div", {
-              style: {
-                width: 44, height: 44, borderRadius: "50%",
-                background: `color-mix(in oklch, ${avatarColor} 12%, transparent)`,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                color: avatarColor, fontSize: 18, fontWeight: 700, flexShrink: 0
-              }
-            }, initial),
-            
-            h("div", { style: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 6 } },
-              h("div", { style: { fontSize: 15, fontWeight: 700, color: "var(--fg-0)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, displayName),
-              h("div", { style: { display: "flex", gap: 8, alignItems: "center" } },
-                h("span", { style: { fontSize: 11, color: "var(--fg-2)", background: "var(--bg-2)", padding: "3px 8px", borderRadius: 6, fontWeight: 600 } }, `${g.count} transaç${g.count === 1 ? "ão" : "ões"}`),
-                h("span", { className: "mono", style: { fontSize: 12, fontWeight: 700, color: g.flow === "income" ? "var(--pos)" : "var(--neg)" } }, (g.flow === "income" ? "+" : "−") + fmtBRL(Math.abs(g.total)))
-              )
-            ),
-            
-            h("div", { style: { display: "flex", alignItems: "center", gap: 12 } },
-              g.suggested_category_id != null && !isPending && creatingFor !== g.merchant_key && h("button", {
-                onClick: () => onApply(g, g.suggested_category_id),
-                title: "Aplicar sugestão inteligente",
-                style: {
-                  cursor: "pointer", padding: "8px 16px", borderRadius: 8,
-                  fontSize: 12, fontWeight: 700, color: "var(--accent)",
-                  background: "color-mix(in oklch, var(--accent) 15%, transparent)",
-                  border: "1px solid color-mix(in oklch, var(--accent) 30%, transparent)",
-                  transition: "background 0.2s"
-                }
-              }, `✨ ${g.suggested_category_name}`),
-              
-              h("div", { style: { display: "flex", gap: 8, alignItems: "center" } },
-                creatingFor === g.merchant_key ? h(React.Fragment, null,
-                  h("input", {
-                    autoFocus: true, placeholder: "Nome da nova categoria...",
-                    value: newCatName, onChange: e => setNewCatName(e.target.value),
-                    onKeyDown: e => {
-                      if (e.key === "Escape") { setCreatingFor(null); setNewCatName(""); }
-                      if (e.key === "Enter") handleCreateNew(g);
-                    },
-                    style: {
-                      height: 36, minWidth: 200, fontSize: 13, padding: "0 12px", borderRadius: 8,
-                      border: "1px solid var(--accent)", outline: "none", background: "var(--bg-0)", color: "var(--fg-0)"
-                    }
-                  }),
-                  h("button", {
-                    onClick: () => handleCreateNew(g),
-                    disabled: !newCatName.trim() || isSavingNew,
-                    style: { cursor: "pointer", padding: "0 16px", height: 36, borderRadius: 8, fontSize: 13, fontWeight: 700, color: "var(--bg-0)", background: "var(--accent)", border: "none", opacity: (!newCatName.trim() || isSavingNew) ? 0.5 : 1 }
-                  }, isSavingNew ? "..." : "Criar")
-                ) : h(React.Fragment, null,
-                  h("select", {
-                    value: pendingCats[g.merchant_key] || "", "aria-label": "Categoria",
-                    onChange: e => {
-                      if (e.target.value === "__NEW__") {
-                        setCreatingFor(g.merchant_key);
-                        setNewCatName("");
-                      } else {
-                        setPendingCats(p => ({ ...p, [g.merchant_key]: e.target.value }));
-                      }
-                    },
-                    style: {
-                      appearance: "none",
-                      backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M4 6l4 4 4-4'/></svg>")`,
-                      backgroundRepeat: "no-repeat",
-                      backgroundPosition: "right 10px center",
-                      height: 36, minWidth: 160, fontSize: 13, fontWeight: 600, padding: "0 32px 0 12px", borderRadius: 8,
-                      cursor: "pointer", backgroundColor: "var(--bg-0)", color: "var(--fg-1)", outline: "none",
-                      border: "1px solid var(--line-2)", transition: "border-color 0.2s"
-                    }
-                  },
-                    h("option", { value: "" }, g.suggested_category_id != null ? "Outra categoria…" : "Escolher…"),
-                    list.map(c => h("option", { key: c.id, value: c.id }, c.name)),
-                    h("option", { value: "__NEW__" }, "+ Criar nova categoria...")
-                  ),
-                  isPending && h("button", {
-                    onClick: () => { onApply(g, parseInt(pendingCats[g.merchant_key])); setPendingCats(p => ({ ...p, [g.merchant_key]: null })); },
-                    style: { cursor: "pointer", padding: "0 16px", height: 36, borderRadius: 8, fontSize: 13, fontWeight: 700, color: "var(--bg-0)", background: "var(--fg-1)", border: "none" }
-                  }, "Salvar")
-                )
-              )
-            )
-          );
-        })
+        g.isCat && g.kind === "expense" && !st && h("span", { style: { fontSize: 9, color: "var(--fg-3)" } }, "sem alvo"),
+
+        delta != null && h("span", {
+          className: "mono",
+          style: { fontSize: 9, color: delta > 0 ? "var(--neg)" : "var(--fg-3)", marginLeft: "auto" },
+          title: `Mês anterior: ${fmtBRL(g.prevSpent)}`,
+        }, `${delta > 0 ? "+" : ""}${Math.round(delta * 100)}% vs. mês anterior`)
       )
     )
+  );
+}
+
+/* ── SelectionBar — ação em lote no mouse (sem atalho de teclado) ──────────── */
+function SelectionBar({ count, onClear, catsByFlow, onCategorize }) {
+  const h = React.createElement;
+  const all = [...(catsByFlow.expense || []), ...(catsByFlow.income || [])];
+  return h("div", { className: "selection-bar" },
+    h("span", { style: { fontWeight: 700, fontSize: 11 } }, `${count} selecionado${count > 1 ? "s" : ""}`),
+    h("select", {
+      className: "select", defaultValue: "", "aria-label": "Categorizar selecionados",
+      onChange: e => { if (e.target.value) { onCategorize(parseInt(e.target.value, 10)); e.target.value = ""; } },
+      style: { height: 26, fontSize: 11 },
+    },
+      h("option", { value: "" }, "Categorizar…"),
+      all.map(c => h("option", { key: c.id, value: c.id }, c.name))
+    ),
+    h("button", { className: "btn btn-ghost", style: { height: 26, fontSize: 11 }, onClick: onClear }, "Limpar")
   );
 }
 
