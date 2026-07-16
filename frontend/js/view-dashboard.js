@@ -281,7 +281,7 @@ const TimelineWidget = React.memo(function TimelineWidget({ monthly, monthSel, o
 });
 
 /* ── AccountsWidget — onde o caixa está ──────────────────────────────────── */
-const AccountsWidget = React.memo(function AccountsWidget({ accounts, available }) {
+const AccountsWidget = React.memo(function AccountsWidget({ accounts, available, filter, onToggleFacet }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
   const checking = (accounts || []).filter(a => a.type === "checking")
     .sort((a, b) => ((a.id || "").startsWith("nu") ? 1 : 2) - ((b.id || "").startsWith("nu") ? 1 : 2));
@@ -301,24 +301,29 @@ const AccountsWidget = React.memo(function AccountsWidget({ accounts, available 
         })
       ),
       h("div", { style: { display: "flex", flexDirection: "column" } },
-        checking.map((a, i, arr) => h("div", {
-          key: a.id,
-          style: { display: "flex", flexDirection: "column", gap: 2, padding: "9px 0", borderBottom: i < arr.length - 1 ? "1px dashed var(--line-1)" : "none" }
-        },
-          h("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
-            h("span", { style: { width: 8, height: 8, borderRadius: "50%", background: colorOf(a), flexShrink: 0 } }),
-            h("span", { style: { fontSize: 11, fontWeight: 600, color: "var(--fg-1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, a.name),
-            total > 0 && h("span", { className: "mono", style: { fontSize: 9, color: "var(--fg-3)", marginLeft: "auto" } }, `${(((a.balance || 0) / total) * 100).toFixed(0)}%`)
-          ),
-          h("span", { className: "mono", style: { fontSize: 15, fontWeight: 700, paddingLeft: 16, color: (a.balance || 0) < 0 ? "var(--neg)" : "var(--fg-0)" } }, fmtBRL(a.balance || 0))
-        ))
+        checking.map((a, i, arr) => {
+          const active = filter && filter.accounts.has(a.id);
+          return h("button", {
+            key: a.id, onClick: () => onToggleFacet && onToggleFacet("accounts", a.id),
+            className: active ? "facet-row facet-active" : "facet-row",
+            style: { display: "flex", flexDirection: "column", gap: 2, padding: "9px 6px", textAlign: "left", cursor: "pointer", background: "none",
+              border: "none", borderBottom: i < arr.length - 1 ? "1px dashed var(--line-1)" : "none" }
+          },
+            h("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
+              h("span", { style: { width: 8, height: 8, background: colorOf(a), flexShrink: 0 } }),
+              h("span", { style: { fontSize: 11, fontWeight: 600, color: "var(--fg-1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, a.name),
+              total > 0 && h("span", { className: "mono", style: { fontSize: 9, color: "var(--fg-3)", marginLeft: "auto" } }, `${(((a.balance || 0) / total) * 100).toFixed(0)}%`)
+            ),
+            h("span", { className: "mono", style: { fontSize: 15, fontWeight: 700, paddingLeft: 16, color: (a.balance || 0) < 0 ? "var(--neg)" : "var(--fg-0)" } }, fmtBRL(a.balance || 0))
+          );
+        })
       )
     )
   );
 });
 
 /* ── CategoriesWidget — pra onde o dinheiro foi no mês ───────────────────── */
-const CategoriesWidget = React.memo(function CategoriesWidget({ monthTx, uncatCount, onOpenBulk }) {
+const CategoriesWidget = React.memo(function CategoriesWidget({ monthTx, uncatCount, onOpenBulk, filter, onToggleFacet }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
   const expenses = monthTx.filter(isConsumptionExpense);
   const totalExp = expenses.reduce((s, t) => s + t.amount, 0);
@@ -342,13 +347,16 @@ const CategoriesWidget = React.memo(function CategoriesWidget({ monthTx, uncatCo
         ? h("div", { style: { color: "var(--fg-3)", fontSize: 11, textAlign: "center", padding: "20px 0" } }, "Nenhuma despesa no mês.")
         : byCat.map((c, i) => {
             const pct = totalExp ? (c.total / totalExp) * 100 : 0;
-            return h("div", { key: i, style: { display: "flex", flexDirection: "column", gap: 3, flexShrink: 0 } },
+            const active = filter.categories.has(c.name);
+            return h("button", { key: i, onClick: () => onToggleFacet("categories", c.name),
+              className: active ? "facet-row facet-active" : "facet-row",
+              style: { display: "flex", flexDirection: "column", gap: 3, flexShrink: 0, textAlign: "left", cursor: "pointer", background: "none", border: "none", padding: "2px 0" } },
               h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 } },
                 h("span", { style: { fontSize: 11, fontWeight: 600, color: c.name === "Sem categoria" ? "var(--fg-3)" : "var(--fg-1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, c.name),
                 h("span", { className: "mono", style: { fontSize: 11, fontWeight: 700, color: "var(--fg-0)", flexShrink: 0 } }, fmtBRL(c.total))
               ),
-              h("div", { style: { height: 3, background: "var(--bg-2)", borderRadius: 2, overflow: "hidden" } },
-                h("div", { style: { width: pct + "%", height: "100%", borderRadius: 2, background: c.name === "Sem categoria" ? "var(--line-2)" : i === 0 ? "var(--accent)" : "var(--fg-2)" } }))
+              h("div", { style: { height: 3, background: "var(--bg-2)", overflow: "hidden" } },
+                h("div", { style: { width: pct + "%", height: "100%", background: c.name === "Sem categoria" ? "var(--line-2)" : i === 0 ? "var(--accent)" : "var(--fg-2)" } }))
             );
           }),
       uncatCount > 0 && h("button", {
@@ -364,7 +372,7 @@ const CategoriesWidget = React.memo(function CategoriesWidget({ monthTx, uncatCo
 });
 
 /* ── FaturaWidget — Fatura de Cartão de Crédito do Mês ───────────────────── */
-const FaturaWidget = React.memo(function FaturaWidget({ monthTx }) {
+const FaturaWidget = React.memo(function FaturaWidget({ monthTx, filter, onToggleFacet }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
   
   const { faturaItems, totalFatura, byBank } = _dMemo(() => {
@@ -398,12 +406,15 @@ const FaturaWidget = React.memo(function FaturaWidget({ monthTx }) {
             h("div", { style: { display: "flex", flexDirection: "column" } },
               Object.entries(byBank).map(([bank, amt], i, arr) => {
                 const color = bank === "Nubank" ? "var(--nubank)" : bank === "Inter" ? "var(--inter)" : "var(--accent)";
-                return h("div", {
-                  key: bank,
-                  style: { display: "flex", flexDirection: "column", gap: 2, padding: "9px 0", borderBottom: i < arr.length - 1 ? "1px dashed var(--line-1)" : "none" }
+                const active = filter && filter.banks.has(bank);
+                return h("button", {
+                  key: bank, onClick: () => onToggleFacet && onToggleFacet("banks", bank),
+                  className: active ? "facet-row facet-active" : "facet-row",
+                  style: { display: "flex", flexDirection: "column", gap: 2, padding: "9px 6px", textAlign: "left", cursor: "pointer", background: "none",
+                    border: "none", borderBottom: i < arr.length - 1 ? "1px dashed var(--line-1)" : "none" }
                 },
                   h("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
-                    h("span", { style: { width: 8, height: 8, borderRadius: "50%", background: color, flexShrink: 0 } }),
+                    h("span", { style: { width: 8, height: 8, background: color, flexShrink: 0 } }),
                     h("span", { style: { fontSize: 11, fontWeight: 600, color: "var(--fg-1)" } }, `Fatura ${bank}`),
                     totalFatura > 0 && h("span", { className: "mono", style: { fontSize: 9, color: "var(--fg-3)", marginLeft: "auto" } }, `${((amt / totalFatura) * 100).toFixed(0)}%`)
                   ),
