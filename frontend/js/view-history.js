@@ -10,8 +10,6 @@
 const { useState: _s2St, useEffect: _s2Ef, useMemo: _s2Memo } = React;
 const { fmtBRL, PT_MONTHS, isConsumptionExpense, isRevenue } = window.BS;
 
-const METHOD_FILTER_MAP = { pix: "pix", pix_received: "pix", credit: "credit", ted: "ted" };
-
 /* Chave de ordenação por coluna — datas/valores comparam certo, texto em pt-BR */
 const SORT_KEYS = {
   date:     t => t.date || "",
@@ -23,19 +21,12 @@ const SORT_KEYS = {
   amount:   t => t.flow === "expense" ? -t.amount : t.amount,
 };
 
-function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkConsumed, monthTx, setMonthTx }) {
+function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkConsumed, monthTx, setMonthTx, filter, setFilterField, onToggleFacet }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   const [bulkGroups, setBulkGroups] = _s2St([]);
   const [bulkOpen, setBulkOpen] = _s2St(false);
-  const [filterFlow, setFilterFlow] = _s2St("all");
-  const [filterMethod, setFilterMethod] = _s2St("all");
-  const [filterCat, setFilterCat] = _s2St("all");
-  const [filterAccount, setFilterAccount] = _s2St("all");
-  const [search, setSearch] = _s2St("");
   const [sort, setSort] = _s2St({ key: "date", dir: -1 });  // mais recente primeiro
   const [catsByFlow, setCatsByFlow] = _s2St({ expense: [], income: [] });
-
-  const lastFetchedMonth = React.useRef(null);
 
   _s2Ef(() => {
     Promise.all([fetchCategoriesFull("expense"), fetchCategoriesFull("income")])
@@ -46,11 +37,6 @@ function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkC
     if (!monthSel) return;
     const { month, year } = monthSel;
     fetchUncategorizedMerchants({ year, month }).then(setBulkGroups).catch(() => setBulkGroups([]));
-    const monthStr = `${year}-${month}`;
-    if (lastFetchedMonth.current !== monthStr) {
-      setFilterFlow("all"); setFilterMethod("all"); setFilterCat("all"); setFilterAccount("all"); setSearch("");
-      lastFetchedMonth.current = monthStr;
-    }
   }, [monthSel, refreshKey]);
 
   // Chip "Categorizar em lote" do widget de categorias abre o modal daqui.
@@ -80,34 +66,17 @@ function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkC
 
   const monthLabel = monthSel ? `${PT_MONTHS[monthSel.month]} ${monthSel.year}` : "";
 
-  const cats = [...new Set(monthTx.map(t => t.category).filter(Boolean))].sort();
-  const bankNames = [...new Set(monthTx.map(t => {
-    const isNu = t.bank === "nubank" || (t.account_id && t.account_id.startsWith("nu"));
-    const isInter = t.bank === "inter" || (t.account_id && t.account_id.startsWith("inter"));
-    return isNu ? "Nubank" : (isInter ? "Inter" : (t.bank || t.account_id));
-  }).filter(Boolean))].sort();
+  const bankOf = (t) => (t.bank === "nubank" || (t.account_id && t.account_id.startsWith("nu"))) ? "Nubank"
+    : (t.bank === "inter" || (t.account_id && t.account_id.startsWith("inter"))) ? "Inter" : (t.bank || t.account_id);
 
   const filteredTx = _s2Memo(() => monthTx.filter(t => {
-    if (filterFlow !== "all" && t.flow !== filterFlow) return false;
-    if (filterMethod !== "all") {
-      const m = METHOD_FILTER_MAP[t.method] || t.method;
-      if (m !== filterMethod) return false;
-    }
-    if (filterCat === "__none__") {
-      const categorizable = isConsumptionExpense(t) || isRevenue(t);
-      if (!categorizable || t.category_id) return false;
-    } else if (filterCat !== "all" && t.category !== filterCat) return false;
-    if (filterAccount !== "all") {
-      const bName = (t.bank === "nubank" || (t.account_id && t.account_id.startsWith("nu"))) ? "Nubank" :
-                    (t.bank === "inter" || (t.account_id && t.account_id.startsWith("inter"))) ? "Inter" : (t.bank || t.account_id);
-      if (bName !== filterAccount) return false;
-    }
-    // Busca no texto exibido E na descrição crua (cauda de roteamento continua achável).
-    const label = [t.display_name, window.BS.prettifyDesc(t.description), t.description]
-      .filter(Boolean).join(" ").toLowerCase();
-    if (search && !label.includes(search.toLowerCase())) return false;
-    return true;
-  }), [monthTx, filterFlow, filterMethod, filterCat, filterAccount, search]);
+    const norm = {
+      flow: t.flow, method: t.method, category: t.category || "Sem categoria", account_id: t.account_id,
+      bank: bankOf(t),
+      label: [t.display_name, window.BS.prettifyDesc(t.description), t.description].filter(Boolean).join(" "),
+    };
+    return window.BS.matchesFilter(norm, filter);
+  }), [monthTx, filter]);
 
   const sortedTx = _s2Memo(() => {
     const key = SORT_KEYS[sort.key] || SORT_KEYS.date;
@@ -123,7 +92,7 @@ function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkC
 
   const filtExp = filteredTx.filter(isConsumptionExpense).reduce((s, t) => s + t.amount, 0);
   const filtInc = filteredTx.filter(isRevenue).reduce((s, t) => s + t.amount, 0);
-  const hasFilter = filterFlow !== "all" || filterMethod !== "all" || filterCat !== "all" || filterAccount !== "all" || search;
+  const hasFilter = window.BS.facetCount(filter) > 0;
 
   const Th = (key, label, style) => h("th", {
     className: "sortable", style,
@@ -152,38 +121,19 @@ function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkC
       h("div", { style: { flex: 1 } }),
       h("div", { className: "filter-pills" },
         [["all", "Tudo"], ["expense", "Despesas"], ["income", "Receitas"]].map(([k, l]) =>
-          h("button", { key: k, className: `filter-pill${filterFlow === k ? " active" : ""}`,
-            onClick: () => { setFilterFlow(k); if (k === "income") setFilterMethod("all"); } }, l))
+          h("button", { key: k, className: `filter-pill${filter.flow === k ? " active" : ""}`,
+            onClick: () => { setFilterField("flow", k); if (k === "income") setFilterField("method", "all"); } }, l))
       ),
       h("div", { className: "filter-pills" },
         [["all", "Todos"], ["pix", "PIX"], ["credit", "Crédito"], ["ted", "TED"]].map(([k, l]) =>
-          h("button", { key: k, className: `filter-pill${filterMethod === k ? " active" : ""}`,
-            onClick: () => setFilterMethod(k) }, l))
-      ),
-      h("select", {
-        value: filterCat, onChange: e => setFilterCat(e.target.value),
-        className: "select", style: { height: 24, fontSize: 11, padding: "0 24px 0 8px", width: "auto", borderRadius: 6, background: "var(--bg-0)", border: "1px solid var(--line-1)", color: "var(--fg-1)", fontWeight: 500, cursor: "pointer" }
-      },
-        h("option", { value: "all" }, "Categoria ▾"),
-        h("option", { value: "__none__" }, "Sem categoria"),
-        cats.map(c => h("option", { key: c, value: c }, c))
-      ),
-      h("select", {
-        value: filterAccount, onChange: e => setFilterAccount(e.target.value),
-        className: "select", style: { height: 24, fontSize: 11, padding: "0 24px 0 8px", width: "auto", borderRadius: 6, background: "var(--bg-0)", border: "1px solid var(--line-1)", color: "var(--fg-1)", fontWeight: 500, cursor: "pointer" }
-      },
-        h("option", { value: "all" }, "Banco ▾"),
-        bankNames.map(b => h("option", { key: b, value: b }, b))
+          h("button", { key: k, className: `filter-pill${filter.method === k ? " active" : ""}`,
+            onClick: () => setFilterField("method", k) }, l))
       ),
       h("input", {
-        value: search, onChange: e => setSearch(e.target.value),
-        placeholder: "Filtrar…", className: "input",
-        style: { height: 24, fontSize: 11, padding: "0 8px", width: 150, borderRadius: 6, background: "var(--bg-0)", border: "1px solid var(--line-1)", color: "var(--fg-1)", fontWeight: 500 },
-      }),
-      hasFilter && h("button", {
-        onClick: () => { setFilterFlow("all"); setFilterMethod("all"); setFilterCat("all"); setFilterAccount("all"); setSearch(""); },
-        className: "btn btn-ghost", style: { height: 24, padding: "0 8px", fontSize: 10, fontWeight: 600, color: "var(--neg)" },
-      }, "Limpar")
+        value: filter.search, onChange: e => setFilterField("search", e.target.value),
+        placeholder: "Buscar lançamento…", className: "input",
+        style: { height: 24, fontSize: 11, padding: "0 8px", width: 200, background: "var(--bg-0)", border: "2px solid var(--line-1)", color: "var(--fg-1)", fontWeight: 500 },
+      })
     ),
 
     // Corpo — scroll interno; thead gruda no topo do scroll
@@ -204,6 +154,18 @@ function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkC
             h(window.BS.TxRow, {
               key: t.id, t, cols: ["date", "desc", "cat", "account", "method", "amount"],
               onEditCategory,
+              catsByFlow,
+              onInlineCategory: async (tx, categoryId) => {
+                const list = catsByFlow[tx.flow] || [];
+                const catName = list.find(c => c.id === categoryId)?.name || "";
+                try {
+                  await patchTransactionCategory(tx.id, categoryId);
+                  setMonthTx(prev => prev.map(x => x.id === tx.id ? { ...x, category_id: categoryId, category: catName } : x));
+                  window.dispatchEvent(new CustomEvent("bs-toast", { detail: { msg: `Categoria: ${catName}`, kind: "success" } }));
+                } catch (e) {
+                  window.dispatchEvent(new CustomEvent("bs-toast", { detail: { msg: "Erro ao categorizar", kind: "error" } }));
+                }
+              },
               // Sugestão do histórico (suggest-only): só grava neste clique.
               onApplySuggestion: async (tx) => {
                 try {

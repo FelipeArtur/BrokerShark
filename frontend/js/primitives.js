@@ -451,7 +451,7 @@ function BrokerSharkLogo({ size = 28 }) {
 }
 
 /* ── TxRow ──────────────────────────────────────────────────────────────── */
-const TxRow = React.memo(({ t, cols, onEditCategory, onApplySuggestion }) => {
+const TxRow = React.memo(({ t, cols, onEditCategory, onApplySuggestion, catsByFlow, onInlineCategory }) => {
   const h = React.createElement;
   const isThirdParty = !!t.is_third_party;
   // Non-consumption cash legs (shared classifiers — window.BS.isSelf / isInvest)
@@ -482,30 +482,41 @@ const TxRow = React.memo(({ t, cols, onEditCategory, onApplySuggestion }) => {
           ? h("span", { className: "data-tag", style: { borderColor: "color-mix(in oklch, var(--info) 30%, transparent)", color: "var(--info)" }, title: "transferência entre suas contas — não conta como despesa nem receita" }, "transferência")
           : _invest
             ? h("span", { className: "data-tag", style: { borderColor: "color-mix(in oklch, var(--reserve) 30%, transparent)", color: "var(--reserve)" }, title: "movimento de investimento — não conta como despesa nem receita" }, "investimento")
-            : t.category
-              ? h("span", {
-                  className: "data-tag",
-                  style: {
-                    ...(t.flow === "income" ? { borderColor: "color-mix(in oklch, var(--pos) 30%, transparent)", color: "var(--pos)" } : {}),
-                  }
-                }, t.category)
-              : (t.suggested_category_id != null && onApplySuggestion)
-                // Sugestão do histórico (suggest-only): 1 clique aplica, nada é
-                // auto-escrito — mesmo índice do preview de import / painel de lote.
-                ? h("button", {
+            : (onInlineCategory && catsByFlow)
+              // Recategorização inline: select em vez do rótulo estático.
+              ? h("select", {
+                  value: t.category_id || "",
+                  onClick: e => e.stopPropagation(),
+                  onChange: e => { e.stopPropagation(); onInlineCategory(t, parseInt(e.target.value, 10)); },
+                  style: { border: "2px solid var(--line-1)", background: "var(--bg-0)", fontFamily: "var(--ff-mono)", fontSize: 11, padding: "2px 4px", cursor: "pointer", color: "var(--fg-1)" },
+                },
+                  h("option", { value: "" }, t.flow === "expense" ? "Sem categoria" : "Receita"),
+                  (catsByFlow[t.flow] || []).map(c => h("option", { key: c.id, value: c.id }, c.name))
+                )
+              : t.category
+                ? h("span", {
                     className: "data-tag",
-                    title: `Sugerida do histórico — clique para aplicar "${t.suggested_category_name}"`,
-                    onClick: e => { e.stopPropagation(); onApplySuggestion(t); },
                     style: {
-                      borderStyle: "dashed", cursor: "pointer", background: "none",
-                      borderColor: "color-mix(in oklch, var(--accent) 45%, transparent)",
-                      color: "var(--accent)", fontFamily: "inherit",
-                    },
-                  }, `✓ ${t.suggested_category_name}?`)
-                : h("span", {
-                    className: "data-tag",
-                    style: { borderStyle: "dashed", color: "var(--fg-3)" },
-                  }, t.flow === "expense" ? "Sem categoria" : "Receita")
+                      ...(t.flow === "income" ? { borderColor: "color-mix(in oklch, var(--pos) 30%, transparent)", color: "var(--pos)" } : {}),
+                    }
+                  }, t.category)
+                : (t.suggested_category_id != null && onApplySuggestion)
+                  // Sugestão do histórico (suggest-only): 1 clique aplica, nada é
+                  // auto-escrito — mesmo índice do preview de import / painel de lote.
+                  ? h("button", {
+                      className: "data-tag",
+                      title: `Sugerida do histórico — clique para aplicar "${t.suggested_category_name}"`,
+                      onClick: e => { e.stopPropagation(); onApplySuggestion(t); },
+                      style: {
+                        borderStyle: "dashed", cursor: "pointer", background: "none",
+                        borderColor: "color-mix(in oklch, var(--accent) 45%, transparent)",
+                        color: "var(--accent)", fontFamily: "inherit",
+                      },
+                    }, `✓ ${t.suggested_category_name}?`)
+                  : h("span", {
+                      className: "data-tag",
+                      style: { borderStyle: "dashed", color: "var(--fg-3)" },
+                    }, t.flow === "expense" ? "Sem categoria" : "Receita")
       ),
       cols.includes("account") && h("td", null, h(BankChip, { accountId: t.account_id, bank: t.bank })),
       cols.includes("method") && h("td", { className: "mono", style: { fontSize: 10, color: "var(--fg-2)", textTransform: "uppercase" } },
@@ -532,7 +543,9 @@ const TxRow = React.memo(({ t, cols, onEditCategory, onApplySuggestion }) => {
   prev.t.display_name === next.t.display_name &&
   prev.t.suggested_category_id === next.t.suggested_category_id &&
   prev.onEditCategory === next.onEditCategory &&
-  prev.onApplySuggestion === next.onApplySuggestion
+  prev.onApplySuggestion === next.onApplySuggestion &&
+  prev.catsByFlow === next.catsByFlow &&
+  prev.onInlineCategory === next.onInlineCategory
 );
 
 // ── Transaction classification (single source — mirrors the backend rule) ──────
