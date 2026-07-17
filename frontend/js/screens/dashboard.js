@@ -1,7 +1,7 @@
 /* IIFE-wrapped: own scope (replaces Babel's per-file isolation) */
 (function () {
 /**
- * @file view-dashboard.js
+ * @file dashboard.js
  * @brief DashboardView e seus widgets — a tela única: faixa KPI, grid de
  *        widgets facetados e a tabela de lançamentos.
  *

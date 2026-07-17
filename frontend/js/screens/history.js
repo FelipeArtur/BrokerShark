@@ -1,7 +1,7 @@
 /* IIFE-wrapped: own scope (replaces Babel's per-file isolation) */
 (function () {
 /**
- * @file view-history.js
+ * @file history.js
  * @brief TxTableWidget — a "planilha" do painel: lançamentos do mês agrupados,
  *        com ordenação, seleção em lote, saldo corrente e rodapé de totais.
  */

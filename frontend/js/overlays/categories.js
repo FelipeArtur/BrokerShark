@@ -1,7 +1,7 @@
 /* IIFE-wrapped: own scope (replaces Babel's per-file isolation) */
 (function () {
 /**
- * @file view-overview.js
+ * @file categories.js
  * @brief CategoriesPanel — gerenciamento de categorias (criar, renomear,
  *        excluir com reatribuição), aberto como Drawer pelo painel de ajustes.
  */

@@ -209,6 +209,10 @@ function DualLine({ data, height = 180 }) {
     const negColor   = rootStyles.getPropertyValue("--neg").trim() || "oklch(68% 0.16 25)";
     const fg2Color   = rootStyles.getPropertyValue("--fg-2").trim();
     const line1Color = rootStyles.getPropertyValue("--line-1").trim();
+    // Fontes resolvidas como as cores: Chart.js desenha em canvas, e canvas não
+    // resolve var() — passar "var(--ff-mono)" cru cai no default do canvas.
+    const ffSans = rootStyles.getPropertyValue("--ff-sans").trim() || "Silkscreen, system-ui, sans-serif";
+    const ffMono = rootStyles.getPropertyValue("--ff-mono").trim() || "Departure Mono, ui-monospace, monospace";
 
     const ctx = canvasRef.current.getContext("2d");
     chartRef.current = new Chart(ctx, {
@@ -242,8 +246,8 @@ function DualLine({ data, height = 180 }) {
           legend: { display: false },
           tooltip: {
             backgroundColor: "oklch(20% 0.01 250 / 0.9)",
-            titleFont: { size: 11, family: "Inter" },
-            bodyFont: { size: 13, family: "Departure Mono", weight: "bold" },
+            titleFont: { size: 11, family: ffSans },
+            bodyFont: { size: 13, family: ffMono, weight: "bold" },
             padding: 12,
             boxPadding: 6,
             usePointStyle: true,
@@ -253,13 +257,13 @@ function DualLine({ data, height = 180 }) {
         scales: {
           x: {
             grid: { display: false, drawBorder: false },
-            ticks: { color: fg2Color, font: { size: 10, family: "Departure Mono" } }
+            ticks: { color: fg2Color, font: { size: 10, family: ffMono } }
           },
           y: {
             beginAtZero: true,
             grid: { color: line1Color, drawBorder: false, tickLength: 0, borderDash: [2, 3] },
             border: { display: false },
-            ticks: { color: fg2Color, font: { size: 10, family: "Departure Mono" }, callback: v => fmtBRLCompact(v), maxTicksLimit: 5 }
+            ticks: { color: fg2Color, font: { size: 10, family: ffMono }, callback: v => fmtBRLCompact(v), maxTicksLimit: 5 }
           }
         }
       }
@@ -860,6 +864,10 @@ function SingleAreaChart({ data, height = 180, color = "var(--pos)", label = "Ev
     const mainColor = rootStyles.getPropertyValue(color.replace("var(", "").replace(")", "")).trim() || color;
     const fg2Color   = rootStyles.getPropertyValue("--fg-2").trim();
     const line1Color = rootStyles.getPropertyValue("--line-1").trim();
+    // Ver comentário no gráfico acima: canvas não resolve var(), então a fonte
+    // tem de ser resolvida aqui como a cor.
+    const ffSans = rootStyles.getPropertyValue("--ff-sans").trim() || "Silkscreen, system-ui, sans-serif";
+    const ffMono = rootStyles.getPropertyValue("--ff-mono").trim() || "Departure Mono, ui-monospace, monospace";
 
     const ctx = canvasRef.current.getContext("2d");
     chartRef.current = new Chart(ctx, {
@@ -892,14 +900,14 @@ function SingleAreaChart({ data, height = 180, color = "var(--pos)", label = "Ev
           legend: { display: false }, 
           tooltip: { 
             backgroundColor: "oklch(20% 0.01 250 / 0.9)", 
-            titleFont: { size: 11, family: "var(--ff-sans)" }, 
-            bodyFont: { size: 13, weight: "bold", family: "var(--ff-mono)" }, 
+            titleFont: { size: 11, family: ffSans }, 
+            bodyFont: { size: 13, weight: "bold", family: ffMono }, 
             displayColors: false, padding: 12, cornerRadius: 8
           } 
         },
         scales: {
-          x: { grid: { display: false, drawBorder: false }, ticks: { color: fg2Color, font: { size: 10, family: "var(--ff-mono)" } } },
-          y: { position: "right", beginAtZero: true, grid: { color: line1Color, drawBorder: false, borderDash: [2, 4] }, border: { display: false }, ticks: { color: fg2Color, font: { size: 10, family: "var(--ff-mono)" }, maxTicksLimit: 6, callback: v => "R$ " + (v/1000 >= 1 ? (v/1000).toFixed(1) + "k" : v) } }
+          x: { grid: { display: false, drawBorder: false }, ticks: { color: fg2Color, font: { size: 10, family: ffMono } } },
+          y: { position: "right", beginAtZero: true, grid: { color: line1Color, drawBorder: false, borderDash: [2, 4] }, border: { display: false }, ticks: { color: fg2Color, font: { size: 10, family: ffMono }, maxTicksLimit: 6, callback: v => "R$ " + (v/1000 >= 1 ? (v/1000).toFixed(1) + "k" : v) } }
         }
       }
     });

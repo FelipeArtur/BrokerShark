@@ -1,7 +1,7 @@
 /* IIFE-wrapped */
 (function () {
 /**
- * @file modal-import.js
+ * @file import.js
  * @brief ImportModal (drop → detect → preview editável → confirm) e a célula
  *        editável do preview. Extratos CSV por conta + relatório B3 xlsx.
  */

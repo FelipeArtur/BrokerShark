@@ -56,9 +56,6 @@ img, .bs-mascot { image-rendering: pixelated; }
   animation: bs-coin 600ms steps(6) forwards;
 }
 
-/* Silent mascot sprite (logo corner) */
-.bs-mascot { image-rendering: pixelated; }
-
 @media (prefers-reduced-motion: reduce) {
   .bs-boot, .bs-pop, .bs-shake, .bs-coin { animation: none !important; }
 }

@@ -21,7 +21,7 @@ Superfícies em degraus (`--bg-0` `#0e0f1a` → `--bg-3` `#2a2d48`), hairline pr
 
 - **Accent** (identidade tubarão): cyan `--accent` `#5cc6ff` — ação primária, foco,
   seleção, faceta ativa. Nunca decoração.
-- **Espécies de dinheiro** — a semântica está em `frontend/js/money.js` (`KIND_COLOR`),
+- **Espécies de dinheiro** — a semântica está em `frontend/js/domain/money.js` (`KIND_COLOR`),
   não aqui; este doc só registra os tokens:
 
   | espécie | token | cor |

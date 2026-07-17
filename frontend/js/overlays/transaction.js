@@ -1,7 +1,7 @@
 /* IIFE-wrapped */
 (function () {
 /**
- * @file modal-transaction.js
+ * @file transaction.js
  * @brief CategoryEditor — modal de edição de um lançamento: categoria, apelido,
  *        marca de terceiros e exclusão.
  */

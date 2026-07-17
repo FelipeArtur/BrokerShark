@@ -1,7 +1,7 @@
 /* IIFE-wrapped: own scope (replaces Babel's per-file isolation) */
 (function () {
 /**
- * @file modal-bulk.js
+ * @file bulk.js
  * @brief Modal de categorização em lote por comerciante: uma escolha etiqueta
  *        todas as ocorrências do mês de uma vez.
  */
