@@ -450,8 +450,20 @@ function GroupHeader({ g, isOpen, colSpan, onToggle, onToggleSelect, allSelected
         }, g.label),
         h("span", { className: "mono", style: { fontSize: 9, color: "var(--fg-3)" } }, `${g.count}`),
 
-        h(window.BS.Money, { value: g.total, kind: g.kind, emphasis: true,
-          t: { flow: g.kind === "revenue" ? "income" : "expense" } }),
+        /* Categoria: todas as linhas na mesma direção, `total` é honesto.
+           Espécie: usa o LÍQUIDO — somar as duas pernas de uma transferência
+           mostraria o dobro do que se moveu, e somar aplicação com resgate sem
+           sinal daria um número que não bate com o rodapé. */
+        g.isCat
+          ? h(window.BS.Money, { value: g.total, kind: g.kind, emphasis: true,
+              t: { flow: g.kind === "revenue" ? "income" : "expense" } })
+          : h(window.BS.Money, {
+              value: Math.abs(g.net), kind: g.kind, emphasis: true,
+              t: { flow: g.net >= 0 ? "expense" : "income" },
+              title: g.net === 0
+                ? "as pernas se cancelam — o dinheiro só mudou de conta, não saiu"
+                : window.BS.KIND_HINT[g.kind],
+            }),
 
         // Barra de alvo — só despesa com alvo. Sem verde: verde é receita.
         st && h("div", { style: { display: "flex", alignItems: "center", gap: 6, minWidth: 160 } },

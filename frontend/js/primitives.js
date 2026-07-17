@@ -54,7 +54,8 @@ function Money({ t, value, kind, size, emphasis = false, strike = false, title }
   const h = React.createElement;
   const k = kind || (t ? window.BS.moneyKind(t) : null);
   const v = value != null ? value : (t ? t.amount : 0);
-  const sign = t ? window.BS.kindSign(t) : (v < 0 ? "−" : "+");
+  // Zero não tem direção — um "−R$ 0,00" (transferência que se cancela) é ruído.
+  const sign = v === 0 ? "" : (t ? window.BS.kindSign(t) : (v < 0 ? "−" : "+"));
   const color = k ? window.BS.KIND_COLOR[k] : "var(--fg-1)";
   const { int, cents } = window.BS.fmtParts(v);
   const dim = k === "settlement" ? 0.6 : 1;

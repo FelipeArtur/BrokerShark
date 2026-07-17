@@ -15,7 +15,7 @@
           fetchCashflowStatement, fetchInvestments, fetchLiquidityHistory,
           fetchInvestmentEvolution, fetchUncategorizedMerchants, fetchBackupStatus */
 
-const { useState: _dSt, useEffect: _dEf, useMemo: _dMemo } = React;
+const { useState: _dSt, useEffect: _dEf, useMemo: _dMemo, useCallback: _dCb } = React;
 const { fmtBRL, fmtBRLCompact, fmtDateBR, PT_MONTHS, PT_SHORT,
         isConsumptionExpense } = window.BS;
 
@@ -434,18 +434,23 @@ const AccountsWidget = React.memo(function AccountsWidget({ accounts, available,
  * @param props.onToggleFacet alterna a faceta "categories" com o nome da categoria
  * @return elemento React do widget
  */
-const CategoriesWidget = React.memo(function CategoriesWidget({ monthTx, uncatCount, onOpenBulk, filter, onToggleFacet }) {
+const CategoriesWidget = React.memo(function CategoriesWidget({ monthTx, uncatCount, onOpenBulk, filter,
+                                                               onToggleFacet, catsIndex, monthSel, onBudgetSaved }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
   const expenses = monthTx.filter(isConsumptionExpense);
   const totalExp = expenses.reduce((s, t) => s + t.amount, 0);
+  const [editing, setEditing] = _dSt(null);   // category_id sendo editado
+
+  /* Agrupa por ID, não por nome: o alvo mora no id, e duas categorias podem
+     ter nomes parecidos. "Sem categoria" (id null) nunca tem alvo. */
   const byCat = _dMemo(() => {
-    const g = {};
+    const g = new Map();
     expenses.forEach(t => {
-      const k = t.category || "Sem categoria";
-      if (!g[k]) g[k] = { name: k, total: 0 };
-      g[k].total += t.amount;
+      const id = t.category_id ?? null;
+      if (!g.has(id)) g.set(id, { id, name: t.category || "Sem categoria", total: 0 });
+      g.get(id).total += t.amount;
     });
-    return Object.values(g).sort((a, b) => b.total - a.total);
+    return [...g.values()].sort((a, b) => b.total - a.total);
   }, [monthTx]);
 
   return h("div", { className: "widget wg-2" },
@@ -456,20 +461,15 @@ const CategoriesWidget = React.memo(function CategoriesWidget({ monthTx, uncatCo
     h("div", { className: "widget-body", style: { gap: 8 } },
       byCat.length === 0
         ? h("div", { style: { color: "var(--fg-3)", fontSize: 11, textAlign: "center", padding: "20px 0" } }, "Nenhuma despesa no mês.")
-        : byCat.map((c, i) => {
-            const pct = totalExp ? (c.total / totalExp) * 100 : 0;
-            const active = filter.categories.has(c.name);
-            return h("button", { key: i, onClick: () => onToggleFacet("categories", c.name),
-              className: active ? "facet-row facet-active" : "facet-row",
-              style: { display: "flex", flexDirection: "column", gap: 3, flexShrink: 0, textAlign: "left", cursor: "pointer", background: "none", border: "none", padding: "2px 0" } },
-              h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 } },
-                h("span", { style: { fontSize: 11, fontWeight: 600, color: c.name === "Sem categoria" ? "var(--fg-3)" : "var(--fg-1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, c.name),
-                h("span", { className: "mono", style: { fontSize: 11, fontWeight: 700, color: "var(--fg-0)", flexShrink: 0 } }, fmtBRL(c.total))
-              ),
-              h("div", { style: { height: 3, background: "var(--bg-2)", overflow: "hidden" } },
-                h("div", { style: { width: pct + "%", height: "100%", background: c.name === "Sem categoria" ? "var(--line-2)" : i === 0 ? "var(--accent)" : "var(--fg-2)" } }))
-            );
-          }),
+        : byCat.map((c) => h(CategoryRow, {
+            key: c.id ?? "none", c, monthSel, onBudgetSaved,
+            meta: c.id != null && catsIndex ? catsIndex.get(c.id) : null,
+            active: filter.categories.has(c.name),
+            onFacet: () => onToggleFacet("categories", c.name),
+            editing: editing === c.id,
+            onEdit: () => setEditing(c.id),
+            onEditDone: () => setEditing(null),
+          })),
       uncatCount > 0 && h("button", {
         onClick: onOpenBulk,
         style: {
@@ -481,6 +481,89 @@ const CategoriesWidget = React.memo(function CategoriesWidget({ monthTx, uncatCo
     )
   );
 });
+
+/* ── CategoryRow — uma categoria com gasto, alvo e edição inline ───────────
+   A barra significa UMA coisa: progresso contra o alvo. Categoria sem alvo não
+   ganha barra — mostra "definir", porque "sem alvo" e "alvo de R$ 0,00" são
+   estados diferentes e uma barra vazia sugeriria o segundo.
+
+   Sem verde pra "dentro do alvo": verde já significa receita nas espécies
+   (money.js), e reusar quebraria a semântica. Faixas em budgetState (tx-group.js). */
+/**
+ * @brief Renderiza uma categoria do widget: gasto, barra de alvo e edição.
+ * @param props.c {id, name, total} — total do mês em REAIS
+ * @param props.meta linha de /api/categories-full (budget_cents em CENTAVOS) ou null
+ * @param props.monthSel mês selecionado — decide se a edição grava fixo ou override
+ * @param props.onBudgetSaved recarrega os alvos após gravar
+ * @return elemento React da linha
+ */
+function CategoryRow({ c, meta, active, onFacet, editing, onEdit, onEditDone, monthSel, onBudgetSaved }) {
+  const h = (t, p, ...cc) => React.createElement(t, p, ...cc);
+  const budget = meta && meta.budget_cents != null ? meta.budget_cents / 100 : null;
+  const st = window.BS.budgetState(c.total, budget);
+  const [draft, setDraft] = _dSt("");
+  // Alvo só existe pra categoria de despesa real — "Sem categoria" (id null) não tem.
+  const canBudget = c.id != null;
+
+  const save = async () => {
+    const reais = parseFloat(String(draft).replace(/\./g, "").replace(",", "."));
+    if (!Number.isFinite(reais) || reais < 0) { onEditDone(); return; }
+    try {
+      // Editar num mês que não é o corrente grava override DAQUELE mês; no mês
+      // corrente, grava o alvo fixo. O rótulo ao lado diz qual está valendo.
+      await putCategoryBudget(c.id, Math.round(reais * 100), refMonthOf(monthSel));
+      onBudgetSaved && onBudgetSaved();
+      window.dispatchEvent(new CustomEvent("bs-toast", { detail: { msg: `Alvo de ${c.name}: ${fmtBRL(reais)}`, kind: "success" } }));
+    } catch (e) {
+      window.dispatchEvent(new CustomEvent("bs-toast", { detail: { msg: "Erro ao gravar alvo", kind: "error" } }));
+    }
+    onEditDone();
+  };
+
+  return h("div", {
+    className: active ? "facet-row facet-active" : "facet-row",
+    style: { display: "flex", flexDirection: "column", gap: 3, flexShrink: 0, padding: "2px 0" },
+  },
+    h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 } },
+      h("button", {
+        onClick: onFacet, title: "Filtrar por esta categoria",
+        style: { fontSize: 11, fontWeight: 600, background: "none", border: "none", cursor: "pointer", padding: 0,
+          color: c.id == null ? "var(--fg-3)" : "var(--fg-1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+      }, c.name),
+      h("span", { className: "mono", style: { fontSize: 11, fontWeight: 700, color: "var(--fg-0)", flexShrink: 0 } }, fmtBRL(c.total))
+    ),
+
+    st && h("div", { style: { height: 3, background: "var(--bg-2)", overflow: "hidden" } },
+      h("div", { style: { width: Math.min(100, st.ratio * 100) + "%", height: "100%", background: st.color } })),
+
+    canBudget && h("div", { style: { display: "flex", alignItems: "center", gap: 5, fontSize: 9 } },
+      editing
+        ? h(React.Fragment, null,
+            h("input", {
+              autoFocus: true, defaultValue: budget != null ? String(budget).replace(".", ",") : "",
+              onChange: e => setDraft(e.target.value),
+              onKeyDown: e => { if (e.key === "Enter") save(); if (e.key === "Escape") onEditDone(); },
+              onBlur: save, placeholder: "0,00", "aria-label": `Alvo de ${c.name}`,
+              style: { width: 70, height: 18, fontSize: 9, padding: "0 4px", background: "var(--bg-0)",
+                border: "2px solid var(--accent)", color: "var(--fg-0)", fontFamily: "var(--ff-mono)" },
+            }),
+            h("span", { style: { color: "var(--fg-3)" } },
+              refMonthOf(monthSel) ? `alvo de ${window.BS.PT_MONTHS[monthSel.month].toLowerCase()}` : "alvo fixo")
+          )
+        : h("button", {
+            onClick: onEdit,
+            title: budget != null
+              ? `Alvo ${meta.budget_source === "month" ? "só deste mês" : "fixo"}: ${fmtBRL(budget)} — clique pra mudar`
+              : "Definir um alvo de gasto pra esta categoria",
+            style: { background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: 9,
+              color: st ? st.color : "var(--fg-3)", fontWeight: st ? 700 : 400,
+              borderBottom: "1px dashed var(--line-2)" },
+          }, budget != null
+              ? `${Math.round(st.ratio * 100)}% de ${fmtBRL(budget)}${meta.budget_source === "month" ? " · só este mês" : ""}`
+              : "definir alvo")
+    )
+  );
+}
 
 /* ── FaturaWidget — Fatura de Cartão de Crédito do Mês ───────────────────── */
 /**
@@ -615,6 +698,13 @@ const InvestmentsWidget = React.memo(function InvestmentsWidget({ investments, e
 
 /* ── DashboardView ────────────────────────────────────────────────────────── */
 /**
+ * @brief Converte o seletor de mês no ref_month que a API espera.
+ * @param monthSel mês selecionado {month, year}
+ * @return "YYYY-MM", ou undefined quando não há mês selecionado
+ */
+const refMonthOf = (monthSel) =>
+  monthSel ? `${monthSel.year}-${String(monthSel.month).padStart(2, "0")}` : undefined;
+/**
  * @brief Renderiza a tela única: carrega os dados, mantém o filtro facetado e
  *        monta KPIs, widgets e tabela.
  *
@@ -646,6 +736,10 @@ function DashboardView({ monthSel, monthly, onPickMonth, refreshKey, onEditCateg
   const [monthTx, setMonthTx] = _dSt([]);
   const [uncatCount, setUncatCount] = _dSt(0);
   const [bulkOpen, setBulkOpen] = _dSt(false);
+  // Categorias COM alvo/gasto/Δ do mês — alimenta a barra de orçamento do widget
+  // e o cabeçalho de grupo da tabela. Segue o seletor de mês: o alvo vigente é
+  // resolvido no servidor (override do mês → fixo).
+  const [expenseCats, setExpenseCats] = _dSt([]);
   const [filter, setFilter] = _dSt(() => window.BS.emptyFilter());
   /**
    * @brief Alterna um valor numa faceta de conjunto do filtro compartilhado.
@@ -685,6 +779,7 @@ function DashboardView({ monthSel, monthly, onPickMonth, refreshKey, onEditCateg
     fetchUncategorizedMerchants({ year, month })
       .then(gs => setUncatCount(gs.reduce((s, g) => s + g.count, 0)))
       .catch(() => setUncatCount(0));
+    fetchCategoriesFull("expense", refMonthOf(monthSel)).then(setExpenseCats).catch(() => setExpenseCats([]));
   }, [monthSel, refreshKey, retryTick]);
 
   // Exclusão otimista (evento global disparado pelo shell)
@@ -693,6 +788,29 @@ function DashboardView({ monthSel, monthly, onPickMonth, refreshKey, onEditCateg
     window.addEventListener("bs-tx-optimistic-delete", handler);
     return () => window.removeEventListener("bs-tx-optimistic-delete", handler);
   }, []);
+
+  // Índice de categoria p/ a tabela: alvo vigente, gasto e gasto do mês anterior.
+  // Chaveado por id — é o que buildGroups consulta.
+  const catsIndex = _dMemo(
+    () => new Map(expenseCats.map(c => [c.id, c])),
+    [expenseCats],
+  );
+
+  /** @brief Recarrega os alvos após uma edição, sem recarregar a tela toda. */
+  const reloadBudgets = _dCb(() => {
+    if (!monthSel) return;
+    fetchCategoriesFull("expense", refMonthOf(monthSel)).then(setExpenseCats).catch(() => {});
+  }, [monthSel]);
+
+  /* O saldo corrente parte do saldo ATUAL da conta e conta pra trás, então só
+     fecha se não houver lançamento DEPOIS do mês exibido. `monthly` vem com
+     present=1 e ordenado, e o último item é o mês mais recente com dados — a
+     mesma fonte de verdade que o botão "Hoje" do MonthNav usa (app.js). */
+  const isLatestMonth = _dMemo(() => {
+    if (!monthSel || !monthly || !monthly.length) return false;
+    const last = monthly[monthly.length - 1];
+    return last.year === monthSel.year && last.month === monthSel.month;
+  }, [monthly, monthSel]);
 
   if (loadErr) return h("div", { style: { margin: "48px auto", background: "color-mix(in oklch, var(--neg) 5%, transparent)", border: "1px solid color-mix(in oklch, var(--neg) 30%, transparent)", borderRadius: 12, padding: 24, display: "flex", flexDirection: "column", gap: 12, alignItems: "flex-start", maxWidth: 480 } },
     h("div", { style: { color: "var(--neg)", fontSize: 14, fontWeight: 700 } }, "Falha ao carregar os dados."),
@@ -733,7 +851,8 @@ function DashboardView({ monthSel, monthly, onPickMonth, refreshKey, onEditCateg
         h(TimelineWidget, { monthly, monthSel, onPickMonth }),
         h(AccountsWidget, { accounts, available, filter, onToggleFacet }),
         h(FaturaWidget, { monthTx, filter, onToggleFacet }),
-        h(CategoriesWidget, { monthTx, uncatCount, onOpenBulk: () => setBulkOpen(true), filter, onToggleFacet }),
+        h(CategoriesWidget, { monthTx, uncatCount, onOpenBulk: () => setBulkOpen(true), filter, onToggleFacet,
+          catsIndex, monthSel, onBudgetSaved: reloadBudgets }),
         h(InvestmentsWidget, { investments, evolution })
       ),
       h(window.BS.FilterBar, { filter, onRemove: (kind, value) => {
@@ -745,6 +864,8 @@ function DashboardView({ monthSel, monthly, onPickMonth, refreshKey, onEditCateg
         openBulk: bulkOpen, onBulkConsumed: () => setBulkOpen(false),
         monthTx, setMonthTx,
         filter, setFilterField, onToggleFacet,
+        // Alimenta alvo/Δ no cabeçalho de grupo e a coluna de saldo corrente.
+        accounts, catsIndex, isLatestMonth,
       })
     )
   );

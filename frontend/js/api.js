@@ -50,6 +50,28 @@ async function _patch(url, body) {
   if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || "request failed"); }
   return r.json();
 }
+/**
+ * @brief Faz um PUT JSON (upsert), convertendo resposta não-ok em Error.
+ * @param url caminho do endpoint
+ * @param body objeto completo do recurso
+ * @return Promise com o JSON da resposta
+ */
+async function _put(url, body) {
+  const r = await fetch(url, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || "request failed"); }
+  return r.json();
+}
+/**
+ * @brief Faz um DELETE JSON com body, convertendo resposta não-ok em Error.
+ * @param url caminho do endpoint
+ * @param body objeto identificando o recurso
+ * @return Promise com o JSON da resposta
+ */
+async function _delBody(url, body) {
+  const r = await fetch(url, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || "request failed"); }
+  return r.json();
+}
 
 /* ── Read endpoints ─────────────────────────────────────────────────────── */
 /**
@@ -76,10 +98,17 @@ async function fetchExpenseCategories()         { return _get("/api/expense-cate
 async function fetchExpenseCategoriesFull()     { return _get("/api/expense-categories-full"); }
 /**
  * @brief Lista as categorias de um fluxo com os agregados.
+ *
+ * Sem `month`: contagem + alvo fixo. Com `month`: alvo VIGENTE já resolvido
+ * (override do mês → fixo), gasto do mês e gasto do mês anterior.
+ *
  * @param flow "expense" (padrão) ou "income"
- * @return Promise com as categorias (`budget_cents`/`prev_spent_cents` em centavos)
+ * @param month mês "YYYY-MM"; omitido = sem gasto/Δ, alvo fixo apenas
+ * @return Promise com as categorias. `budget_cents`/`spent_cents`/
+ *         `prev_spent_cents` em CENTAVOS inteiros; `budget_cents` null =
+ *         sem alvo (≠ alvo zero); `budget_source` = "month"|"fixed"|null
  */
-async function fetchCategoriesFull(flow = "expense") { return _get(`/api/categories-full${_params({ flow })}`); }
+async function fetchCategoriesFull(flow = "expense", month) { return _get(`/api/categories-full${_params({ flow, month })}`); }
 
 /* ── New v2 read endpoints ──────────────────────────────────────────────── */
 /**
@@ -194,6 +223,34 @@ async function postCategory(name, flow)       { return _post("/api/categories", 
  * @return Promise com a categoria atualizada
  */
 async function patchCategory(id, name)        { return _patch(`/api/categories/${id}`, { name }); }
+/**
+ * @brief Grava o alvo de gasto de uma categoria (upsert).
+ *
+ * Sem `refMonth` grava o ALVO FIXO (vale todo mês); com `refMonth` grava o
+ * override daquele mês, que tem precedência sobre o fixo.
+ *
+ * @param categoryId categoria de despesa (o backend recusa categoria de receita)
+ * @param amountCents alvo em CENTAVOS inteiros, >= 0
+ * @param refMonth "YYYY-MM" p/ override do mês; omitido = alvo fixo
+ * @return Promise com o resultado do backend
+ */
+async function putCategoryBudget(categoryId, amountCents, refMonth) {
+  return _put("/api/category-budget", { category_id: categoryId, amount_cents: amountCents, ref_month: refMonth ?? "" });
+}
+/**
+ * @brief Remove o alvo de uma categoria.
+ *
+ * Apagar o override de um mês faz a categoria voltar a HERDAR o alvo fixo;
+ * apagar o fixo (sem `refMonth`) deixa a categoria sem alvo — que é estado
+ * diferente de alvo zero.
+ *
+ * @param categoryId categoria de despesa
+ * @param refMonth "YYYY-MM" p/ remover só o override; omitido = remove o fixo
+ * @return Promise com o resultado do backend
+ */
+async function deleteCategoryBudget(categoryId, refMonth) {
+  return _delBody("/api/category-budget", { category_id: categoryId, ref_month: refMonth ?? "" });
+}
 /**
  * @brief Exclui uma categoria, reatribuindo os lançamentos dela.
  * @param id id da categoria a excluir

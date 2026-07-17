@@ -23,15 +23,22 @@
   /**
    * @brief Devolve a chave do grupo de uma transação.
    * @param t transação (`amount` em REAIS)
-   * @return "cat:<id>" p/ despesa/receita (0 = sem categoria), ou "kind:<espécie>"
+   * @return "cat:<id>" p/ despesa/receita categorizada · "none:<espécie>" quando
+   *         não tem categoria (a espécie separa receita de despesa) · "kind:<espécie>"
+   *         p/ transferência/investimento/liquidação/terceiros
    */
   function groupKeyOf(t) {
     const k = moneyKind(t);
-    if (k === KIND.EXPENSE || k === KIND.REVENUE) return `cat:${t.category_id ?? 0}`;
-    return `kind:${k}`;
+    if (k !== KIND.EXPENSE && k !== KIND.REVENUE) return `kind:${k}`;
+    // Categoria tem flow próprio, então o id sozinho já é inequívoco. SEM categoria,
+    // não: despesa e receita não-categorizadas cairiam na mesma chave e os totais
+    // SOMARIAM (receita + despesa num número só, exibido com cara de gasto). A
+    // espécie entra na chave só nesse caso.
+    return t.category_id != null ? `cat:${t.category_id}` : `none:${k}`;
   }
 
   const UNCATEGORIZED = "Sem categoria";
+  const UNCATEGORIZED_INCOME = "Receita sem categoria";
 
   /**
    * @brief Agrupa as transações já filtradas.
@@ -57,13 +64,20 @@
       let g = byKey.get(key);
       if (!g) {
         const kind = moneyKind(t);
-        const isCat = key.startsWith("cat:");
-        const catId = isCat ? (t.category_id ?? null) : null;
+        const hasCat = key.startsWith("cat:");   // categorizada
+        const noCat = key.startsWith("none:");   // categorizável, mas sem categoria
+        // isCat = "linha de categoria" — inclui as sem categoria, que ainda são
+        // trabalho pendente e ficam no topo junto com as outras. Espécie contábil
+        // (transferência/investimento/…) não é.
+        const isCat = hasCat || noCat;
+        const catId = hasCat ? t.category_id : null;
         const meta = catId != null ? cats.get(catId) : null;
         g = {
           key, kind, isCat, categoryId: catId,
-          label: isCat ? (t.category || (meta && meta.name) || UNCATEGORIZED) : KIND_LABEL[kind],
-          txs: [], total: 0, count: 0,
+          label: hasCat ? (t.category || (meta && meta.name) || UNCATEGORIZED)
+               : noCat  ? (kind === KIND.REVENUE ? UNCATEGORIZED_INCOME : UNCATEGORIZED)
+                        : KIND_LABEL[kind],
+          txs: [], total: 0, net: 0, count: 0,
           // Alvo só existe em categoria de despesa. null = sem alvo (≠ alvo zero).
           budget: meta && kind === KIND.EXPENSE && meta.budget_cents != null
             ? meta.budget_cents / 100 : null,
@@ -74,6 +88,12 @@
       }
       g.txs.push(t);
       g.total += t.amount;
+      // Líquido assinado (saída positiva). Num grupo de CATEGORIA todas as linhas
+      // vão na mesma direção, então |net| == total. Numa ESPÉCIE, não: uma
+      // transferência tem DUAS pernas (somar as duas mostra o dobro do que você
+      // moveu) e investimento mistura aplicação com resgate. Por isso o cabeçalho
+      // de espécie usa net, e é o mesmo cálculo do rodapé — os dois têm que bater.
+      g.net += (t.flow === "expense" ? t.amount : -t.amount);
       g.count += 1;
     }
 
@@ -131,5 +151,6 @@
     };
   }
 
-  return { groupKeyOf, buildGroups, groupDelta, scaleFor, budgetState, UNCATEGORIZED, SCALE_MIN, SCALE_MAX };
+  return { groupKeyOf, buildGroups, groupDelta, scaleFor, budgetState, UNCATEGORIZED,
+           UNCATEGORIZED_INCOME, SCALE_MIN, SCALE_MAX };
 });

@@ -37,6 +37,61 @@ test("agrupa despesa/receita por categoria", () => {
   assert.equal(gs.find(g => g.label === "Salario").total, 5000);
 });
 
+test("receita e despesa SEM categoria não somam no mesmo grupo", () => {
+  // Regressão pega na tela: ambas caíam em `cat:0` e o total virava
+  // receita+despesa num número só, exibido com sinal de saída ("Sem categoria
+  // −R$ 6.276,15" quando a despesa real era R$ 2.076,15). Categoria tem flow
+  // próprio, então só o caso SEM categoria precisa da espécie na chave.
+  const gs = G.buildGroups([
+    tx({ id: 1, flow: "expense", category_id: null, category: null, amount: 2076.15 }),
+    tx({ id: 2, flow: "income", is_revenue: 1, category_id: null, category: null, amount: 4200 }),
+  ], cats);
+  const desp = gs.find(g => g.label === G.UNCATEGORIZED);
+  const rec = gs.find(g => g.label === G.UNCATEGORIZED_INCOME);
+  assert.equal(desp.total, 2076.15);
+  assert.equal(desp.kind, M.KIND.EXPENSE);
+  assert.equal(rec.total, 4200);
+  assert.equal(rec.kind, M.KIND.REVENUE);
+  assert.notEqual(desp.key, rec.key);
+});
+
+test("net: transferência cancela as duas pernas — não mostra o dobro", () => {
+  // Regressão pega na tela: 4 pernas SELF de R$ 1.000 (2 transferências de ida e
+  // volta) exibiam "Transferências −R$ 4.000,00", como se R$ 4.000 tivessem saído.
+  // O dinheiro só mudou de conta: o líquido é zero.
+  const legs = [
+    tx({ id: 1, flow: "expense", method: "transfer", counterpart: "SELF", category_id: null, amount: 1000 }),
+    tx({ id: 2, flow: "income", method: "pix", counterpart: "SELF", category_id: null, amount: 1000 }),
+    tx({ id: 3, flow: "expense", method: "transfer", counterpart: "SELF", category_id: null, amount: 1000 }),
+    tx({ id: 4, flow: "income", method: "pix", counterpart: "SELF", category_id: null, amount: 1000 }),
+  ];
+  const g = G.buildGroups(legs, cats).find(x => x.kind === M.KIND.TRANSFER);
+  assert.equal(g.count, 4);
+  assert.equal(g.total, 4000, "total ainda soma tudo (é o bruto)");
+  assert.equal(g.net, 0, "líquido é zero — nada saiu do seu bolso");
+});
+
+test("net: investimento é aplicação menos resgate, e bate com o rodapé", () => {
+  const gs = G.buildGroups([
+    tx({ id: 1, flow: "expense", method: "transfer", category_id: null, amount: 1000 }),  // aplicação
+    tx({ id: 2, flow: "income", method: "transfer", is_revenue: 0, category_id: null, amount: 4000 }), // resgate
+  ], cats);
+  const g = gs.find(x => x.kind === M.KIND.INVEST);
+  assert.equal(g.net, -3000, "resgatou 3k a mais do que aplicou");
+  assert.equal(g.total, 5000, "bruto movimentado");
+});
+
+test("net: em grupo de categoria, |net| == total (mesma direção)", () => {
+  const g = G.buildGroups([tx({ amount: 100 }), tx({ id: 2, amount: 50 })], cats)[0];
+  assert.equal(Math.abs(g.net), g.total);
+});
+
+test("categorizada: o id sozinho basta na chave (categoria já tem flow)", () => {
+  assert.equal(G.groupKeyOf(tx({ category_id: 7 })), "cat:7");
+  assert.equal(G.groupKeyOf(tx({ category_id: null, flow: "expense" })), "none:expense");
+  assert.equal(G.groupKeyOf(tx({ category_id: null, flow: "income", is_revenue: 1 })), "none:revenue");
+});
+
 test("espécie sem categoria NÃO cai em 'Sem categoria' — vira grupo próprio", () => {
   // O ponto todo: "Sem categoria" tem que significar só trabalho pendente.
   const gs = G.buildGroups([
