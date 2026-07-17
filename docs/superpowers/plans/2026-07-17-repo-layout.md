@@ -151,11 +151,17 @@ vier `1`, o `git mv` não foi usado — desfazer o commit e refazer com `git mv`
 
 - [ ] **Step 1: Confirmar que o server está fora (senão o WAL está vivo)**
 
+**Não use `pgrep -f "node src/server.ts"`**: `-f` casa a linha de comando
+inteira, e a linha do próprio shell que roda o `pgrep` **contém** essa string —
+ele se acha, reporta "de pé" com o server morto, e um `pkill` no mesmo padrão
+mata o próprio shell. Verificar pela porta, que não se auto-casa:
+
 ```bash
-pgrep -f "node src/server.ts" && echo "AINDA DE PÉ — derrubar antes de seguir" || echo "fora, pode mover"
+ss -ltnp 2>/dev/null | grep ':8000' || echo "ninguém na 8000 — pode mover"
 ```
 
-Esperado: `fora, pode mover`.
+Esperado: `ninguém na 8000 — pode mover`. Se algo escutar, derrubar pelo PID que
+o `ss` mostrar.
 
 - [ ] **Step 2: Registrar o baseline do ledger (pra comparar depois)**
 
