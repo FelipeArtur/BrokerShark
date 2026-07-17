@@ -17,7 +17,7 @@ Requer **Node ≥ 26** (type-stripping nativo — o projeto não tem build step)
 ```bash
 cd backend
 npm install                                    # instala xlsx (única dependência)
-node src/jobs/backfill.ts "<dir do acervo>"    # → data/brokershark-v2.db
+node src/jobs/backfill.ts "<dir do acervo>"    # → backend/data/brokershark-v2.db
 npm start                                      # http://127.0.0.1:8000
 npm test                                       # node:test (backend + frontend)
 ```

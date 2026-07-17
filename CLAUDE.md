@@ -112,7 +112,7 @@ Acervo local (CSV/xlsx exports de banco)
       ↓
 backfill.ts — parse + INSERT (SQLite, centavos inteiros)
       ↓
-data/brokershark-v2.db (WAL, 0600)
+backend/data/brokershark-v2.db (WAL, 0600)
       ↓
 server.ts (node:http, 127.0.0.1:8000) → React frontend (SSE /api/events)
 ```
