@@ -1,8 +1,8 @@
 # Reconstrução das três telas de apoio — design
 
 **Data:** 2026-07-17
-**Escopo:** `modal-bulk.js` (Categorizar em lote), `view-overview.js` (Gerenciar
-Categorias), `modal-import.js` (Importar Dados).
+**Escopo:** `overlays/bulk.js` (Categorizar em lote), `overlays/categories.js` (Gerenciar
+Categorias), `overlays/import.js` (Importar Dados).
 
 ---
 
@@ -20,10 +20,10 @@ frontend.
 
 | Arquivo | `borderRadius` | `boxShadow` | `gradient` |
 |---|---|---|---|
-| `modal-import.js` | 16 | 2 | 0 |
-| `view-overview.js` | 14 | 1 | 0 |
-| `modal-bulk.js` | 10 | 3 | 1 |
-| `view-history.js` (convertida) | 1 | 0 | 0 |
+| `overlays/import.js` | 16 | 2 | 0 |
+| `overlays/categories.js` | 14 | 1 | 0 |
+| `overlays/bulk.js` | 10 | 3 | 1 |
+| `screens/history.js` (convertida) | 1 | 0 | 0 |
 
 Elas carregam a linguagem visual anterior ao remodel intacta: cantos de 12px,
 sombras suaves difusas, gradientes, avatares circulares, `transition: 0.2s`.
@@ -94,7 +94,7 @@ linguagem de sombra que já existe.
 
 ## Parte 2 — As telas
 
-### Categorizar em lote (`modal-bulk.js`)
+### Categorizar em lote (`overlays/bulk.js`)
 
 **Densidade.** Linha ~36px (swatch 20px + nome + chip de contagem + valor +
 select), contra 44px de avatar + 16px de padding hoje. ~11 comerciantes
@@ -115,7 +115,7 @@ round-trips.
 **Preservado:** sugestão inline (`✨ Nome`), criar categoria inline, agrupamento
 por comerciante ordenado por gasto.
 
-### Gerenciar Categorias (`view-overview.js`)
+### Gerenciar Categorias (`overlays/categories.js`)
 
 **Afordância.** Renomear hoje é clique num `<span>` revelado só por `title` —
 ganha ícone de lápis visível. Excluir é `×` cinza que só aparece no hover —
@@ -127,7 +127,7 @@ vira botão presente.
 ela, os lançamentos ficam órfãos e viram indistinguíveis dos que ainda faltam
 categorizar.
 
-### Importar Dados (`modal-import.js`)
+### Importar Dados (`overlays/import.js`)
 
 **Fluxo não muda.** O wizard de 2 passos (drop+banco → revisão) + tela de
 resultado está são. O problema ali é pintura e densidade.
@@ -141,13 +141,13 @@ resultado está são. O problema ali é pintura e densidade.
 
 ## Fora de escopo
 
-**Alvo de gasto continua editado na tabela** (`view-history.js`), não no painel
+**Alvo de gasto continua editado na tabela** (`screens/history.js`), não no painel
 de categorias. `CategoriesPanel` chama um endpoint que devolve só
 `id, name, flow, transaction_count`; o alvo é editado onde o gasto está visível
 ao lado. É um split defensável — mudá-lo é outra decisão, não esta.
 
 Nenhuma mudança de backend, schema ou invariante financeira. Nenhuma mudança em
-`view-dashboard.js` / `view-history.js`.
+`screens/dashboard.js` / `screens/history.js`.
 
 ---
 
