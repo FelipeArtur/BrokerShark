@@ -33,8 +33,8 @@
   --nubank: #c58cff;
   --inter:  #ffab5c;
 
-  --ff-sans: "Silkscreen", "Inter", system-ui, sans-serif;
-  --ff-mono: "Departure Mono", "JetBrains Mono", ui-monospace, monospace;
+  --ff-sans: "Silkscreen", system-ui, sans-serif;
+  --ff-mono: "Departure Mono", ui-monospace, monospace;
 
   --fz-9: 10px; --fz-8: 11px; --fz-7: 12px; --fz-6: 13px;
   --fz-5: 14px; --fz-4: 16px; --fz-3: 19px; --fz-2: 24px;

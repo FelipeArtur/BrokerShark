@@ -92,7 +92,7 @@ frontend/
                         # juice.js — engine feedback SILENCIOSO (coin/boot/pop/shake); sem áudio — respeita prefers-reduced-motion
                         # pixel-bars.js — barras dithered fluxo mês a mês (clique→seletor global) + compare toggle
   css/                  # estilos; pixel.css — estrutural (bordas duras, sombras degrau, scanlines CRT, dither, keyframes boot/coin/pop/shake)
-  fonts/                # Silkscreen, Departure Mono — vendorizados (100% offline); Inter/JetBrains fallback
+  fonts/                # Silkscreen, Departure Mono — vendorizados (100% offline); só essas duas
   img/                  # assets
 ```
 
@@ -144,7 +144,7 @@ server.ts (node:http, 127.0.0.1:8000) → React frontend (SSE /api/events)
 | Language | TypeScript (Node ≥ 26, native type-stripping — sem build step) |
 | Database | SQLite via `node:sqlite` (builtin, WAL, `foreign_keys=ON`, file mode 0600) |
 | Parsing | own CSV parsers; `xlsx` for B3 reports (única npm dependency) |
-| Frontend | React 18 (pixel-art / 8-bit, Balatro-CRT palette, tema único) + fontes Silkscreen (headings/labels) + Departure Mono (números/body), ambas vendorizadas offline; Inter/JetBrains como fallback. **Widgets = facetas clicáveis** (categoria/conta/banco), busca sempre visível, recategorização inline. **Sem build step** — hyperscript puro (`React.createElement`, nunca JSX); cada arquivo em IIFE. |
+| Frontend | React 18 (pixel-art / 8-bit, Balatro-CRT palette, tema único) + fontes Silkscreen (headings/labels) + Departure Mono (números/body), ambas vendorizadas offline. Só essas duas — cobrem Latin-1/acentos PT, então não há camada de fallback webfont (stack termina em system-ui/ui-monospace). **Widgets = facetas clicáveis** (categoria/conta/banco), busca sempre visível, recategorização inline. **Sem build step** — hyperscript puro (`React.createElement`, nunca JSX); cada arquivo em IIFE. |
 | Server | `node:http` + micro-router próprio + SSE (`/api/events`) — zero deps, bind 127.0.0.1, preserva o API contract v1 |
 
 ---

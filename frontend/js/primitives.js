@@ -243,7 +243,7 @@ function DualLine({ data, height = 180 }) {
           tooltip: {
             backgroundColor: "oklch(20% 0.01 250 / 0.9)",
             titleFont: { size: 11, family: "Inter" },
-            bodyFont: { size: 13, family: "JetBrains Mono", weight: "bold" },
+            bodyFont: { size: 13, family: "Departure Mono", weight: "bold" },
             padding: 12,
             boxPadding: 6,
             usePointStyle: true,
@@ -253,13 +253,13 @@ function DualLine({ data, height = 180 }) {
         scales: {
           x: {
             grid: { display: false, drawBorder: false },
-            ticks: { color: fg2Color, font: { size: 10, family: "JetBrains Mono" } }
+            ticks: { color: fg2Color, font: { size: 10, family: "Departure Mono" } }
           },
           y: {
             beginAtZero: true,
             grid: { color: line1Color, drawBorder: false, tickLength: 0, borderDash: [2, 3] },
             border: { display: false },
-            ticks: { color: fg2Color, font: { size: 10, family: "JetBrains Mono" }, callback: v => fmtBRLCompact(v), maxTicksLimit: 5 }
+            ticks: { color: fg2Color, font: { size: 10, family: "Departure Mono" }, callback: v => fmtBRLCompact(v), maxTicksLimit: 5 }
           }
         }
       }
