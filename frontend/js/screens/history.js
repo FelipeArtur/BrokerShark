@@ -105,19 +105,34 @@ function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkC
    * @brief Categoriza todas as ocorrências de um comerciante de uma vez.
    * @param group grupo de uncategorized-merchants {merchant_key, flow, ids}
    * @param categoryId id da categoria escolhida
-   * @return Promise que resolve após atualizar a lista local (erro é engolido)
+   * @return Promise que resolve com {undo} — `undo` devolve os lançamentos ao
+   *         estado sem categoria; rejeita se a gravação falhar (o chamador
+   *         avisa o usuário: com aplicação imediata, engolir o erro faria a
+   *         linha sumir dando a impressão de que gravou)
    */
-  const applyBulk = (group, categoryId) => {
+  const applyBulk = async (group, categoryId) => {
     const list = catsByFlow[group.flow] || [];
     const catName = list.find(c => c.id === categoryId)?.name || "";
-    return categorizeBulk(group.ids, categoryId)
-      .then(() => {
-        setBulkGroups(prev => prev.filter(g => !(g.merchant_key === group.merchant_key && g.flow === group.flow)));
+    await categorizeBulk(group.ids, categoryId);
+    setBulkGroups(prev => prev.filter(g => !(g.merchant_key === group.merchant_key && g.flow === group.flow)));
+    if (setMonthTx) {
+      setMonthTx(prev => prev.map(tx => group.ids.includes(tx.id) ? { ...tx, category_id: categoryId, category: catName } : tx));
+    }
+    return {
+      /**
+       * @brief Devolve o grupo ao estado sem categoria.
+       *
+       * Via PATCH e não categorize-bulk: aquele exige categoria existente e
+       * recusa null. Como a tela só lista não-categorizados, o alvo é sempre null.
+       */
+      undo: async () => {
+        await Promise.all(group.ids.map(id => patchTransactionCategory(id, null)));
+        setBulkGroups(prev => [...prev, group]);
         if (setMonthTx) {
-          setMonthTx(prev => prev.map(tx => group.ids.includes(tx.id) ? { ...tx, category_id: categoryId, category: catName } : tx));
+          setMonthTx(prev => prev.map(tx => group.ids.includes(tx.id) ? { ...tx, category_id: null, category: null } : tx));
         }
-      })
-      .catch(() => {});
+      },
+    };
   };
 
   const monthLabel = monthSel ? `${PT_MONTHS[monthSel.month]} ${monthSel.year}` : "";
@@ -409,7 +424,9 @@ function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkC
         const [exp, inc] = await Promise.all([fetchCategoriesFull("expense"), fetchCategoriesFull("income")]);
         setCatsByFlow({ expense: exp, income: inc });
         return { expense: exp, income: inc };
-      }
+      },
+      onToast: (msg, kind, action) =>
+        window.dispatchEvent(new CustomEvent("bs-toast", { detail: { msg, kind, action } })),
     })
   );
 }
