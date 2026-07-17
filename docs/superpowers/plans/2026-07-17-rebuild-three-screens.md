@@ -127,8 +127,8 @@ Esperado: falha com `Cannot find module './palette.js'`.
 
 - [ ] **Step 3: Implementar `palette.js`**
 
-Criar `frontend/js/domain/palette.js`. O rabo UMD é o mesmo padrão de
-`core/juice.js` — publica em `window.BS` no browser e em `module.exports` no
+Criar `frontend/js/domain/palette.js`. O rabo UMD é o padrão dos outros arquivos de
+`domain/` (money, tx-group, filter, meta) — publica em `window.BS` no browser e em `module.exports` no
 node, sem build step:
 
 ```js
@@ -525,7 +525,7 @@ Substituir o bloco das linhas 104-121 por:
        * recusa null. Como a tela só lista não-categorizados, o alvo é sempre null.
        */
       undo: async () => {
-        await Promise.all(group.ids.map(id => window.BS.patchTransactionCategory(id, null)));
+        await Promise.all(group.ids.map(id => patchTransactionCategory(id, null)));
         setBulkGroups(prev => [...prev, group]);
         if (setMonthTx) {
           setMonthTx(prev => prev.map(tx => group.ids.includes(tx.id) ? { ...tx, category_id: null, category: null } : tx));
@@ -535,16 +535,24 @@ Substituir o bloco das linhas 104-121 por:
   };
 ```
 
-- [ ] **Step 2: Confirmar que `patchTransactionCategory` está exposto em `window.BS`**
+- [ ] **Step 2: Declarar `patchTransactionCategory` no `/* global */` de `history.js`**
+
+**Não use `window.BS.patchTransactionCategory`** — não existe. `core/api.js` é a
+única exceção do frontend: não é IIFE nem UMD, é script plano, então suas
+funções são globais de verdade (`history.js:273` já chama
+`patchTransactionCategory(tx.id, categoryId)` assim). Verificado em 2026-07-17.
+
+O `/* global */` do topo de `frontend/js/screens/history.js` (linha ~13) **já
+lista** `patchTransactionCategory`. Confirmar que continua lá:
 
 ```bash
 cd /home/felipe/Projects/BrokerShark
-grep -n "patchTransactionCategory" frontend/js/core/api.js | tail -3
+sed -n '10,15p' frontend/js/screens/history.js
 ```
 
-Se a função não aparecer num `Object.assign(window.BS, …)` no fim de
-`core/api.js`, acrescentá-la lá junto das outras — sem isso a chamada do Step 1
-quebra em runtime.
+Esperado: `patchTransactionCategory` entre os globais declarados. Se não
+estiver, acrescentar — é só um comentário de lint, mas mantém o arquivo honesto
+sobre o que consome.
 
 - [ ] **Step 3: Reescrever `frontend/js/overlays/bulk.js`**
 
