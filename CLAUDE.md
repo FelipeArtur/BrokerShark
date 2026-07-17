@@ -89,7 +89,7 @@ frontend/
                         # tx-group.js — agrupamento da tabela (buildGroups/scaleFor/budgetState) — testada
                         # filter.js — lógica pura filtro facetado (applyFilter/toggleFacet/searchMatch) — testada node
                         # meta.js — derivações "score" (savingsStreak / isAllTimeHigh / budgetProgress) — testada
-                        # juice.js — engine feedback (sfx WebAudio, coin/boot/pop/shake, mute default-off)
+                        # juice.js — engine feedback SILENCIOSO (coin/boot/pop/shake); sem áudio — respeita prefers-reduced-motion
                         # pixel-bars.js — barras dithered fluxo mês a mês (clique→seletor global) + compare toggle
   css/                  # estilos; pixel.css — estrutural (bordas duras, sombras degrau, scanlines CRT, dither, keyframes boot/coin/pop/shake)
   fonts/                # Silkscreen, Departure Mono — vendorizados (100% offline); Inter/JetBrains fallback

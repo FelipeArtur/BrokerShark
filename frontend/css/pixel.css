@@ -2,10 +2,13 @@
    Palette comes from style.css tokens. Pixel is the only theme. */
 
 html, body { background: var(--bg-0); }
-* { image-rendering: pixelated; }
+/* Only raster art should be nearest-neighbor scaled — never DOM/text (that read blurry). */
+img, .bs-mascot { image-rendering: pixelated; }
 
-/* Panels: hard black border + stepped drop shadow (Balatro feel) */
-.widget, .kpi, .modal, .drawer, .table-widget {
+/* Panels: hard black border + stepped drop shadow (Balatro feel).
+   The KPI strip is framed as ONE panel (not per-cell) so it reads as a single
+   elevated bar with strong contrast against the page, not four busy cards. */
+.widget, .kpi-strip, .modal, .drawer, .table-widget {
   border: 3px solid var(--line-1) !important;
   border-radius: 0 !important;
   box-shadow: 4px 4px 0 #05060d !important;
@@ -21,12 +24,12 @@ html, body { background: var(--bg-0); }
   letter-spacing: 1px;
 }
 
-/* Scanline overlay — whole viewport, non-interactive, subtle */
+/* Scanline overlay — whole viewport, non-interactive. Very faint and WITHOUT
+   multiply blend, so it doesn't haze text/colors (that made the UI look blurry). */
 #app::after {
   content: "";
   position: fixed; inset: 0; z-index: 9999; pointer-events: none;
-  background: repeating-linear-gradient(0deg, rgba(0,0,0,0.14) 0 1px, transparent 1px 3px);
-  mix-blend-mode: multiply;
+  background: repeating-linear-gradient(0deg, rgba(0,0,0,0.05) 0 1px, transparent 1px 4px);
 }
 
 /* Dither fills for bars */
