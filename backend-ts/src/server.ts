@@ -1,10 +1,20 @@
 /**
+ * @file server.ts
+ * @brief Bootstrap do servidor local: config → db → pipeline de request → listen.
+ *
  * server.ts — bootstrap do servidor local.
  *
  * Pipeline por request: host allowlist → headers de segurança → SSE →
  * backup-status → rotas /api → frontend estático.
  *
+ * A ORDEM do pipeline é load-bearing: Host antes de tudo (anti DNS-rebinding), e a
+ * checagem de Origin antes de qualquer rota de escrita (anti-CSRF).
+ *
+ * Bind fixo em 127.0.0.1 — o app não tem auth; a máquina é o perímetro.
+ *
  * Uso: node src/server.ts [<db>] [--port N]   (PORT no env também vale)
+ *
+ * Script de entrada — executa no import; não exporta nada.
  */
 import { createServer } from "node:http";
 import { existsSync } from "node:fs";
@@ -54,7 +64,14 @@ const routes: Route[] = [
   ...importRoutes(db),
 ];
 
-// Snapshot de backup ainda não reimplementado no v2 — footer mostra "sem backup".
+/**
+ * @brief Responder o status de backup (stub que sempre diz "sem backup").
+ *
+ * Snapshot de backup ainda não reimplementado no v2 — footer mostra "sem backup".
+ *
+ * @param _req requisição (ignorada)
+ * @param res resposta; recebe `{ exists: false }` fixo
+ */
 function handleBackupStatus(_req: Req, res: Res): void {
   json(res, { exists: false });
 }

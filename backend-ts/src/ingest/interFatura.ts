@@ -1,8 +1,14 @@
-/** Fatura Inter: `"Data","Lançamento","Categoria","Tipo","Valor"` (BOM, quoted).
- *  Categoria = do banco (seed de classificação); Tipo carrega parcelas ("Parcela 2/3"). */
+/**
+ * @file interFatura.ts
+ * @brief Parser da fatura Inter (CSV): itens itemizados, categoria do banco e parcelas.
+ *
+ * Fatura Inter: `"Data","Lançamento","Categoria","Tipo","Valor"` (BOM, quoted).
+ * Categoria = do banco (seed de classificação); Tipo carrega parcelas ("Parcela 2/3").
+ */
 import { parseCsv } from "./csv.ts";
 import { parseMoneyCents, parseDateBR } from "../domain/money.ts";
 
+/** @brief Item itemizado da fatura; `amountCents` ASSINADO em centavos inteiros. */
 export interface FaturaItem {
   date: string;               // data da compra
   description: string;
@@ -12,6 +18,7 @@ export interface FaturaItem {
   installmentTotal?: number;
 }
 
+/** @brief Fatura parseada: mês de referência, itens, total assinado e descartes. */
 export interface ParsedFatura {
   refMonth: string;           // 'YYYY-MM' do nome do arquivo
   items: FaturaItem[];
@@ -19,6 +26,22 @@ export interface ParsedFatura {
   skipped: { line: string; reason: string }[];
 }
 
+/**
+ * @brief Parsear uma fatura Inter em itens de consumo do cartão `inter-cc`.
+ *
+ * Os itens da fatura SÃO os gastos reais do cartão; o pagamento da fatura no extrato
+ * é liquidação, tratada em faturas.ts. Por isso a linha-espelho de pagamento dentro
+ * do próprio CSV é descartada aqui (ver comentário no corpo).
+ *
+ * O `ref_month` vem do NOME do arquivo, não do conteúdo.
+ *
+ * @param text conteúdo do CSV
+ * @param sourceFile nome do arquivo; precisa casar `fatura-inter-YYYY-MM`
+ * @return fatura com itens (valores assinados em centavos inteiros: positivo =
+ *         despesa, negativo = estorno) e `totalCents` = Σ assinada em centavos
+ * @throws Error se o nome do arquivo não casar o padrão ou o header não tiver
+ *         as colunas Data e Valor
+ */
 export function parseInterFatura(text: string, sourceFile: string): ParsedFatura {
   const m = /fatura-inter-(\d{4})-(\d{2})/.exec(sourceFile);
   if (!m) throw new Error(`${sourceFile}: nome não bate fatura-inter-YYYY-MM`);

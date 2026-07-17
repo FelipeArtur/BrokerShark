@@ -1,9 +1,30 @@
-/** Extrato Nubank: `Data,Valor,Identificador,Descrição` — formato estável 2020→2026. */
+/**
+ * @file nubankExtrato.ts
+ * @brief Parser do extrato Nubank (CSV), com UUID para dedup e classificação por keyword.
+ *
+ * Extrato Nubank: `Data,Valor,Identificador,Descrição` — formato estável 2020→2026.
+ */
 import { parseCsv } from "./csv.ts";
 import { parseMoneyCents, parseDateBR } from "../domain/money.ts";
 import * as classify from "../domain/classify.ts";
 import type { ParsedFile, TxRecord } from "./types.ts";
 
+/**
+ * @brief Parsear um extrato Nubank em registros normalizados da conta `nu-db`.
+ *
+ * Precedência de classificação (load-bearing): investimento vem PRIMEIRO — perna de
+ * investimento vira `method='transfer'` e `isRevenue=0`, para nunca contar como
+ * receita nem como despesa de consumo. Só depois entrada vira receita
+ * (`isRevenue=1`) e saída vira despesa com método deduzido da descrição.
+ *
+ * O `Identificador` (UUID) vira `externalId` — é a chave de dedup do backfill.
+ *
+ * @param text conteúdo do CSV
+ * @param sourceFile nome do arquivo, propagado a cada registro e às mensagens de erro
+ * @return registros (valores em centavos inteiros, sempre positivos), linhas
+ *         descartadas e `signedSumCents` (Σ assinada, em centavos) para conferência
+ * @throws Error se o header não tiver "identificador" e "valor" (não é extrato Nubank)
+ */
 export function parseNubankExtrato(text: string, sourceFile: string): ParsedFile {
   const rows = parseCsv(text);
   const header = rows[0]?.map((h) => h.trim().toLowerCase()) ?? [];

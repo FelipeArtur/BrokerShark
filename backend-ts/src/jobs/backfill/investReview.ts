@@ -1,16 +1,39 @@
-/** investReview.ts — review da estratégia de investimentos na fase verify.
- *  Duas partes: invariantes (violação → backfill aborta) + panorama de alocação.
+/**
+ * @file investReview.ts
+ * @brief Invariantes de investimento (violação aborta o backfill) + panorama de alocação.
+ *
+ * investReview.ts — review da estratégia de investimentos na fase verify.
+ * Duas partes: invariantes (violação → backfill aborta) + panorama de alocação.
  */
 import type { DatabaseSync } from "node:sqlite";
 
+/** @brief Panorama de alocação das posições abertas; valores em centavos inteiros. */
 export interface InvestPanorama {
   totalCents: number;
   byType: { type: string; cents: number; pct: number }[];
   topConcentration: { name: string; pct: number } | null;
   bySource: { source: string; count: number }[];
 }
+/** @brief Resultado do review: violações encontradas + panorama de alocação. */
 export interface InvestReview { violations: string[]; panorama: InvestPanorama }
 
+/**
+ * @brief Checar as invariantes de investimento e montar o panorama de alocação.
+ *
+ * Quatro invariantes, cada uma protegendo um erro de contagem conhecido:
+ *  1. só a Caixinha é posição derivada — outra `source='ledger'` significaria que
+ *     algo virou derivado indevidamente (o Porquinho é B3; derivá-lo dobraria);
+ *  2. o snapshot derivado mais recente da Caixinha bate com a Σ das pernas
+ *     (expense = aplicação soma, income = resgate subtrai);
+ *  3. posição aberta sem snapshot — some da carteira sem deixar rastro;
+ *  4. snapshot com net negativo — posição não deve valer menos que zero.
+ *
+ * Função PURA de efeito: só lê. Quem aborta é printReport (verify.ts).
+ *
+ * @param db conexão do DB a auditar
+ * @return violações em texto (vazio = carteira sã) e o panorama, com `totalCents`
+ *         e `cents` em centavos inteiros e `pct` em % com 1 casa
+ */
 export function reviewInvestments(db: DatabaseSync): InvestReview {
   const all = <T>(sql: string, ...p: unknown[]) => db.prepare(sql).all(...(p as never[])) as T[];
   const get = <T>(sql: string, ...p: unknown[]) => db.prepare(sql).get(...(p as never[])) as T | undefined;

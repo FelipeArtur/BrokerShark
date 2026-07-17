@@ -1,4 +1,8 @@
-/** b3Sync.ts — B3 = tabela verdade: upsert por match_key + snapshots + soft-close.
+/**
+ * @file b3Sync.ts
+ * @brief Fase B3: upsert de posições por match_key, snapshots datados e soft-close.
+ *
+ * b3Sync.ts — B3 = tabela verdade: upsert por match_key + snapshots + soft-close.
  *
  *  Soft-close por tipo de aba (invariante — ver CLAUDE.md):
  *  - Tesouro/RV: o consolidado sempre lista o que existe — ausente de qualquer
@@ -14,6 +18,15 @@ import { basename } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { parseB3, type B3Report } from "../../ingest/b3.ts";
 
+/**
+ * @brief Classificar uma aba do relatório na família que rege seu soft-close.
+ *
+ * A família decide a regra de fechamento: "rf" tem o tratamento da aba que pisca;
+ * "tesouro" e "rv" fecham direto por ausência.
+ *
+ * @param sheet nome da aba
+ * @return "tesouro", "rf" (Renda Fixa) ou "rv" (Ações/BDR)
+ */
 const kindOf = (sheet: string): string => {
   const s = sheet.toLowerCase();
   if (s.includes("tesouro")) return "tesouro";
@@ -21,6 +34,28 @@ const kindOf = (sheet: string): string => {
   return "rv";
 };
 
+/**
+ * @brief Sincronizar as posições da B3: upsert, snapshot por relatório e soft-close.
+ *
+ * Upsert por `match_key` (ISIN/código/ticker): reaparecer num relatório mais novo
+ * limpa o `closed_at` — a posição volta a viver. Nunca há DELETE: fechar é
+ * soft-close, para o histórico de snapshots continuar de pé.
+ *
+ * Soft-close: uma posição vista pela última vez ANTES do relatório mais novo é
+ * candidata a fechar, e a decisão segue a família da aba (ver @file):
+ *  - tesouro/rv → fecha, datada no último dia em que foi vista;
+ *  - rf → só fecha se existir um relatório mais novo COM a aba RF presente; sem
+ *    isso, a ausência é falta de informação e a posição fica aberta.
+ *
+ * CDB do Inter vira `group_name='Porquinho'`. O Porquinho é B3 e NÃO é derivado do
+ * ledger — derivá-lo contaria em dobro e ignoraria o rendimento.
+ *
+ * @param db conexão do DB em construção
+ * @param b3Files relatórios com ref_date, em ORDEM cronológica (o último define o
+ *                corte do soft-close)
+ * @return linhas de relatório legível, uma por arquivo processado
+ * @throws Error se algum .xlsx não puder ser lido ou parseado
+ */
 export function syncB3(db: DatabaseSync, b3Files: { f: string; ref: string }[]): string[] {
   const upsertInv = db.prepare(`
     INSERT INTO investments (name, match_key, code, type, bank, indexer, maturity_date, group_name, source, opened_at)

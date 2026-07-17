@@ -1,4 +1,8 @@
-/** faturas.ts — fatura itemizada (invariante central do v2).
+/**
+ * @file faturas.ts
+ * @brief Fase de faturas: itens itemizados + reconciliação do pagamento (liquidação).
+ *
+ * faturas.ts — fatura itemizada (invariante central do v2).
  *
  *  Itens da fatura Inter = gastos reais no inter-cc. O pagamento no extrato é
  *  LIQUIDAÇÃO (is_settlement=1), excluída dos totais de consumo — sem isso o
@@ -11,6 +15,26 @@ import { fmtCents } from "../../domain/money.ts";
 import { parseInterFatura } from "../../ingest/interFatura.ts";
 import type { TxInserter } from "./txInsert.ts";
 
+/**
+ * @brief Importar as faturas Inter e reconciliar cada pagamento como liquidação.
+ *
+ * Três destinos possíveis para um pagamento de fatura no extrato:
+ *  - valor EXATO do total, na janela −70/+35d do ref_month → liquidação casada
+ *    (`is_settlement=1` + `invoice_id`), e a fatura aponta de volta em `payment_tx_id`;
+ *  - sem match exato mas DENTRO da cobertura das faturas importadas → liquidação
+ *    parcial (rotativo/débito automático): o consumo já está itemizado, então o
+ *    pagamento também é marcado `is_settlement=1` para não contar em dobro;
+ *  - FORA da cobertura → fica stand-in: o pagamento É o único registro daquele
+ *    gasto (não há itens importados), então NÃO é marcado como liquidação.
+ *
+ * Roda depois dos extratos — a reconciliação procura pernas já inseridas.
+ *
+ * @param db conexão do DB em construção
+ * @param ins inserter compartilhado; os itens usam `ins.stmt` direto (colunas extras)
+ * @param files faturas `fatura-inter-YYYY-MM.csv`
+ * @return linhas de relatório legível (valores formatados em BRL) para a verificação
+ * @throws Error se alguma fatura tiver nome ou header inválido
+ */
 export function importFaturas(db: DatabaseSync, ins: TxInserter, files: string[]): string[] {
   const report: string[] = [];
   const insInvoice = db.prepare(

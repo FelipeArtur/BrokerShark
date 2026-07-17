@@ -1,4 +1,9 @@
-/** verify.ts — relatório final: saldos por conta (vs banco), investimentos, B3. */
+/**
+ * @file verify.ts
+ * @brief Relatório final do backfill e checagem das invariantes (aborta se violadas).
+ *
+ * verify.ts — relatório final: saldos por conta (vs banco), investimentos, B3.
+ */
 import type { DatabaseSync } from "node:sqlite";
 import { fmtCents } from "../../domain/money.ts";
 import type { Acervo } from "./files.ts";
@@ -7,6 +12,7 @@ import type { InterImport } from "./extratos.ts";
 import type { CaixinhaResult } from "./caixinha.ts";
 import { reviewInvestments } from "./investReview.ts";
 
+/** @brief Tudo que as fases do backfill produziram, para o relatório final. */
 export interface BackfillReport {
   dbPath: string;
   acervo: Acervo;
@@ -18,6 +24,24 @@ export interface BackfillReport {
   b3Log: string[];
 }
 
+/**
+ * @brief Imprimir o relatório do backfill e abortar se alguma invariante for violada.
+ *
+ * Além do panorama, é o portão final do pipeline. Duas checagens matam o processo
+ * com exit(1), porque o DB resultante seria financeiramente errado:
+ *  - liquidação mal classificada (`is_settlement=1` junto de `method='transfer'` ou
+ *    `is_third_party=1`) → risco de dupla contagem de consumo;
+ *  - qualquer violação de reviewInvestments.
+ *
+ * O saldo por conta soma as liquidações à parte: liquidação de fatura É saída de
+ * caixa (sai do saldo), mas NÃO é despesa de consumo (o consumo já está itemizado).
+ * Por isso ela é excluída do agregado e subtraída depois. O saldo do `inter-db` é
+ * cruzado com o saldo real do banco no último extrato — é o check ponta-a-ponta.
+ *
+ * @param db conexão do DB recém-construído
+ * @param r resultados de todas as fases
+ * @throws Encerra o processo com exit(1) (não lança) se uma invariante for violada
+ */
 export function printReport(db: DatabaseSync, r: BackfillReport): void {
   const q = <T>(sql: string, ...p: unknown[]) => db.prepare(sql).all(...(p as never[])) as T[];
   type Row = Record<string, number | string | null>;

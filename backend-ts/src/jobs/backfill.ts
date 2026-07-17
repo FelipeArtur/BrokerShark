@@ -1,9 +1,20 @@
-/** Backfill v2: constrói data/brokershark-v2.db a partir do acervo de exports.
+/**
+ * @file backfill.ts
+ * @brief Orquestrador do backfill: reconstrói o DB do acervo, fase a fase, e verifica.
  *
- *  Uso: node src/jobs/backfill.ts "<dir do acervo>" [<db de saída>] [--force]
+ * Backfill v2: constrói data/brokershark-v2.db a partir do acervo de exports.
  *
- *  Idempotente por reconstrução: o DB de saída é recriado do zero a cada run.
- *  Cada fase vive em jobs/backfill/<fase>.ts.
+ * Uso: node src/jobs/backfill.ts "<dir do acervo>" [<db de saída>] [--force]
+ *
+ * Idempotente por reconstrução: o DB de saída é recriado do zero a cada run.
+ * Cada fase vive em jobs/backfill/<fase>.ts.
+ *
+ * A ORDEM das fases é load-bearing: extratos antes das faturas (a reconciliação do
+ * pagamento precisa das pernas já inseridas); SELF depois de todos os extratos (o
+ * par pode cruzar bancos); Caixinha depois do SELF (usa as pernas coletadas no
+ * insert); B3 por último, pois é tabela-verdade independente do ledger.
+ *
+ * Script de entrada — executa no import; não exporta nada.
  */
 import { rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
