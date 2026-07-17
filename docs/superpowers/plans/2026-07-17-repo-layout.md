@@ -21,7 +21,9 @@ node:sqlite. Zero build step.
 
 - **Zero mudança de comportamento, lógica, schema ou invariante financeira.**
   Esse plano só move e renomeia.
-- **`git mv` sempre** — preserva histórico. Nunca `rm` + `add`.
+- **`git mv` sempre, para arquivo RASTREADO** — preserva histórico. Nunca
+  `rm` + `add`. Exceção única e deliberada: `data/` é gitignored (Task 2), então
+  `git mv` falharia nele — ali é `mv` de disco mesmo.
 - **Sem build step:** a ordem dos `<script>` no `index.html` é manual e
   load-bearing. `money.js` **antes** de `tx-group.js` e `primitives.js` (os dois
   consomem `moneyKind` via `window.BS` quando o factory roda). `app.js` **por
