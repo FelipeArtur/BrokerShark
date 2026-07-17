@@ -40,7 +40,7 @@ const args = process.argv.slice(2);
 const portIdx = args.indexOf("--port");
 const PORT = portIdx >= 0 ? Number(args[portIdx + 1]) : Number(process.env.PORT ?? 8000);
 const dbPath = args.find((a, i) => !a.startsWith("--") && i !== portIdx + 1)
-  ?? join(import.meta.dirname, "../../data/brokershark-v2.db");
+  ?? join(import.meta.dirname, "../data/brokershark-v2.db");
 const serveStatic = makeStatic(resolve(import.meta.dirname, "../../frontend"));
 
 if (!existsSync(dbPath)) {

@@ -2,7 +2,7 @@
  * @file backfill.ts
  * @brief Orquestrador do backfill: reconstrói o DB do acervo, fase a fase, e verifica.
  *
- * Backfill v2: constrói data/brokershark-v2.db a partir do acervo de exports.
+ * Backfill v2: constrói backend/data/brokershark-v2.db a partir do acervo de exports.
  *
  * Uso: node src/jobs/backfill.ts "<dir do acervo>" [<db de saída>] [--force]
  *
@@ -33,7 +33,7 @@ import { printReport } from "./backfill/verify.ts";
 const positional = process.argv.slice(2).filter((a) => !a.startsWith("--"));
 const force = process.argv.includes("--force");
 const acervoDir = positional[0];
-const dbPath = positional[1] ?? join(import.meta.dirname, "../../../data/brokershark-v2.db");
+const dbPath = positional[1] ?? join(import.meta.dirname, "../../data/brokershark-v2.db");
 if (!acervoDir) {
   console.error('uso: node src/jobs/backfill.ts "<dir do acervo>" [<db>] [--force]');
   process.exit(1);
