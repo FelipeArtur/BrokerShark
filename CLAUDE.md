@@ -36,7 +36,8 @@ Ferramenta **pessoal** de análise de dinheiro, 100% local (Linux, 1 usuário). 
 ## Repository Structure
 
 ```
-backend-ts/
+backend/
+  data/                  # brokershark-v2.db (ledger SQLite, 0600, NUNCA versionado)
   package.json          # deps: xlsx (única npm dep); npm test = node:test (co-locado src/**/*.test.ts)
   src/
     db/
@@ -79,18 +80,24 @@ backend-ts/
                         # b3Sync, guard (overlay da UI), investReview, verify — 1 fase por arquivo
 frontend/
   index.html            # React 18 SPA (hyperscript puro, sem build step)
-  js/                   # api.js · icons.js · primitives.js (Overlay de drill-down, Money, TxRow)
-                        # modal-transaction.js (editor de lançamento) · modal-import.js (import via UI)
-                        # modal-bulk.js — categorização em lote por comerciante
-                        # view-dashboard.js (a tela única: KPIs + widgets facetados)
-                        # view-history.js (TxTableWidget — a planilha, agrupada por categoria)
-                        # view-overview.js (só CategoriesPanel) · app.js (shell)
+  js/
+    domain/             # regra PURA e testada — espelha backend/src/domain
                         # money.js — ESPÉCIES de dinheiro (moneyKind/KIND_COLOR/fmtParts) — testada
                         # tx-group.js — agrupamento da tabela (buildGroups/scaleFor/budgetState) — testada
-                        # filter.js — lógica pura filtro facetado (applyFilter/toggleFacet/searchMatch) — testada node
-                        # meta.js — derivações "score" (savingsStreak / isAllTimeHigh / budgetProgress) — testada
-                        # juice.js — engine feedback SILENCIOSO (coin/boot/pop/shake); sem áudio — respeita prefers-reduced-motion
+                        # filter.js — lógica pura filtro facetado (applyFilter/toggleFacet/searchMatch) — testada
+                        # meta.js — derivações "score" (savingsStreak/isAllTimeHigh/budgetProgress) — testada
+    core/               # api.js (fetch + contrato) · juice.js — engine feedback SILENCIOSO
+                        # (coin/boot/pop/shake); sem áudio — respeita prefers-reduced-motion — testada
+    ui/                 # primitives.js (Overlay de drill-down, Money, TxRow) · icons.js
                         # pixel-bars.js — barras dithered fluxo mês a mês (clique→seletor global) + compare toggle
+    screens/            # app.js (shell)
+                        # dashboard.js (a tela única: KPIs + widgets facetados)
+                        # history.js (TxTableWidget — a planilha, agrupada por categoria)
+    overlays/           # abre por cima da tela única — modal e drawer, mesma ideia
+                        # transaction.js (editor de lançamento) · import.js (import via UI)
+                        # bulk.js — categorização em lote por comerciante
+                        # categories.js — só CategoriesPanel
+    vendor/             # react, react-dom, chart — vendorizados (inalterado)
   css/                  # estilos; pixel.css — estrutural (bordas duras, sombras degrau, scanlines CRT, dither, keyframes boot/coin/pop/shake)
   fonts/                # Silkscreen, Departure Mono — vendorizados (100% offline); só essas duas
   img/                  # assets
@@ -236,12 +243,12 @@ Pipeline sequencial:
 ## Running Locally
 
 ```bash
-cd backend-ts
+cd backend
 npm install       # instala xlsx
-node src/jobs/backfill.ts "<dir do acervo>"   # → data/brokershark-v2.db (--force p/ reconstruir sobre DB com dados da UI)
+node src/jobs/backfill.ts "<dir do acervo>"   # → backend/data/brokershark-v2.db (--force p/ reconstruir sobre DB com dados da UI)
 npm start         # server em http://127.0.0.1:8000 (PORT ou --port N para mudar)
 npm test          # rede node:test — backend (src/**/*.test.ts, co-locado) + frontend
-                  # (../frontend/js/*.test.js: money, tx-group, filter, meta, juice)
+                  # (../frontend/js/**/*.test.js: domain/, core/juice — money, tx-group, filter, meta, juice)
 ```
 
 ---
