@@ -101,16 +101,7 @@ cd /home/felipe/Projects/BrokerShark/backend && npm test 2>&1 | grep -E "^ℹ (t
 
 Esperado: `tests 75`, `pass 75`, `fail 0`.
 
-- [ ] **Step 5: Verificar que o histórico sobreviveu ao move**
-
-```bash
-cd /home/felipe/Projects/BrokerShark && git log --follow --oneline backend/src/server.ts | wc -l
-```
-
-Esperado: número **maior que 1** (o arquivo tem história anterior ao move). Se
-vier `1`, o `git mv` não foi usado — desfazer e refazer.
-
-- [ ] **Step 6: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add -A && git commit -m "refactor(repo): backend-ts → backend
@@ -123,6 +114,18 @@ Renomear não muda profundidade, então os caminhos relativos internos
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ```
+
+- [ ] **Step 6: Verificar que o histórico sobreviveu ao move — DEPOIS do commit**
+
+A ordem importa: `git log --follow` só detecta rename a partir de um commit que
+o registre. Rodar isso antes de commitar sempre falha, mesmo com `git mv` certo.
+
+```bash
+cd /home/felipe/Projects/BrokerShark && git log --follow --oneline backend/src/server.ts | wc -l
+```
+
+Esperado: número **maior que 1** (o arquivo tem história anterior ao move). Se
+vier `1`, o `git mv` não foi usado — desfazer o commit e refazer com `git mv`.
 
 ---
 
