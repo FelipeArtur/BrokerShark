@@ -86,6 +86,8 @@ frontend/
                         # tx-group.js — agrupamento da tabela (buildGroups/scaleFor/budgetState) — testada
                         # filter.js — lógica pura filtro facetado (applyFilter/toggleFacet/searchMatch) — testada
                         # meta.js — derivações "score" (savingsStreak/isAllTimeHigh/budgetProgress) — testada
+                        # palette.js — cor estável por nome, quantizada a 8 matizes — testada
+                        # bulk.js — suggestionPlan (decisão do "aplicar todas") — testada
     core/               # api.js (fetch + contrato) · juice.js — engine feedback SILENCIOSO
                         # (coin/boot/pop/shake); sem áudio — respeita prefers-reduced-motion — testada
     ui/                 # primitives.js (Overlay de drill-down, Money, TxRow) · icons.js
@@ -98,7 +100,8 @@ frontend/
                         # bulk.js — categorização em lote por comerciante
                         # categories.js — só CategoriesPanel
     vendor/             # react, react-dom, chart — vendorizados (inalterado)
-  css/                  # estilos; pixel.css — estrutural (bordas duras, sombras degrau, scanlines CRT, dither, keyframes boot/coin/pop/shake)
+  css/                  # estilos; pixel.css — estrutural (bordas duras, sombras degrau, scanlines CRT, dither, keyframes)
+                        # pixel-ui.css — vocabulário de componente (.px-row/.px-field/.px-btn/.px-swatch/.px-chip…)
   fonts/                # Silkscreen, Departure Mono — vendorizados (100% offline); só essas duas
   img/                  # assets
 ```

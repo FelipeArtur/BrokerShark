@@ -64,7 +64,7 @@ function EditableCell({ value, kind, render, onCommit, onError, align = "left", 
       style: {
         width: "100%", boxSizing: "border-box", font: "inherit",
         textAlign: align, color: "var(--fg-0)", background: "var(--bg-2)",
-        border: "1px solid var(--pos)", borderRadius: 4, padding: "1px 5px",
+        border: "1px solid var(--pos)", padding: "1px 5px",
         fontFamily: kind === "amount" ? "var(--ff-mono)" : "inherit",
       },
     });
@@ -81,7 +81,7 @@ function EditableCell({ value, kind, render, onCommit, onError, align = "left", 
       cursor: "text", display: "inline-block", maxWidth: "100%",
       color: color || "var(--fg-1)", outline: "none", borderBottom: "1px dashed transparent",
       background: flash ? "color-mix(in oklch, var(--pos) 20%, transparent)" : "transparent",
-      borderRadius: 3, transition: "background 0.4s",
+      transition: "background 0.4s",
       fontFamily: kind === "amount" ? "var(--ff-mono)" : "inherit",
     },
   }, saving ? "…" : render(value));
@@ -341,69 +341,56 @@ function ImportModal({ onClose, onDone }) {
   }
 
   const DropZone = h("label", {
-    style: {
-      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16,
-      border: "2px dashed color-mix(in oklch, var(--accent) 40%, transparent)",
-      background: "color-mix(in oklch, var(--accent) 5%, transparent)", borderRadius: 16,
-      padding: "48px 24px", cursor: busy ? "wait" : "pointer",
-      color: "var(--fg-2)", textAlign: "center", transition: "all 0.2s",
-    },
-    onDragOver: e => { e.preventDefault(); e.currentTarget.style.borderColor = "var(--accent)"; e.currentTarget.style.background = "color-mix(in oklch, var(--accent) 15%, transparent)"; },
-    onDragLeave: e => { e.preventDefault(); e.currentTarget.style.borderColor = "color-mix(in oklch, var(--accent) 40%, transparent)"; e.currentTarget.style.background = "color-mix(in oklch, var(--accent) 5%, transparent)"; },
-    onDrop: e => { e.preventDefault(); e.currentTarget.style.borderColor = "color-mix(in oklch, var(--accent) 40%, transparent)"; e.currentTarget.style.background = "color-mix(in oklch, var(--accent) 5%, transparent)"; addFiles(e.dataTransfer.files); },
+    className: "px-dropzone",
+    style: { display: "flex", flexDirection: "column", alignItems: "center", gap: "var(--s-4)", cursor: busy ? "wait" : "pointer" },
+    onDragOver: e => { e.preventDefault(); e.currentTarget.classList.add("px-dropzone--over"); },
+    onDragLeave: e => { e.preventDefault(); e.currentTarget.classList.remove("px-dropzone--over"); },
+    onDrop: e => { e.preventDefault(); e.currentTarget.classList.remove("px-dropzone--over"); addFiles(e.dataTransfer.files); },
   },
-    h("div", { style: { background: "var(--bg-0)", padding: 16, borderRadius: "50%", color: "var(--accent)", marginBottom: 4, boxShadow: "0 8px 24px color-mix(in oklch, var(--accent) 20%, transparent)" } }, h(IconImport, { size: 32 })),
-    h("div", { style: { fontSize: 16, fontWeight: 700, color: "var(--fg-0)" } }, "Arraste os arquivos aqui, ou clique para escolher"),
-    h("div", { style: { fontSize: 14, color: "var(--fg-3)" } }, "Extratos em .csv ou relatórios B3 em .xlsx"),
+    h(IconImport, { size: 28 }),
+    h("div", { style: { fontFamily: "var(--ff-sans)", fontSize: "var(--fz-6)", letterSpacing: "1px", color: "var(--fg-0)" } },
+      "ARRASTE OS ARQUIVOS AQUI, OU CLIQUE PARA ESCOLHER"),
+    h("div", { style: { fontSize: "var(--fz-8)", color: "var(--fg-3)" } }, "Extratos em .csv ou relatórios B3 em .xlsx"),
     h("input", { type: "file", accept: ".csv,.xlsx,text/csv", multiple: true, style: { display: "none" },
       onChange: e => { addFiles(e.target.files); e.target.value = null; } })
   );
 
-  const fileList = files.length > 0 && h("div", { style: { display: "flex", flexDirection: "column", gap: 12, marginTop: 8 } },
-    files.map(f => h("div", { key: f.key, style: { display: "flex", alignItems: "center", gap: 16, padding: "16px 20px", background: "var(--bg-0)", border: "1px solid var(--line-1)", borderRadius: 12, boxShadow: "0 4px 12px oklch(0% 0 0 / 0.05)" } },
+  const fileList = files.length > 0 && h("div", { className: "px-list", style: { marginTop: "var(--s-4)" } },
+    files.map(f => h("div", { className: "px-row", key: f.key },
       h("div", { style: { display: "flex", flexDirection: "column", flex: 1, minWidth: 0, gap: 2 } },
-        h("span", { style: { fontSize: 14, fontWeight: 700, color: "var(--fg-0)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, f.file.name),
-        h("span", { style: { color: "var(--fg-3)", fontSize: 11, fontFamily: "var(--ff-mono)" } }, `${(f.file.size / 1024).toFixed(1)} KB`)
+        h("span", { style: { fontSize: "var(--fz-7)", fontWeight: 700, color: "var(--fg-0)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, f.file.name),
+        h("span", { className: "mono", style: { color: "var(--fg-3)", fontSize: "var(--fz-9)" } }, `${(f.file.size / 1024).toFixed(1)} KB`)
       ),
       f.b3
-        ? h("span", { style: { fontSize: 12, fontWeight: 700, padding: "6px 12px", background: "var(--info-bg)", color: "var(--info)", borderRadius: 6 } }, "B3")
-        : h("div", { style: { display: "flex", alignItems: "center", gap: 12 } },
-            f.auto && h("span", { title: "conta detectada automaticamente — confira", style: { fontSize: 10, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: "var(--info)", border: "1px solid color-mix(in oklch, var(--info) 30%, transparent)", borderRadius: 4, padding: "2px 6px" } }, "auto"),
+        ? h("span", { className: "px-chip" }, "B3")
+        : h("div", { style: { display: "flex", alignItems: "center", gap: "var(--s-4)" } },
+            f.auto && h("span", { className: "px-chip", title: "conta detectada automaticamente — confira", style: { color: "var(--info)" } }, "AUTO"),
             h("select", {
-              value: f.account || "", onChange: e => setFileAccount(f.key, e.target.value || null),
+              className: "px-field", value: f.account || "", onChange: e => setFileAccount(f.key, e.target.value || null),
               "aria-label": "Conta de origem",
-              style: {
-                appearance: "none",
-                backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M4 6l4 4 4-4'/></svg>")`,
-                backgroundRepeat: "no-repeat",
-                backgroundPosition: "right 10px center",
-                fontSize: 13, fontWeight: 600, padding: "8px 32px 8px 12px", borderRadius: 8, height: 36,
-                background: "var(--bg-1)", color: f.account ? "var(--fg-0)" : "var(--fg-3)", border: `1px solid ${f.account ? "var(--line-2)" : "var(--reserve)"}`, cursor: "pointer", outline: "none", transition: "border 0.2s"
-              },
             },
-              h("option", { value: "" }, "Atribuir Conta…"),
+              h("option", { value: "" }, "Atribuir conta…"),
               BANKS.map(b => h("option", { key: b.id, value: b.id }, b.label))
             )
           ),
-      h("button", { onClick: () => removeFile(f.key), title: "Remover arquivo", style: { width: 36, height: 36, borderRadius: "50%", background: "transparent", border: "none", color: "var(--fg-3)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.1s" }, onMouseEnter: e => { e.currentTarget.style.color = "var(--neg)"; e.currentTarget.style.background = "color-mix(in oklch, var(--neg) 15%, transparent)"; }, onMouseLeave: e => { e.currentTarget.style.color = "var(--fg-3)"; e.currentTarget.style.background = "transparent"; } }, h("svg", { width: 16, height: 16, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor", strokeWidth: 1.5 }, h("line", { x1: 4, y1: 4, x2: 12, y2: 12 }), h("line", { x1: 4, y1: 12, x2: 12, y2: 4 })))
+      h("button", { className: "px-btn px-btn--danger", onClick: () => removeFile(f.key), title: "Remover arquivo", "aria-label": "Remover arquivo" }, "×")
     ))
   );
 
   const detecting = files.some(f => !f.b3 && f.detecting);
   const needsAccount = files.length > 0 && !detecting && !canAnalyze;
-  const step1View = h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 16 } },
-    h("div", { style: { color: "var(--fg-2)", fontSize: 13 } }, "Solte os arquivos do mês — a conta é detectada e a revisão abre sozinha."),
+  const step1View = h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: "var(--s-6)" } },
+    h("div", { className: "label", style: { color: "var(--fg-2)" } }, "Solte os arquivos do mês — a conta é detectada e a revisão abre sozinha."),
     DropZone,
     fileList,
-    err && h("div", { style: { color: "var(--neg)", fontSize: 12, padding: "8px 12px", background: "color-mix(in oklch, var(--neg) 10%, transparent)", borderRadius: 6 } }, err),
+    err && h("div", { style: { color: "var(--neg)", fontSize: "var(--fz-8)", padding: "var(--s-4) var(--s-5)", background: "color-mix(in oklch, var(--neg) 10%, transparent)", border: "2px solid var(--neg)" } }, err),
     (busy || detecting)
-      ? h("div", { style: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, marginTop: 4, fontSize: 12, fontWeight: 600, color: "var(--fg-2)" } },
-          busy ? "Analisando…" : "Detectando conta…")
+      ? h("div", { className: "label", style: { textAlign: "right", color: "var(--fg-2)" } }, busy ? "Analisando…" : "Detectando conta…")
       : err
-        ? h("div", { style: { display: "flex", justifyContent: "flex-end", marginTop: 4 } },
-            h("button", { className: "btn btn-primary", disabled: !canAnalyze, onClick: () => { triedRef.current = ""; analyze(); } }, "Tentar de novo"))
+        ? h("div", { style: { display: "flex", justifyContent: "flex-end" } },
+            h("button", { className: "px-btn px-btn--primary", disabled: !canAnalyze, onClick: () => { triedRef.current = ""; analyze(); } }, "TENTAR DE NOVO"))
         : needsAccount
-          ? h("div", { style: { textAlign: "right", marginTop: 4, fontSize: 12, fontWeight: 600, color: "var(--reserve)" } }, "Atribua a conta dos arquivos acima")
+          ? h("div", { className: "label", style: { textAlign: "right", color: "var(--reserve)" } }, "Atribua a conta dos arquivos acima")
           : null
   );
 
@@ -439,14 +426,10 @@ function ImportModal({ onClose, onDone }) {
    * @return elemento React <span>
    */
   const TagChip = (cls) => h("span", {
+    className: "px-chip",
     title: `Será classificado como ${cls.tag}`,
-    style: {
-      fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em",
-      padding: "2px 6px", borderRadius: 4, color: cls.color, whiteSpace: "nowrap", flexShrink: 0,
-      border: `1px solid color-mix(in oklch, ${cls.color} 30%, transparent)`,
-      background: `color-mix(in oklch, ${cls.color} 10%, transparent)`,
-    },
-  }, cls.tag);
+    style: { color: cls.color, borderColor: `color-mix(in oklch, ${cls.color} 45%, var(--line-1))` },
+  }, cls.tag.toUpperCase());
 
   /**
    * @brief Monta o select de categoria de uma linha do preview.
@@ -463,29 +446,25 @@ function ImportModal({ onClose, onDone }) {
     const showingSuggestion = r.category_id == null && r.suggested_category_id != null;
     const value = r.category_id != null ? String(r.category_id)
       : (showingSuggestion ? String(r.suggested_category_id) : "");
-    return h("div", { style: { display: "flex", alignItems: "center", gap: 6, minWidth: 0 } },
+    return h("div", { style: { display: "flex", alignItems: "center", gap: "var(--s-3)", minWidth: 0 } },
       h("select", {
-        value,
+        className: "px-field", value,
         "aria-label": "Categoria",
         onChange: e => editRow(g.account, g.batch_id, r.id, { category_id: e.target.value ? parseInt(e.target.value) : null })
           .catch(() => toast("Não salvou a categoria")),
         style: {
-          height: 24, maxWidth: 180, fontSize: 11, fontWeight: 500,
-          padding: "0 22px 0 8px", borderRadius: 4, cursor: "pointer", outline: "none",
-          backgroundColor: "var(--bg-0)", color: value ? "var(--fg-1)" : "var(--fg-3)",
-          border: `1px solid ${showingSuggestion ? "color-mix(in oklch, var(--accent) 40%, transparent)" : "var(--line-1)"}`,
-          appearance: "none",
-          backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath fill='%23888' d='M5 7L0 2h10z'/%3E%3C/svg%3E\")",
-          backgroundRepeat: "no-repeat", backgroundPosition: "right 7px center",
+          height: 22, maxWidth: 180, fontSize: "var(--fz-8)",
+          borderColor: showingSuggestion ? "var(--accent)" : "var(--line-2)",
         },
       },
         h("option", { value: "" }, "Sem categoria"),
         list.map(c => h("option", { key: c.id, value: c.id }, c.name))
       ),
       showingSuggestion && h("span", {
+        className: "px-chip",
         title: "Sugerido pelo histórico — confirme ou troque",
-        style: { fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--accent)", whiteSpace: "nowrap" },
-      }, "sugerido")
+        style: { color: "var(--accent)" },
+      }, "SUGERIDO")
     );
   };
 
@@ -507,47 +486,47 @@ function ImportModal({ onClose, onDone }) {
     const allIncluded = allNew.length > 0 && allNew.every(r => !excluded.has(r.id));
     const subtotal = newRows.reduce((s, r) => s + (r.flow === "expense" ? -r.amount : r.amount), 0);
     const div = g.amount_divergence || 0;
-    return h("div", { key: g.account, style: { border: "1px solid var(--line-1)", borderRadius: 12, overflow: "hidden" } },
-      h("div", { style: { padding: "16px 20px", background: "var(--bg-1)", borderBottom: "1px solid var(--line-1)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 } },
-        h("div", { style: { display: "flex", alignItems: "center", gap: 12 } },
+    return h("div", { key: g.account, style: { border: "2px solid var(--line-1)", boxShadow: "2px 2px 0 #05060d" } },
+      h("div", { style: { padding: "var(--s-5) var(--s-6)", background: "var(--bg-1)", borderBottom: "2px solid var(--line-1)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--s-5)", flexWrap: "wrap" } },
+        h("div", { style: { display: "flex", alignItems: "center", gap: "var(--s-5)" } },
           h(BankChip, { accountId: g.account }),
-          h("span", { style: { fontWeight: 700, fontSize: 14, color: "var(--fg-0)" } }, accLabel(g.account))
+          h("span", { className: "widget-title" }, accLabel(g.account))
         ),
-        h("div", { style: { display: "flex", alignItems: "center", gap: 16, fontSize: 12, color: "var(--fg-2)", fontWeight: 600 } },
-          allNew.length > 0 && h("button", { className: "data-tag", onClick: () => setGroupAll(g.account, !allIncluded), title: allIncluded ? "Desmarcar todas as novas" : "Marcar todas as novas", style: { cursor: "pointer" } }, allIncluded ? "Desmarcar" : "Marcar todas"),
-          h("span", null, `${newRows.length} ${newRows.length === 1 ? "nova" : "novas"}`),
-          g.counts.duplicate > 0 && h("span", { style: { color: "var(--fg-3)" } }, `${g.counts.duplicate} já importados`),
-          h("span", { style: { fontFamily: "var(--ff-mono)", fontSize: 14, color: subtotal < 0 ? "var(--neg)" : "var(--pos)" } }, `${subtotal < 0 ? "−" : "+"}${fmtBRL(Math.abs(subtotal))}`)
+        h("div", { style: { display: "flex", alignItems: "center", gap: "var(--s-5)", fontSize: "var(--fz-7)", color: "var(--fg-2)" } },
+          allNew.length > 0 && h("button", { className: "px-btn", onClick: () => setGroupAll(g.account, !allIncluded) }, allIncluded ? "DESMARCAR" : "MARCAR TODAS"),
+          h("span", { className: "px-chip" }, `${newRows.length} ${newRows.length === 1 ? "nova" : "novas"}`),
+          g.counts.duplicate > 0 && h("span", { className: "px-chip", style: { color: "var(--fg-3)" } }, `${g.counts.duplicate} já importados`),
+          h("span", { className: "mono", style: { fontSize: "var(--fz-5)", color: subtotal < 0 ? "var(--neg)" : "var(--pos)" } }, `${subtotal < 0 ? "−" : "+"}${fmtBRL(Math.abs(subtotal))}`)
         )
       ),
-      g.err && h("div", { style: { padding: "12px 20px", display: "flex", flexDirection: "column", gap: 4, background: "color-mix(in oklch, var(--neg) 10%, transparent)" } },
-        h("div", { style: { fontSize: 12, fontWeight: 700, color: "var(--neg)" } }, g.err),
-        h("div", { style: { fontSize: 11, fontWeight: 500, color: "var(--fg-2)" } }, "Confira se a conta atribuída (Nubank/Inter) corresponde ao arquivo, ou se é mesmo um extrato desse banco.")),
-      Math.abs(div) >= 0.01 && h("div", { style: { padding: "12px 20px", fontSize: 12, fontWeight: 600, color: "var(--reserve)", background: "color-mix(in oklch, var(--reserve) 12%, transparent)", borderBottom: "1px solid var(--line-1)" } },
+      g.err && h("div", { style: { padding: "var(--s-4) var(--s-6)", display: "flex", flexDirection: "column", gap: "var(--s-2)", background: "color-mix(in oklch, var(--neg) 10%, transparent)" } },
+        h("div", { style: { fontSize: "var(--fz-7)", fontWeight: 700, color: "var(--neg)" } }, g.err),
+        h("div", { style: { fontSize: "var(--fz-8)", color: "var(--fg-2)" } }, "Confira se a conta atribuída (Nubank/Inter) corresponde ao arquivo, ou se é mesmo um extrato desse banco.")),
+      Math.abs(div) >= 0.01 && h("div", { style: { padding: "var(--s-4) var(--s-6)", fontSize: "var(--fz-7)", fontWeight: 600, color: "var(--reserve)", background: "color-mix(in oklch, var(--reserve) 12%, transparent)", borderBottom: "2px solid var(--line-1)" } },
         `Ajuste de Saldo: ${div > 0 ? "+" : "−"}${fmtBRL(Math.abs(div))} vs extrato original`),
       !g.err && (allNew.length === 0
-        ? h("div", { style: { padding: "20px", textAlign: "center", color: "var(--fg-2)", fontSize: 13, fontWeight: 600, background: "var(--bg-0)" } },
+        ? h("div", { className: "px-empty" },
             g.counts.duplicate > 0
-              ? `Tudo já importado ✓ — ${g.counts.duplicate} lançamento${g.counts.duplicate === 1 ? "" : "s"} já consta${g.counts.duplicate === 1 ? "" : "m"}, nada novo`
-              : "Nada novo neste arquivo")
+              ? `TUDO JÁ IMPORTADO — ${g.counts.duplicate} LANÇAMENTO${g.counts.duplicate === 1 ? "" : "S"} JÁ CONSTA${g.counts.duplicate === 1 ? "" : "M"}, NADA NOVO`
+              : "NADA NOVO NESTE ARQUIVO")
         : h("div", { style: { maxHeight: 320, overflowY: "auto", background: "var(--bg-0)" } },
-            g.counts.duplicate > 0 && h("div", { style: { padding: "8px 20px", fontSize: 11, color: "var(--fg-3)", background: "var(--bg-1)", borderBottom: "1px dashed var(--line-1)" } },
+            g.counts.duplicate > 0 && h("div", { style: { padding: "var(--s-3) var(--s-6)", fontSize: "var(--fz-8)", color: "var(--fg-3)", background: "var(--bg-1)", borderBottom: "1px dashed var(--line-2)" } },
               `${g.counts.duplicate} já importado${g.counts.duplicate === 1 ? "" : "s"} (ocultos) · ${allNew.length} novo${allNew.length === 1 ? "" : "s"} abaixo`),
             h("table", { style: { width: "100%", borderCollapse: "collapse" } },
               h("tbody", null, allNew.map((r, i) => {
                 const checked = !excluded.has(r.id);
                 const { color, sign } = amtMeta(r);
                 const cls = classifyRow(r);
-                return h("tr", { key: r.id, style: { borderBottom: i < allNew.length - 1 ? "1px solid var(--line-0)" : "none", opacity: checked ? 1 : 0.45, fontSize: 13, transition: "background 0.1s" }, onMouseEnter: e => e.currentTarget.style.background = "var(--bg-1)", onMouseLeave: e => e.currentTarget.style.background = "transparent" },
-                  h("td", { style: { padding: "12px 16px", width: 40, textAlign: "center" } },
+                return h("tr", { key: r.id, style: { borderBottom: i < allNew.length - 1 ? "1px solid var(--line-2)" : "none", opacity: checked ? 1 : 0.45, fontSize: "var(--fz-6)", transition: "background 0.1s" }, onMouseEnter: e => e.currentTarget.style.background = "var(--bg-1)", onMouseLeave: e => e.currentTarget.style.background = "transparent" },
+                  h("td", { style: { padding: "var(--s-4)", width: 36, textAlign: "center" } },
                     h("input", { type: "checkbox", checked, onChange: () => toggle(r.id), "aria-label": "Incluir", style: { cursor: "pointer", accentColor: "var(--fg-0)" } })),
-                  h("td", { style: { padding: "12px 0", color: "var(--fg-3)", whiteSpace: "nowrap", fontSize: 11, fontWeight: 600, fontFamily: "var(--ff-mono)" } }, fmtDateBR(r.date)),
-                  h("td", { style: { padding: "10px 16px", width: "100%" } },
-                    h("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
+                  h("td", { className: "mono", style: { padding: "var(--s-4) 0", color: "var(--fg-3)", whiteSpace: "nowrap", fontSize: "var(--fz-8)" } }, fmtDateBR(r.date)),
+                  h("td", { style: { padding: "var(--s-3) var(--s-6)", width: "100%" } },
+                    h("div", { style: { display: "flex", alignItems: "center", gap: "var(--s-4)" } },
                       h("span", { style: { color: "var(--fg-0)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, window.BS.prettifyDesc(r.description)),
                       TagChip(cls)
                     ),
-                    h("div", { style: { fontSize: 11, color: "var(--fg-3)", marginTop: 6, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" } },
+                    h("div", { style: { fontSize: "var(--fz-8)", color: "var(--fg-3)", marginTop: "var(--s-2)", display: "flex", gap: "var(--s-5)", alignItems: "center", flexWrap: "wrap" } },
                       cls.categorizable && CategorySelect(g, r),
                       h(EditableCell, {
                         value: r.display_name || "", kind: "text",
@@ -558,7 +537,7 @@ function ImportModal({ onClose, onDone }) {
                       })
                     )
                   ),
-                  h("td", { style: { padding: "12px 20px", textAlign: "right", whiteSpace: "nowrap" } },
+                  h("td", { style: { padding: "var(--s-4) var(--s-6)", textAlign: "right", whiteSpace: "nowrap" } },
                     h(EditableCell, {
                       value: r.amount, kind: "amount", align: "right", color,
                       render: v => `${sign}${fmtBRL(v)}`,
@@ -582,29 +561,30 @@ function ImportModal({ onClose, onDone }) {
    * @param b {key, file, preview, err} — `preview.positions[].balance` em REAIS
    * @return elemento React do card, com as posições novas e as atualizadas
    */
-  const renderB3 = (b) => h("div", { key: b.key, style: { border: "1px solid var(--line-1)", borderRadius: 12, overflow: "hidden" } },
-    h("div", { style: { padding: "16px 20px", background: "var(--bg-1)", borderBottom: "1px solid var(--line-1)", display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--fg-2)" } },
-      h("span", { style: { fontWeight: 700, fontSize: 14, color: "var(--fg-0)" } }, "Relatório B3 — posições"),
-      b.preview && h("span", { style: { fontWeight: 600 } }, `${b.preview.created} novas · ${b.preview.updated} atualizadas`)),
-    b.err && h("div", { style: { padding: "12px 20px", fontSize: 12, fontWeight: 600, color: "var(--neg)", background: "color-mix(in oklch, var(--neg) 10%, transparent)" } }, b.err),
+  const renderB3 = (b) => h("div", { key: b.key, style: { border: "2px solid var(--line-1)", boxShadow: "2px 2px 0 #05060d" } },
+    h("div", { style: { padding: "var(--s-5) var(--s-6)", background: "var(--bg-1)", borderBottom: "2px solid var(--line-1)", display: "flex", justifyContent: "space-between", fontSize: "var(--fz-7)", color: "var(--fg-2)" } },
+      h("span", { className: "widget-title" }, "Relatório B3 — posições"),
+      b.preview && h("span", { className: "mono" }, `${b.preview.created} novas · ${b.preview.updated} atualizadas`)),
+    b.err && h("div", { style: { padding: "var(--s-4) var(--s-6)", fontSize: "var(--fz-7)", fontWeight: 600, color: "var(--neg)", background: "color-mix(in oklch, var(--neg) 10%, transparent)" } }, b.err),
     b.preview && h("div", { style: { maxHeight: 280, overflowY: "auto", background: "var(--bg-0)" } },
       h("table", { style: { width: "100%", borderCollapse: "collapse" } },
-        h("tbody", null, b.preview.positions.map((p, i) => h("tr", { key: i, style: { borderBottom: i < b.preview.positions.length - 1 ? "1px solid var(--line-0)" : "none", fontSize: 13, transition: "background 0.1s" }, onMouseEnter: e => e.currentTarget.style.background = "var(--bg-1)", onMouseLeave: e => e.currentTarget.style.background = "transparent" },
-          h("td", { style: { padding: "12px 16px", color: p.status === "new" ? "var(--pos)" : "var(--info)", fontWeight: 700, fontSize: 11 } }, p.status === "new" ? "NOVA" : "ATUALIZA"),
-          h("td", { style: { padding: "12px 16px", color: "var(--fg-0)", width: "100%", fontWeight: 600 } }, p.name),
-          h("td", { style: { padding: "12px 20px", textAlign: "right", fontWeight: 700, fontFamily: "var(--ff-mono)", color: "var(--fg-0)" } }, fmtBRL(p.balance))
+        h("tbody", null, b.preview.positions.map((p, i) => h("tr", { key: i, style: { borderBottom: i < b.preview.positions.length - 1 ? "1px solid var(--line-2)" : "none", fontSize: "var(--fz-6)", transition: "background 0.1s" }, onMouseEnter: e => e.currentTarget.style.background = "var(--bg-1)", onMouseLeave: e => e.currentTarget.style.background = "transparent" },
+          h("td", { style: { padding: "var(--s-4) var(--s-6)", color: p.status === "new" ? "var(--pos)" : "var(--info)", fontWeight: 700, fontSize: "var(--fz-8)" } }, p.status === "new" ? "NOVA" : "ATUALIZA"),
+          h("td", { style: { padding: "var(--s-4) var(--s-6)", color: "var(--fg-0)", width: "100%", fontWeight: 600 } }, p.name),
+          h("td", { className: "mono", style: { padding: "var(--s-4) var(--s-6)", textAlign: "right", fontWeight: 700, color: "var(--fg-0)" } }, fmtBRL(p.balance))
         ))))
     )
   );
 
-  const resultsView = results && h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 12 } },
-    h("div", { style: { fontSize: 13, color: "var(--fg-1)" } }, "Resultado da importação (algumas contas falharam):"),
-    results.map((s, i) => h("div", { key: i, style: { display: "flex", justifyContent: "space-between", padding: "8px 12px", borderRadius: 6, background: "var(--bg-1)", border: "1px solid var(--line-1)", fontSize: 13 } },
-      h("span", null, s.account === "b3" ? "Relatório B3" : accLabel(s.account)),
-      h("span", { style: { color: s.ok ? "var(--pos)" : "var(--neg)", fontWeight: 600 } },
-        s.ok ? `${s.inserted} importadas` : (s.msg || "falhou")))),
-    h("div", { style: { display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 4 } },
-      h("button", { className: "btn btn-primary", onClick: () => onDone({ inserted: results.filter(s => s.ok).reduce((a, s) => a + (s.inserted || 0), 0), kind: "tx" }) }, "Fechar"))
+  const resultsView = results && h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: "var(--s-5)" } },
+    h("div", { className: "label", style: { color: "var(--fg-1)" } }, "Resultado da importação (algumas contas falharam):"),
+    h("div", { className: "px-list" },
+      results.map((s, i) => h("div", { className: "px-row", key: i },
+        h("span", { style: { flex: 1 } }, s.account === "b3" ? "Relatório B3" : accLabel(s.account)),
+        h("span", { className: "mono", style: { color: s.ok ? "var(--pos)" : "var(--neg)", fontWeight: 600 } },
+          s.ok ? `${s.inserted} importadas` : (s.msg || "falhou"))))),
+    h("div", { style: { display: "flex", justifyContent: "flex-end", gap: "var(--s-4)" } },
+      h("button", { className: "px-btn px-btn--primary", onClick: () => onDone({ inserted: results.filter(s => s.ok).reduce((a, s) => a + (s.inserted || 0), 0), kind: "tx" }) }, "FECHAR"))
   );
 
   const _willRows = (groups || []).flatMap(g => groupNew(g.account));
@@ -614,23 +594,23 @@ function ImportModal({ onClose, onDone }) {
     .map(t => `${_typeCounts[t]} ${_typeCounts[t] > 1 ? t + "s" : t}`)
     .join(" · ");
 
-  const step2View = h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: 16 } },
-    h("div", { style: { display: "flex", flexDirection: "column", gap: 12, maxHeight: "62vh", overflowY: "auto", paddingRight: 4 } },
+  const step2View = h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: "var(--s-6)" } },
+    h("div", { style: { display: "flex", flexDirection: "column", gap: "var(--s-5)", maxHeight: "62vh", overflowY: "auto", paddingRight: "var(--s-2)" } },
       (groups || []).map(renderTxGroup),
       b3s.map(renderB3)
     ),
-    err && h("div", { style: { color: "var(--neg)", fontSize: 12, padding: "8px 12px", background: "color-mix(in oklch, var(--neg) 10%, transparent)", borderRadius: 6 } }, err),
-    h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, borderTop: "1px solid var(--line-1)", paddingTop: 14 } },
-      h("div", { style: { display: "flex", flexDirection: "column", gap: 2 } },
-        h("div", { style: { fontSize: 13, color: "var(--fg-2)" } },
+    err && h("div", { style: { color: "var(--neg)", fontSize: "var(--fz-8)", padding: "var(--s-4) var(--s-5)", background: "color-mix(in oklch, var(--neg) 10%, transparent)", border: "2px solid var(--neg)" } }, err),
+    h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--s-5)", borderTop: "2px solid var(--line-1)", paddingTop: "var(--s-5)" } },
+      h("div", { style: { display: "flex", flexDirection: "column", gap: "var(--s-1)" } },
+        h("div", { style: { fontSize: "var(--fz-6)", color: "var(--fg-2)" } },
           h("strong", { style: { color: "var(--pos)" } }, txWillImport),
           ` ${txWillImport === 1 ? "transação pronta" : "transações prontas"}`,
           b3Count > 0 && h("span", { style: { color: "var(--fg-3)" } }, ` · ${b3Count} B3`)),
-        _breakdown && h("div", { style: { fontSize: 11, color: "var(--fg-3)" } }, _breakdown)),
-      h("div", { style: { display: "flex", gap: 8 } },
-        h("button", { className: "btn btn-ghost", disabled: busy, onClick: () => { setGroups(null); setB3s([]); setRowsByGroup({}); setResults(null); } }, "‹ Voltar"),
-        h("button", { className: "btn btn-primary", disabled: busy || (txWillImport <= 0 && b3Count <= 0), onClick: confirm },
-          busy ? "Importando…" : "Confirmar importação"))
+        _breakdown && h("div", { style: { fontSize: "var(--fz-8)", color: "var(--fg-3)" } }, _breakdown)),
+      h("div", { style: { display: "flex", gap: "var(--s-4)" } },
+        h("button", { className: "px-btn", disabled: busy, onClick: () => { setGroups(null); setB3s([]); setRowsByGroup({}); setResults(null); } }, "‹ VOLTAR"),
+        h("button", { className: "px-btn px-btn--primary", disabled: busy || (txWillImport <= 0 && b3Count <= 0), onClick: confirm },
+          busy ? "IMPORTANDO…" : "CONFIRMAR IMPORTAÇÃO"))
     )
   );
 
@@ -638,7 +618,14 @@ function ImportModal({ onClose, onDone }) {
     open: true, onClose,
     title: `Importar Dados${step === 2 ? " — Revisão" : ""}`,
     width: step === 2 ? 820 : 560,
-  }, results ? resultsView : (step === 1 ? step1View : step2View));
+  },
+    h("div", { className: "px-steps", style: { marginBottom: "var(--s-5)" } },
+      h("div", { className: `px-step ${step === 1 ? "px-step--active" : "px-step--done"}` }, "1"),
+      h("div", { className: "px-step-bar" }),
+      h("div", { className: `px-step ${step === 2 ? "px-step--active" : ""}` }, "2")
+    ),
+    results ? resultsView : (step === 1 ? step1View : step2View)
+  );
 }
 
 window.BS = window.BS || {};
