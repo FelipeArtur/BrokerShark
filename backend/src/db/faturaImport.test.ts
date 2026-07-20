@@ -6,6 +6,7 @@ import { runMigrations } from "./migrate.ts";
 import { seedAccountsAndCategories } from "../jobs/backfill/seeds.ts";
 import type { FaturaItem } from "../ingest/interFatura.ts";
 import { insertOpenFatura, pruneEmptyOpenInvoices } from "./faturaImport.ts";
+import { reconcileOpenInvoices } from "./reconcile.ts";
 
 function freshDb(): DatabaseSync {
   const db = new DatabaseSync(":memory:");
@@ -135,6 +136,31 @@ test("pruneEmptyOpenInvoices: NÃO apaga fatura paga nem fatura com itens", () =
   const pruned = pruneEmptyOpenInvoices(db, [paid.invoiceId, withItems.invoiceId]);
   assert.equal(pruned, 0);
   assert.equal((db.prepare("SELECT COUNT(*) n FROM invoices").get() as { n: number }).n, 2);
+});
+
+test("INTEGRAÇÃO (C1+H2): fatura aberta + pagamento no extrato → sem double-count", () => {
+  const db = freshDb();
+  // 1) UI importa a fatura aberta (2 itens = R$111,00)
+  const fat = insertOpenFatura(db, {
+    refMonth: "2026-05", dueDate: "2026-06-10",
+    items: [item("2026-05-01", "Steam", 3100), item("2026-05-03", "Mercado", 8000)],
+    sourceFile: "fatura-inter-2026-05.csv", importBatchId: "fat-1",
+  });
+  // 2) semanas depois, o extrato inter-db com o pagamento entra (valor EXATO)
+  db.prepare(`INSERT INTO transactions
+    (date, flow, method, account_id, amount_cents, description, import_batch_id)
+    VALUES ('2026-05-12','expense','pix','inter-db', 11100, 'Pagamento de fatura', 'ext-1')`).run();
+
+  // antes de reconciliar: 2 itens + 1 pagamento = 3 contariam como consumo (bug)
+  assert.equal(consumptionCount(db), 3);
+
+  const n = reconcileOpenInvoices(db); // roda no confirm do inter-db
+  assert.equal(n, 1);
+
+  // fatura fica paga; consumo volta a 2 (só os itens) — pagamento virou liquidação
+  const inv = db.prepare("SELECT payment_tx_id FROM invoices WHERE id=?").get(fat.invoiceId) as { payment_tx_id: number | null };
+  assert.notEqual(inv.payment_tx_id, null);
+  assert.equal(consumptionCount(db), 2);
 });
 
 test("insertOpenFatura: recusa reabrir fatura já paga", () => {
