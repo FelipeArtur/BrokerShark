@@ -1,0 +1,9 @@
+[Unit]
+Description=BrokerShark — dispara o backup mensal
+
+[Timer]
+OnCalendar=monthly
+Persistent=true
+
+[Install]
+WantedBy=timers.target

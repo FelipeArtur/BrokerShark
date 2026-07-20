@@ -1,0 +1,7 @@
+[Unit]
+Description=BrokerShark — backup mensal do ledger
+
+[Service]
+Type=oneshot
+# Ajuste o caminho do node se necessário (which node). %h = seu $HOME.
+ExecStart=/usr/bin/node %h/Projects/BrokerShark/backend/src/jobs/backup.ts
