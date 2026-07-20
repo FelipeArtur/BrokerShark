@@ -370,6 +370,36 @@ async function importB3(file, { confirm = false } = {}) {
   if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || "falha ao ler relatório B3"); }
   return r.json();
 }
+/* ── Fatura Inter ABERTA (inter-cc): preview parseia, confirm cria a fatura ── */
+/**
+ * @brief Envia a fatura Inter aberta (.csv): preview só lê; confirm cria a fatura.
+ * @param file CSV da fatura (nome precisa casar fatura-inter-YYYY-MM)
+ * @return Promise com {ref_month, items, total, reimport, already_paid, rows}
+ */
+async function importFaturaPreview(file) {
+  const form = new FormData();
+  form.append("file", file);
+  const r = await fetch("/api/import/fatura/preview", { method: "POST", body: form });
+  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || "falha ao ler fatura"); }
+  return r.json();
+}
+/**
+ * @brief Confirma o import de uma fatura Inter aberta.
+ * @param file CSV da fatura
+ * @param dueDate vencimento em ISO (YYYY-MM-DD) ou null
+ * @param importBatchId id de sessão compartilhado com o drop (reverter-lote)
+ * @return Promise com {ok, invoiceId, inserted, duplicate, totalCents, import_batch_id}
+ */
+async function importFaturaConfirm(file, dueDate = null, importBatchId = null) {
+  const form = new FormData();
+  form.append("file", file);
+  if (dueDate) form.append("due_date", dueDate);
+  if (importBatchId) form.append("import_batch_id", importBatchId);
+  const r = await fetch("/api/import/fatura", { method: "POST", body: form });
+  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || "falha ao importar fatura"); }
+  return r.json();
+}
+
 /**
  * @brief Busca a evolução mensal da carteira de investimentos.
  * @return Promise com pontos {label, cumulative} (`cumulative` em reais)
