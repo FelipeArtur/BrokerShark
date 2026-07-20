@@ -22,12 +22,15 @@ fatura aberta, "Comprometido" seria ~R$0 na maioria dos meses. P1 é o que dá v
 
 O trabalho de verdade. Sem ele, P2 mostra zero.
 
-## Ingestão — ✅ BACKEND IMPLEMENTADO (falta frontend)
+## Ingestão — ✅ P1 COMPLETO (backend + frontend + e2e)
 
-> Feito: migration `0001` (due_date) · `detectAccount` inter-cc · `db/faturaImport.ts`
+> Backend: migration `0001` (due_date) · `detectAccount` inter-cc · `db/faturaImport.ts`
 > (`insertOpenFatura` upsert+dedup+estorno [H2/H3] · `pruneEmptyOpenInvoices` [H4]) ·
-> endpoints `POST /api/import/fatura[/preview]` · `deleteBatch` limpa órfã. 112 testes
-> verdes. **Falta:** frontend `import.js` (rota fatura + campo due_date).
+> endpoints `POST /api/import/fatura[/preview]` · `deleteBatch` limpa órfã.
+> Frontend: `import.js` reconhece fatura (3º tipo), card com itens + campo due_date
+> dd/mm/aaaa; `api.js` client fns. 113 testes verdes + teste e2e C1+H2 (consumo 3→2).
+> Smoke real: detect→preview→confirm via multipart OK (fatura aberta, due_date, itens).
+> **P1 FECHADO.** Próximo: P2 (KPI Comprometido + widget forward).
 
 > Eng review: NÃO é "um ramo que chama o parser". É um **import kind paralelo** —
 > staging/confirm hoje são moldados em `TxRecord` (`import.ts:34`), e `FaturaItem`
