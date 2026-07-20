@@ -22,7 +22,12 @@ fatura aberta, "Comprometido" seria ~R$0 na maioria dos meses. P1 é o que dá v
 
 O trabalho de verdade. Sem ele, P2 mostra zero.
 
-## Ingestão
+## Ingestão — ✅ BACKEND IMPLEMENTADO (falta frontend)
+
+> Feito: migration `0001` (due_date) · `detectAccount` inter-cc · `db/faturaImport.ts`
+> (`insertOpenFatura` upsert+dedup+estorno [H2/H3] · `pruneEmptyOpenInvoices` [H4]) ·
+> endpoints `POST /api/import/fatura[/preview]` · `deleteBatch` limpa órfã. 112 testes
+> verdes. **Falta:** frontend `import.js` (rota fatura + campo due_date).
 
 > Eng review: NÃO é "um ramo que chama o parser". É um **import kind paralelo** —
 > staging/confirm hoje são moldados em `TxRecord` (`import.ts:34`), e `FaturaItem`
