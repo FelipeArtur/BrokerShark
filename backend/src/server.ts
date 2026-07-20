@@ -18,6 +18,7 @@
  */
 import { createServer } from "node:http";
 import { existsSync } from "node:fs";
+import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { openDb, initSchema, restrictPermissions } from "./db/open.ts";
@@ -35,6 +36,7 @@ import { categoryRoutes } from "./routes/categories.ts";
 import { analyticsRoutes } from "./routes/analytics.ts";
 import { investmentRoutes } from "./routes/investments.ts";
 import { importRoutes } from "./routes/import.ts";
+import { backupStatus } from "./jobs/backup.ts";
 
 // ── Config ─────────────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
@@ -43,6 +45,7 @@ const PORT = portIdx >= 0 ? Number(args[portIdx + 1]) : Number(process.env.PORT 
 const dbPath = args.find((a, i) => !a.startsWith("--") && i !== portIdx + 1)
   ?? join(import.meta.dirname, "../data/brokershark-v2.db");
 const serveStatic = makeStatic(resolve(import.meta.dirname, "../../frontend"));
+const BACKUP_DIR = process.env.BROKERSHARK_BACKUP_DIR ?? join(homedir(), "brokershark-backups");
 
 if (!existsSync(dbPath)) {
   console.error(`DB não encontrado: ${dbPath}\nRode o backfill primeiro: node src/jobs/backfill.ts "<dir do acervo>"`);
@@ -67,15 +70,11 @@ const routes: Route[] = [
 ];
 
 /**
- * @brief Responder o status de backup (stub que sempre diz "sem backup").
- *
- * Snapshot de backup ainda não reimplementado no v2 — footer mostra "sem backup".
- *
- * @param _req requisição (ignorada)
- * @param res resposta; recebe `{ exists: false }` fixo
+ * @brief Responder o estado do backup mais recente lendo o diretório de backups.
+ * @param _req requisição (ignorada) · @param res resposta {exists, name?, age_seconds?}
  */
 function handleBackupStatus(_req: Req, res: Res): void {
-  json(res, { exists: false });
+  json(res, backupStatus(BACKUP_DIR));
 }
 
 // ── Server ─────────────────────────────────────────────────────────────────

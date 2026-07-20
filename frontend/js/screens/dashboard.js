@@ -231,7 +231,7 @@ const GeneralWidget = React.memo(function GeneralWidget({ cashflow, liquidityHis
     else {
       const d = Math.floor((backup.age_seconds || 0) / 86400);
       backupTxt = d <= 0 ? "Realizado hoje" : d === 1 ? "Realizado há 1 dia" : `Há ${d} dias`;
-      backupStale = d > 7;
+      backupStale = d > 40; // backup é mensal — atrasado só passando de ~1 mês
     }
   }
 
