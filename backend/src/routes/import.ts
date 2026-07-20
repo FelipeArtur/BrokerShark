@@ -21,7 +21,9 @@ import { compilePath } from "../http/router.ts";
 import { broadcast } from "../http/sse.ts";
 import { HttpError } from "../http/respond.ts";
 import { parseMultipart, fileParts, fieldValue } from "../http/multipart.ts";
-import { isIntId, isShortText, isPositiveAmount } from "../http/validate.ts";
+import { isIntId, isShortText, isPositiveAmount, isIsoDate } from "../http/validate.ts";
+import { parseInterFatura } from "../ingest/interFatura.ts";
+import { insertOpenFatura, pruneEmptyOpenInvoices } from "../db/faturaImport.ts";
 import type { TxRecord } from "../ingest/types.ts";
 import { parseNubankExtrato } from "../ingest/nubankExtrato.ts";
 import { parseInterExtrato } from "../ingest/interExtrato.ts";
@@ -118,6 +120,25 @@ function divergenceReais(b: Batch): number {
 }
 
 /**
+ * @brief Descobrir a conta dona de um CSV pelo cabeçalho.
+ *
+ * Ordem importa: identificador → Nubank; "data lançamento" (junto) → extrato Inter;
+ * categoria+tipo+valor (sem os anteriores) → fatura Inter (inter-cc). O header da
+ * fatura tem "data" e "lançamento" em colunas separadas, então nunca casa o
+ * "data lançamento" junto do extrato.
+ *
+ * @param csv conteúdo do arquivo (só os primeiros 4 KB são olhados)
+ * @return "nu-db", "inter-db", "inter-cc", ou `null` quando não reconhecido
+ */
+export function detectAccount(csv: string): string | null {
+  const head = csv.slice(0, 4096).toLowerCase();
+  if (head.includes("identificador") && head.includes("valor")) return "nu-db";
+  if (head.includes("data lançamento") || head.includes("data lancamento")) return "inter-db";
+  if (head.includes("categoria") && head.includes("tipo") && head.includes("valor")) return "inter-cc";
+  return null;
+}
+
+/**
  * @brief Montar as rotas do import incremental ligadas a esta conexão.
  * @param db conexão do DB
  * @return rotas de detect, preview, staging, confirm, reverter-lote e B3
@@ -145,18 +166,6 @@ export function importRoutes(db: DatabaseSync): Route[] {
   const interCount = db.prepare(
     "SELECT COUNT(*) AS n FROM transactions WHERE date = ? AND flow = ? AND amount_cents = ? AND description = ?",
   );
-
-  /**
-   * @brief Descobrir a conta dona de um CSV pelo cabeçalho.
-   * @param csv conteúdo do arquivo (só os primeiros 4 KB são olhados)
-   * @return "nu-db", "inter-db", ou `null` quando o formato não é reconhecido
-   */
-  function detectAccount(csv: string): string | null {
-    const head = csv.slice(0, 4096).toLowerCase();
-    if (head.includes("identificador") && head.includes("valor")) return "nu-db";
-    if (head.includes("data lançamento") || head.includes("data lancamento")) return "inter-db";
-    return null;
-  }
 
   // ── POST /api/import/detect — sniff do header → conta dona ──────────────
   /**
@@ -398,10 +407,14 @@ export function importRoutes(db: DatabaseSync): Route[] {
     }
     const restore = [...byId.values()];
     const caixinhaTouched = restore.some((r) => r.investment_id != null);
+    // Faturas tocadas pelo lote (H4): após apagar os itens, a invoice aberta que
+    // ficar sem itens é apagada — senão vira compromisso fantasma.
+    const invoiceIds = restore.map((r) => r.invoice_id).filter((v): v is number => v != null);
 
     db.prepare("BEGIN").run();
     try {
       for (const r of restore) db.prepare("DELETE FROM transactions WHERE id = ?").run(r.id);
+      if (invoiceIds.length) pruneEmptyOpenInvoices(db, invoiceIds);
       if (caixinhaTouched) rederiveCaixinha(db, []);
       db.prepare("COMMIT").run();
     } catch (e) {
@@ -508,6 +521,85 @@ export function importRoutes(db: DatabaseSync): Route[] {
     json(res, { ok: true, created, updated });
   }
 
+  // ── Fatura Inter ABERTA (inter-cc) — fluxo próprio, stateless como o B3 ──
+  /** @brief Parsear o CSV enviado como fatura Inter (1º arquivo). */
+  function readFatura(parts: Awaited<ReturnType<typeof parseMultipart>>) {
+    const files = fileParts(parts);
+    if (!files.length) throw new HttpError(400, "nenhum arquivo enviado");
+    const f = files[0];
+    const fat = parseInterFatura(f.data.toString("utf-8"), f.filename ?? "fatura.csv");
+    return { fat, filename: f.filename ?? `fatura-inter-${fat.refMonth}.csv` };
+  }
+
+  /**
+   * @brief Preview de uma fatura Inter aberta: itens, total e se é reimport.
+   * @param req multipart com o CSV da fatura
+   * @param res `{ ref_month, items, total, reimport, already_paid, rows }`
+   */
+  async function faturaPreview(req: Req, res: Res) {
+    let parsed;
+    try { parsed = readFatura(await parseMultipart(req)); }
+    catch (e) { return error(res, e instanceof Error ? e.message : "falha ao ler fatura"); }
+    const { fat } = parsed;
+    const existing = db.prepare(
+      "SELECT payment_tx_id FROM invoices WHERE account_id = 'inter-cc' AND ref_month = ?",
+    ).get(fat.refMonth) as { payment_tx_id: number | null } | undefined;
+    json(res, {
+      ref_month: fat.refMonth,
+      items: fat.items.length,
+      total: toReais(fat.totalCents),
+      skipped: fat.skipped.length,
+      reimport: !!existing,
+      already_paid: !!(existing && existing.payment_tx_id != null),
+      rows: fat.items.map((it) => ({
+        date: it.date,
+        description: it.description,
+        amount: toReais(it.amountCents),
+        category: it.bankCategory,
+        installment: it.installmentTotal ? `${it.installmentSeq}/${it.installmentTotal}` : null,
+      })),
+    });
+  }
+
+  /**
+   * @brief Confirmar o import de uma fatura Inter aberta (payment_tx_id NULL).
+   *
+   * Stateless (re-upload como o B3). `due_date` (ISO) opcional vem do form.
+   * Reconciliação NÃO acontece aqui — só quando o extrato com o pagamento entra
+   * (confirm do inter-db chama reconcileOpenInvoices, C1).
+   *
+   * @param req multipart: CSV + campo `due_date?` + `import_batch_id?`
+   * @param res `{ ok, invoiceId, inserted, duplicate, totalCents, import_batch_id }`;
+   *            500 (rollback) se a transação falhar
+   */
+  async function faturaConfirm(req: Req, res: Res) {
+    const parts = await parseMultipart(req);
+    let parsed;
+    try { parsed = readFatura(parts); }
+    catch (e) { return error(res, e instanceof Error ? e.message : "falha ao ler fatura"); }
+    const dueRaw = fieldValue(parts, "due_date");
+    if (dueRaw && !isIsoDate(dueRaw)) return error(res, "due_date inválido (esperado YYYY-MM-DD)");
+    const bidRaw = fieldValue(parts, "import_batch_id");
+    const importBatchId = isShortText(bidRaw, 80) ? String(bidRaw) : randomUUID();
+
+    db.prepare("BEGIN").run();
+    try {
+      const result = insertOpenFatura(db, {
+        refMonth: parsed.fat.refMonth,
+        dueDate: dueRaw || null,
+        items: parsed.fat.items,
+        sourceFile: parsed.filename,
+        importBatchId,
+      });
+      db.prepare("COMMIT").run();
+      broadcast();
+      json(res, { ok: true, ...result, import_batch_id: importBatchId });
+    } catch (e) {
+      db.prepare("ROLLBACK").run();
+      return error(res, e instanceof Error ? e.message : "falha ao importar fatura", 500);
+    }
+  }
+
   const cp = compilePath;
   return [
     { method: "POST", ...cp("/api/import/detect"), handler: detect },
@@ -517,5 +609,7 @@ export function importRoutes(db: DatabaseSync): Route[] {
     { method: "DELETE", ...cp("/api/import/batch/:id"), handler: deleteBatch },
     { method: "POST", ...cp("/api/import/b3/preview"), handler: b3Preview },
     { method: "POST", ...cp("/api/import/b3"), handler: b3Confirm },
+    { method: "POST", ...cp("/api/import/fatura/preview"), handler: faturaPreview },
+    { method: "POST", ...cp("/api/import/fatura"), handler: faturaConfirm },
   ];
 }
