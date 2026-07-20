@@ -28,6 +28,7 @@ import { parseInterExtrato } from "../ingest/interExtrato.ts";
 import { parseB3, type B3Report } from "../ingest/b3.ts";
 import { pairSelfTransfers } from "../jobs/backfill/selfPairs.ts";
 import { rederiveCaixinha } from "../jobs/backfill/caixinha.ts";
+import { reconcileOpenInvoices } from "../db/reconcile.ts";
 
 // ── Staging (em memória — o backfill é a fonte de reconstrução) ──────────────
 /** @brief Linha em revisão; valores *Cents em centavos inteiros. */
@@ -353,6 +354,10 @@ export function importRoutes(db: DatabaseSync): Route[] {
       }
       rederiveCaixinha(db, caixinhaIds);
       pairSelfTransfers(db);
+      // C1: extrato do inter-db pode conter o pagamento de uma fatura aberta
+      // (importada pela UI). Reconcilia agora, senão o pagamento double-conta.
+      // No-op quando não há fatura aberta.
+      if (batch.accountId === "inter-db") reconcileOpenInvoices(db);
       db.prepare("COMMIT").run();
     } catch (e) {
       db.prepare("ROLLBACK").run();
