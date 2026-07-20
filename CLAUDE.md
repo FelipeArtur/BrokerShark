@@ -41,8 +41,10 @@ backend/
   package.json          # deps: xlsx (única npm dep); npm test = node:test (co-locado src/**/*.test.ts)
   src/
     db/
-      schema.sql        # DDL v2 — fonte única do schema
+      schema.sql        # DDL v2 — baseline idempotente (CREATE IF NOT EXISTS)
       open.ts           # openDb/initSchema/restrictPermissions (node:sqlite builtin)
+      migrate.ts        # runMigrations — forward-only sobre migration_log (boot: server + backfill)
+      migrations/       # NNNN_slug.sql numerados; ALTER/rename/drop/data-fix (sem BEGIN/COMMIT)
     domain/             # lógica PURA (sem DB/IO)
       money.ts          # parseMoneyCents (string→centavos inteiros), fmtCents, parseDateBR
       classify.ts       # isInvestment, isCaixinhaLeg, checkingExpenseMethod
@@ -78,6 +80,11 @@ backend/
       backfill.ts       # orquestrador (1 tela): fases em jobs/backfill/ (aborta se DB tem overlay da UI; --force)
       backfill/         # files, seeds, txInsert, extratos, faturas, selfPairs, caixinha,
                         # b3Sync, guard (overlay da UI), investReview, verify — 1 fase por arquivo
+      backup.ts         # backup mensal: snapshot VACUUM INTO datado (retém 12, 0600) + backupStatus + CLI
+desktop/                # launcher-only (nunca importa backend/src)
+  brokershark.py        # wrapper WebKitGTK: sobe server em porta efêmera, mata node ao fechar (--check headless)
+  brokershark.desktop   # entrada de menu · icon.png (derivado do favicon)
+  systemd/              # brokershark-backup.{service,timer} — user timer mensal
 frontend/
   index.html            # React 18 SPA (hyperscript puro, sem build step)
   js/
@@ -123,7 +130,7 @@ server.ts (node:http, 127.0.0.1:8000) → React frontend (SSE /api/events)
 ### Key principles
 
 - **SQLite é a fonte única.** `node:sqlite` builtin (zero deps nativas), WAL mode, `foreign_keys=ON`, `synchronous=NORMAL`.
-- **Schema aplica no boot; NÃO há migration runner.** `server.ts` roda `initSchema` ao subir e `schema.sql` é todo `CREATE ... IF NOT EXISTS` — então **tabela nova nasce sozinha num DB vivo**, sem rebuild. `migration_log` existe mas ninguém lê. Consequência de projeto: mudança aditiva → tabela nova (funciona). `ALTER`/rename/drop → **não tem por onde rodar** (o backfill aborta em DB com dados da UI); exigiria escrever um runner primeiro. Prefira tabela nova a coluna nova.
+- **Schema no boot = baseline idempotente + migrations forward-only.** `schema.sql` é todo `CREATE ... IF NOT EXISTS` (baseline: **tabela nova nasce sozinha num DB vivo**, sem rebuild, no-op quando já existe). Logo após `initSchema`, `db/migrate.ts` roda `runMigrations` (server E backfill): aplica os `.sql` numerados de `db/migrations/` uma vez por DB, registrando em `migration_log`, cada um numa transação (falha → ROLLBACK + throw, aborta o boot). Migrations cobrem o que o baseline NÃO expressa — `ALTER`/rename/drop/data-fix; **não contêm `BEGIN`/`COMMIT`** (o runner envelopa). **Disciplina de baseline:** quando uma migration altera uma tabela, o DDL dela em `schema.sql` congela (o baseline reflete só o estado de criação; a migration leva daí pra frente). Tabela nova independente ainda pode entrar direto no `schema.sql`. Aditivo simples → prefira tabela nova; só use migration pra transformar o que já existe.
 - **Dinheiro = centavos inteiros.** `parseMoneyCents()` decompõe a string em inteiro+fração — jamais passa por float intermediário. `amount_cents`, `initial_balance_cents`, `net_cents`, etc.
 - **Backfill por reconstrução (guardado).** O DB é recriado do zero a cada run. **Guarda anti-perda-de-dados** (`jobs/backfill/guard.ts`): se o DB existente tem dados escritos pela UI (`import_batch_id`/`display_name`/`is_third_party`), aborta em vez de apagar — a menos de `--force`. Meses novos entram pelo **import incremental via UI**, não por rebuild.
 - **DB chmod 0600** — sem auth na app, perms de arquivo = fronteira at-rest (backfill E server aplicam; WAL/SHM incluídos).
