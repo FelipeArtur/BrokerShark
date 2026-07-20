@@ -19,6 +19,7 @@
 import { rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { openDb, initSchema, restrictPermissions } from "../db/open.ts";
+import { runMigrations } from "../db/migrate.ts";
 import { hasUserOverlay } from "./backfill/guard.ts";
 import { collectAcervo } from "./backfill/files.ts";
 import { seedAccountsAndCategories, seedRules } from "./backfill/seeds.ts";
@@ -58,6 +59,7 @@ const acervo = collectAcervo(acervoDir);
 for (const s of ["", "-wal", "-shm"]) rmSync(dbPath + s, { force: true });
 const db = openDb(dbPath);
 initSchema(db);
+runMigrations(db);
 
 seedAccountsAndCategories(db);
 const ins = makeTxInserter(db);
