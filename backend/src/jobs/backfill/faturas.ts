@@ -13,6 +13,7 @@ import { basename } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { fmtCents } from "../../domain/money.ts";
 import { parseInterFatura } from "../../ingest/interFatura.ts";
+import { reconcileInvoicePayment } from "../../db/reconcile.ts";
 import type { TxInserter } from "./txInsert.ts";
 
 /**
@@ -55,27 +56,16 @@ export function importFaturas(db: DatabaseSync, ins: TxInserter, files: string[]
     }
     // Pagamento no extrato: valor EXATO do total da fatura, janela −70/+35 dias
     // do refMonth (nos dados reais o pagamento antecede o mês-rótulo em ~1 mês).
-    const refStart = `${fat.refMonth}-01`;
-    const pay = db.prepare(`
-      SELECT id, date, amount_cents FROM transactions
-      WHERE account_id = 'inter-db' AND flow = 'expense'
-        AND lower(description) LIKE '%fatura%' AND invoice_id IS NULL
-        AND amount_cents = ?
-        AND julianday(date) BETWEEN julianday(?) - 70 AND julianday(?) + 35
-      ORDER BY ABS(julianday(date) - julianday(?)) LIMIT 1
-    `).get(fat.totalCents, refStart, refStart, refStart) as
-      { id: number; date: string; amount_cents: number } | undefined;
-    if (pay) {
-      db.prepare("UPDATE transactions SET is_settlement = 1, invoice_id = ?, method = 'credit' WHERE id = ?")
-        .run(invId, pay.id);
-      db.prepare("UPDATE invoices SET payment_tx_id = ? WHERE id = ?").run(pay.id, invId);
-    }
+    // Mesmo helper que o import incremental da UI usa (db/reconcile.ts) — DRY.
+    const { payment: pay } = reconcileInvoicePayment(db, {
+      invoiceId: invId, refMonth: fat.refMonth, totalCents: fat.totalCents,
+    });
     report.push(
       `  ${fat.refMonth}: ${fat.items.length} itens = ${fmtCents(fat.totalCents)}` +
       (fat.skipped.length ? ` (${fat.skipped.length} espelho(s) de pagamento ignorado(s))` : "") +
       "; " +
       (pay
-        ? `pagamento casado ${pay.date} ${fmtCents(pay.amount_cents)} ✓ EXATO`
+        ? `pagamento casado ${pay.date} ${fmtCents(pay.amountCents)} ✓ EXATO`
         : "⚠ sem pagamento de valor exato — itens entram, pagamento (se houver) fica stand-in"),
     );
   }

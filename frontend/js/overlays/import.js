@@ -140,6 +140,8 @@ function ImportModal({ onClose, onDone }) {
   const [files, setFiles]         = useState([]);
   const [groups, setGroups]       = useState(null);
   const [b3s, setB3s]             = useState([]);
+  const [faturas, setFaturas]     = useState([]);
+  const [dueDates, setDueDates]   = useState({}); // key → dd/mm/aaaa digitado
   const [rowsByGroup, setRowsByGroup] = useState({});
   const [excluded, setExcluded]   = useState(() => new Set());
   const [busy, setBusy]           = useState(false);
@@ -148,7 +150,13 @@ function ImportModal({ onClose, onDone }) {
   const [cats, setCats]           = useState({ expense: [], income: [] });
   const triedRef = useRef("");
 
-  const step = (groups || b3s.length) ? 2 : 1;
+  /** @brief Converte dd/mm/aaaa em ISO (YYYY-MM-DD), ou null se não casar. */
+  const brToIso = (s) => {
+    const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(String(s || "").trim());
+    return m ? `${m[3]}-${m[2]}-${m[1]}` : null;
+  };
+
+  const step = (groups || b3s.length || faturas.length) ? 2 : 1;
 
   /**
    * @brief Aceita os arquivos soltos e dispara a detecção de conta dos CSVs.
@@ -167,7 +175,11 @@ function ImportModal({ onClose, onDone }) {
     incoming.filter(f => !f.b3).forEach(f => {
       window.importDetect(f.file).then(acc => {
         setFiles(prev => prev.map(x => x.key === f.key
-          ? { ...x, account: acc || x.account, auto: !!acc, detecting: false } : x));
+          ? (acc === "inter-cc"
+              // Fatura Inter (inter-cc) é um terceiro tipo: fluxo próprio + due_date.
+              ? { ...x, account: "inter-cc", fatura: true, auto: true, detecting: false }
+              : { ...x, account: acc || x.account, auto: !!acc, detecting: false })
+          : x));
       });
     });
   }
@@ -197,10 +209,10 @@ function ImportModal({ onClose, onDone }) {
     setBusy(true); setErr(null);
     try {
       const byAccount = {};
-      files.filter(f => !f.b3).forEach(f => {
+      files.filter(f => !f.b3 && !f.fatura).forEach(f => {
         (byAccount[f.account] = byAccount[f.account] || []).push(f.file);
       });
-      const [txGroups, b3Previews] = await Promise.all([
+      const [txGroups, b3Previews, faturaPreviews] = await Promise.all([
         Promise.all(Object.keys(byAccount).map(async account => {
           try {
             const res = await window.importPreview(byAccount[account], account);
@@ -213,6 +225,10 @@ function ImportModal({ onClose, onDone }) {
           try { return { key: f.key, file: f.file, preview: await window.importB3(f.file), err: null }; }
           catch (e) { return { key: f.key, file: f.file, preview: null, err: e.message || "Falha ao ler B3." }; }
         })),
+        Promise.all(files.filter(f => f.fatura).map(async f => {
+          try { return { key: f.key, file: f.file, preview: await window.importFaturaPreview(f.file), err: null }; }
+          catch (e) { return { key: f.key, file: f.file, preview: null, err: e.message || "Falha ao ler fatura." }; }
+        })),
       ]);
       const rmap = {};
       txGroups.forEach(g => { rmap[g.account] = g.rows || []; });
@@ -220,12 +236,13 @@ function ImportModal({ onClose, onDone }) {
       setExcluded(new Set());
       setGroups(txGroups.length ? txGroups : null);
       setB3s(b3Previews);
-      if (!txGroups.length && !b3Previews.length) setErr("Nada para importar.");
+      setFaturas(faturaPreviews);
+      if (!txGroups.length && !b3Previews.length && !faturaPreviews.length) setErr("Nada para importar.");
     } catch (e) { setErr(e.message || "Falha ao analisar."); }
     finally { setBusy(false); }
   }
 
-  const _fileSig = files.map(f => `${f.key}:${f.account || ""}:${f.b3 ? "b3" : ""}`).sort().join("|");
+  const _fileSig = files.map(f => `${f.key}:${f.account || ""}:${f.b3 ? "b3" : ""}:${f.fatura ? "fat" : ""}`).sort().join("|");
   useEffect(() => {
     if (step === 2 || busy || results) return;
     if (!files.length) return;
@@ -294,6 +311,7 @@ function ImportModal({ onClose, onDone }) {
   }
   const txWillImport = (groups || []).reduce((s, g) => s + groupNew(g.account).length, 0);
   const b3Count = b3s.filter(b => b.preview && b.preview.total > 0).length;
+  const faturaCount = faturas.filter(fa => fa.preview && !fa.preview.already_paid).length;
 
   /**
    * @brief Confirma a importação de todas as contas e relatórios B3 do drop.
@@ -305,6 +323,9 @@ function ImportModal({ onClose, onDone }) {
    * fechar — o que entrou continua no ledger.
    */
   async function confirm() {
+    const badDue = faturas.filter(fa => fa.preview && !fa.err && !fa.preview.already_paid)
+      .find(fa => { const raw = dueDates[fa.key]; return raw && !brToIso(raw); });
+    if (badDue) { setErr("Vencimento inválido — use dd/mm/aaaa."); return; }
     setBusy(true); setErr(null);
     const sessionId = uuid();
     let totalInserted = 0, b3Created = 0, b3Updated = 0;
@@ -328,8 +349,15 @@ function ImportModal({ onClose, onDone }) {
           try { const res = await window.importB3(b.file, { confirm: true }); return { b3: true, created: res.created || 0, updated: res.updated || 0 }; }
           catch (e) { return { account: "b3", ok: false, msg: e.message || "falhou" }; }
         }));
+      const faturaStatus = await Promise.all(faturas
+        .filter(fa => fa.preview && !fa.err && !fa.preview.already_paid)
+        .map(async fa => {
+          try { const res = await window.importFaturaConfirm(fa.file, brToIso(dueDates[fa.key]), sessionId); return { fatura: true, inserted: res.inserted || 0 }; }
+          catch (e) { return { account: "fatura", ok: false, msg: e.message || "falhou" }; }
+        }));
       txStatus.forEach(s => { if (s.ok) totalInserted += s.inserted || 0; status.push(s); });
       b3Status.forEach(s => { if (s.b3) { b3Created += s.created; b3Updated += s.updated; } else status.push(s); });
+      faturaStatus.forEach(s => { if (s.fatura) totalInserted += s.inserted || 0; else status.push(s); });
       if (status.some(s => !s.ok)) {
         setResults(status);
       } else {
@@ -350,7 +378,7 @@ function ImportModal({ onClose, onDone }) {
     h(IconImport, { size: 28 }),
     h("div", { style: { fontFamily: "var(--ff-sans)", fontSize: "var(--fz-6)", letterSpacing: "1px", color: "var(--fg-0)" } },
       "ARRASTE OS ARQUIVOS AQUI, OU CLIQUE PARA ESCOLHER"),
-    h("div", { style: { fontSize: "var(--fz-8)", color: "var(--fg-3)" } }, "Extratos em .csv ou relatórios B3 em .xlsx"),
+    h("div", { style: { fontSize: "var(--fz-8)", color: "var(--fg-3)" } }, "Extratos e faturas em .csv, ou relatórios B3 em .xlsx"),
     h("input", { type: "file", accept: ".csv,.xlsx,text/csv", multiple: true, style: { display: "none" },
       onChange: e => { addFiles(e.target.files); e.target.value = null; } })
   );
@@ -363,6 +391,8 @@ function ImportModal({ onClose, onDone }) {
       ),
       f.b3
         ? h("span", { className: "px-chip" }, "B3")
+        : f.fatura
+        ? h("span", { className: "px-chip", title: "fatura de cartão Inter (aberta)", style: { color: "var(--warn)" } }, "FATURA")
         : h("div", { style: { display: "flex", alignItems: "center", gap: "var(--s-4)" } },
             f.auto && h("span", { className: "px-chip", title: "conta detectada automaticamente — confira", style: { color: "var(--info)" } }, "AUTO"),
             h("select", {
@@ -576,11 +606,60 @@ function ImportModal({ onClose, onDone }) {
     )
   );
 
+  /**
+   * @brief Renderiza o card de preview de uma fatura Inter aberta.
+   *
+   * Mostra ref_month, total e os itens; um campo de vencimento (dd/mm/aaaa) que
+   * ancora o abatimento do "Disponível" (P2). Reimport mescla; fatura já paga é
+   * bloqueada.
+   *
+   * @param fa {key, file, preview, err} — `preview.total`/`rows[].amount` em REAIS
+   * @return elemento React do card
+   */
+  const renderFatura = (fa) => {
+    const p = fa.preview;
+    const paid = p && p.already_paid;
+    const rawDue = dueDates[fa.key] || "";
+    const dueInvalid = rawDue && !brToIso(rawDue);
+    return h("div", { key: fa.key, style: { border: "2px solid var(--warn)", boxShadow: "2px 2px 0 #05060d" } },
+      h("div", { style: { padding: "var(--s-5) var(--s-6)", background: "var(--bg-1)", borderBottom: "2px solid var(--warn)", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "var(--s-5)", flexWrap: "wrap" } },
+        h("div", { style: { display: "flex", alignItems: "center", gap: "var(--s-5)" } },
+          h("span", { className: "px-chip", style: { color: "var(--warn)" } }, "FATURA"),
+          h("span", { className: "widget-title" }, p ? `Fatura Inter — ${p.ref_month}` : "Fatura Inter")),
+        p && h("span", { className: "mono", style: { fontSize: "var(--fz-5)", color: "var(--warn)" } }, `−${fmtBRL(p.total)}`)),
+      fa.err && h("div", { style: { padding: "var(--s-4) var(--s-6)", fontSize: "var(--fz-7)", fontWeight: 600, color: "var(--neg)", background: "color-mix(in oklch, var(--neg) 10%, transparent)" } }, fa.err),
+      paid && h("div", { style: { padding: "var(--s-4) var(--s-6)", fontSize: "var(--fz-7)", fontWeight: 600, color: "var(--neg)", background: "color-mix(in oklch, var(--neg) 10%, transparent)" } },
+        "Essa fatura já foi paga/reconciliada — não dá pra reabrir."),
+      p && !paid && p.reimport && h("div", { style: { padding: "var(--s-4) var(--s-6)", fontSize: "var(--fz-8)", color: "var(--info)", background: "color-mix(in oklch, var(--info) 10%, transparent)" } },
+        "Reimport — vai mesclar com a fatura aberta existente (itens repetidos não duplicam)."),
+      p && !paid && h("div", { style: { padding: "var(--s-4) var(--s-6)", display: "flex", alignItems: "center", gap: "var(--s-5)", flexWrap: "wrap", borderBottom: "1px dashed var(--line-2)" } },
+        h("span", { className: "label", style: { color: "var(--fg-2)" } }, "Vencimento"),
+        h("input", {
+          className: "px-field", value: rawDue, placeholder: "dd/mm/aaaa", inputMode: "numeric",
+          "aria-label": "Data de vencimento da fatura",
+          onChange: e => setDueDates(prev => ({ ...prev, [fa.key]: e.target.value })),
+          style: { width: 120, borderColor: dueInvalid ? "var(--neg)" : "var(--line-2)" },
+        }),
+        h("span", { style: { fontSize: "var(--fz-9)", color: dueInvalid ? "var(--neg)" : "var(--fg-3)" } },
+          dueInvalid ? "formato dd/mm/aaaa" : "ancora o abatimento do Disponível")),
+      p && !paid && h("div", { style: { maxHeight: 260, overflowY: "auto", background: "var(--bg-0)" } },
+        h("table", { style: { width: "100%", borderCollapse: "collapse" } },
+          h("tbody", null, p.rows.map((r, i) => h("tr", { key: i, style: { borderBottom: i < p.rows.length - 1 ? "1px solid var(--line-2)" : "none", fontSize: "var(--fz-6)" } },
+            h("td", { className: "mono", style: { padding: "var(--s-4)", color: "var(--fg-3)", whiteSpace: "nowrap", fontSize: "var(--fz-8)" } }, fmtDateBR(r.date)),
+            h("td", { style: { padding: "var(--s-4) var(--s-6)", color: "var(--fg-0)", width: "100%", fontWeight: 600 } },
+              window.BS.prettifyDesc(r.description),
+              r.installment && h("span", { className: "px-chip", style: { marginLeft: "var(--s-4)", color: "var(--fg-3)" } }, r.installment)),
+            h("td", { className: "mono", style: { padding: "var(--s-4) var(--s-6)", textAlign: "right", fontWeight: 700, color: r.amount < 0 ? "var(--pos)" : "var(--fg-0)" } },
+              `${r.amount < 0 ? "+" : "−"}${fmtBRL(Math.abs(r.amount))}`)
+          )))))
+    );
+  };
+
   const resultsView = results && h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: "var(--s-5)" } },
     h("div", { className: "label", style: { color: "var(--fg-1)" } }, "Resultado da importação (algumas contas falharam):"),
     h("div", { className: "px-list" },
       results.map((s, i) => h("div", { className: "px-row", key: i },
-        h("span", { style: { flex: 1 } }, s.account === "b3" ? "Relatório B3" : accLabel(s.account)),
+        h("span", { style: { flex: 1 } }, s.account === "b3" ? "Relatório B3" : s.account === "fatura" ? "Fatura Inter" : accLabel(s.account)),
         h("span", { className: "mono", style: { color: s.ok ? "var(--pos)" : "var(--neg)", fontWeight: 600 } },
           s.ok ? `${s.inserted} importadas` : (s.msg || "falhou"))))),
     h("div", { style: { display: "flex", justifyContent: "flex-end", gap: "var(--s-4)" } },
@@ -597,6 +676,7 @@ function ImportModal({ onClose, onDone }) {
   const step2View = h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", gap: "var(--s-6)" } },
     h("div", { style: { display: "flex", flexDirection: "column", gap: "var(--s-5)", maxHeight: "62vh", overflowY: "auto", paddingRight: "var(--s-2)" } },
       (groups || []).map(renderTxGroup),
+      faturas.map(renderFatura),
       b3s.map(renderB3)
     ),
     err && h("div", { style: { color: "var(--neg)", fontSize: "var(--fz-8)", padding: "var(--s-4) var(--s-5)", background: "color-mix(in oklch, var(--neg) 10%, transparent)", border: "2px solid var(--neg)" } }, err),
@@ -605,11 +685,12 @@ function ImportModal({ onClose, onDone }) {
         h("div", { style: { fontSize: "var(--fz-6)", color: "var(--fg-2)" } },
           h("strong", { style: { color: "var(--pos)" } }, txWillImport),
           ` ${txWillImport === 1 ? "transação pronta" : "transações prontas"}`,
+          faturaCount > 0 && h("span", { style: { color: "var(--warn)" } }, ` · ${faturaCount} fatura${faturaCount === 1 ? "" : "s"}`),
           b3Count > 0 && h("span", { style: { color: "var(--fg-3)" } }, ` · ${b3Count} B3`)),
         _breakdown && h("div", { style: { fontSize: "var(--fz-8)", color: "var(--fg-3)" } }, _breakdown)),
       h("div", { style: { display: "flex", gap: "var(--s-4)" } },
-        h("button", { className: "px-btn", disabled: busy, onClick: () => { setGroups(null); setB3s([]); setRowsByGroup({}); setResults(null); } }, "‹ VOLTAR"),
-        h("button", { className: "px-btn px-btn--primary", disabled: busy || (txWillImport <= 0 && b3Count <= 0), onClick: confirm },
+        h("button", { className: "px-btn", disabled: busy, onClick: () => { setGroups(null); setB3s([]); setFaturas([]); setRowsByGroup({}); setResults(null); } }, "‹ VOLTAR"),
+        h("button", { className: "px-btn px-btn--primary", disabled: busy || (txWillImport <= 0 && b3Count <= 0 && faturaCount <= 0), onClick: confirm },
           busy ? "IMPORTANDO…" : "CONFIRMAR IMPORTAÇÃO"))
     )
   );

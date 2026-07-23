@@ -5,6 +5,7 @@ import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runMigrations } from "./migrate.ts";
+import { initSchema } from "./open.ts";
 
 function freshDb(): DatabaseSync {
   const db = new DatabaseSync(":memory:");
@@ -47,4 +48,13 @@ test("diretório sem .sql → retorna vazio", () => {
   const dir = mkdtempSync(join(tmpdir(), "mig-"));
   assert.deepEqual(runMigrations(freshDb(), dir), []);
   rmSync(dir, { recursive: true });
+});
+
+test("migrations reais: invoices ganha coluna due_date", () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys=ON");
+  initSchema(db); // baseline: invoices SEM due_date (congelado, M6)
+  runMigrations(db); // dir real
+  const cols = (db.prepare("PRAGMA table_info(invoices)").all() as { name: string }[]).map((c) => c.name);
+  assert.ok(cols.includes("due_date"), "esperava coluna due_date após migrations");
 });
