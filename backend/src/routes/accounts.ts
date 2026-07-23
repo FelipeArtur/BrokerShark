@@ -14,6 +14,7 @@ import { json, qsStr } from "../http/respond.ts";
 import type { Route } from "../http/router.ts";
 import { compilePath } from "../http/router.ts";
 import { monthlyPortfolioSeries } from "../domain/positions.ts";
+import { currentMonth } from "../domain/dates.ts";
 
 /**
  * @brief Montar as rotas de contas e patrimônio ligadas a esta conexão.
@@ -81,7 +82,24 @@ export function accountRoutes(db: DatabaseSync): Route[] {
     for (const r of rows) {
       totalCents += r.initial_balance_cents + r.total_income - r.total_expense;
     }
-    json(res, { available: totalCents / 100, checking_total: totalCents / 100 });
+
+    // Comprometido do mês-calendário: faturas abertas (payment_tx_id NULL) com
+    // due_date no mês corrente. Fatura sem due_date não é abatível (não sabemos
+    // quando vence). Aditivo — o bruto (available/checking_total) não muda.
+    const { month, year } = currentMonth();
+    const curYm = `${year}-${String(month).padStart(2, "0")}`;
+    const committedCents = (db.prepare(
+      `SELECT COALESCE(SUM(total_cents), 0) AS c FROM invoices
+       WHERE payment_tx_id IS NULL AND due_date IS NOT NULL
+         AND strftime('%Y-%m', due_date) = ?`,
+    ).get(curYm) as { c: number }).c;
+
+    json(res, {
+      available: totalCents / 100,
+      checking_total: totalCents / 100,
+      committed_this_month: committedCents / 100,
+      available_net: (totalCents - committedCents) / 100,
+    });
   }
 
   // ── GET /api/liquidity-history ─────────────────────────────────────────
