@@ -123,6 +123,8 @@ async function fetchMonthTransactions({ month, year } = {}) { return _get(`/api/
  * @return Promise com pontos {label, value} (`value` em reais)
  */
 async function fetchLiquidityHistory()     { return _get("/api/liquidity-history"); }
+/** @brief Visão de futuro: faturas abertas + parcelas projetadas. @return Promise {open_invoices, series} */
+async function fetchCommitments()           { return _get("/api/commitments"); }
 /**
  * @brief Busca lançamentos por texto livre em todo o histórico.
  * @param q termo de busca
