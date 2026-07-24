@@ -176,7 +176,7 @@ const GeneralWidget = React.memo(function GeneralWidget({ cashflow, liquidityHis
       patDelta != null && h("span", { style: { marginLeft: "auto", display: "inline-flex", gap: 6, alignItems: "baseline" } },
         h("span", { className: "kpi-delta", style: { color: patDelta >= 0 ? "var(--pos)" : "var(--neg)" } },
           (patDelta >= 0 ? "+" : "−") + fmtBRLCompact(patDelta)),
-        h("span", { style: { fontSize: 9, color: "var(--fg-3)", textTransform: "uppercase" } }, "evolução patrimonial"))
+        h("span", { style: { fontSize: 11, color: "var(--fg-3)", textTransform: "uppercase" } }, "evolução patrimonial"))
     ),
     h("div", { className: "widget-body", style: { gap: 16 } },
 
@@ -184,10 +184,10 @@ const GeneralWidget = React.memo(function GeneralWidget({ cashflow, liquidityHis
         h("div", { style: { color: "var(--fg-0)", fontWeight: 700, textTransform: "capitalize", marginBottom: 8 } }, `Resumo de ${monName}`),
         ...parts,
         bp && h("div", { style: { marginTop: 8 } },
-          h("div", { className: "label", style: { fontSize: 9, color: "var(--fg-3)", marginBottom: 4 } }, "Orçamento do mês"),
+          h("div", { className: "label", style: { fontSize: 11, color: "var(--fg-3)", marginBottom: 4 } }, "Orçamento do mês"),
           h("div", { style: { height: 10, border: "2px solid var(--line-1)", background: "var(--bg-0)" } },
             h("div", { className: bp.pct >= 100 ? "dither-neg" : "dither-warn", style: { height: "100%", width: bp.pct + "%" } })),
-          h("div", { className: "mono", style: { fontSize: 9, color: "var(--fg-3)", marginTop: 3 } },
+          h("div", { className: "mono", style: { fontSize: 11, color: "var(--fg-3)", marginTop: 3 } },
             `${fmtBRL(exp)} / ${fmtBRL(target)} · ${100 - bp.pct >= 0 ? (100 - bp.pct) : 0}% restante`)
         )
       ),
@@ -232,7 +232,7 @@ const TimelineWidget = React.memo(function TimelineWidget({ monthly, monthSel, o
       h("span", { className: "widget-title" }, "Fluxo mês a mês"),
       h("button", { onClick: () => setCompare(c => !c), className: compare ? "filter-chip" : "filter-chip",
         style: { marginLeft: "auto", opacity: compare ? 1 : 0.6 }, title: "Comparar com o mês anterior" }, "vs ant."),
-      h("span", { style: { display: "flex", gap: 10, fontSize: 9, color: "var(--fg-3)", alignItems: "center" } },
+      h("span", { style: { display: "flex", gap: 10, fontSize: 11, color: "var(--fg-3)", alignItems: "center" } },
         h("span", { style: { display: "inline-flex", alignItems: "center", gap: 3 } },
           h("span", { style: { width: 7, height: 7, borderRadius: 2, background: "var(--pos)" } }), "rec"),
         h("span", { style: { display: "inline-flex", alignItems: "center", gap: 3 } },
@@ -323,7 +323,7 @@ const AccountsWidget = React.memo(function AccountsWidget({ accounts, available,
             h("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
               h("span", { style: { width: 8, height: 8, background: colorOf(a), flexShrink: 0 } }),
               h("span", { style: { fontSize: 11, fontWeight: 600, color: "var(--fg-1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, a.name),
-              total > 0 && h("span", { className: "mono", style: { fontSize: 9, color: "var(--fg-3)", marginLeft: "auto" } }, `${(((a.balance || 0) / total) * 100).toFixed(0)}%`)
+              total > 0 && h("span", { className: "mono", style: { fontSize: 11, color: "var(--fg-3)", marginLeft: "auto" } }, `${(((a.balance || 0) / total) * 100).toFixed(0)}%`)
             ),
             h("span", { className: "mono", style: { fontSize: 15, fontWeight: 700, paddingLeft: 16, color: (a.balance || 0) < 0 ? "var(--neg)" : "var(--fg-0)" } }, fmtBRL(a.balance || 0))
           );
@@ -417,7 +417,7 @@ function CategoryRow({ c, meta, active, onFacet, editing, onEdit, onEditDone, mo
     st && h("div", { style: { height: 3, background: "var(--bg-2)", overflow: "hidden" } },
       h("div", { style: { width: Math.min(100, st.ratio * 100) + "%", height: "100%", background: st.color } })),
 
-    canBudget && h("div", { style: { display: "flex", alignItems: "center", gap: 5, fontSize: 9 } },
+    canBudget && h("div", { style: { display: "flex", alignItems: "center", gap: 5, fontSize: 11 } },
       editing
         ? h(React.Fragment, null,
             h("input", {
@@ -425,8 +425,8 @@ function CategoryRow({ c, meta, active, onFacet, editing, onEdit, onEditDone, mo
               onChange: e => setDraft(e.target.value),
               onKeyDown: e => { if (e.key === "Enter") save(); if (e.key === "Escape") onEditDone(); },
               onBlur: save, placeholder: "0,00", "aria-label": `Alvo de ${c.name}`,
-              style: { width: 70, height: 18, fontSize: 9, padding: "0 4px", background: "var(--bg-0)",
-                border: "2px solid var(--accent)", color: "var(--fg-0)", fontFamily: "var(--ff-mono)" },
+              style: { width: 72, height: 22, fontSize: 11, padding: "0 5px", background: "var(--bg-0)",
+                border: "1px solid var(--accent)", color: "var(--fg-0)", fontFamily: "var(--ff-mono)" },
             }),
             h("span", { style: { color: "var(--fg-3)" } },
               refMonthOf(monthSel) ? `alvo de ${window.BS.PT_MONTHS[monthSel.month].toLowerCase()}` : "alvo fixo")
@@ -436,7 +436,7 @@ function CategoryRow({ c, meta, active, onFacet, editing, onEdit, onEditDone, mo
             title: budget != null
               ? `Alvo ${meta.budget_source === "month" ? "só deste mês" : "fixo"}: ${fmtBRL(budget)} — clique pra mudar`
               : "Definir um alvo de gasto pra esta categoria",
-            style: { background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: 9,
+            style: { background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: 11,
               color: st ? st.color : "var(--fg-3)", fontWeight: st ? 700 : 400,
               borderBottom: "1px dashed var(--line-2)" },
           }, budget != null
@@ -490,7 +490,7 @@ const FaturaWidget = React.memo(function FaturaWidget({ monthTx, filter, onToggl
                   h("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
                     h("span", { style: { width: 8, height: 8, background: color, flexShrink: 0 } }),
                     h("span", { style: { fontSize: 11, fontWeight: 600, color: "var(--fg-1)" } }, `Fatura ${bank}`),
-                    totalFatura > 0 && h("span", { className: "mono", style: { fontSize: 9, color: "var(--fg-3)", marginLeft: "auto" } }, `${((amt / totalFatura) * 100).toFixed(0)}%`)
+                    totalFatura > 0 && h("span", { className: "mono", style: { fontSize: 11, color: "var(--fg-3)", marginLeft: "auto" } }, `${((amt / totalFatura) * 100).toFixed(0)}%`)
                   ),
                   h("span", { className: "mono", style: { fontSize: 15, fontWeight: 700, paddingLeft: 16, color: "var(--neg)" } }, (amt >= 0 ? "−" : "+") + fmtBRL(Math.abs(amt)))
                 );
@@ -538,15 +538,15 @@ const InvestmentsWidget = React.memo(function InvestmentsWidget({ investments, e
               h("span", { title: r.name, style: { fontSize: 11, fontWeight: 600, color: "var(--fg-1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, r.name),
               h("span", { className: "mono", style: { fontSize: 12, fontWeight: 700, color: "var(--fg-0)", flexShrink: 0 } }, fmtBRL(r.balance))
             ),
-            h("span", { style: { fontSize: 9, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.04em" } },
+            h("span", { style: { fontSize: 11, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.04em" } },
               r.sub, total ? ` · ${((r.balance / total) * 100).toFixed(1)}%` : "",
               r.derived ? " · derivado" : "")
           )),
       invDelta != null && h("div", { style: { marginTop: "auto", paddingTop: 8, display: "flex", gap: 6, alignItems: "baseline", flexShrink: 0 } },
-        h("span", { style: { fontSize: 9, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.05em" } }, "Δ mês"),
+        h("span", { style: { fontSize: 11, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.05em" } }, "Δ mês"),
         h("span", { className: "kpi-delta", style: { color: invDelta >= 0 ? "var(--pos)" : "var(--info)" } },
           (invDelta >= 0 ? "+" : "−") + fmtBRL(Math.abs(invDelta))),
-        invDelta < 0 && h("span", { style: { fontSize: 9, color: "var(--fg-3)" } }, "(resgate)"))
+        invDelta < 0 && h("span", { style: { fontSize: 11, color: "var(--fg-3)" } }, "(resgate)"))
     )
   );
 });
@@ -566,7 +566,7 @@ const ForwardWidget = React.memo(function ForwardWidget({ commitments }) {
         : h("div", { style: { display: "flex", alignItems: "flex-end", gap: 8, height: 64 } },
             series.map(s => h("div", { key: s.month, style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 4 } },
               h(window.BS.ProjectedBar, { value: s.total, maxV }),
-              h("span", { className: "mono", style: { fontSize: 9, color: "var(--fg-2)" } }, s.label),
+              h("span", { className: "mono", style: { fontSize: 11, color: "var(--fg-2)" } }, s.label),
             ))
           ),
       series.length > 0 && h("div", { style: { marginTop: 8, display: "flex", flexDirection: "column", gap: 2 } },

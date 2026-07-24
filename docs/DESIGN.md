@@ -29,7 +29,10 @@ mas estas seis são para valer nos dois.
    `#6a6d95` (3.54:1, reprovado) e virou `#9296bd` (6.12 / 5.45 / 4.67 sobre
    `--bg-1/2/3`). `--fg-faint` guarda o tom antigo para hairline e ícone decorativo —
    **nunca** para texto.
-2. **Piso de 11px.** Vale para CSS e para `style={{fontSize}}` inline.
+2. **Piso de 11px.** Vale para CSS e para `style={{fontSize}}` inline. Exceção estreita:
+   número **tabular em Departure Mono** pode ir a 10px em tabela densa (o mono é legível
+   nesse tamanho; a bitmap Silkscreen não é). 9px é proibido em qualquer fonte, e
+   uppercase/label nunca abaixo de 11px.
 3. **Silkscreen só em título.** O `body` é Departure Mono.
 4. **Uppercase só em título de bloco**, ≥11px.
 5. **Cantos duros, sem exceção** — reset universal com `!important`.

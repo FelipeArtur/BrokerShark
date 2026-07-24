@@ -63,7 +63,7 @@ function MonthNav({ monthly, monthSel, onPick }) {
     h("button", { className: "month-nav-btn", disabled: idx <= 0, onClick: () => pick(idx - 1), title: "Mês anterior", "aria-label": "Mês anterior" }, "‹"),
     h("span", { className: "month-nav-label" },
       `${PT_MONTHS[monthSel.month]} ${monthSel.year}`,
-      isCalCurrent && h("span", { style: { marginLeft: 6, fontSize: 9, fontWeight: 700, color: "var(--info)", textTransform: "uppercase", letterSpacing: "0.05em" } }, "atual")),
+      isCalCurrent && h("span", { style: { marginLeft: 6, fontSize: 11, fontWeight: 700, color: "var(--info)", textTransform: "uppercase", letterSpacing: "0.05em" } }, "atual")),
     h("button", { className: "month-nav-btn", disabled: idx < 0 || isLatest, onClick: () => pick(idx + 1), title: "Próximo mês", "aria-label": "Próximo mês" }, "›"),
     !isLatest && h("button", { className: "month-nav-today", onClick: () => pick(monthly.length - 1) }, "Hoje")
   );
