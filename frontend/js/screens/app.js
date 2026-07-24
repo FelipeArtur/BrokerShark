@@ -118,17 +118,6 @@ function App() {
 
   useEffect(() => { window.BS.juice.boot(document.getElementById("app")); }, []);
 
-  useEffect(() => {
-    function onKey(e) {
-      if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || e.target.tagName === "SELECT") return;
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.key === "i" || e.key === "I") setImportOpen(true);
-      if (e.key === "c" || e.key === "C") setCategoriesOpen(true);
-    }
-    window.addEventListener("keydown", onKey);
-    return () => { window.removeEventListener("keydown", onKey); };
-  }, []);
-
   async function handleDeleteTx(id) {
     try {
       const res = await deleteTransaction(id);
