@@ -8,6 +8,12 @@ import { isIntId, isShortText } from "../http/validate.ts";
 import { resolveBudget, isRefMonth, FIXED, type BudgetRow } from "../domain/budget.ts";
 import { prevRefMonth } from "../domain/dates.ts";
 
+// Ao excluir uma categoria, remove as regras de reconhecimento que apontavam pra ela
+// (senão sugeririam uma categoria que não existe mais). O usuário reaprende ao recategorizar.
+export function deleteOrphanCategoryRules(db: DatabaseSync, categoryId: number): void {
+  db.prepare("DELETE FROM rules WHERE action='category' AND value=?").run(String(categoryId));
+}
+
 const SPENT_BY_CAT_SQL = `
   SELECT category_id, COALESCE(SUM(amount_cents), 0) AS spent_cents
   FROM transactions
@@ -141,6 +147,7 @@ export function categoryRoutes(db: DatabaseSync): Route[] {
     }
     const r = db.prepare("DELETE FROM categories WHERE id = ?").run(id);
     if (r.changes === 0) return error(res, "categoria não encontrada", 404);
+    deleteOrphanCategoryRules(db, id);
     broadcast();
     json(res, { ok: true });
   }

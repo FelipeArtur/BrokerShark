@@ -80,7 +80,8 @@
     const ratio = spent / budget;
     return {
       ratio,
-      color: ratio > 1 ? "var(--neg)" : ratio >= 0.8 ? "var(--warn)" : "var(--fg-2)",
+      over: ratio > 1,
+      color: ratio > 1 ? "var(--neg)" : ratio >= 0.8 ? "var(--warn)" : "var(--accent)",
     };
   }
 

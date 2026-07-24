@@ -6,6 +6,21 @@ import { compilePath } from "../http/router.ts";
 import { broadcast } from "../http/sse.ts";
 import { isIsoDate, isPositiveAmount, isIntId, isIntIdArray, isShortText, TX_METHODS } from "../http/validate.ts";
 import { currentMonth, monthRange } from "../domain/dates.ts";
+import { normalizeMerchant } from "../domain/merchant.ts";
+
+// Aprende uma regra nome→categoria quando o usuário categoriza um lançamento.
+// Upsert por matcher; nunca auto-aplica (só grava a regra que a sugestão vai ler).
+export function learnCategoryRule(db: DatabaseSync, description: string, categoryId: number): void {
+  const matcher = normalizeMerchant(description);
+  if (!matcher || categoryId == null) return;
+  const existing = db.prepare("SELECT id FROM rules WHERE action='category' AND matcher=?").get(matcher) as { id: number } | undefined;
+  if (existing) {
+    db.prepare("UPDATE rules SET value=?, enabled=1 WHERE id=?").run(String(categoryId), existing.id);
+  } else {
+    db.prepare("INSERT INTO rules (matcher, action, value, priority, enabled) VALUES (?, 'category', ?, 50, 1)")
+      .run(matcher, String(categoryId));
+  }
+}
 
 const TX_SELECT = `
   SELECT t.*, c.name AS category_name
@@ -143,6 +158,10 @@ export function transactionRoutes(db: DatabaseSync): Route[] {
     params.push(id);
     const r = db.prepare(`UPDATE transactions SET ${updates.join(", ")} WHERE id = ?`).run(...params);
     if (r.changes === 0) return error(res, "transação não encontrada", 404);
+    if ("category_id" in body && (body as any).category_id != null) {
+      const row = db.prepare("SELECT display_name, description FROM transactions WHERE id = ?").get(id) as any;
+      if (row) learnCategoryRule(db, row.display_name ?? row.description, Number((body as any).category_id));
+    }
     broadcast();
     json(res, { ok: true });
   }
@@ -192,6 +211,9 @@ export function transactionRoutes(db: DatabaseSync): Route[] {
     const placeholders = body.ids.map(() => "?").join(",");
     db.prepare(`UPDATE transactions SET category_id = ? WHERE id IN (${placeholders})`)
       .run(body.category_id as number, ...body.ids);
+    const rows = db.prepare(`SELECT display_name, description FROM transactions WHERE id IN (${placeholders})`)
+      .all(...body.ids) as any[];
+    for (const row of rows) learnCategoryRule(db, row.display_name ?? row.description, Number(body.category_id));
     broadcast();
     json(res, { ok: true, updated: body.ids.length });
   }

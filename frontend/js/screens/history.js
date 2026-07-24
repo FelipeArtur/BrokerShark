@@ -207,16 +207,6 @@ function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkC
       h("span", { className: "widget-title" }, "Lançamentos"),
       h("span", { className: "mono", style: { fontSize: 10, color: "var(--fg-3)" } },
         hasFilter ? `${sortedTx.length} de ${monthTx.length}` : `${monthTx.length}`),
-      uncatCount > 0 && h("button", {
-        onClick: () => setBulkOpen(true),
-        title: "Categorizar os lançamentos deste mês de uma vez, agrupados por comerciante",
-        style: {
-          display: "inline-flex", alignItems: "center", gap: 5, cursor: "pointer",
-          padding: "2px 9px", borderRadius: 999, fontSize: 10, fontWeight: 600,
-          color: "var(--accent)", background: "var(--accent-bg)",
-          border: "1px solid color-mix(in oklch, var(--accent) 35%, transparent)",
-        }
-      }, `lote · ${uncatCount}`),
       h("div", { style: { flex: 1 } }),
       h("button", {
         className: `filter-pill${grouped ? " active" : ""}`,

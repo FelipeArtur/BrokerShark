@@ -326,7 +326,8 @@ const AccountsWidget = React.memo(function AccountsWidget({ accounts, available,
 });
 
 const CategoriesWidget = React.memo(function CategoriesWidget({ monthTx, uncatCount, onOpenBulk, filter,
-                                                               onToggleFacet, catsIndex, monthSel, onBudgetSaved }) {
+                                                               onToggleFacet, catsIndex, monthSel, onBudgetSaved,
+                                                               onManageCategories, onCreateCategory }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
   const expenses = monthTx.filter(isConsumptionExpense);
   const totalExp = expenses.reduce((s, t) => s + t.amount, 0);
@@ -345,7 +346,9 @@ const CategoriesWidget = React.memo(function CategoriesWidget({ monthTx, uncatCo
   return h("div", { className: "widget wg-7" },
     h("div", { className: "widget-h" },
       h("span", { className: "widget-title" }, "Categorias"),
-      h("span", { className: "mono", style: { marginLeft: "auto", fontSize: 12, fontWeight: 700, color: "var(--neg)" } }, "−" + fmtBRL(totalExp))
+      h("span", { className: "mono", style: { marginLeft: "auto", fontSize: 12, fontWeight: 700, color: "var(--neg)" } }, "−" + fmtBRL(totalExp)),
+      h("button", { className: "px-btn px-btn--ghost px-btn--sm", style: { marginLeft: 8 }, title: "Nova categoria", onClick: onCreateCategory }, "+ Nova"),
+      h("button", { className: "px-btn px-btn--ghost px-btn--sm", title: "Gerenciar categorias", onClick: onManageCategories }, "⚙")
     ),
     h("div", { className: "widget-body", style: { gap: 8 } },
       byCat.length === 0
@@ -406,8 +409,9 @@ function CategoryRow({ c, meta, active, onFacet, editing, onEdit, onEditDone, mo
       h("span", { className: "mono", style: { fontSize: 11, fontWeight: 700, color: "var(--fg-0)", flexShrink: 0 } }, fmtBRL(c.total))
     ),
 
-    st && h("div", { style: { height: 3, background: "var(--bg-2)", overflow: "hidden" } },
-      h("div", { style: { width: Math.min(100, st.ratio * 100) + "%", height: "100%", background: st.color } })),
+    st && h("div", { style: { position: "relative", height: 8, background: "var(--bg-2)", border: "1px solid var(--line-1)", overflow: "hidden" } },
+      h("div", { style: { width: Math.min(100, st.ratio * 100) + "%", height: "100%", background: st.color, transition: "width 0.2s" } }),
+      st.over && h("div", { className: "dither-neg", style: { position: "absolute", inset: 0, opacity: 0.35, pointerEvents: "none" } })),
 
     canBudget && h("div", { style: { display: "flex", alignItems: "center", gap: 5, fontSize: 11 } },
       editing
@@ -574,7 +578,7 @@ const ForwardWidget = React.memo(function ForwardWidget({ commitments }) {
 const refMonthOf = (monthSel) =>
   monthSel ? `${monthSel.year}-${String(monthSel.month).padStart(2, "0")}` : undefined;
 
-function DashboardView({ monthSel, monthly, onPickMonth, refreshKey, onEditCategory, onImport }) {
+function DashboardView({ monthSel, monthly, onPickMonth, refreshKey, onEditCategory, onImport, onManageCategories }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
   const [available, setAvailable] = _dSt(null);
   const [commitments, setCommitments] = _dSt(null);
@@ -686,7 +690,8 @@ function DashboardView({ monthSel, monthly, onPickMonth, refreshKey, onEditCateg
           h(TimelineWidget, { monthly, monthSel, onPickMonth }),
           h(AccountsWidget, { accounts, available, filter, onToggleFacet }),
           h(CategoriesWidget, { monthTx, uncatCount, onOpenBulk: () => setBulkOpen(true), filter, onToggleFacet,
-            catsIndex, monthSel, onBudgetSaved: reloadBudgets }),
+            catsIndex, monthSel, onBudgetSaved: reloadBudgets,
+            onManageCategories, onCreateCategory: onManageCategories }),
           h(InvestmentsWidget, { investments, evolution }),
         ),
         h("div", { className: "widget-row widget-row--soft" },
