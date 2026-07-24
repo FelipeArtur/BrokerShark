@@ -80,52 +80,6 @@ export function analyticsRoutes(db: DatabaseSync): Route[] {
     });
   }
 
-  function pixCounterpart(desc: string): string {
-    return String(desc ?? "")
-      .replace(/"/g, "")
-      .replace(/^transfer[êe]ncia enviada pelo pix\s*[-–]?\s*/i, "")
-      .replace(/^pix enviado:?\s*/i, "")
-      .replace(/cp\s*:\s*\d+\s*-\s*/i, "")
-      .replace(/\s*[-–]\s*(?:•••|\d{3}\.\d{3}\.|\d{2}\.\d{3}\.\d{3}\/).*$/u, "")
-      .replace(/\s+Agência:.*$/iu, "")
-      .replace(/\s{2,}/g, " ")
-      .trim();
-  }
-
-  function getPixTop(req: Req, res: Res) {
-    const { month: cm, year: cy } = currentMonth();
-    const month = qsInt(req, "month") ?? cm;
-    const year = qsInt(req, "year") ?? cy;
-    const { start, end } = monthRange(month, year);
-
-    const rows = db.prepare(`
-      SELECT description, counterpart, amount_cents
-      FROM transactions
-      WHERE date >= ? AND date <= ?
-        AND flow = 'expense'
-        AND method = 'pix'
-        AND (counterpart IS NULL OR counterpart != 'SELF')
-        AND is_settlement = 0
-        AND is_third_party = 0
-    `).all(start, end) as any[];
-
-    const groups = new Map<string, { counterpart: string; total_cents: number; count: number }>();
-    for (const r of rows) {
-      const name = r.counterpart ?? pixCounterpart(r.description);
-      if (!name) continue;
-      const key = name.toLowerCase();
-      const g = groups.get(key) ?? { counterpart: name, total_cents: 0, count: 0 };
-      g.total_cents += r.amount_cents;
-      g.count += 1;
-      groups.set(key, g);
-    }
-
-    json(res, [...groups.values()]
-      .sort((a, b) => b.total_cents - a.total_cents)
-      .slice(0, 20)
-      .map(g => ({ counterpart: g.counterpart, total: g.total_cents / 100, count: g.count })));
-  }
-
   function getUncategorizedMerchants(req: Req, res: Res) {
     const { month: cm, year: cy } = currentMonth();
     const month = qsInt(req, "month") ?? cm;
@@ -180,7 +134,6 @@ export function analyticsRoutes(db: DatabaseSync): Route[] {
   return [
     { method: "GET", ...cp("/api/monthly"), handler: getMonthly },
     { method: "GET", ...cp("/api/cashflow-statement"), handler: getCashflowStatement },
-    { method: "GET", ...cp("/api/pix-top"), handler: getPixTop },
     { method: "GET", ...cp("/api/uncategorized-merchants"), handler: getUncategorizedMerchants },
   ];
 }

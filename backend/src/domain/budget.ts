@@ -36,7 +36,3 @@ export function isRefMonth(v: unknown): v is string {
   return m >= 1 && m <= 12;
 }
 
-export function budgetRatio(spentCents: number, budget: ResolvedBudget | null): number | null {
-  if (!budget || budget.amount_cents <= 0) return null;
-  return spentCents / budget.amount_cents;
-}

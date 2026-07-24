@@ -72,11 +72,11 @@ backend/
       validate.ts       # isIsoDate, isPositiveAmount, isIntId… (writes validam tudo)
     routes/             # handlers finos por domínio; SQL nomeado no topo
       accounts.ts       # /api/accounts, /api/available, /api/liquidity-history
-      transactions.ts   # listagens, busca, PATCH/DELETE + undo, bulk, lançamento manual
-      categories.ts     # categories-full (alvo+gasto+Δ), expense-categories(-full),
+      transactions.ts   # listagens, PATCH/DELETE + undo, bulk
+      categories.ts     # categories-full (alvo+gasto+Δ), expense-categories,
                         # POST/PATCH/DELETE + PUT/DELETE /api/category-budget
-      analytics.ts      # monthly, cashflow-statement, pix-top, uncategorized-merchants
-      investments.ts    # carteira (abertas), evolução, movimento manual
+      analytics.ts      # monthly, cashflow-statement, uncategorized-merchants
+      investments.ts    # carteira (abertas), evolução
       import.ts         # /api/import/* — detect/preview/staging/confirm/batch + B3 (upload incremental)
       commitments.ts    # /api/commitments — visão de futuro derivada
     server.ts           # bootstrap: config → db → initSchema → pipeline

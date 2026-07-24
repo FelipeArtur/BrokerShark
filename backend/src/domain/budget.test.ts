@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { resolveBudget, isRefMonth, budgetRatio, FIXED } from "./budget.ts";
+import { resolveBudget, isRefMonth, FIXED } from "./budget.ts";
 
 const rows = [
   { category_id: 1, ref_month: FIXED, amount_cents: 120_000 },
@@ -42,14 +42,4 @@ test("isRefMonth: rejeita mês fora da faixa e lixo", () => {
   assert.ok(!isRefMonth("2026-07-01"));
   assert.ok(!isRefMonth(null));
   assert.ok(!isRefMonth(202607));
-});
-
-test("budgetRatio: sem alvo não vira progresso", () => {
-  assert.equal(budgetRatio(50_000, null), null);
-  assert.equal(budgetRatio(50_000, { amount_cents: 0, source: "fixed" }), null);
-});
-
-test("budgetRatio: fração do alvo", () => {
-  assert.equal(budgetRatio(60_000, { amount_cents: 120_000, source: "fixed" }), 0.5);
-  assert.equal(budgetRatio(150_000, { amount_cents: 120_000, source: "fixed" }), 1.25);
 });

@@ -342,7 +342,7 @@ const TxRow = React.memo(({ t, cols, onEditCategory, onApplySuggestion, catsByFl
         h("div", { style: { display: "flex", flexDirection: "column", gap: 2, overflow: "hidden" } },
           h("div", { style: { display: "flex", alignItems: "center", gap: 6, overflow: "hidden" } },
             h("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--fg-0)", fontWeight: 700, fontSize: 13 } }, t.display_name || prettifyDesc(t.description)),
-            isThirdParty && h("span", { title: window.BS.KIND_HINT[K.THIRD_PARTY], style: { fontSize: 11, padding: "2px 6px", borderRadius: 4, border: "1px dashed var(--warn)", color: "var(--warn)", fontWeight: 600, flexShrink: 0 } }, "TERCEIROS")
+            isThirdParty && h("span", { className: "data-tag", title: window.BS.KIND_HINT[K.THIRD_PARTY], style: { borderStyle: "dashed", borderColor: "var(--warn)", color: "var(--warn)", fontWeight: 600, flexShrink: 0 } }, "TERCEIROS")
           ),
           h("span", { style: { fontSize: 10, color: "var(--fg-3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, t.description)
         )
