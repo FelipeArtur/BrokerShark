@@ -292,11 +292,20 @@ button.data-tag:hover { border-color: var(--fg-2); color: var(--fg-0); backgroun
   flex: 1; min-height: 0;
   display: flex; flex-direction: column;
   gap: 10px; padding: 10px 0;
-  overflow-y: auto;
+  overflow: hidden;
+}
+/* Faixa de widgets: altura limitada com scroll próprio (scroll interno é
+   permitido; a página nunca rola). A tabela abaixo pega o resto da viewport
+   — o dado do ledger tem que ser visível sem rolar a página. */
+.widget-band {
+  flex-shrink: 0; min-height: 0;
+  max-height: 46vh; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 10px;
+  padding-right: 2px;
 }
 .widget-row {
   display: grid; grid-template-columns: repeat(14, 1fr);
-  gap: 10px; flex-shrink: 0; grid-auto-rows: 260px;
+  gap: 10px; flex-shrink: 0; grid-auto-rows: 230px;
 }
 /* Faixa de widgets propensos a vazio: altura pelo conteúdo — quando não há
    dado, a fatura e a visão de futuro encolhem em vez de reservar 260px. */
@@ -359,7 +368,7 @@ button.data-tag:hover { border-color: var(--fg-2); color: var(--fg-0); backgroun
   min-height: 0; flex: 1; overflow-y: auto;
 }
 
-.table-widget { flex: 1; min-height: 260px; display: flex; flex-direction: column; }
+.table-widget { flex: 1; min-height: 280px; display: flex; flex-direction: column; }
 .table-toolbar {
   display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
   padding: 8px 14px; border-bottom: 1px solid var(--line-1); flex-shrink: 0;

@@ -42,10 +42,6 @@ const KpiStrip = React.memo(function KpiStrip({ available, availErr, accounts, c
                     liquidityHistory, evolution, monthLabel, monthly }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
 
-  const monthlyNet = (monthly || []).map(m => m.income - m.expenses);
-  const streak = window.BS.savingsStreak(monthlyNet);
-  const ath = window.BS.isAllTimeHigh((liquidityHistory || []).map(s => s.value));
-
   const checkingTotal = available ? available.checking_total : 0;
   const patrimonio = checkingTotal + investTotal;
 
@@ -83,10 +79,6 @@ const KpiStrip = React.memo(function KpiStrip({ available, availErr, accounts, c
         )),
         committed > 0 && h("span", { className: "mono", style: { color: "var(--warn)", fontSize: 11, marginTop: 2, display: "block" } },
           "− Comprometido este mês " + fmtBRL(committed))
-      ),
-      h("div", { style: { display: "flex", gap: 6, marginTop: 8 } },
-        streak > 0 && h("span", { className: "filter-chip", style: { background: "var(--bg-2)", color: "var(--warn)" } }, `🔥 ${streak}`),
-        ath && h("span", { className: "filter-chip", style: { background: "var(--bg-2)", color: "var(--accent)" } }, "🏆 recorde")
       ),
     ),
 
@@ -688,17 +680,19 @@ function DashboardView({ monthSel, monthly, onPickMonth, refreshKey, onEditCateg
   return h(React.Fragment, null,
     h(KpiStrip, { available, availErr, accounts, cashflow, investTotal, liquidityHistory, evolution, monthLabel, monthly }),
     h("div", { className: "dash-main fade-in" },
-      h("div", { className: "widget-row" },
-        h(GeneralWidget, { cashflow, liquidityHistory, monthly, monthSel, monthTx, uncatCount, backup }),
-        h(TimelineWidget, { monthly, monthSel, onPickMonth }),
-        h(AccountsWidget, { accounts, available, filter, onToggleFacet }),
-        h(CategoriesWidget, { monthTx, uncatCount, onOpenBulk: () => setBulkOpen(true), filter, onToggleFacet,
-          catsIndex, monthSel, onBudgetSaved: reloadBudgets }),
-        h(InvestmentsWidget, { investments, evolution }),
-      ),
-      h("div", { className: "widget-row widget-row--soft" },
-        h(FaturaWidget, { monthTx, filter, onToggleFacet }),
-        h(ForwardWidget, { commitments }),
+      h("div", { className: "widget-band" },
+        h("div", { className: "widget-row" },
+          h(GeneralWidget, { cashflow, liquidityHistory, monthly, monthSel, monthTx, uncatCount, backup }),
+          h(TimelineWidget, { monthly, monthSel, onPickMonth }),
+          h(AccountsWidget, { accounts, available, filter, onToggleFacet }),
+          h(CategoriesWidget, { monthTx, uncatCount, onOpenBulk: () => setBulkOpen(true), filter, onToggleFacet,
+            catsIndex, monthSel, onBudgetSaved: reloadBudgets }),
+          h(InvestmentsWidget, { investments, evolution }),
+        ),
+        h("div", { className: "widget-row widget-row--soft" },
+          h(FaturaWidget, { monthTx, filter, onToggleFacet }),
+          h(ForwardWidget, { commitments }),
+        ),
       ),
       h(window.BS.FilterBar, { filter, onRemove: (kind, value) => {
           if (kind === "flow" || kind === "method") setFilterField(kind, "all");
