@@ -49,11 +49,8 @@ Mapa acima é a política; a migration referencia nomes literais. Categorias cri
 
 - Só renderiza barra quando `budget != null` (categoria com alvo). `budgetState(spent, budget)` já devolve `{ratio, color}`.
 - Barra: altura ~8px (era 3px), fundo `--bg-2`, preenchimento `st.color` largura `min(100, ratio*100)%`.
-  - **COLISÃO A RESOLVER (verde):** barra de vida de videogame é VERDE quando saudável — foi o pedido explícito do usuário. Mas a invariante "verde = receita e só receita" proíbe verde pra "ok". Duas saídas:
-    - (a) **accent/âmbar/vermelho**: <80% `--accent` (ciano), 80-100% `--warn`, >100% `--neg`. Preserva a invariante intacta. Menos "barra de vida clássica".
-    - (b) **verde/âmbar/vermelho** como exceção NOMEADA: <80% `--pos`, 80-100% `--warn`, >100% `--neg`. Fiel à barra de vida. Exige registrar a exceção no CLAUDE.md e DESIGN.md ("verde = receita OU health-bar dentro do alvo") e conferir que `moneyKind`/tabela não confundem.
-  - Default do spec: **(b)**, porque o usuário pediu barra de vida por nome; a exceção fica documentada e escopada só à health-bar de orçamento (nunca em valor de dinheiro). Confirmar no review.
-  - Atualizar cores de `budgetState` conforme a escolha e registrar no DESIGN.md.
+  - **Cores (DECIDIDO — opção a):** <80% = `--accent` (ciano, "sob controle"), 80-100% = `--warn` (âmbar), >100% = `--neg` (vermelho). Preserva a invariante "verde = receita e só receita" intacta — a health-bar nunca usa verde. Verde continua exclusivo de receita.
+  - Atualizar cores de `budgetState` (`tx-group.js`) pra esse tri-estado e registrar no DESIGN.md que a barra de orçamento usa accent/âmbar/neg (não verde).
   - >100%: a barra fica cheia em `--neg` + um segundo traço de "excedente" (dithered `--neg`) OU um leve pulse `bs-pop` uma vez ao cruzar — efeito "estourado" de barra de vida. Sem animação contínua (respeita reduced-motion).
 - Rótulo ao lado: `NN% de R$X` na cor do estado (já existe, ajustar).
 - Sem alvo: `definir alvo` discreto (`--fg-3`, dashed) — já existe.
