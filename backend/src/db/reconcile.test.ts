@@ -13,7 +13,6 @@ function freshDb(): DatabaseSync {
   return db;
 }
 
-/** Insere uma fatura aberta (payment_tx_id NULL) e devolve o id. */
 function openInvoice(db: DatabaseSync, refMonth: string, totalCents: number): number {
   return Number(
     db.prepare(
@@ -22,7 +21,6 @@ function openInvoice(db: DatabaseSync, refMonth: string, totalCents: number): nu
   );
 }
 
-/** Perna de pagamento da fatura no extrato inter-db (como a UI importaria). */
 function paymentLeg(db: DatabaseSync, date: string, amountCents: number): number {
   return Number(
     db.prepare(`INSERT INTO transactions
@@ -32,7 +30,6 @@ function paymentLeg(db: DatabaseSync, date: string, amountCents: number): number
   );
 }
 
-/** Regra consumo-despesa (CLAUDE.md) — o que conta como gasto real. */
 function consumptionCount(db: DatabaseSync): number {
   return (db.prepare(`SELECT COUNT(*) AS n FROM transactions
     WHERE flow='expense' AND method != 'transfer' AND is_settlement=0
@@ -44,7 +41,6 @@ test("reconcileInvoicePayment: pagamento exato vira liquidação e NÃO double-c
   const invId = openInvoice(db, "2026-05", 183062);
   const payId = paymentLeg(db, "2026-05-10", 183062);
 
-  // antes: o pagamento conta como consumo (é o bug C1)
   assert.equal(consumptionCount(db), 1);
 
   const res = reconcileInvoicePayment(db, { invoiceId: invId, refMonth: "2026-05", totalCents: 183062 });
@@ -52,38 +48,35 @@ test("reconcileInvoicePayment: pagamento exato vira liquidação e NÃO double-c
   assert.equal(res.matched, true);
   assert.equal(res.payment?.id, payId);
 
-  // perna marcada como liquidação, ligada à fatura
   const tx = db.prepare("SELECT is_settlement, invoice_id, method FROM transactions WHERE id=?").get(payId) as
     { is_settlement: number; invoice_id: number; method: string };
   assert.equal(tx.is_settlement, 1);
   assert.equal(tx.invoice_id, invId);
   assert.equal(tx.method, "credit");
 
-  // fatura aponta de volta
   const inv = db.prepare("SELECT payment_tx_id FROM invoices WHERE id=?").get(invId) as { payment_tx_id: number };
   assert.equal(inv.payment_tx_id, payId);
 
-  // load-bearing: consumo NÃO dobra — a liquidação sai da conta
   assert.equal(consumptionCount(db), 0);
 });
 
 test("reconcileInvoicePayment: sem pagamento de valor exato → não casa, nada muda", () => {
   const db = freshDb();
   const invId = openInvoice(db, "2026-05", 183062);
-  paymentLeg(db, "2026-05-10", 180000); // valor diferente
+  paymentLeg(db, "2026-05-10", 180000);
 
   const res = reconcileInvoicePayment(db, { invoiceId: invId, refMonth: "2026-05", totalCents: 183062 });
 
   assert.equal(res.matched, false);
   const inv = db.prepare("SELECT payment_tx_id FROM invoices WHERE id=?").get(invId) as { payment_tx_id: number | null };
   assert.equal(inv.payment_tx_id, null);
-  assert.equal(consumptionCount(db), 1); // o pagamento continua contando (stand-in)
+  assert.equal(consumptionCount(db), 1);
 });
 
 test("reconcileInvoicePayment: pagamento fora da janela −70/+35d não casa", () => {
   const db = freshDb();
   const invId = openInvoice(db, "2026-05", 183062);
-  paymentLeg(db, "2026-08-01", 183062); // ~+90d do refStart, fora da janela
+  paymentLeg(db, "2026-08-01", 183062);
 
   const res = reconcileInvoicePayment(db, { invoiceId: invId, refMonth: "2026-05", totalCents: 183062 });
   assert.equal(res.matched, false);
@@ -93,11 +86,10 @@ test("reconcileInvoicePayment: perna já casada (invoice_id set) não é re-casa
   const db = freshDb();
   const invA = openInvoice(db, "2026-05", 183062);
   const invB = openInvoice(db, "2026-06", 183062);
-  paymentLeg(db, "2026-05-10", 183062); // única perna
+  paymentLeg(db, "2026-05-10", 183062);
   const first = reconcileInvoicePayment(db, { invoiceId: invA, refMonth: "2026-05", totalCents: 183062 });
   assert.equal(first.matched, true);
 
-  // invB tem o mesmo total mas a única perna já foi consumida por invA
   const res = reconcileInvoicePayment(db, { invoiceId: invB, refMonth: "2026-06", totalCents: 183062 });
   assert.equal(res.matched, false);
 });
@@ -116,12 +108,12 @@ test("reconcileOpenInvoices: casa todas as faturas abertas com pernas exatas", (
     const inv = db.prepare("SELECT payment_tx_id FROM invoices WHERE id=?").get(id) as { payment_tx_id: number | null };
     assert.notEqual(inv.payment_tx_id, null);
   }
-  assert.equal(consumptionCount(db), 0); // nenhum pagamento conta como consumo
+  assert.equal(consumptionCount(db), 0);
 });
 
 test("reconcileOpenInvoices: sem faturas abertas → no-op (0)", () => {
   const db = freshDb();
-  paymentLeg(db, "2026-05-10", 183062); // pagamento existe mas não há fatura aberta
+  paymentLeg(db, "2026-05-10", 183062);
   assert.equal(reconcileOpenInvoices(db), 0);
-  assert.equal(consumptionCount(db), 1); // segue como stand-in
+  assert.equal(consumptionCount(db), 1);
 });

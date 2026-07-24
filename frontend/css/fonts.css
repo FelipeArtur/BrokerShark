@@ -1,7 +1,3 @@
-/* Self-hosted fonts (vendored — no Google Fonts, fully offline).
-   Silkscreen = headings/labels; Departure Mono = numbers/body.
-   Both cover Latin-1 incl. Portuguese accents, so no webfont fallback layer
-   is needed — the stacks end at system-ui/ui-monospace. */
 @font-face {
   font-family: 'Silkscreen';
   font-style: normal;

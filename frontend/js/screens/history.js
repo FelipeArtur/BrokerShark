@@ -1,65 +1,31 @@
-/* IIFE-wrapped: own scope (replaces Babel's per-file isolation) */
 (function () {
-/**
- * @file history.js
- * @brief TxTableWidget — a "planilha" do painel: lançamentos do mês agrupados,
- *        com ordenação, seleção em lote, saldo corrente e rodapé de totais.
- */
-/* view-history.js — TxTableWidget: a "planilha" do painel.
-   Lançamentos do mês selecionado, agrupados por categoria (espécie contábil
-   vira grupo próprio). Cabeçalho de grupo carrega o contexto — total, alvo,
-   Δ vs. mês anterior — e a linha fica limpa. Scroll é interno ao widget. */
-/* global React, fetchMonthTransactions, fetchCategoriesFull,
-          patchTransactionCategory, fetchUncategorizedMerchants, categorizeBulk */
 
 const { useState: _s2St, useEffect: _s2Ef, useMemo: _s2Memo, useCallback: _s2Cb } = React;
 const { fmtBRL, PT_MONTHS, isConsumptionExpense, isRevenue, isInvest } = window.BS;
 
-/* Chave de ordenação por coluna — datas/valores comparam certo, texto em pt-BR */
 const SORT_KEYS = {
   date:     t => t.date || "",
   desc:     t => (t.display_name || window.BS.prettifyDesc(t.description) || "").toLowerCase(),
   cat:      t => (t.category || "").toLowerCase(),
   account:  t => t.account_id || "",
   method:   t => t.method || "",
-  // Valor assinado: despesas negativas — ordenar por valor = ver maiores saídas/entradas
+
   amount:   t => t.flow === "expense" ? -t.amount : t.amount,
 };
 
 const COLLAPSE_KEY = "bs.tableCollapsed";
-/**
- * @brief Lê do localStorage os grupos que estavam colapsados.
- * @return Set com as chaves de grupo colapsadas; vazio se não houver/estiver corrompido
- */
+
 const loadCollapsed = () => {
   try { return new Set(JSON.parse(localStorage.getItem(COLLAPSE_KEY) || "[]")); }
   catch { return new Set(); }
 };
 
-/**
- * @brief Renderiza a tabela de lançamentos do mês selecionado.
- * @param props.monthSel mês selecionado {month, year}
- * @param props.refreshKey muda para forçar recarga das categorias/pendências
- * @param props.onEditCategory abre o editor de uma transação
- * @param props.openBulk true abre o modal de categorização em lote
- * @param props.onBulkConsumed avisa o dono do estado que `openBulk` foi consumido
- * @param props.monthTx transações do mês (`amount` em REAIS)
- * @param props.setMonthTx setter de monthTx — usado nas atualizações otimistas
- * @param props.filter filtro facetado compartilhado (ver filter.js)
- * @param props.setFilterField ajusta um campo escalar do filtro (flow/method/search)
- * @param props.onToggleFacet alterna um valor de faceta (categoria/conta/banco)
- * @param props.accounts contas com saldo ATUAL (`balance` em reais) — base do saldo corrente
- * @param props.catsIndex Map(id → categoria) com alvo e gasto do mês anterior
- * @param props.isLatestMonth true quando o mês exibido é o mais recente com dados;
- *        condição necessária pro saldo corrente ser verdade (ver abaixo)
- * @return elemento React do widget da tabela
- */
 function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkConsumed, monthTx, setMonthTx,
                          filter, setFilterField, onToggleFacet, accounts, catsIndex, isLatestMonth }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   const [bulkGroups, setBulkGroups] = _s2St([]);
   const [bulkOpen, setBulkOpen] = _s2St(false);
-  const [sort, setSort] = _s2St({ key: "date", dir: -1 });  // mais recente primeiro
+  const [sort, setSort] = _s2St({ key: "date", dir: -1 });
   const [catsByFlow, setCatsByFlow] = _s2St({ expense: [], income: [] });
   const [grouped, setGrouped] = _s2St(true);
   const [collapsed, setCollapsed] = _s2St(loadCollapsed);
@@ -76,7 +42,6 @@ function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkC
     fetchUncategorizedMerchants({ year, month }).then(setBulkGroups).catch(() => setBulkGroups([]));
   }, [monthSel, refreshKey]);
 
-  // Chip "Categorizar em lote" do widget de categorias abre o modal daqui.
   _s2Ef(() => {
     if (openBulk) { setBulkOpen(true); onBulkConsumed && onBulkConsumed(); }
   }, [openBulk]);
@@ -87,10 +52,6 @@ function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkC
     return () => window.removeEventListener("bs-tx-optimistic-delete", handler);
   }, []);
 
-  /**
-   * @brief Abre/fecha um grupo e persiste a escolha no localStorage.
-   * @param key chave do grupo (ver groupKeyOf)
-   */
   const toggleCollapse = _s2Cb((key) => {
     setCollapsed(prev => {
       const next = new Set(prev);
@@ -101,15 +62,7 @@ function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkC
   }, []);
 
   const uncatCount = bulkGroups.reduce((s, g) => s + g.count, 0);
-  /**
-   * @brief Categoriza todas as ocorrências de um comerciante de uma vez.
-   * @param group grupo de uncategorized-merchants {merchant_key, flow, ids}
-   * @param categoryId id da categoria escolhida
-   * @return Promise que resolve com {undo} — `undo` devolve os lançamentos ao
-   *         estado sem categoria; rejeita se a gravação falhar (o chamador
-   *         avisa o usuário: com aplicação imediata, engolir o erro faria a
-   *         linha sumir dando a impressão de que gravou)
-   */
+
   const applyBulk = async (group, categoryId) => {
     const list = catsByFlow[group.flow] || [];
     const catName = list.find(c => c.id === categoryId)?.name || "";
@@ -119,12 +72,7 @@ function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkC
       setMonthTx(prev => prev.map(tx => group.ids.includes(tx.id) ? { ...tx, category_id: categoryId, category: catName } : tx));
     }
     return {
-      /**
-       * @brief Devolve o grupo ao estado sem categoria.
-       *
-       * Via PATCH e não categorize-bulk: aquele exige categoria existente e
-       * recusa null. Como a tela só lista não-categorizados, o alvo é sempre null.
-       */
+
       undo: async () => {
         await Promise.all(group.ids.map(id => patchTransactionCategory(id, null)));
         setBulkGroups(prev => [...prev, group]);
@@ -137,11 +85,6 @@ function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkC
 
   const monthLabel = monthSel ? `${PT_MONTHS[monthSel.month]} ${monthSel.year}` : "";
 
-  /**
-   * @brief Normaliza o banco da linha pro rótulo usado na faceta.
-   * @param t transação
-   * @return "Nubank", "Inter" ou o valor cru quando não dá pra identificar
-   */
   const bankOf = (t) => (t.bank === "nubank" || (t.account_id && t.account_id.startsWith("nu"))) ? "Nubank"
     : (t.bank === "inter" || (t.account_id && t.account_id.startsWith("inter"))) ? "Inter" : (t.bank || t.account_id);
 
@@ -168,30 +111,9 @@ function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkC
     [grouped, sortedTx, catsIndex],
   );
 
-  /* ── Saldo corrente ───────────────────────────────────────────────────────
-     Só é VERDADE sob todas estas condições, e mostrar um saldo errado é pior
-     que não mostrar saldo nenhum:
-
-     - uma conta só      — somar Nubank com Inter não produz "saldo" de nada;
-     - sem agrupamento   — saldo é cronológico; agrupado por categoria, não é;
-     - ordenado por data — fora da ordem cronológica, saldo é mentira;
-     - mês mais recente  — o único ponto de partida disponível é o saldo ATUAL
-                           da conta (/api/accounts). Contar pra trás só fecha se
-                           não houver lançamento DEPOIS do mês exibido; num mês
-                           antigo o número seria silenciosamente errado.
-
-     O cálculo caminha sobre TODOS os lançamentos da conta no mês, não sobre a
-     lista filtrada: uma busca ativa esconde linhas, e pular uma linha
-     corromperia o saldo de todas as outras. As linhas visíveis mostram o saldo
-     real da conta após aquele lançamento, filtro ou não. */
   const singleAccount = filter.accounts.size === 1 ? [...filter.accounts][0] : null;
   const showBalance = !grouped && !!singleAccount && sort.key === "date" && !!isLatestMonth;
-  /**
-   * @brief Deriva o saldo da conta após cada lançamento, contando pra trás a
-   *        partir do saldo ATUAL — sob as condições listadas acima.
-   * @return Map(txId → saldo em REAIS), ou null quando o saldo não é verdade
-   *         (showBalance falso, conta desconhecida ou sem saldo publicado)
-   */
+
   const balanceById = _s2Memo(() => {
     if (!showBalance) return null;
     const acct = (accounts || []).find(a => a.id === singleAccount);
@@ -208,26 +130,16 @@ function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkC
     return map;
   }, [showBalance, singleAccount, accounts, monthTx]);
 
-  /**
-   * @brief Ordena pela coluna clicada; reclicar inverte a direção.
-   * @param key coluna (chave de SORT_KEYS) — data e valor começam decrescentes
-   */
   const toggleSort = key =>
     setSort(prev => prev.key === key ? { key, dir: -prev.dir } : { key, dir: key === "date" || key === "amount" ? -1 : 1 });
 
-  // Totais do recorte filtrado (não do mês) — o rodapé responde sobre o que está listado.
   const filtExp = filteredTx.filter(isConsumptionExpense).reduce((s, t) => s + t.amount, 0);
   const filtInc = filteredTx.filter(isRevenue).reduce((s, t) => s + t.amount, 0);
-  // Investido: Σ da espécie invest, líquido (aplicação − resgate). Fora do Saldo:
-  // investir não é gastar nem ganhar, é o dinheiro mudando de bolso.
+
   const filtInv = filteredTx.filter(isInvest)
     .reduce((s, t) => s + (t.flow === "expense" ? t.amount : -t.amount), 0);
   const hasFilter = window.BS.facetCount(filter) > 0;
 
-  /**
-   * @brief Marca/desmarca uma linha para a ação em lote.
-   * @param t transação clicada
-   */
   const toggleSelect = _s2Cb((t) => {
     setSelected(prev => {
       const next = new Set(prev);
@@ -236,10 +148,6 @@ function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkC
     });
   }, []);
 
-  /**
-   * @brief Marca o grupo inteiro, ou desmarca se já estava todo marcado.
-   * @param g grupo de buildGroups
-   */
   const toggleSelectGroup = (g) => {
     setSelected(prev => {
       const next = new Set(prev);
@@ -249,13 +157,6 @@ function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkC
     });
   };
 
-  /**
-   * @brief Monta um cabeçalho de coluna clicável, com o indicador de ordenação.
-   * @param key coluna (chave de SORT_KEYS)
-   * @param label texto do cabeçalho
-   * @param style estilos extras do <th>
-   * @return elemento React <th>
-   */
   const Th = (key, label, style) => h("th", {
     className: "sortable", style,
     onClick: () => toggleSort(key),
@@ -265,14 +166,8 @@ function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkC
 
   const cols = ["date", "desc", "cat", "account", "method", "amount"];
   if (showBalance) cols.push("balance");
-  const colSpan = cols.length + 1; // +1 do checkbox
+  const colSpan = cols.length + 1;
 
-  /**
-   * @brief Monta a linha de uma transação, já com os handlers de edição.
-   * @param t transação (`amount` em REAIS)
-   * @param g grupo dono da linha; null na lista corrida (sem escala local)
-   * @return elemento React TxRow
-   */
   const rowFor = (t, g) => h(window.BS.TxRow, {
     key: t.id, t, cols,
     amountSize: g ? window.BS.scaleFor(t.amount, g.maxAmount) : undefined,
@@ -292,7 +187,7 @@ function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkC
         window.dispatchEvent(new CustomEvent("bs-toast", { detail: { msg: "Erro ao categorizar", kind: "error" } }));
       }
     },
-    // Sugestão do histórico (suggest-only): só grava neste clique.
+
     onApplySuggestion: async (tx) => {
       try {
         await patchTransactionCategory(tx.id, tx.suggested_category_id);
@@ -308,7 +203,6 @@ function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkC
 
   return h("div", { className: "widget table-widget" },
 
-    // Toolbar: título + lote + filtros + busca — uma linha só
     h("div", { className: "table-toolbar" },
       h("span", { className: "widget-title" }, "Lançamentos"),
       h("span", { className: "mono", style: { fontSize: 10, color: "var(--fg-3)" } },
@@ -348,7 +242,6 @@ function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkC
       })
     ),
 
-    // Corpo — scroll interno; thead gruda no topo do scroll
     h("div", { className: "table-scroll" },
       h("table", { className: "grid-table" },
         h("thead", null, h("tr", null,
@@ -383,7 +276,6 @@ function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkC
       )
     ),
 
-    // Barra de ação da seleção — só existe quando há seleção
     selected.size > 0 && h(SelectionBar, {
       count: selected.size,
       onClear: () => setSelected(new Set()),
@@ -403,7 +295,6 @@ function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkC
       },
     }),
 
-    // Totais do que está listado — sempre visíveis (o "rodapé de planilha")
     h("div", { className: "table-totals" },
       h("span", null, "Entradas ", h(window.BS.Money, { value: filtInc, kind: "revenue", emphasis: true, t: { flow: "income" } })),
       h("span", null, "Saídas ", h(window.BS.Money, { value: filtExp, kind: "expense", emphasis: true, t: { flow: "expense" } })),
@@ -431,20 +322,6 @@ function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkC
   );
 }
 
-/* ── GroupHeader — o contexto mora aqui, a linha fica limpa ─────────────────
-   Total, alvo e Δ são da categoria, não do café de R$ 3. A barra de alvo só
-   aparece em despesa COM alvo definido: sem alvo ≠ alvo zero. */
-/**
- * @brief Renderiza o cabeçalho de um grupo da tabela.
- * @param props.g grupo de buildGroups (total/budget/prevSpent em REAIS)
- * @param props.isOpen true quando o grupo está expandido
- * @param props.colSpan colunas que a célula do cabeçalho ocupa
- * @param props.onToggle abre/fecha o grupo
- * @param props.onToggleSelect marca/desmarca as linhas do grupo
- * @param props.allSelected true quando todas as linhas do grupo estão marcadas
- * @param props.onFacet filtra por esta categoria; null nos grupos de espécie
- * @return elemento React <tr> do cabeçalho
- */
 function GroupHeader({ g, isOpen, colSpan, onToggle, onToggleSelect, allSelected, onFacet }) {
   const h = React.createElement;
   const st = window.BS.budgetState(g.total, g.budget);
@@ -467,10 +344,6 @@ function GroupHeader({ g, isOpen, colSpan, onToggle, onToggleSelect, allSelected
         }, g.label),
         h("span", { className: "mono", style: { fontSize: 9, color: "var(--fg-3)" } }, `${g.count}`),
 
-        /* Categoria: todas as linhas na mesma direção, `total` é honesto.
-           Espécie: usa o LÍQUIDO — somar as duas pernas de uma transferência
-           mostraria o dobro do que se moveu, e somar aplicação com resgate sem
-           sinal daria um número que não bate com o rodapé. */
         g.isCat
           ? h(window.BS.Money, { value: g.total, kind: g.kind, emphasis: true,
               t: { flow: g.kind === "revenue" ? "income" : "expense" } })
@@ -482,7 +355,6 @@ function GroupHeader({ g, isOpen, colSpan, onToggle, onToggleSelect, allSelected
                 : window.BS.KIND_HINT[g.kind],
             }),
 
-        // Barra de alvo — só despesa com alvo. Sem verde: verde é receita.
         st && h("div", { style: { display: "flex", alignItems: "center", gap: 6, minWidth: 160 } },
           h("div", { style: { flex: 1, height: 6, background: "var(--bg-2)", border: "1px solid var(--line-1)", minWidth: 60 } },
             h("div", { style: { width: `${Math.min(100, st.ratio * 100)}%`, height: "100%", background: st.color } })
@@ -503,15 +375,6 @@ function GroupHeader({ g, isOpen, colSpan, onToggle, onToggleSelect, allSelected
   );
 }
 
-/* ── SelectionBar — ação em lote no mouse (sem atalho de teclado) ──────────── */
-/**
- * @brief Renderiza a barra de ação das linhas selecionadas.
- * @param props.count quantas linhas estão marcadas
- * @param props.onClear limpa a seleção
- * @param props.catsByFlow {expense, income} — opções do select
- * @param props.onCategorize chamado com o id da categoria escolhida
- * @return elemento React da barra de seleção
- */
 function SelectionBar({ count, onClear, catsByFlow, onCategorize }) {
   const h = React.createElement;
   const all = [...(catsByFlow.expense || []), ...(catsByFlow.income || [])];

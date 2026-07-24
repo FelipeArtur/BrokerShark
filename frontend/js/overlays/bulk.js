@@ -1,28 +1,7 @@
-/* IIFE-wrapped: own scope (replaces Babel's per-file isolation) */
 (function () {
-/**
- * @file bulk.js
- * @brief Categorização em lote por comerciante: uma escolha etiqueta todas as
- *        ocorrências do mês de uma vez.
- */
-/* global React, postCategory */
 
 const { fmtBRL } = window.BS;
 
-/**
- * @brief Renderiza o painel de categorização em lote.
- * @param props.groups comerciantes sem categoria {merchant_key, flow, ids, count,
- *        total, sample_description, suggested_category_id, suggested_category_name};
- *        `total` em REAIS
- * @param props.catsByFlow {expense, income} — opções por fluxo do comerciante
- * @param props.monthLabel rótulo do mês exibido no título
- * @param props.onApply (grupo, categoryId) → Promise<{undo}>; rejeita em falha
- * @param props.onClose fecha o modal
- * @param props.onRefreshCats recarrega categorias após criar uma; devolve {expense, income}
- * @param props.onToast (msg, kind, action) — enfileira aviso; `action` é
- *        {label, onClick} e faz o toast durar 6s
- * @return elemento React do modal
- */
 function BulkCategorizeModal({ groups, catsByFlow, monthLabel, onApply, onClose, onRefreshCats, onToast }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
   const [creatingFor, setCreatingFor] = React.useState(null);
@@ -33,12 +12,6 @@ function BulkCategorizeModal({ groups, catsByFlow, monthLabel, onApply, onClose,
   const total = groups.reduce((s, g) => s + g.count, 0);
   const plan = window.BS.suggestionPlan(groups);
 
-  /**
-   * @brief Grava a categoria do comerciante e oferece o desfazer.
-   *
-   * Aplica na hora: o select já carrega a intenção, e um "Salvar" separado
-   * custava um terceiro clique. A rede é o toast com Desfazer.
-   */
   const apply = async (g, categoryId) => {
     if (busy) return;
     setBusy(g.merchant_key);
@@ -54,15 +27,6 @@ function BulkCategorizeModal({ groups, catsByFlow, monthLabel, onApply, onClose,
     } finally { setBusy(null); }
   };
 
-  /**
-   * @brief Aplica todas as sugestões de uma vez.
-   *
-   * Dispara em PARALELO e atualiza o estado uma vez só no fim. A versão antiga
-   * usava await em série porque cada onApply removia o grupo da lista e o
-   * paralelo competia pelo mesmo estado — o motivo era real, mas a solução
-   * custava N round-trips em fila. Aqui a decisão (suggestionPlan) é pura e o
-   * efeito acontece de uma vez.
-   */
   const applyAll = async () => {
     if (busy || plan.length === 0) return;
     setBusy("__all__");
@@ -82,10 +46,6 @@ function BulkCategorizeModal({ groups, catsByFlow, monthLabel, onApply, onClose,
     setBusy(null);
   };
 
-  /**
-   * @brief Cria a categoria digitada e já a aplica ao comerciante.
-   * @param g grupo do comerciante — o `flow` dele define o fluxo da nova categoria
-   */
   const handleCreateNew = async (g) => {
     if (!newCatName.trim() || busy) return;
     setBusy(g.merchant_key);

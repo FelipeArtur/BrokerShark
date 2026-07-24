@@ -15,6 +15,6 @@ test("Inter: preâmbulo, ponto-e-vírgula, saldo de abertura derivado", () => {
   assert.equal(r.amountCents, 3000);
   assert.equal(r.flow, "expense");
   assert.equal(r.accountId, "inter-db");
-  // saldo de abertura = primeiro saldo − primeiro valor = 970 − (−30) = 1000
+
   assert.equal(p.openingBalanceCents, 100000);
 });

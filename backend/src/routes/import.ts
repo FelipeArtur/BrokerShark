@@ -1,17 +1,3 @@
-/**
- * @file import.ts
- * @brief Import incremental via UI: preview/staging editável/confirm + B3, com reverter.
- *
- * import.ts — import incremental via UI (extratos Nubank/Inter + relatório B3).
- *
- *  Fluxo em duas fases (staging em memória, keyed por batch_id):
- *    1. preview  → parse + dedup vs DB → linhas de revisão (editáveis)
- *    2. confirm  → INSERT das linhas escolhidas → re-pareia SELF + rederiva Caixinha
- *
- *  Reusa os parsers de ingest/ e as invariantes de jobs/backfill/ (selfPairs,
- *  caixinha). Faturas Inter NÃO entram por aqui — só contas-corrente + B3.
- *  Dinheiro em centavos; o fio troca reais (o front formata em R$).
- */
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import type { Req, Res } from "../http/respond.ts";
@@ -32,8 +18,6 @@ import { pairSelfTransfers } from "../jobs/backfill/selfPairs.ts";
 import { rederiveCaixinha } from "../jobs/backfill/caixinha.ts";
 import { reconcileOpenInvoices } from "../db/reconcile.ts";
 
-// ── Staging (em memória — o backfill é a fonte de reconstrução) ──────────────
-/** @brief Linha em revisão; valores *Cents em centavos inteiros. */
 interface StagingRow {
   id: number;
   rec: TxRecord;
@@ -44,42 +28,21 @@ interface StagingRow {
   suggestedCategoryId: number | null;
   status: "new" | "duplicate";
 }
-/** @brief Lote em staging: conta dona, linhas em revisão e instante de criação. */
+
 interface Batch { accountId: string; rows: StagingRow[]; createdAt: number }
 
 const staging = new Map<string, Batch>();
-const STAGE_TTL_MS = 60 * 60 * 1000; // 1h — solta batches abandonados
+const STAGE_TTL_MS = 60 * 60 * 1000;
 
-/**
- * @brief Descartar os lotes de staging abandonados (mais velhos que o TTL).
- *
- * Staging vive em memória e nada limpa um preview que o usuário nunca confirmou.
- */
 function gcStaging(): void {
   const now = Date.now();
   for (const [id, b] of staging) if (now - b.createdAt > STAGE_TTL_MS) staging.delete(id);
 }
 
-// ── Helpers de fio (reais ⇄ centavos) ────────────────────────────────────────
-/**
- * @brief Converter centavos inteiros em reais, para o fio.
- * @param c valor em centavos inteiros
- * @return valor em reais
- */
 const toReais = (c: number) => Math.round(c) / 100;
 
-/**
- * @brief Converter reais recebidos do fio em centavos inteiros.
- * @param r valor em reais
- * @return valor em centavos inteiros (arredondado)
- */
 const toCents = (r: number) => Math.round(r * 100);
 
-/**
- * @brief Serializar uma linha de staging para o formato do fio.
- * @param r linha em staging
- * @return objeto do fio, com `amount` em REAIS
- */
 function wireRow(r: StagingRow) {
   return {
     id: r.id,
@@ -98,17 +61,6 @@ function wireRow(r: StagingRow) {
   };
 }
 
-/**
- * @brief Somar o ajuste que as edições do usuário fizeram no lote.
- *
- * Ajuste (reais, sinalizado por fluxo) das linhas novas vs valor original.
- *
- * Sinal por fluxo: baixar uma despesa é ajuste POSITIVO (sobra mais dinheiro),
- * baixar uma receita é negativo. Só as linhas `new` contam — duplicata não entra.
- *
- * @param b lote em staging
- * @return divergência acumulada em REAIS (0 quando nada foi editado)
- */
 function divergenceReais(b: Batch): number {
   let cents = 0;
   for (const r of b.rows) {
@@ -119,17 +71,6 @@ function divergenceReais(b: Batch): number {
   return toReais(cents);
 }
 
-/**
- * @brief Descobrir a conta dona de um CSV pelo cabeçalho.
- *
- * Ordem importa: identificador → Nubank; "data lançamento" (junto) → extrato Inter;
- * categoria+tipo+valor (sem os anteriores) → fatura Inter (inter-cc). O header da
- * fatura tem "data" e "lançamento" em colunas separadas, então nunca casa o
- * "data lançamento" junto do extrato.
- *
- * @param csv conteúdo do arquivo (só os primeiros 4 KB são olhados)
- * @return "nu-db", "inter-db", "inter-cc", ou `null` quando não reconhecido
- */
 export function detectAccount(csv: string): string | null {
   const head = csv.slice(0, 4096).toLowerCase();
   if (head.includes("identificador") && head.includes("valor")) return "nu-db";
@@ -138,25 +79,14 @@ export function detectAccount(csv: string): string | null {
   return null;
 }
 
-/**
- * @brief Montar as rotas do import incremental ligadas a esta conexão.
- * @param db conexão do DB
- * @return rotas de detect, preview, staging, confirm, reverter-lote e B3
- */
 export function importRoutes(db: DatabaseSync): Route[] {
-  // Sugestão de categoria pelo histórico (descrição exata mais frequente).
+
   const suggestStmt = db.prepare(`
     SELECT category_id FROM transactions
     WHERE description = ? AND category_id IS NOT NULL AND flow = ?
     GROUP BY category_id ORDER BY COUNT(*) DESC LIMIT 1
   `);
-  /**
-   * @brief Sugerir categoria pelo histórico de descrição exata do mesmo fluxo.
-   * @param desc descrição da transação
-   * @param flow fluxo ('expense'|'income') — a mesma descrição pode ter categoria
-   *             diferente em cada sentido
-   * @return id da categoria mais usada, ou `null` se não houver histórico
-   */
+
   const suggestCategory = (desc: string, flow: string): number | null => {
     const row = suggestStmt.get(desc, flow) as { category_id: number } | undefined;
     return row ? row.category_id : null;
@@ -167,14 +97,6 @@ export function importRoutes(db: DatabaseSync): Route[] {
     "SELECT COUNT(*) AS n FROM transactions WHERE date = ? AND flow = ? AND amount_cents = ? AND description = ?",
   );
 
-  // ── POST /api/import/detect — sniff do header → conta dona ──────────────
-  /**
-   * @brief Detectar a conta dona de cada arquivo enviado (pré-seleção da UI).
-   * @param req requisição multipart com os arquivos
-   * @param res resposta; lista `{ filename, account_id }` com `account_id` null
-   *            quando não deu para reconhecer
-   * @throws HttpError 400/413 vindos de parseMultipart
-   */
   async function detect(req: Req, res: Res) {
     const parts = await parseMultipart(req);
     const out = fileParts(parts).map((p) => ({
@@ -184,23 +106,6 @@ export function importRoutes(db: DatabaseSync): Route[] {
     json(res, out);
   }
 
-  // ── POST /api/import/preview — parse + dedup → linhas de revisão ─────────
-  /**
-   * @brief Parsear os arquivos, marcar duplicatas e abrir um lote em staging.
-   *
-   * NADA é escrito no DB aqui — só staging em memória; quem grava é o confirm.
-   *
-   * Dedup por banco: Nubank por `external_id` (UUID); Inter por CONTAGEM da chave
-   * composta, começando do que o DB já tem — duas linhas idênticas legítimas no
-   * mesmo dia (2 pix iguais) não podem ser tratadas como duplicata uma da outra.
-   *
-   * Sugestão de categoria só para linha `new` e categorizável — perna de
-   * investimento/transfer não recebe categoria.
-   *
-   * @param req requisição multipart: campo `account_id` + os arquivos
-   * @param res resposta; `batch_id`, contagens e as linhas (`amount` em REAIS)
-   * @throws HttpError 400/413 vindos de parseMultipart
-   */
   async function preview(req: Req, res: Res) {
     gcStaging();
     const parts = await parseMultipart(req);
@@ -212,7 +117,7 @@ export function importRoutes(db: DatabaseSync): Route[] {
     const rows: StagingRow[] = [];
     let skipped = 0;
     let rowId = 0;
-    // Dedup Inter: contagem por chave começando do que o DB já tem.
+
     const interSeen = new Map<string, number>();
 
     for (const f of files) {
@@ -270,19 +175,6 @@ export function importRoutes(db: DatabaseSync): Route[] {
     });
   }
 
-  // ── PATCH /api/import/staging/:batch/:row — edita uma linha ─────────────
-  /**
-   * @brief Editar uma linha do staging (valor, categoria ou apelido) antes do confirm.
-   *
-   * Edita só a memória. O valor original é preservado em `originalAmountCents` e vai
-   * para `original_amount_cents` no confirm — a edição fica auditável contra o extrato.
-   *
-   * @param req requisição; params `:batch`/`:row`, body `{ amount?, category_id?,
-   *            display_name? }` com `amount` em REAIS
-   * @param res resposta; a linha atualizada + `amount_divergence` em REAIS;
-   *            404 se o batch expirou (TTL) ou a linha não existe
-   * @throws HttpError 400/413 vindos de readBody
-   */
   async function patchStaging(req: Req, res: Res) {
     const batch = staging.get(req.params!.batch!);
     if (!batch) return error(res, "batch expirado — reanalise", 404);
@@ -307,7 +199,6 @@ export function importRoutes(db: DatabaseSync): Route[] {
     json(res, { ok: true, row: wireRow(row), amount_divergence: divergenceReais(batch) });
   }
 
-  // ── POST /api/import/confirm — INSERT + re-pareia SELF + Caixinha ────────
   const insertTx = db.prepare(`
     INSERT INTO transactions
       (date, flow, method, account_id, amount_cents, description, is_revenue,
@@ -316,25 +207,6 @@ export function importRoutes(db: DatabaseSync): Route[] {
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,0,?)
   `);
 
-  /**
-   * @brief Inserir as linhas escolhidas do lote e refazer SELF + Caixinha.
-   *
-   * Tudo numa TRANSAÇÃO: os INSERTs, a rederivação da Caixinha e o re-pareamento
-   * SELF. Se qualquer passo falhar, ROLLBACK — um import pela metade deixaria o
-   * ledger com perna SELF órfã ou Caixinha fora de reconciliação.
-   *
-   * Pós-insert é obrigatório porque as linhas novas mudam o passado: uma perna nova
-   * pode fechar par SELF com uma perna JÁ existente, e uma perna de poupança nova
-   * muda o saldo derivado da Caixinha.
-   *
-   * Só linhas `new` não-excluídas entram; duplicata nunca é inserida. `import_batch_id`
-   * é o que permite reverter o lote depois.
-   *
-   * @param req requisição; body `{ batch_id, exclude_ids?, import_batch_id? }`
-   * @param res resposta; `inserted` e o `import_batch_id` usado; 404 se o batch
-   *            expirou; 500 (com rollback) se a transação falhar
-   * @throws HttpError 400/413 vindos de readBody
-   */
   async function confirm(req: Req, res: Res) {
     const body = await readBody<{ batch_id?: unknown; exclude_ids?: unknown; import_batch_id?: unknown }>(req);
     const batch = staging.get(String(body.batch_id ?? ""));
@@ -363,9 +235,7 @@ export function importRoutes(db: DatabaseSync): Route[] {
       }
       rederiveCaixinha(db, caixinhaIds);
       pairSelfTransfers(db);
-      // C1: extrato do inter-db pode conter o pagamento de uma fatura aberta
-      // (importada pela UI). Reconcilia agora, senão o pagamento double-conta.
-      // No-op quando não há fatura aberta.
+
       if (batch.accountId === "inter-db") reconcileOpenInvoices(db);
       db.prepare("COMMIT").run();
     } catch (e) {
@@ -378,26 +248,12 @@ export function importRoutes(db: DatabaseSync): Route[] {
     json(res, { ok: true, inserted, import_batch_id: importBatchId });
   }
 
-  // ── DELETE /api/import/batch/:id — reverte um lote importado ─────────────
-  /**
-   * @brief Reverter um lote importado, arrastando as pernas SELF pareadas.
-   *
-   * Uma perna SELF fora do lote é arrastada junto: deixá-la órfã faria a sobrevivente
-   * voltar a contar como gasto/receita real. Se alguma linha tocava a Caixinha, os
-   * snapshots derivados são reconstruídos — senão a posição guardaria dinheiro que
-   * não está mais no ledger. Tudo em transação, com rollback.
-   *
-   * @param req requisição; param `:id` = import_batch_id
-   * @param res resposta; `restore` traz as rows apagadas (undo); 404 se o lote não
-   *            existir; 500 (com rollback) se a transação falhar
-   */
   async function deleteBatch(req: Req, res: Res) {
     const importBatchId = req.params!.id!;
     const rows = db.prepare("SELECT * FROM transactions WHERE import_batch_id = ?")
       .all(importBatchId) as any[];
     if (!rows.length) return error(res, "lote não encontrado", 404);
 
-    // arrasta a perna SELF pareada (mesmo fora do lote) — igual ao delete de tx
     const byId = new Map<number, any>(rows.map((r) => [r.id, r]));
     for (const r of rows) {
       if (r.self_pair_tx_id && !byId.has(r.self_pair_tx_id)) {
@@ -407,8 +263,7 @@ export function importRoutes(db: DatabaseSync): Route[] {
     }
     const restore = [...byId.values()];
     const caixinhaTouched = restore.some((r) => r.investment_id != null);
-    // Faturas tocadas pelo lote (H4): após apagar os itens, a invoice aberta que
-    // ficar sem itens é apagada — senão vira compromisso fantasma.
+
     const invoiceIds = restore.map((r) => r.invoice_id).filter((v): v is number => v != null);
 
     db.prepare("BEGIN").run();
@@ -425,14 +280,6 @@ export function importRoutes(db: DatabaseSync): Route[] {
     json(res, { ok: true, deleted: restore.length, restore });
   }
 
-  // ── B3 (xlsx) — preview e confirm por match_key (sem soft-close) ─────────
-  /**
-   * @brief Ler e parsear o primeiro arquivo enviado como relatório B3.
-   * @param req_parts partes já fatiadas do multipart
-   * @return o relatório parseado
-   * @throws HttpError 400 se não vier arquivo, ou se o parse falhar (a mensagem
-   *         lembra o nome padrão, de onde sai a ref_date)
-   */
   function readB3(req_parts: Awaited<ReturnType<typeof parseMultipart>>): B3Report {
     const f = fileParts(req_parts)[0];
     if (!f) throw new HttpError(400, "nenhum arquivo enviado");
@@ -446,15 +293,6 @@ export function importRoutes(db: DatabaseSync): Route[] {
   }
   const invExists = db.prepare("SELECT 1 FROM investments WHERE match_key = ?");
 
-  /**
-   * @brief Prever o efeito de um relatório B3: o que seria criado vs atualizado.
-   *
-   * Só lê — nada é gravado.
-   *
-   * @param req requisição multipart com o .xlsx
-   * @param res resposta; contagens e as posições com `balance` em REAIS
-   * @throws HttpError 400/413 de parseMultipart ou do parse do relatório
-   */
   async function b3Preview(req: Req, res: Res) {
     const rep = readB3(await parseMultipart(req));
     let created = 0, updated = 0;
@@ -483,20 +321,6 @@ export function importRoutes(db: DatabaseSync): Route[] {
       applied_cents = excluded.applied_cents, gross_cents = excluded.gross_cents
   `);
 
-  /**
-   * @brief Aplicar um relatório B3: upsert das posições + snapshots datados.
-   *
-   * SEM soft-close, de propósito — diferença central vs a fase b3Sync do backfill.
-   * O soft-close precisa comparar a sequência de relatórios (e a aba RF pisca); um
-   * upload avulso não prova ausência, e fechar aqui apagaria posição viva da carteira.
-   * Posição some da B3 → só o backfill decide.
-   *
-   * Tudo em transação, com rollback. CDB do Inter vira `group_name='Porquinho'`.
-   *
-   * @param req requisição multipart com o .xlsx
-   * @param res resposta; `created`/`updated`; 500 (com rollback) se a transação falhar
-   * @throws HttpError 400/413 de parseMultipart ou do parse do relatório
-   */
   async function b3Confirm(req: Req, res: Res) {
     const rep = readB3(await parseMultipart(req));
     let created = 0, updated = 0;
@@ -521,8 +345,6 @@ export function importRoutes(db: DatabaseSync): Route[] {
     json(res, { ok: true, created, updated });
   }
 
-  // ── Fatura Inter ABERTA (inter-cc) — fluxo próprio, stateless como o B3 ──
-  /** @brief Parsear o CSV enviado como fatura Inter (1º arquivo). */
   function readFatura(parts: Awaited<ReturnType<typeof parseMultipart>>) {
     const files = fileParts(parts);
     if (!files.length) throw new HttpError(400, "nenhum arquivo enviado");
@@ -531,11 +353,6 @@ export function importRoutes(db: DatabaseSync): Route[] {
     return { fat, filename: f.filename ?? `fatura-inter-${fat.refMonth}.csv` };
   }
 
-  /**
-   * @brief Preview de uma fatura Inter aberta: itens, total e se é reimport.
-   * @param req multipart com o CSV da fatura
-   * @param res `{ ref_month, items, total, reimport, already_paid, rows }`
-   */
   async function faturaPreview(req: Req, res: Res) {
     let parsed;
     try { parsed = readFatura(await parseMultipart(req)); }
@@ -561,17 +378,6 @@ export function importRoutes(db: DatabaseSync): Route[] {
     });
   }
 
-  /**
-   * @brief Confirmar o import de uma fatura Inter aberta (payment_tx_id NULL).
-   *
-   * Stateless (re-upload como o B3). `due_date` (ISO) opcional vem do form.
-   * Reconciliação NÃO acontece aqui — só quando o extrato com o pagamento entra
-   * (confirm do inter-db chama reconcileOpenInvoices, C1).
-   *
-   * @param req multipart: CSV + campo `due_date?` + `import_batch_id?`
-   * @param res `{ ok, invoiceId, inserted, duplicate, totalCents, import_batch_id }`;
-   *            500 (rollback) se a transação falhar
-   */
   async function faturaConfirm(req: Req, res: Res) {
     const parts = await parseMultipart(req);
     let parsed;

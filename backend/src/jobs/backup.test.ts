@@ -31,7 +31,7 @@ test("runBackup: retém só as 12 mais recentes", () => {
   for (let i = 1; i <= 12; i++) {
     writeFileSync(join(destDir, `brokershark-2025-01-${String(i).padStart(2, "0")}.db`), "");
   }
-  runBackup(src, destDir, new Date("2026-07-18T12:00:00Z")); // 13º → poda o mais antigo
+  runBackup(src, destDir, new Date("2026-07-18T12:00:00Z"));
   const left = readdirSync(destDir).filter((f) => f.endsWith(".db")).sort();
   assert.equal(left.length, 12);
   assert.equal(left[left.length - 1], "brokershark-2026-07-18.db");

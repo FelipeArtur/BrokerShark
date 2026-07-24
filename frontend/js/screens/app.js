@@ -1,10 +1,4 @@
-/* IIFE-wrapped: own scope (replaces Babel's per-file isolation) */
 (function () {
-/* app.js — BrokerShark v2 app shell */
-/* global React, ReactDOM, fetchExpenseCategories, patchTransaction,
-          searchTransactions, postCategory, deleteCategory, deleteTransaction,
-          fetchAccounts, importPreview, importConfirm, importB3,
-          patchStagingRow, deleteImportBatch */
 
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
 const {
@@ -16,18 +10,12 @@ const {
   isSelf, isInvest,
 } = window.BS;
 
-/* ── SVG icons moved to icons.js ────────────────────────────────────────── */
-/* ── App shell init (no theme switching — pixel is the only look) ─────────── */
 function useAppInit() {
   useEffect(() => {
     document.documentElement.dataset.density = "comfortable";
   }, []);
 }
 
-
-
-/* ImportModal and EditableCell moved to modal-import.js */
-/* ── ConfirmDeleteModal — confirmação explícita antes de excluir ─────────── */
 function ConfirmDeleteModal({ tx, onCancel, onConfirm }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   const desc = tx.display_name || window.BS.prettifyDesc(tx.description) || "";
@@ -63,15 +51,6 @@ function ConfirmDeleteModal({ tx, onCancel, onConfirm }) {
   );
 }
 
-/* ── App — shell raiz ─────────────────────────────────────────────────────────
-   Dona da navegação (SECTIONS + atalhos 1/2/3), do refreshKey global (SSE em
-   api.js → re-render) e dos modais transversais: TransactionPanel (edição),
-   ConfirmDeleteModal, ImportModal e TweaksPanel. As telas (Overview/History/
-   Investments) recebem callbacks e nunca falam entre si diretamente. */
-/* ── MonthNav — seletor de mês global ────────────────────────────────────────
-   Navega só nos meses que TÊM dados (bounds = /api/monthly); "Hoje" volta ao
-   mês mais recente. Widgets de fluxo seguem este seletor; posição (saldo,
-   patrimônio, investido) é sempre "agora". */
 function MonthNav({ monthly, monthSel, onPick }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   if (!monthly.length || !monthSel) return null;
@@ -94,17 +73,15 @@ function App() {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   useAppInit();
   const [editTx, setEditTx] = useState(null);
-  const [confirmDelete, setConfirmDelete] = useState(null);  // tx aguardando confirmação de exclusão
+  const [confirmDelete, setConfirmDelete] = useState(null);
   const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [categoriesOpen, setCategoriesOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [monthly, setMonthly] = useState([]);           // série /api/monthly — bounds do seletor
-  const [monthSel, setMonthSel] = useState(null);       // mês global: {year, month}
+  const [monthly, setMonthly] = useState([]);
+  const [monthSel, setMonthSel] = useState(null);
   const { push, Toaster } = useToasts();
 
-  // Série mensal → default do seletor = mês mais recente COM dados (um mês
-  // calendário ainda vazio abriria o painel todo zerado).
   useEffect(() => {
     fetchMonthlyFull().then(data => {
       setMonthly(data);
@@ -116,14 +93,12 @@ function App() {
     }).catch(() => {});
   }, [refreshKey]);
 
-  // Boot: populate account names for data-driven BankChip
   useEffect(() => {
     fetchAccounts().then(accs => {
       window.BS.accountNames = Object.fromEntries(accs.map(a => [a.id, a.name]));
     }).catch(() => {});
   }, []);
 
-  // SSE
   useEffect(() => {
     let es, debounce;
     function connect() {
@@ -141,10 +116,8 @@ function App() {
     return () => { clearTimeout(debounce); es?.close(); };
   }, []);
 
-  // Boot: efeito CRT (uma vez, ao montar).
   useEffect(() => { window.BS.juice.boot(document.getElementById("app")); }, []);
 
-  // Atalhos: / = busca · i = importar · c = categorias · Esc fecha overlays.
   useEffect(() => {
     function onKey(e) {
       if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || e.target.tagName === "SELECT") return;
@@ -156,10 +129,6 @@ function App() {
     return () => { window.removeEventListener("keydown", onKey); };
   }, []);
 
-  // Delete path: gated by an explicit confirmation (setConfirmDelete) — no undo.
-  // The server still cascades auto-transfer (SELF) pairs and reverts investment
-  // balances; here we just notify the result. Used by the editor modal and the
-  // row actions, both routed through the confirmation dialog.
   async function handleDeleteTx(id) {
     try {
       const res = await deleteTransaction(id);
@@ -182,7 +151,6 @@ function App() {
 
   return h("div", { id: "app", style: { height: "100vh", display: "flex", flexDirection: "column", background: "var(--bg-0)" } },
 
-    // ── Topbar mínima: logo · mês global · ações diretas
     h("header", { className: "v3-topbar", style: { display: "flex", gap: 12, alignItems: "center" } },
       h(BrokerSharkLogo, { size: 24 }),
       h(MonthNav, { monthly, monthSel, onPick: setMonthSel }),
@@ -195,14 +163,12 @@ function App() {
       ),
     ),
 
-    // ── A tela única
     h(DashboardView, {
       monthSel, monthly, onPickMonth: setMonthSel, refreshKey,
       onEditCategory: setEditTx,
       onImport: () => setImportOpen(true),
     }),
 
-    // ── Modals & overlays
     importOpen && h(ImportModal, {
       onClose: () => setImportOpen(false),
       onDone: (res) => {
@@ -211,8 +177,7 @@ function App() {
         const msg = res?.kind === "b3"
           ? (n > 0 ? `${n} ${n === 1 ? "posição importada" : "posições importadas"}` : "Nenhuma posição encontrada")
           : (n > 0 ? `${n} ${n === 1 ? "lançamento importado" : "lançamentos importados"}` : "Nada novo para importar");
-        // Reversível enquanto o toast vive: "Desfazer" remove o lote inteiro
-        // (lançamentos do mês inteiro, que o delete por linha protege) via delete_batch.
+
         const undo = (res?.kind === "tx" && res?.importBatchId && n > 0)
           ? {
               label: "Desfazer",
@@ -241,7 +206,7 @@ function App() {
       onSave: (result) => {
         if (result?.deleted) {
           setEditTx(null);
-          setConfirmDelete(result._tx);  // pede confirmação antes de excluir
+          setConfirmDelete(result._tx);
           return;
         }
         {

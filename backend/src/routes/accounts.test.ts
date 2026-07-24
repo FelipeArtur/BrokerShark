@@ -11,14 +11,14 @@ function freshDb(): DatabaseSync {
   db.exec("PRAGMA foreign_keys=ON");
   initSchema(db);
   seedAccountsAndCategories(db);
-  runMigrations(db); // due_date column from 0001_invoice_due_date.sql
+  runMigrations(db);
   return db;
 }
 
 function getAvailable(db: DatabaseSync): any {
   const route = accountRoutes(db).find(r => r.path === "/api/available" || (r as any).source === "/api/available")
     ?? accountRoutes(db).find(r => r.method === "GET" && String((r as any).re).includes("available"));
-  // Fallback robusto: pega a 2ª rota GET (available) se o matcher acima falhar.
+
   const routes = accountRoutes(db).filter(r => r.method === "GET");
   const target = route ?? routes[1];
   let payload: any;

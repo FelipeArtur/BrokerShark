@@ -1,15 +1,3 @@
-/**
- * @file analytics.ts
- * @brief Agregações do dashboard: série mensal, balanço do mês, top PIX, sem categoria.
- *
- * analytics.ts — agregações do dashboard.
- *
- * /api/monthly (série receita×despesa), /api/pix-top (contrapartes do mês),
- * /api/uncategorized-merchants (painel de lote), /api/cashflow-statement
- * (balanço do mês da Visão do Mês).
- *
- * FRONTEIRA DE UNIDADE: agrega em centavos inteiros; o JSON sai em REAIS (÷100).
- */
 import type { DatabaseSync } from "node:sqlite";
 import type { Req, Res } from "../http/respond.ts";
 import { json, qsStr, qsInt } from "../http/respond.ts";
@@ -17,17 +5,6 @@ import type { Route } from "../http/router.ts";
 import { compilePath } from "../http/router.ts";
 import { currentMonth, monthRange } from "../domain/dates.ts";
 
-/**
- * @brief SQL das somas de um período, em centavos inteiros.
- *
- * Somas de um período: receita real, despesa de consumo, fluxo de investimento.
- *
- * Materializa a REGRA CONSUMO-DESPESA (invariante): despesa de consumo exige
- * `method != 'transfer'` (perna de investimento não é gasto), `is_settlement=0`
- * (pagamento de fatura não reconta o consumo já itemizado), `is_third_party=0` e
- * `dest_account_id IS NULL`. Receita real exige `is_revenue=1` — self-transfer e
- * movimento de investimento ficam fora. Divergir daqui = total errado.
- */
 const FLOW_SUMS = `
   COALESCE(SUM(CASE
     WHEN t.flow='income' AND t.is_revenue=1 AND t.is_third_party=0
@@ -46,24 +23,8 @@ const FLOW_SUMS = `
     THEN t.amount_cents ELSE 0 END), 0) AS invest_in_cents
 `;
 
-/**
- * @brief Montar as rotas de agregação do dashboard ligadas a esta conexão.
- * @param db conexão do DB
- * @return rotas GET /api/monthly, /api/cashflow-statement, /api/pix-top e
- *         /api/uncategorized-merchants
- */
 export function analyticsRoutes(db: DatabaseSync): Route[] {
-  // ── GET /api/monthly?bank=&account=&present= ──────────────────────────
-  // Série mensal receita×despesa. present=1 inclui o mês corrente.
-  /**
-   * @brief Série mensal de receita × despesa (as barras de fluxo do dashboard).
-   *
-   * O mês corrente fica FORA por padrão: ainda incompleto, ele apareceria como uma
-   * queda falsa na série. `present=1` inclui.
-   *
-   * @param req requisição; query `bank`, `account` e `present` (opcionais)
-   * @param res resposta; `income`/`expenses` em REAIS
-   */
+
   function getMonthly(req: Req, res: Res) {
     const bank = qsStr(req, "bank");
     const account = qsStr(req, "account");
@@ -101,16 +62,6 @@ export function analyticsRoutes(db: DatabaseSync): Route[] {
     })));
   }
 
-  // ── GET /api/cashflow-statement?month=&year= ──────────────────────────
-  /**
-   * @brief Balanço do mês: receita, despesa de consumo e investimento líquido.
-   *
-   * `investment_net` = aplicado − resgatado (positivo = mês em que se guardou mais
-   * do que se tirou).
-   *
-   * @param req requisição; query `month`/`year` (default = mês corrente)
-   * @param res resposta; todos os totais em REAIS
-   */
   function getCashflowStatement(req: Req, res: Res) {
     const { month: cm, year: cy } = currentMonth();
     const month = qsInt(req, "month") ?? cm;
@@ -129,15 +80,6 @@ export function analyticsRoutes(db: DatabaseSync): Route[] {
     });
   }
 
-  // ── GET /api/pix-top?month=&year= ─────────────────────────────────────
-  // counterpart só é gravado no pareamento SELF; a contraparte de um pix comum
-  // vive na description — extraída aqui (prefixos Nubank/Inter + cauda CPF/CNPJ).
-  /**
-   * @brief Extrair o nome da contraparte de um PIX a partir da descrição.
-   * @param desc descrição da transação
-   * @return o nome limpo (sem prefixo do banco nem cauda de CPF/CNPJ/agência);
-   *         "" se nada sobrar
-   */
   function pixCounterpart(desc: string): string {
     return String(desc ?? "")
       .replace(/"/g, "")
@@ -150,16 +92,6 @@ export function analyticsRoutes(db: DatabaseSync): Route[] {
       .trim();
   }
 
-  /**
-   * @brief Top 20 contrapartes de PIX enviado no mês, por valor.
-   *
-   * Exclui pernas SELF (transferência entre contas próprias não é gasto com
-   * ninguém), liquidações e terceiros. Agrupa case-insensitive, preservando a
-   * grafia do primeiro registro visto.
-   *
-   * @param req requisição; query `month`/`year` (default = mês corrente)
-   * @param res resposta; `total` em REAIS, ordenado do maior para o menor
-   */
   function getPixTop(req: Req, res: Res) {
     const { month: cm, year: cy } = currentMonth();
     const month = qsInt(req, "month") ?? cm;
@@ -194,22 +126,6 @@ export function analyticsRoutes(db: DatabaseSync): Route[] {
       .map(g => ({ counterpart: g.counterpart, total: g.total_cents / 100, count: g.count })));
   }
 
-  // ── GET /api/uncategorized-merchants?month=&year= ─────────────────────
-  // Linhas categorizáveis sem categoria, agrupadas por (comerciante, flow),
-  // com ids agregados p/ o categorize-bulk e sugestão via rules.
-  /**
-   * @brief Agrupar as transações sem categoria por comerciante, sugerindo categoria.
-   *
-   * Só entram linhas CATEGORIZÁVEIS — mesma regra consumo-despesa / receita real do
-   * FLOW_SUMS. Liquidação e perna de investimento não pedem categoria, e listá-las
-   * aqui viraria trabalho inútil na UI.
-   *
-   * A sugestão vem da primeira `rule` de categoria cujo matcher casa o nome, na
-   * ordem de prioridade.
-   *
-   * @param req requisição; query `month`/`year` (default = mês corrente)
-   * @param res resposta; `total` em REAIS e `ids` para o categorize-bulk
-   */
   function getUncategorizedMerchants(req: Req, res: Res) {
     const { month: cm, year: cy } = currentMonth();
     const month = qsInt(req, "month") ?? cm;

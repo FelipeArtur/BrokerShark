@@ -1,17 +1,7 @@
-/**
- * @file money.test.js
- * @brief Rede de testes das espécies de dinheiro: precedência, exaustividade e
- *        equivalência com a regra consumo-despesa do CLAUDE.md.
- */
 const { test } = require("node:test");
 const assert = require("node:assert");
 const M = require("./money.js");
 
-/**
- * @brief Monta uma transação de teste sobre um padrão de despesa PIX.
- * @param o campos que sobrescrevem o padrão (`amount` em REAIS)
- * @return objeto transação pronto pra moneyKind
- */
 const tx = (o) => Object.assign(
   { flow: "expense", method: "pix", amount: 100, is_revenue: 0, is_settlement: 0, is_third_party: 0 },
   o,
@@ -31,22 +21,19 @@ test("receita real exige is_revenue=1", () => {
 });
 
 test("liquidação ganha de despesa — senão o consumo dobra", () => {
-  // pagamento de fatura: flow=expense, method=credit — casaria com EXPENSE se a
-  // ordem fosse outra, contando junto com os itens itemizados da fatura.
+
   const t = tx({ flow: "expense", method: "credit", is_settlement: 1 });
   assert.equal(M.moneyKind(t), M.KIND.SETTLEMENT);
 });
 
 test("perna SELF de saída ganha de invest (caso real: method='transfer')", () => {
-  // No ledger: as 19 pernas SELF de saída são flow=expense, method=transfer.
-  // Sem a precedência, method='transfer' as classificaria como investimento.
+
   const t = tx({ flow: "expense", method: "transfer", counterpart: "SELF" });
   assert.equal(M.moneyKind(t), M.KIND.TRANSFER);
 });
 
 test("perna SELF de entrada (caso real: income/pix, is_revenue=0) não é receita", () => {
-  // No ledger: as 19 pernas SELF de entrada são flow=income, method=pix,
-  // is_revenue=0. Não podem virar receita nem investimento.
+
   const t = tx({ flow: "income", method: "pix", is_revenue: 0, counterpart: "SELF" });
   assert.equal(M.moneyKind(t), M.KIND.TRANSFER);
 });
@@ -84,23 +71,10 @@ test("espécies são mutuamente exclusivas e exaustivas", () => {
 });
 
 test("equivale à regra consumo-despesa do CLAUDE.md em toda linha alcançável", () => {
-  // A regra canônica (analytics.ts / CLAUDE.md) decide consumo sem olhar
-  // counterpart — ela depende da invariante de que perna SELF de saída sempre
-  // tem method='transfer' (selfPairs.ts a reescreve; o lançamento manual agora
-  // recusa counterpart='SELF'). Se front e back divergirem aqui, o rodapé da
-  // tabela deixa de bater com os KPIs.
-  /**
-   * @brief Reimplementa a regra canônica consumo-despesa (analytics.ts / CLAUDE.md).
-   * @param t transação candidata
-   * @return true quando a regra canônica contaria a linha como despesa de consumo
-   */
+
   const rule = (t) => t.flow === "expense" && t.method !== "transfer"
     && !t.is_settlement && !t.is_third_party && t.dest_account_id == null;
-  /**
-   * @brief Filtra as formas que a ingestão garante não existirem no ledger.
-   * @param t transação candidata
-   * @return false p/ perna SELF de saída fora de method='transfer' (inalcançável)
-   */
+
   const reachable = (t) => !(t.counterpart === "SELF" && t.method !== "transfer" && t.flow === "expense");
 
   let checked = 0;
@@ -122,10 +96,7 @@ test("equivale à regra consumo-despesa do CLAUDE.md em toda linha alcançável"
 });
 
 test("perna SELF de saída fora de 'transfer' é inalcançável — se aparecer, é bug de ingestão", () => {
-  // Documenta a divergência conhecida: nessa forma o classificador diz TRANSFER
-  // (semanticamente certo — CLAUDE.md põe SELF fora de despesas) enquanto a
-  // regra canônica diria despesa. selfPairs.ts e o POST manual impedem que ela
-  // exista. Se este teste um dia importar, a decisão é consertar a ingestão.
+
   const t = { flow: "expense", method: "pix", counterpart: "SELF", is_settlement: 0,
     is_third_party: 0, is_revenue: 0, dest_account_id: null };
   assert.equal(M.moneyKind(t), M.KIND.TRANSFER);

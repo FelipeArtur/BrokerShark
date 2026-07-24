@@ -1,17 +1,7 @@
-/**
- * @file filter.test.js
- * @brief Testes do filtro facetado: OR dentro da faceta, AND entre facetas,
- *        busca por substring e contagem de facetas ativas.
- */
 const { test } = require("node:test");
 const assert = require("node:assert");
 const F = require("./filter.js");
 
-/**
- * @brief Monta uma transação normalizada de teste.
- * @param o campos que sobrescrevem o padrão (despesa PIX, Mercado, Nubank)
- * @return objeto no formato que matchesFilter espera
- */
 const tx = (o) => Object.assign({ flow: "expense", method: "pix", category: "Mercado", bank: "Nubank", label: "zaffari supermercado" }, o);
 
 test("emptyFilter matches everything", () => {
@@ -36,8 +26,8 @@ test("OR within a kind, AND across kinds", () => {
   f = F.toggleFacet(f, "categories", "Transporte");
   f = F.toggleFacet(f, "banks", "Nubank");
   assert.equal(F.matchesFilter(tx({ category: "Transporte", bank: "Nubank" }), f), true);
-  assert.equal(F.matchesFilter(tx({ category: "Mercado", bank: "Inter" }), f), false); // bank fails
-  assert.equal(F.matchesFilter(tx({ category: "Lazer", bank: "Nubank" }), f), false);  // cat fails
+  assert.equal(F.matchesFilter(tx({ category: "Mercado", bank: "Inter" }), f), false);
+  assert.equal(F.matchesFilter(tx({ category: "Lazer", bank: "Nubank" }), f), false);
 });
 
 test("flow and method narrow", () => {

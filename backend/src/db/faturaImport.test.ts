@@ -12,7 +12,7 @@ function freshDb(): DatabaseSync {
   const db = new DatabaseSync(":memory:");
   db.exec("PRAGMA foreign_keys=ON");
   initSchema(db);
-  runMigrations(db); // due_date
+  runMigrations(db);
   seedAccountsAndCategories(db);
   return db;
 }
@@ -43,7 +43,7 @@ test("insertOpenFatura: cria fatura aberta + itens como credit no inter-cc", () 
   const inv = db.prepare("SELECT account_id, payment_tx_id, due_date, total_cents FROM invoices WHERE id=?")
     .get(res.invoiceId) as { account_id: string; payment_tx_id: number | null; due_date: string; total_cents: number };
   assert.equal(inv.account_id, "inter-cc");
-  assert.equal(inv.payment_tx_id, null); // ABERTA
+  assert.equal(inv.payment_tx_id, null);
   assert.equal(inv.due_date, "2026-07-15");
   assert.equal(inv.total_cents, 11100);
 
@@ -57,7 +57,7 @@ test("insertOpenFatura: cria fatura aberta + itens como credit no inter-cc", () 
     assert.equal(r.invoice_id, res.invoiceId);
     assert.equal(r.import_batch_id, "sess-1");
   }
-  // itens de fatura SÃO consumo real
+
   assert.equal(consumptionCount(db), 2);
 });
 
@@ -71,8 +71,8 @@ test("insertOpenFatura: estorno (valor negativo) → income, is_revenue=0, não 
   assert.equal(res.totalCents, 3000);
   const est = db.prepare("SELECT flow, is_revenue FROM transactions WHERE description='Estorno'").get() as { flow: string; is_revenue: number };
   assert.equal(est.flow, "income");
-  assert.equal(est.is_revenue, 0); // refund não é receita real (verde só receita)
-  assert.equal(consumptionCount(db), 1); // só a compra conta
+  assert.equal(est.is_revenue, 0);
+  assert.equal(consumptionCount(db), 1);
 });
 
 test("insertOpenFatura: reimport da mesma fatura → upsert, dedup por contagem", () => {
@@ -85,10 +85,10 @@ test("insertOpenFatura: reimport da mesma fatura → upsert, dedup por contagem"
   const first = insertOpenFatura(db, p);
   const second = insertOpenFatura(db, { ...p, importBatchId: "sess-2" });
 
-  assert.equal(second.invoiceId, first.invoiceId); // mesma invoice (upsert)
+  assert.equal(second.invoiceId, first.invoiceId);
   assert.equal(second.inserted, 0);
   assert.equal(second.duplicate, 2);
-  assert.equal((db.prepare("SELECT COUNT(*) n FROM transactions").get() as { n: number }).n, 2); // não duplicou
+  assert.equal((db.prepare("SELECT COUNT(*) n FROM transactions").get() as { n: number }).n, 2);
   assert.equal((db.prepare("SELECT COUNT(*) n FROM invoices").get() as { n: number }).n, 1);
 });
 
@@ -115,7 +115,7 @@ test("pruneEmptyOpenInvoices: apaga fatura aberta que ficou sem itens (H4)", () 
     refMonth: "2026-06", dueDate: null,
     items: [item("2026-06-01", "X", 1000)], sourceFile: "f.csv", importBatchId: "sess-1",
   });
-  // simula o revert do lote: itens apagados
+
   db.prepare("DELETE FROM transactions WHERE import_batch_id = 'sess-1'").run();
   const pruned = pruneEmptyOpenInvoices(db, [res.invoiceId]);
   assert.equal(pruned, 1);
@@ -140,24 +140,22 @@ test("pruneEmptyOpenInvoices: NÃO apaga fatura paga nem fatura com itens", () =
 
 test("INTEGRAÇÃO (C1+H2): fatura aberta + pagamento no extrato → sem double-count", () => {
   const db = freshDb();
-  // 1) UI importa a fatura aberta (2 itens = R$111,00)
+
   const fat = insertOpenFatura(db, {
     refMonth: "2026-05", dueDate: "2026-06-10",
     items: [item("2026-05-01", "Steam", 3100), item("2026-05-03", "Mercado", 8000)],
     sourceFile: "fatura-inter-2026-05.csv", importBatchId: "fat-1",
   });
-  // 2) semanas depois, o extrato inter-db com o pagamento entra (valor EXATO)
+
   db.prepare(`INSERT INTO transactions
     (date, flow, method, account_id, amount_cents, description, import_batch_id)
     VALUES ('2026-05-12','expense','pix','inter-db', 11100, 'Pagamento de fatura', 'ext-1')`).run();
 
-  // antes de reconciliar: 2 itens + 1 pagamento = 3 contariam como consumo (bug)
   assert.equal(consumptionCount(db), 3);
 
-  const n = reconcileOpenInvoices(db); // roda no confirm do inter-db
+  const n = reconcileOpenInvoices(db);
   assert.equal(n, 1);
 
-  // fatura fica paga; consumo volta a 2 (só os itens) — pagamento virou liquidação
   const inv = db.prepare("SELECT payment_tx_id FROM invoices WHERE id=?").get(fat.invoiceId) as { payment_tx_id: number | null };
   assert.notEqual(inv.payment_tx_id, null);
   assert.equal(consumptionCount(db), 2);
@@ -169,7 +167,7 @@ test("insertOpenFatura: recusa reabrir fatura já paga", () => {
     refMonth: "2026-06", dueDate: null,
     items: [item("2026-06-01", "X", 1000)], sourceFile: "f.csv", importBatchId: "sess-1",
   });
-  // marca como paga
+
   db.prepare("UPDATE invoices SET payment_tx_id = 999 WHERE id = ?").run(res.invoiceId);
   assert.throws(
     () => insertOpenFatura(db, {

@@ -10,8 +10,8 @@ test("isInvestment: keywords de investimento", () => {
 
 test("isCaixinhaLeg: só Nubank, exclui corretora", () => {
   assert.equal(isCaixinhaLeg("Aplicacao RDB", "nubank"), true);
-  assert.equal(isCaixinhaLeg("Aplicacao RDB", "inter"), false);      // banco errado
-  assert.equal(isCaixinhaLeg("NuInvest Tesouro", "nubank"), false);  // corretora excluída
+  assert.equal(isCaixinhaLeg("Aplicacao RDB", "inter"), false);
+  assert.equal(isCaixinhaLeg("NuInvest Tesouro", "nubank"), false);
 });
 
 test("checkingExpenseMethod: método por descrição", () => {

@@ -1,10 +1,3 @@
-/**
- * @file commitments.ts
- * @brief Rota da visão de futuro: faturas abertas + parcelas projetadas.
- *        Tudo DERIVADO — nada é inserido no ledger.
- *
- * FRONTEIRA DE UNIDADE: ledger em centavos; a API serializa REAIS (/100).
- */
 import type { DatabaseSync } from "node:sqlite";
 import type { Req, Res } from "../http/respond.ts";
 import { json } from "../http/respond.ts";
@@ -13,24 +6,14 @@ import { compilePath } from "../http/router.ts";
 import { currentMonth } from "../domain/dates.ts";
 import { addMonths, projectInstallments } from "../domain/commitments.ts";
 
-/**
- * @brief Montar a rota GET /api/commitments ligada a esta conexão.
- * @param db conexão do DB
- * @return [GET /api/commitments]
- */
 export function commitmentRoutes(db: DatabaseSync): Route[] {
-  /**
-   * @brief Série de 12 meses de saídas futuras (faturas abertas + parcelas).
-   * @param _req requisição (ignorada)
-   * @param res resposta; valores em REAIS
-   */
+
   function getCommitments(_req: Req, res: Res) {
     const open = db.prepare(
       `SELECT id, ref_month, due_date, account_id, total_cents
        FROM invoices WHERE payment_tx_id IS NULL ORDER BY ref_month`,
     ).all() as any[];
 
-    // Itens parcelados das faturas ABERTAS com parcelas restantes → projeção.
     const openIds = open.map(o => o.id);
     let projRows: any[] = [];
     if (openIds.length) {
@@ -51,7 +34,6 @@ export function commitmentRoutes(db: DatabaseSync): Route[] {
       installmentSeq: r.installmentSeq, installmentTotal: r.installmentTotal,
     })));
 
-    // Faturas abertas agrupadas pelo mês do vencimento (só as que têm due_date).
     const invByMonth = new Map<string, number>();
     for (const o of open) {
       if (!o.due_date) continue;
@@ -60,7 +42,6 @@ export function commitmentRoutes(db: DatabaseSync): Route[] {
     }
     const projByMonth = new Map(projected.map(p => [p.month, p.amountCents]));
 
-    // Janela de 12 meses a partir do mês-calendário corrente; só meses com algo.
     const { month, year } = currentMonth();
     const startYm = `${year}-${String(month).padStart(2, "0")}`;
     const series: any[] = [];
