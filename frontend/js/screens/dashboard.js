@@ -13,7 +13,8 @@
    Nada de navegação: tudo visível, detalhe é filtro/ordenação na tabela. */
 /* global React, fetchAvailable, fetchAccounts, fetchMonthTransactions,
           fetchCashflowStatement, fetchInvestments, fetchLiquidityHistory,
-          fetchInvestmentEvolution, fetchUncategorizedMerchants, fetchBackupStatus */
+          fetchInvestmentEvolution, fetchUncategorizedMerchants, fetchBackupStatus,
+          fetchCommitments */
 
 const { useState: _dSt, useEffect: _dEf, useMemo: _dMemo, useCallback: _dCb } = React;
 const { fmtBRL, fmtBRLCompact, fmtDateBR, PT_MONTHS, PT_SHORT,
@@ -108,7 +109,9 @@ const KpiStrip = React.memo(function KpiStrip({ available, availErr, accounts, c
   const invDelta = (evolution && evolution.length > 1)
     ? evolution[evolution.length - 1].cumulative - evolution[evolution.length - 2].cumulative : null;
 
-  const availValue = available ? available.available : null;
+  const netValue = available ? (available.available_net != null ? available.available_net : available.available) : null;
+  const committed = available && available.committed_this_month ? available.committed_this_month : 0;
+  const availValue = netValue;
   const availNeg = availValue != null && availValue < 0;
 
   const inc = cashflow ? cashflow.income_total : 0;
@@ -132,7 +135,9 @@ const KpiStrip = React.memo(function KpiStrip({ available, availErr, accounts, c
           h("span", { style: { color: (a.id || "").startsWith("nu") ? "var(--nubank)" : "var(--inter)", fontWeight: 700 } },
             (a.id || "").startsWith("nu") ? "Nu" : "Inter"),
           h("span", { className: "mono", style: { color: "var(--fg-1)", fontSize: 11 } }, fmtBRL(a.balance || 0))
-        ))
+        )),
+        committed > 0 && h("span", { className: "mono", style: { color: "var(--warn)", fontSize: 11, marginTop: 2, display: "block" } },
+          "− Comprometido este mês " + fmtBRL(committed))
       ),
       h("div", { style: { display: "flex", gap: 6, marginTop: 8 } },
         streak > 0 && h("span", { className: "filter-chip", style: { background: "var(--bg-2)", color: "var(--warn)" } }, `🔥 ${streak}`),
@@ -696,6 +701,41 @@ const InvestmentsWidget = React.memo(function InvestmentsWidget({ investments, e
   );
 });
 
+/* ── ForwardWidget — visão de futuro: o que já está comprometido ─────────── */
+/**
+ * @brief Barras fantasma dos compromissos futuros (fatura aberta + parcelas
+ *        projetadas). Display-only — nada aqui é fato do ledger.
+ * @param props.commitments {open_invoices, series} em REAIS; null enquanto carrega
+ * @return elemento React do widget
+ */
+const ForwardWidget = React.memo(function ForwardWidget({ commitments }) {
+  const h = (t, p, ...c) => React.createElement(t, p, ...c);
+  const series = (commitments && commitments.series) || [];
+  const maxV = series.reduce((m, s) => Math.max(m, s.total), 0) || 1;
+
+  return h("div", { className: "widget wg-3" },
+    h("div", { className: "widget-h" },
+      h("span", { className: "widget-title" }, "Compromissos Futuros"),
+    ),
+    h("div", { className: "widget-body", style: { gap: 8, overflow: "hidden" } },
+      series.length === 0
+        ? h("span", { style: { color: "var(--fg-2)", fontSize: 12 } }, "Nenhum compromisso futuro registrado.")
+        : h("div", { style: { display: "flex", alignItems: "flex-end", gap: 8, height: 64 } },
+            series.map(s => h("div", { key: s.month, style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 4 } },
+              h(window.BS.ProjectedBar, { value: s.total, maxV }),
+              h("span", { className: "mono", style: { fontSize: 9, color: "var(--fg-2)" } }, s.label),
+            ))
+          ),
+      series.length > 0 && h("div", { style: { marginTop: 8, display: "flex", flexDirection: "column", gap: 2 } },
+        series.map(s => h("div", { key: s.month, style: { display: "flex", justifyContent: "space-between", fontSize: 11 } },
+          h("span", { style: { color: "var(--fg-2)" } }, s.label),
+          h("span", { className: "mono", style: { color: "var(--warn)" } }, "− " + fmtBRL(s.total)),
+        ))
+      )
+    )
+  );
+});
+
 /* ── DashboardView ────────────────────────────────────────────────────────── */
 /**
  * @brief Converte o seletor de mês no ref_month que a API espera.
@@ -724,6 +764,7 @@ const refMonthOf = (monthSel) =>
 function DashboardView({ monthSel, monthly, onPickMonth, refreshKey, onEditCategory, onImport }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
   const [available, setAvailable] = _dSt(null);
+  const [commitments, setCommitments] = _dSt(null);
   const [availErr, setAvailErr] = _dSt(false);
   const [loadErr, setLoadErr] = _dSt(false);
   const [retryTick, setRetryTick] = _dSt(0);
@@ -762,6 +803,7 @@ function DashboardView({ monthSel, monthly, onPickMonth, refreshKey, onEditCateg
   _dEf(() => {
     setAvailErr(false); setLoadErr(false);
     fetchAvailable().then(setAvailable).catch(() => setAvailErr(true));
+    fetchCommitments().then(setCommitments).catch(() => {});
     fetchBackupStatus().then(setBackup).catch(() => {});
     Promise.all([fetchAccounts(), fetchInvestments(), fetchLiquidityHistory(), fetchInvestmentEvolution()])
       .then(([ac, invs, lh, ev]) => {
@@ -853,7 +895,8 @@ function DashboardView({ monthSel, monthly, onPickMonth, refreshKey, onEditCateg
         h(FaturaWidget, { monthTx, filter, onToggleFacet }),
         h(CategoriesWidget, { monthTx, uncatCount, onOpenBulk: () => setBulkOpen(true), filter, onToggleFacet,
           catsIndex, monthSel, onBudgetSaved: reloadBudgets }),
-        h(InvestmentsWidget, { investments, evolution })
+        h(InvestmentsWidget, { investments, evolution }),
+        h(ForwardWidget, { commitments }),
       ),
       h(window.BS.FilterBar, { filter, onRemove: (kind, value) => {
           if (kind === "flow" || kind === "method") setFilterField(kind, "all");

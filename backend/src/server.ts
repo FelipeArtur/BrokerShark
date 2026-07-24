@@ -36,6 +36,7 @@ import { categoryRoutes } from "./routes/categories.ts";
 import { analyticsRoutes } from "./routes/analytics.ts";
 import { investmentRoutes } from "./routes/investments.ts";
 import { importRoutes } from "./routes/import.ts";
+import { commitmentRoutes } from "./routes/commitments.ts";
 import { backupStatus } from "./jobs/backup.ts";
 
 // ── Config ─────────────────────────────────────────────────────────────────
@@ -67,6 +68,7 @@ const routes: Route[] = [
   ...analyticsRoutes(db),
   ...investmentRoutes(db),
   ...importRoutes(db),
+  ...commitmentRoutes(db),
 ];
 
 /**
