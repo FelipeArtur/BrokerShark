@@ -4,7 +4,7 @@
 
 -- guardado por NOT EXISTS (não INSERT OR IGNORE): nem o schema de teste nem o
 -- schema.sql real têm UNIQUE em categories(name, flow), então OR IGNORE não
--- dedupllica nada — duplicaria as 6 macro toda vez que rodasse sobre uma tabela
+-- deduplica nada — duplicaria as 6 macro toda vez que rodasse sobre uma tabela
 -- que já as contém (ex.: seed roda antes OU depois desta migration, a depender
 -- do caller — ver backfill.ts vs. os testes de rota).
 INSERT INTO categories (name, flow)
