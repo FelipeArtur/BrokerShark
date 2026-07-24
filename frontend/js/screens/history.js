@@ -335,14 +335,14 @@ function GroupHeader({ g, isOpen, colSpan, onToggle, onToggleSelect, allSelected
     ),
     h("td", { colSpan: colSpan - 1, onClick: onToggle, style: { cursor: "pointer" } },
       h("div", { style: { display: "flex", alignItems: "center", gap: 10, width: "100%" } },
-        h("span", { className: "mono", style: { color: "var(--fg-3)", fontSize: 9, width: 8 } }, isOpen ? "▾" : "▸"),
+        h("span", { className: "mono", style: { color: "var(--fg-3)", fontSize: 11, width: 8 } }, isOpen ? "▾" : "▸"),
         h("span", {
           style: { fontWeight: 700, fontSize: 12, color: g.isCat ? "var(--fg-0)" : color,
             cursor: onFacet ? "pointer" : "inherit" },
           onClick: onFacet ? (e => { e.stopPropagation(); onFacet(); }) : undefined,
           title: onFacet ? "Filtrar por esta categoria" : window.BS.KIND_HINT[g.kind],
         }, g.label),
-        h("span", { className: "mono", style: { fontSize: 9, color: "var(--fg-3)" } }, `${g.count}`),
+        h("span", { className: "mono", style: { fontSize: 11, color: "var(--fg-3)" } }, `${g.count}`),
 
         g.isCat
           ? h(window.BS.Money, { value: g.total, kind: g.kind, emphasis: true,
@@ -359,15 +359,15 @@ function GroupHeader({ g, isOpen, colSpan, onToggle, onToggleSelect, allSelected
           h("div", { style: { flex: 1, height: 6, background: "var(--bg-2)", border: "1px solid var(--line-1)", minWidth: 60 } },
             h("div", { style: { width: `${Math.min(100, st.ratio * 100)}%`, height: "100%", background: st.color } })
           ),
-          h("span", { className: "mono", style: { fontSize: 9, color: st.color, fontWeight: 700 },
+          h("span", { className: "mono", style: { fontSize: 11, color: st.color, fontWeight: 700 },
             title: `Alvo ${g.budgetSource === "month" ? "só deste mês" : "fixo"}: ${fmtBRL(g.budget)}` },
             `${Math.round(st.ratio * 100)}%`)
         ),
-        g.isCat && g.kind === "expense" && !st && h("span", { style: { fontSize: 9, color: "var(--fg-3)" } }, "sem alvo"),
+        g.isCat && g.kind === "expense" && !st && h("span", { style: { fontSize: 11, color: "var(--fg-3)" } }, "sem alvo"),
 
         delta != null && h("span", {
           className: "mono",
-          style: { fontSize: 9, color: delta > 0 ? "var(--neg)" : "var(--fg-3)", marginLeft: "auto" },
+          style: { fontSize: 11, color: delta > 0 ? "var(--neg)" : "var(--fg-3)", marginLeft: "auto" },
           title: `Mês anterior: ${fmtBRL(g.prevSpent)}`,
         }, `${delta > 0 ? "+" : ""}${Math.round(delta * 100)}% vs. mês anterior`)
       )

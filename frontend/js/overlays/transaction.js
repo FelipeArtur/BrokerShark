@@ -70,7 +70,7 @@ function CategoryEditor({ tx, onClose, onSave }) {
   const sign = flowIsExpense ? "−" : "+";
 
   const fieldLabel = (text) => h("span", {
-    style: { fontSize: 10, color: "var(--fg-3)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em" }
+    style: { fontSize: 11, color: "var(--fg-3)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em" }
   }, text);
 
   return h(Modal, { open: !!tx, onClose, title: "Lançamento", width: 440 },
@@ -78,7 +78,7 @@ function CategoryEditor({ tx, onClose, onSave }) {
 
       h("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
         h("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
-          h("span", { style: { fontSize: 10, color: amtColor, textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 700 } },
+          h("span", { style: { fontSize: 11, color: amtColor, textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 700 } },
             _self ? "Transferência própria" : _invest ? "Investimento" : flowIsExpense ? "Despesa" : "Receita"),
           h("span", { className: "mono", style: { fontSize: 11, color: "var(--fg-3)" } }, fmtDateBR(tx.date)),
           h("span", { style: { marginLeft: "auto" } }, h(BankChip, { accountId: tx.account_id, bank: tx.bank }))

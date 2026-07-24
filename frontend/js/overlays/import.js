@@ -102,7 +102,10 @@ function ImportModal({ onClose, onDone }) {
   const [err, setErr]             = useState(null);
   const [results, setResults]     = useState(null);
   const [cats, setCats]           = useState({ expense: [], income: [] });
+  const [confirmBack, setConfirmBack] = useState(false);
   const triedRef = useRef("");
+
+  const discardReview = () => { setGroups(null); setB3s([]); setFaturas([]); setRowsByGroup({}); setResults(null); setConfirmBack(false); };
 
   const brToIso = (s) => {
     const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(String(s || "").trim());
@@ -541,9 +544,14 @@ function ImportModal({ onClose, onDone }) {
           faturaCount > 0 && h("span", { style: { color: "var(--warn)" } }, ` · ${faturaCount} fatura${faturaCount === 1 ? "" : "s"}`),
           b3Count > 0 && h("span", { style: { color: "var(--fg-3)" } }, ` · ${b3Count} B3`)),
         _breakdown && h("div", { style: { fontSize: "var(--fz-8)", color: "var(--fg-3)" } }, _breakdown)),
-      h("div", { style: { display: "flex", gap: "var(--s-4)" } },
-        h("button", { className: "px-btn", disabled: busy, onClick: () => { setGroups(null); setB3s([]); setFaturas([]); setRowsByGroup({}); setResults(null); } }, "‹ VOLTAR"),
-        h("button", { className: "px-btn px-btn--primary", disabled: busy || (txWillImport <= 0 && b3Count <= 0 && faturaCount <= 0), onClick: confirm },
+      h("div", { style: { display: "flex", gap: "var(--s-4)", alignItems: "center" } },
+        confirmBack && h("span", { style: { fontSize: "var(--fz-8)", color: "var(--warn)" } }, "Descarta a revisão e edições."),
+        confirmBack
+          ? h(React.Fragment, null,
+              h("button", { className: "px-btn", disabled: busy, onClick: () => setConfirmBack(false) }, "CANCELAR"),
+              h("button", { className: "px-btn px-btn--danger", disabled: busy, onClick: discardReview }, "DESCARTAR"))
+          : h("button", { className: "px-btn", disabled: busy, onClick: () => setConfirmBack(true) }, "‹ VOLTAR"),
+        !confirmBack && h("button", { className: "px-btn px-btn--primary", disabled: busy || (txWillImport <= 0 && b3Count <= 0 && faturaCount <= 0), onClick: confirm },
           busy ? "IMPORTANDO…" : "CONFIRMAR IMPORTAÇÃO"))
     )
   );
