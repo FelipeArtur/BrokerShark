@@ -409,8 +409,9 @@ function CategoryRow({ c, meta, active, onFacet, editing, onEdit, onEditDone, mo
       h("span", { className: "mono", style: { fontSize: 11, fontWeight: 700, color: "var(--fg-0)", flexShrink: 0 } }, fmtBRL(c.total))
     ),
 
-    st && h("div", { style: { height: 3, background: "var(--bg-2)", overflow: "hidden" } },
-      h("div", { style: { width: Math.min(100, st.ratio * 100) + "%", height: "100%", background: st.color } })),
+    st && h("div", { style: { position: "relative", height: 8, background: "var(--bg-2)", border: "1px solid var(--line-1)", overflow: "hidden" } },
+      h("div", { style: { width: Math.min(100, st.ratio * 100) + "%", height: "100%", background: st.color, transition: "width 0.2s" } }),
+      st.over && h("div", { className: "dither-neg", style: { position: "absolute", inset: 0, opacity: 0.35, pointerEvents: "none" } })),
 
     canBudget && h("div", { style: { display: "flex", alignItems: "center", gap: 5, fontSize: 11 } },
       editing

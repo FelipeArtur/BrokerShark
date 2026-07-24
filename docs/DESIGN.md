@@ -71,8 +71,11 @@ mas estas seis são para valer nos dois.
   Pintar o número inteiro só em poucos e grandes: KPI herói, cabeçalho de grupo, rodapé
   (`<Money emphasis>` em `primitives.js`).
 
-- **Progresso de orçamento** (`budgetState` em `tx-group.js`): < 80% neutro (`--fg-2`),
+- **Progresso de orçamento** (`budgetState` em `tx-group.js`): < 80% `--accent`,
   80–100% `--warn`, > 100% `--neg`.
+
+  A health-bar de orçamento no card usa **accent (<80%) · warn (80–100%) · neg (>100%)** —
+  nunca verde. Verde segue exclusivo de receita.
 
 - **Bancos**: `--nubank` `#c58cff` (violeta), `--inter` `#ffab5c` (laranja) — chips.
 

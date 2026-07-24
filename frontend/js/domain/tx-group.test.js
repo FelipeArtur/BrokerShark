@@ -130,11 +130,21 @@ test("groupDelta: fração vs. mês anterior; sem base é null", () => {
 });
 
 test("budgetState: faixas neutro/atenção/estouro, sem verde", () => {
-  assert.equal(G.budgetState(500, 1200).color, "var(--fg-2)");
+  assert.equal(G.budgetState(500, 1200).color, "var(--accent)");
   assert.equal(G.budgetState(1000, 1200).color, "var(--warn)");
   assert.equal(G.budgetState(1500, 1200).color, "var(--neg)");
   assert.equal(G.budgetState(1500, null), null);
   assert.equal(G.budgetState(1500, 0), null);
+});
+
+test("budgetState: color triad is accent/warn/neg, never green", () => {
+  const { budgetState } = require("./tx-group.js");
+  assert.equal(budgetState(50, 100).color, "var(--accent)");   // 50% under control
+  assert.equal(budgetState(85, 100).color, "var(--warn)");     // 85% warning
+  assert.equal(budgetState(120, 100).color, "var(--neg)");     // 120% over
+  assert.equal(budgetState(120, 100).over, true);
+  assert.equal(budgetState(50, 100).over, false);
+  assert.equal(budgetState(0, 0), null);                        // no budget
 });
 
 test("scaleFor: respeita piso e teto, cresce com a fatia", () => {
