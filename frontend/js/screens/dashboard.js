@@ -20,24 +20,6 @@ function Delta({ value, suffix = "vs mês anterior", invert = false }) {
   );
 }
 
-function Sparkline({ data, width = 150, height = 36, color = "var(--accent)" }) {
-  const h = React.createElement;
-  if (!data || data.length < 2) return null;
-  const min = Math.min(...data), max = Math.max(...data);
-  const range = max - min || 1;
-  const coords = data.map((v, i) => [
-    (i / (data.length - 1)) * width,
-    height - ((v - min) / range) * (height - 4) - 2,
-  ]);
-  const points = coords.map(([x, y]) => `${x},${y}`).join(" ");
-  const area = `${coords[0][0]},${height} ${points} ${coords[coords.length - 1][0]},${height}`;
-
-  return h("svg", { width: "100%", height, viewBox: `0 0 ${width} ${height}`, preserveAspectRatio: "none", style: { display: "block" }, "aria-hidden": true },
-    h("polygon", { points: area, fill: "var(--accent-bg)", stroke: "none" }),
-    h("polyline", { fill: "none", stroke: color, strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", vectorEffect: "non-scaling-stroke", points })
-  );
-}
-
 const KpiStrip = React.memo(function KpiStrip({ available, availErr, accounts, cashflow, investTotal,
                     liquidityHistory, evolution, monthLabel, monthly }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
@@ -144,9 +126,6 @@ const GeneralWidget = React.memo(function GeneralWidget({ cashflow, liquidityHis
   const patDelta = liquidityHistory.length > 1
     ? liquidityHistory[liquidityHistory.length - 1].value - liquidityHistory[liquidityHistory.length - 2].value : null;
 
-  const target = (() => { const v = window.localStorage.getItem("bs.budgetCents"); return v ? parseInt(v) : null; })();
-  const bp = window.BS.budgetProgress(exp, target);
-
   const first = monthly[0], last = monthly[monthly.length - 1];
   const cobertura = first && last
     ? `${PT_SHORT[first.month]}/${first.year} → ${PT_SHORT[last.month]}/${last.year} (${monthly.length} meses)` : "—";
@@ -174,14 +153,7 @@ const GeneralWidget = React.memo(function GeneralWidget({ cashflow, liquidityHis
 
       h("div", { style: { fontSize: 12, lineHeight: 1.4, color: "var(--fg-1)" } },
         h("div", { style: { color: "var(--fg-0)", fontWeight: 700, textTransform: "capitalize", marginBottom: 8 } }, `Resumo de ${monName}`),
-        ...parts,
-        bp && h("div", { style: { marginTop: 8 } },
-          h("div", { className: "label", style: { fontSize: 11, color: "var(--fg-3)", marginBottom: 4 } }, "Orçamento do mês"),
-          h("div", { style: { height: 10, border: "2px solid var(--line-1)", background: "var(--bg-0)" } },
-            h("div", { className: bp.pct >= 100 ? "dither-neg" : "dither-warn", style: { height: "100%", width: bp.pct + "%" } })),
-          h("div", { className: "mono", style: { fontSize: 11, color: "var(--fg-3)", marginTop: 3 } },
-            `${fmtBRL(exp)} / ${fmtBRL(target)} · ${100 - bp.pct >= 0 ? (100 - bp.pct) : 0}% restante`)
-        )
+        ...parts
       ),
 
       h("div", { style: { marginTop: "auto", display: "flex", flexDirection: "column" } },

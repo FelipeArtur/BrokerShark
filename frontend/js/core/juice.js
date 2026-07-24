@@ -28,8 +28,6 @@
     setTimeout(() => el.classList.remove(cls), ms);
   }
   function boot(el) { anim(el, "bs-boot", 460); }
-  function pop(el) { anim(el, "bs-pop", 200); }
-  function shake(el) { anim(el, "bs-shake", 420); }
 
-  return { coinDrop, boot, pop, shake, shouldAnimate };
+  return { coinDrop, boot, shouldAnimate };
 });

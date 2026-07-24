@@ -61,8 +61,6 @@ function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkC
     });
   }, []);
 
-  const uncatCount = bulkGroups.reduce((s, g) => s + g.count, 0);
-
   const applyBulk = async (group, categoryId) => {
     const list = catsByFlow[group.flow] || [];
     const catName = list.find(c => c.id === categoryId)?.name || "";

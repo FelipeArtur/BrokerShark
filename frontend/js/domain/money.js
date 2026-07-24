@@ -50,8 +50,6 @@
     [KIND.EXPENSE]:     "despesa de consumo",
   };
 
-  const COUNTS_AS = { [KIND.REVENUE]: "in", [KIND.EXPENSE]: "out", [KIND.INVEST]: "invest" };
-
   function kindSign(t) {
     return (t && t.flow === "income") ? "+" : "−";
   }
@@ -67,5 +65,5 @@
                    : { int: full.slice(0, cut), cents: full.slice(cut) };
   }
 
-  return { KIND, moneyKind, kindSign, KIND_COLOR, KIND_LABEL, KIND_HINT, COUNTS_AS, fmtParts };
+  return { KIND, moneyKind, kindSign, KIND_COLOR, KIND_LABEL, KIND_HINT, fmtParts };
 });
