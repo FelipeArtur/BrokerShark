@@ -58,9 +58,10 @@ lido pelo endpoint `backup-status`.
 ## O que faz
 
 - **Dashboard web** — tela única, sem abas: faixa KPI fixa (Disponível pra gastar ·
-  Patrimônio · Saldo livre do mês · Investido) + grid de widgets (fluxo mês a mês
-  clicável = seletor de mês global, contas, categorias, investimentos, top PIX).
-  Detalhe abre em **overlay de drill-down**, nunca navegação.
+  Patrimônio · Saldo livre do mês · Investido) + grid de widgets (visão geral do mês,
+  fluxo mês a mês clicável = seletor de mês global, contas, categorias, investimentos,
+  fatura do cartão, compromissos futuros). Detalhe abre em **overlay de drill-down**,
+  nunca navegação.
 - **Orçamento por categoria** — alvo fixo por categoria, com override opcional por mês.
 - **Backfill** — reconstrói o banco do zero a partir do acervo de exports.
 - **Import incremental via UI** — extratos Nubank/Inter (CSV) e relatório B3 (xlsx),
@@ -115,8 +116,8 @@ App local sem auth — a máquina é o perímetro:
 - Writes 100% validados no servidor (data, FKs, whitelist de method/flow/operation).
 - Body cap 1MB (upload multipart 20MB / 64 partes).
 
-O `.gitignore` mantém `data/`, `docs/` e `backups/` fora do VCS: **o ledger nunca é
-versionado.**
+O `.gitignore` mantém `data/` e `backups/` fora do VCS: **o ledger nunca é
+versionado.** `docs/` é versionado normalmente.
 
 ## Stack
 

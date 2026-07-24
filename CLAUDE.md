@@ -23,7 +23,7 @@ Ferramenta **pessoal** de análise de dinheiro, 100% local (Linux, 1 usuário). 
 
 **v2 rewrite — TypeScript.** O backend Python/Flask foi removido (histórico preservado no git). O novo backend é TypeScript rodando sobre Node ≥ 26 (native type-stripping, sem build step). Ingestão (backfill) e servidor web (node:http + SSE, zero deps) prontos. **Import incremental via UI** (`/api/import/*`) implementado: extratos Nubank/Inter (CSV) + relatório B3 (xlsx) com preview/dedup/staging editável/confirm/reverter-lote; pós-insert re-pareia SELF e rederiva a Caixinha. Fatura Inter (cartão) só via backfill.
 
-**O produto é a análise (web dashboard — tela única, sem abas):** faixa KPI fixa (**Disponível pra gastar** herói · **Patrimônio total** com Δ mensal · **Saldo livre do mês** · **Investido** com Δ) + grid de widgets (fluxo mês a mês clicável = seletor de mês global, contas, categorias, investimentos, top PIX, atividade). Detalhe abre em **drill-down overlay**, nunca navegação. Seletor de mês global rege os widgets de fluxo; posição é sempre "agora"; default = mês mais recente COM dados. **Apoio (não é o centro):** import de extratos e posições B3.
+**O produto é a análise (web dashboard — tela única, sem abas):** faixa KPI fixa (**Disponível pra gastar** herói · **Patrimônio total** com Δ mensal · **Saldo livre do mês** · **Investido** com Δ) + grid de widgets (visão geral do mês, fluxo mês a mês clicável = seletor de mês global, contas, categorias, investimentos, fatura do cartão, compromissos futuros). Detalhe abre em **drill-down overlay**, nunca navegação. Seletor de mês global rege os widgets de fluxo; posição é sempre "agora"; default = mês mais recente COM dados. **Apoio (não é o centro):** import de extratos e posições B3.
 
 **Navegação é por mouse.** Não há hotkey global — teclado serve só pra Esc (fecha modal/overlay), Tab (focus trap) e Enter (submit de form). Adicionar tecla muda que mexe na tela é regressão.
 
@@ -45,12 +45,16 @@ backend/
       open.ts           # openDb/initSchema/restrictPermissions (node:sqlite builtin)
       migrate.ts        # runMigrations — forward-only sobre migration_log (boot: server + backfill)
       migrations/       # NNNN_slug.sql numerados; ALTER/rename/drop/data-fix (sem BEGIN/COMMIT)
+      reconcile.ts      # reconciliação de pagamento de fatura (valor exato + liquidações parciais)
+      faturaImport.ts   # insert de fatura aberta (itens + due_date)
     domain/             # lógica PURA (sem DB/IO)
       money.ts          # parseMoneyCents (string→centavos inteiros), fmtCents, parseDateBR
       classify.ts       # isInvestment, isCaixinhaLeg, checkingExpenseMethod
       dates.ts          # currentMonth, monthRange, prevRefMonth, today
       budget.ts         # resolveBudget (override do mês → alvo fixo), isRefMonth
       positions.ts      # monthlyPortfolioSeries (carry-forward de snapshots)
+      merchant.ts       # normalizeMerchant — núcleo do comerciante, matcher das regras de categoria
+      commitments.ts    # projeção pura de parcelas/compromissos (visão de futuro)
     ingest/             # parsers dos exports (1 arquivo por formato)
       types.ts          # TxRecord, ParsedFile
       csv.ts            # parser CSV genérico
@@ -103,7 +107,7 @@ frontend/
     screens/            # app.js (shell)
                         # dashboard.js (a tela única: KPIs + widgets facetados)
                         # history.js (TxTableWidget — a planilha, agrupada por categoria)
-    overlays/           # abre por cima da tela única — modal e drawer, mesma ideia
+    overlays/           # abre por cima da tela única — Modal ou Overlay (drill-down tela cheia), mesma ideia
                         # transaction.js (editor de lançamento) · import.js (import via UI)
                         # bulk.js — categorização em lote por comerciante
                         # categories.js — só CategoriesPanel
@@ -179,13 +183,13 @@ category_budgets (category_id FK ON DELETE CASCADE, ref_month TEXT DEFAULT '',
                   -- '' e não NULL: NULLs são distintos num UNIQUE do SQLite,
                   -- então PK com NULL deixaria dois alvos fixos na mesma categoria.
 invoices (id INTEGER PK, account_id FK, ref_month 'YYYY-MM', total_cents,
-          payment_tx_id, source_file, UNIQUE(account_id, ref_month))
+          payment_tx_id, source_file, due_date TEXT, UNIQUE(account_id, ref_month))
 investments (id INTEGER PK, name, match_key UNIQUE, code, type, bank, indexer,
              rate_text, maturity_date, group_name, source CHECK('b3'|'ledger'|'manual'),
              opened_at, closed_at)
 position_snapshots (id, investment_id FK, ref_date, quantity, unit_price_cents,
                     applied_cents, gross_cents, net_cents,
-                    source CHECK('b3'|'derived'|'manual'),
+                    source CHECK('b3'|'derived'|'manual'), import_batch_id TEXT,
                     UNIQUE(investment_id, ref_date, source))
 transactions (id, date, flow, method, account_id FK, amount_cents CHECK(>=0),
               description, category_id FK, dest_account_id FK, counterpart,
