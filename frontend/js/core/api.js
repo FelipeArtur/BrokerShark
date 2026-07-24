@@ -26,19 +26,12 @@ async function _put(url, body) {
   return r.json();
 }
 
-async function _delBody(url, body) {
-  const r = await fetch(url, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || "request failed"); }
-  return r.json();
-}
 
 async function fetchInvestments(bank)      { return _get(`/api/investments${_qs(bank)}`); }
 
 async function fetchAccounts(bank)         { return _get(`/api/accounts${_qs(bank)}`); }
 
 async function fetchExpenseCategories()         { return _get("/api/expense-categories"); }
-
-async function fetchExpenseCategoriesFull()     { return _get("/api/expense-categories-full"); }
 
 async function fetchCategoriesFull(flow = "expense", month) { return _get(`/api/categories-full${_params({ flow, month })}`); }
 
@@ -47,8 +40,6 @@ async function fetchMonthTransactions({ month, year } = {}) { return _get(`/api/
 async function fetchLiquidityHistory()     { return _get("/api/liquidity-history"); }
 
 async function fetchCommitments()           { return _get("/api/commitments"); }
-
-async function searchTransactions(q)       { return _get(`/api/search?q=${encodeURIComponent(q)}`); }
 
 async function fetchMonthlyFull(bank)      { return _get(`/api/monthly${_params({ bank, present: 1 })}`); }
 
@@ -74,22 +65,12 @@ async function patchTransaction(txId, fields) {
   return _patch(`/api/transactions/${txId}`, fields);
 }
 
-async function fetchPixTop({ month, year } = {}) { return _get(`/api/pix-top${_params({ month, year })}`); }
-
-async function postInvestmentMovement({ investment_name, operation, amount, date, description }) {
-  return _post("/api/investment-movements", { investment_name, operation, amount, date, description });
-}
-
 async function postCategory(name, flow)       { return _post("/api/categories", { name, flow }); }
 
 async function patchCategory(id, name)        { return _patch(`/api/categories/${id}`, { name }); }
 
 async function putCategoryBudget(categoryId, amountCents, refMonth) {
   return _put("/api/category-budget", { category_id: categoryId, amount_cents: amountCents, ref_month: refMonth ?? "" });
-}
-
-async function deleteCategoryBudget(categoryId, refMonth) {
-  return _delBody("/api/category-budget", { category_id: categoryId, ref_month: refMonth ?? "" });
 }
 
 async function deleteCategory(id, reassignToId) {

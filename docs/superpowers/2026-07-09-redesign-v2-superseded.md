@@ -1,5 +1,7 @@
 # BrokerShark v2 — Redesign (2026-07-09)
 
+> **SUPERSEDED / histórico.** Doc de rumo do início do rewrite v2. As **decisões de produto** aqui valeram (100% local, arquivos exportados, dinheiro em centavos, dashboard único). O **stack técnico proposto NÃO foi construído** — o que foi descrito como Hono / better-sqlite3 + Drizzle / Zod / Vitest virou, na prática, `node:http` + `node:sqlite` builtin (zero ORM, zero Zod) + `node:test`. Ver `CLAUDE.md` e `README.md` para o stack real. Mantido em `docs/superpowers/` como registro de decisão datado.
+
 ## Decisões de rumo (do dono)
 
 - **Sem agregadores externos** (Pluggy/Belvo/Open Finance via terceiro) — resistência a conectar conta a serviço externo. Entrada de dados = **arquivos exportados dos apps**, 100% local.

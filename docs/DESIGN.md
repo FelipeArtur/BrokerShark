@@ -126,8 +126,7 @@ mas estas seis são para valer nos dois.
   alvo + Δ vs. mês anterior. O valor da linha escala com a fatia dentro do grupo (11→15px,
   `scaleFor` em `tx-group.js`).
 
-> `Drawer` ainda existe em `primitives.js` — após a remoção do drawer de categorias, fica
-> sem caller. Candidato a remoção.
+> `Drawer` foi removido de `primitives.js` — gerenciar categorias virou `Overlay`.
 
 ## Motion
 

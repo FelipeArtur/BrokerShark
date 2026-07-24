@@ -54,12 +54,6 @@ const PT_MONTHS = ["", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho
   "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 const PT_SHORT = ["", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
 
-function fmtCycleDate(ddmmyyyy) {
-  if (!ddmmyyyy) return "—";
-  const [d, m] = ddmmyyyy.split("/");
-  return `${parseInt(d, 10)} ${PT_SHORT[parseInt(m, 10)]}`;
-}
-
 const _DESC_ACRONYMS = new Set([
   "CDB", "RDB", "SA", "S/A", "ME", "MEI", "EPP", "EIRELI", "LTDA",
   "IOF", "IRRF", "IR", "GRU", "CPF", "CNPJ", "TED", "DOC", "PIX", "II", "III", "IV",
@@ -107,145 +101,6 @@ function prettifyDesc(raw) {
   }).join(" ");
 }
 
-function DualLine({ data, height = 180 }) {
-  const canvasRef = _useRef(null);
-  const chartRef = _useRef(null);
-
-  _useEffect(() => () => { if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; } }, []);
-
-  _useEffect(() => {
-    if (!canvasRef.current || !data || !data.length) return;
-
-    if (chartRef.current) {
-      chartRef.current.data.labels = data.map(d => d.label);
-      chartRef.current.data.datasets[0].data = data.map(d => d.income || 0);
-      chartRef.current.data.datasets[1].data = data.map(d => d.expenses || 0);
-      chartRef.current.update('none');
-      return;
-    }
-
-    const rootStyles = getComputedStyle(document.documentElement);
-    const posColor   = rootStyles.getPropertyValue("--pos").trim() || "oklch(72% 0.14 155)";
-    const negColor   = rootStyles.getPropertyValue("--neg").trim() || "oklch(68% 0.16 25)";
-    const fg2Color   = rootStyles.getPropertyValue("--fg-2").trim();
-    const line1Color = rootStyles.getPropertyValue("--line-1").trim();
-
-    const ffSans = rootStyles.getPropertyValue("--ff-sans").trim() || "Silkscreen, system-ui, sans-serif";
-    const ffMono = rootStyles.getPropertyValue("--ff-mono").trim() || "Departure Mono, ui-monospace, monospace";
-
-    const ctx = canvasRef.current.getContext("2d");
-    chartRef.current = new Chart(ctx, {
-      type: "bar",
-      data: {
-        labels: data.map(d => d.label),
-        datasets: [
-          {
-            label: "Receita",
-            data: data.map(d => d.income || 0),
-            backgroundColor: posColor,
-            borderRadius: 4,
-            barPercentage: 0.6,
-            categoryPercentage: 0.8
-          },
-          {
-            label: "Despesa",
-            data: data.map(d => d.expenses || 0),
-            backgroundColor: negColor,
-            borderRadius: 4,
-            barPercentage: 0.6,
-            categoryPercentage: 0.8
-          }
-        ]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        interaction: { mode: 'index', intersect: false },
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            backgroundColor: "oklch(20% 0.01 250 / 0.9)",
-            titleFont: { size: 11, family: ffSans },
-            bodyFont: { size: 13, family: ffMono, weight: "bold" },
-            padding: 12,
-            boxPadding: 6,
-            usePointStyle: true,
-            callbacks: { label: ctx => `${ctx.dataset.label}: ${fmtBRL(ctx.raw)}` }
-          }
-        },
-        scales: {
-          x: {
-            grid: { display: false, drawBorder: false },
-            ticks: { color: fg2Color, font: { size: 10, family: ffMono } }
-          },
-          y: {
-            beginAtZero: true,
-            grid: { color: line1Color, drawBorder: false, tickLength: 0, borderDash: [2, 3] },
-            border: { display: false },
-            ticks: { color: fg2Color, font: { size: 10, family: ffMono }, callback: v => fmtBRLCompact(v), maxTicksLimit: 5 }
-          }
-        }
-      }
-    });
-  }, [data]);
-
-  return React.createElement("div", { style: { height, width: "100%" } },
-    React.createElement("canvas", { ref: canvasRef })
-  );
-}
-
-function Donut({ data, size = 140, thickness = 18, valueKey = "balance", colors }) {
-  const canvasRef = _useRef(null);
-  const chartRef = _useRef(null);
-
-  _useEffect(() => () => { if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; } }, []);
-
-  _useEffect(() => {
-    if (!canvasRef.current || !data || !data.length) return;
-
-    const COLORS = colors || ["oklch(72% 0.12 250)", "oklch(70% 0.13 290)", "oklch(74% 0.11 220)", "oklch(68% 0.10 200)", "oklch(72% 0.12 312)"];
-
-    if (chartRef.current) {
-      if (chartRef.current.data.datasets[0].data.length === data.length) {
-        chartRef.current.data.labels = data.map(d => d.name || d.label || "Item");
-        chartRef.current.data.datasets[0].data = data.map(d => d[valueKey] || 0);
-        chartRef.current.update('none');
-        return;
-      }
-      chartRef.current.destroy();
-      chartRef.current = null;
-    }
-
-    const ctx = canvasRef.current.getContext("2d");
-    chartRef.current = new Chart(ctx, {
-      type: "doughnut",
-      data: {
-        labels: data.map(d => d.name || d.label || "Item"),
-        datasets: [{
-          data: data.map(d => d[valueKey] || 0),
-          backgroundColor: COLORS,
-          borderWidth: 3,
-          borderColor: getComputedStyle(document.documentElement).getPropertyValue("--bg-1").trim() || "transparent",
-          hoverOffset: 6
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        cutout: `${100 - (thickness / size) * 100}%`,
-        plugins: {
-          legend: { display: false },
-          tooltip: { callbacks: { label: ctx => `${ctx.label}: ${fmtBRL(ctx.raw)}` } }
-        }
-      }
-    });
-  }, [data, colors, thickness, size, valueKey]);
-
-  return React.createElement("div", { style: { width: size, height: size } },
-    React.createElement("canvas", { ref: canvasRef })
-  );
-}
-
 function Modal({ open, onClose, title, children, width = 480 }) {
   const dialogRef = _useRef(null);
   const titleId   = _useRef("modal-title-" + Math.random().toString(36).slice(2)).current;
@@ -273,7 +128,7 @@ function Modal({ open, onClose, title, children, width = 480 }) {
   if (!open) return null;
   return React.createElement("div", {
     onClick: onClose, role: "presentation",
-    style: { position: "fixed", inset: 0, background: "oklch(0% 0 0 / 0.55)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }
+    style: { position: "fixed", inset: 0, background: "oklch(0% 0 0 / 0.55)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: "var(--z-modal)" }
   },
     React.createElement("div", {
       ref: dialogRef,
@@ -326,7 +181,7 @@ function useToasts() {
 
   const Toaster = _useCallback(() => React.createElement("div", {
     role: "status", "aria-live": "polite", "aria-atomic": "false",
-    style: { position: "fixed", bottom: 24, right: 24, display: "flex", flexDirection: "column", gap: 12, zIndex: 999, alignItems: "flex-end" }
+    style: { position: "fixed", bottom: 24, right: 24, display: "flex", flexDirection: "column", gap: 12, zIndex: "var(--z-toast)", alignItems: "flex-end" }
   },
     list.map(t => {
       const _k = t.kind === "success" ? "pos" : t.kind === "error" ? "neg" : "info";
@@ -608,85 +463,10 @@ function FilterBar({ filter, onRemove, onClear }) {
 window.BS = window.BS || {};
 Object.assign(window.BS, {
   fmtBRL, fmtBRLCompact, fmtDateBR, prettifyDesc,
-  PT_MONTHS, PT_SHORT, fmtCycleDate,
-  DualLine, Donut,
+  PT_MONTHS, PT_SHORT,
   Modal, Overlay, useToasts, BankChip, SegmentControl,
   BrokerSharkLogo, TxRow, FilterBar, Money,
   isSelf, isConsumptionExpense, isRevenue, isInvest, isThirdParty,
 });
-
-function SingleAreaChart({ data, height = 180, color = "var(--pos)", label = "Evolução" }) {
-  const canvasRef = _useRef(null);
-  const chartRef = _useRef(null);
-
-  _useEffect(() => () => { if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; } }, []);
-
-  _useEffect(() => {
-    if (!canvasRef.current || !data || !data.length) return;
-
-    if (chartRef.current) {
-      chartRef.current.data.labels = data.map(d => d.label);
-      chartRef.current.data.datasets[0].data = data.map(d => d.value || 0);
-      chartRef.current.update('none');
-      return;
-    }
-
-    const rootStyles = getComputedStyle(document.documentElement);
-    const mainColor = rootStyles.getPropertyValue(color.replace("var(", "").replace(")", "")).trim() || color;
-    const fg2Color   = rootStyles.getPropertyValue("--fg-2").trim();
-    const line1Color = rootStyles.getPropertyValue("--line-1").trim();
-
-    const ffSans = rootStyles.getPropertyValue("--ff-sans").trim() || "Silkscreen, system-ui, sans-serif";
-    const ffMono = rootStyles.getPropertyValue("--ff-mono").trim() || "Departure Mono, ui-monospace, monospace";
-
-    const ctx = canvasRef.current.getContext("2d");
-    chartRef.current = new Chart(ctx, {
-      type: "line",
-      data: {
-        labels: data.map(d => d.label),
-        datasets: [{
-          label: label,
-          data: data.map(d => d.value || 0),
-          borderColor: mainColor,
-          backgroundColor: (context) => {
-            const chart = context.chart;
-            const {ctx, chartArea} = chart;
-            if (!chartArea) return "transparent";
-            const gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
-            const base = mainColor.includes("oklch") ? mainColor : "oklch(60% 0.15 250)";
-            const inner = base.replace(/oklch\((.*?)\)/, "$1").split("/")[0].trim();
-            gradient.addColorStop(0, `oklch(${inner} / 0.15)`);
-            gradient.addColorStop(1, `oklch(${inner} / 0.01)`);
-            return gradient;
-          },
-          borderWidth: 3, tension: 0.4, fill: true,
-          pointRadius: 0, pointHoverRadius: 6, pointBackgroundColor: "var(--bg-0)", pointBorderColor: mainColor, pointBorderWidth: 2
-        }]
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        interaction: { mode: "index", intersect: false },
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            backgroundColor: "oklch(20% 0.01 250 / 0.9)",
-            titleFont: { size: 11, family: ffSans },
-            bodyFont: { size: 13, weight: "bold", family: ffMono },
-            displayColors: false, padding: 12, cornerRadius: 8
-          }
-        },
-        scales: {
-          x: { grid: { display: false, drawBorder: false }, ticks: { color: fg2Color, font: { size: 10, family: ffMono } } },
-          y: { position: "right", beginAtZero: true, grid: { color: line1Color, drawBorder: false, borderDash: [2, 4] }, border: { display: false }, ticks: { color: fg2Color, font: { size: 10, family: ffMono }, maxTicksLimit: 6, callback: v => "R$ " + (v/1000 >= 1 ? (v/1000).toFixed(1) + "k" : v) } }
-        }
-      }
-    });
-  }, [data, color, label]);
-
-  return React.createElement("div", { style: { position: "relative", height, width: "100%" } },
-    React.createElement("canvas", { ref: canvasRef })
-  );
-}
-window.BS.SingleAreaChart = SingleAreaChart;
 
 })();
