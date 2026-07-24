@@ -388,7 +388,7 @@ function SelectionBar({ count, onClear, catsByFlow, onCategorize }) {
       h("option", { value: "" }, "Categorizar…"),
       all.map(c => h("option", { key: c.id, value: c.id }, c.name))
     ),
-    h("button", { className: "btn btn-ghost", style: { height: 26, fontSize: 11 }, onClick: onClear }, "Limpar")
+    h("button", { className: "px-btn px-btn--ghost px-btn--sm", onClick: onClear }, "Limpar")
   );
 }
 

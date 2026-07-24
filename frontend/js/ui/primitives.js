@@ -420,7 +420,7 @@ function Drawer({ open, onClose, children, width = 480, title }) {
     },
       title && React.createElement("div", { style: { padding: "16px 24px", borderBottom: "1px solid var(--line-0)", display: "flex", justifyContent: "space-between", alignItems: "center" } },
         React.createElement("span", { style: { fontWeight: 700, fontSize: 16 } }, title),
-        React.createElement("button", { onClick: onClose, className: "btn btn-ghost btn-sm", "aria-label": "Fechar" }, "✕")
+        React.createElement("button", { onClick: onClose, className: "px-btn px-btn--ghost px-btn--sm", "aria-label": "Fechar" }, "✕")
       ),
       React.createElement("div", { style: { flex: 1, overflowY: "auto" } }, children)
     )

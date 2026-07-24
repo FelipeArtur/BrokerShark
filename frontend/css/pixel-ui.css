@@ -29,24 +29,27 @@
 .px-field:focus { border-color: var(--accent); }
 select.px-field { cursor: pointer; appearance: none; padding-right: var(--s-7); }
 
+/* Botão canônico — sistema ÚNICO. A diversão pixel vive no press
+   (translate + steps) e no juice.js, nunca na moldura. */
 .px-btn {
   height: 28px; padding: 0 var(--s-5);
-  display: inline-flex; align-items: center; gap: var(--s-3);
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--s-3);
   background: var(--bg-2); color: var(--fg-0);
   border: 1px solid var(--line-1);
-  box-shadow: 2px 2px 0 #05060d;
   font-family: var(--ff-sans); font-size: var(--fz-9); letter-spacing: 1px;
-  cursor: pointer;
-  transition: transform 60ms steps(2), box-shadow 60ms steps(2);
+  white-space: nowrap; cursor: pointer;
+  transition: transform 60ms steps(2), background 0.12s, border-color 0.12s;
 }
-.px-btn:hover { background: var(--bg-3); }
-.px-btn:active { transform: translate(2px, 2px); box-shadow: 0 0 0 #05060d; }
-.px-btn:disabled { opacity: 0.4; cursor: default; }
-.px-btn:disabled:active { transform: none; box-shadow: 2px 2px 0 #05060d; }
-.px-btn--primary { background: var(--accent); color: var(--accent-fg); }
-.px-btn--primary:hover { background: var(--accent); filter: brightness(1.12); }
+.px-btn:hover { background: var(--bg-3); color: var(--fg-0); }
+.px-btn:active { transform: translate(1px, 1px); }
+.px-btn:disabled { opacity: 0.4; cursor: default; pointer-events: none; }
+.px-btn--primary { background: var(--accent); color: var(--accent-fg); border-color: var(--line-1); font-weight: 700; }
+.px-btn--primary:hover { background: var(--accent); filter: brightness(1.12); color: var(--accent-fg); }
 .px-btn--danger { background: var(--neg); color: var(--bg-0); }
 .px-btn--danger:hover { background: var(--neg); filter: brightness(1.12); }
+.px-btn--ghost { background: transparent; border-color: transparent; color: var(--fg-1); }
+.px-btn--ghost:hover { background: var(--bg-2); color: var(--fg-0); }
+.px-btn--sm { height: 24px; padding: 0 var(--s-4); }
 
 .px-chip {
   padding: 1px var(--s-3);
