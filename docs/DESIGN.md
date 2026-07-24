@@ -14,8 +14,36 @@ Superfícies em degraus (`--bg-0` `#0e0f1a` → `--bg-3` `#2a2d48`), hairline pr
 (`--line-1` `#000`) e `--line-2` `#3a3d63`. Texto: `--fg-0` `#fdf6e3` (creme) →
 `--fg-3` `#6a6d95`.
 
-**Cantos são duros em todo lugar**: `--r-1…--r-6` são todos `0`. Um `border-radius` novo
-é bug, não escolha.
+**Cantos são duros em todo lugar**: `--r-1…--r-6` são todos `0`, e o reset universal
+`*, *::before, *::after { border-radius: 0 !important }` (`style.css`) torna a regra
+inescapável — inclusive contra `style={{borderRadius}}` inline. Um `border-radius` novo
+não é bug: é impossível. (A auditoria de 2026-07-24 achou 34 violações justamente porque
+o reset antigo só cobria 5 classes de container.)
+
+## Regras invioláveis (revisão 2026-07-24)
+
+Estas venceram uma auditoria de código; quando este doc divergir do CSS, o CSS ganha —
+mas estas seis são para valer nos dois.
+
+1. **Piso de contraste.** Texto ≥4.5:1 contra o fundo em que assenta. `--fg-3` foi
+   `#6a6d95` (3.54:1, reprovado) e virou `#9296bd` (6.12 / 5.45 / 4.67 sobre
+   `--bg-1/2/3`). `--fg-faint` guarda o tom antigo para hairline e ícone decorativo —
+   **nunca** para texto.
+2. **Piso de 11px.** Vale para CSS e para `style={{fontSize}}` inline.
+3. **Silkscreen só em título.** O `body` é Departure Mono.
+4. **Uppercase só em título de bloco**, ≥11px.
+5. **Cantos duros, sem exceção** — reset universal com `!important`.
+6. **Widget ganha espaço por densidade de informação, não por constante.** O orçamento
+   de colunas de `.widget-row` (14) tem que fechar exatamente; widget sem dado colapsa
+   em vez de ocupar uma coluna inteira. O bug de 2026-07 (spans somando 17 em 14
+   colunas, esmagando cada card a ~175px de 280px) nasceu de ninguém conferir a soma.
+
+**Verde é receita e só receita.** Sem exceção — o KPI herói "Em Caixa" é creme
+(`--fg-0`), não verde, justamente para não abrir a primeira brecha.
+
+**Escala de z-index semântica** (`--z-sticky` 10 · `--z-dropdown` 20 · `--z-scanline` 30
+· `--z-backdrop` 40 · `--z-layer` 50 · `--z-toast` 60). Números avulsos como 9999 ou
+10000 são regressão.
 
 ## Color
 
@@ -52,10 +80,16 @@ Superfícies em degraus (`--bg-0` `#0e0f1a` → `--bg-3` `#2a2d48`), hairline pr
 
 ## Typography
 
-- **Silkscreen** (`--ff-sans`, headings/labels) + **Departure Mono** (`--ff-mono`, todo
-  número financeiro e body). Ambas vendorizadas em `frontend/fonts/` — 100% offline.
+- **Departure Mono** (`--ff-mono`) é a fonte do `body` e carrega TODO texto corrido,
+  número, label de dado e empty state. **Silkscreen** (`--ff-sans`) é reservada a
+  título de bloco, marca e botão — e nunca abaixo de 11px. Bitmap font em texto de
+  9px foi a causa raiz da ilegibilidade de 2026-07. Ambas vendorizadas em `frontend/fonts/` — 100% offline.
   Inter / JetBrains Mono ficam como fallback na stack.
-- Escala fixa em px (`--fz-9` 10px … `--fz-0` 44px); dashboard não usa clamp fluido.
+- Escala fixa em px (`--fz-9`/`--fz-8` 11px … `--fz-0` 44px); dashboard não usa clamp fluido.
+- **Piso de 11px.** Nenhum texto abaixo disso, em CSS ou inline. `--fz-9` existe só como
+  alias histórico e vale 11px.
+- **Uppercase + tracking só em título de bloco**, sempre ≥11px. Sub-linha de dado,
+  empty state e valor nunca são uppercase.
 - Números sempre `font-variant-numeric: tabular-nums` — coluna de valor tem que alinhar.
 - Labels: uppercase com `letter-spacing: 1px` (`.widget-title`, `.kpi-label`, `.label`).
 
@@ -67,15 +101,18 @@ Superfícies em degraus (`--bg-0` `#0e0f1a` → `--bg-3` `#2a2d48`), hairline pr
 - Spans `.wg-8`/`.wg-4` → 12/6 em ≤1280px → 12 em ≤900px. Alvo: desktop ≥1440 e notebook
   1280. **Mobile não é alvo.**
 - Drill-downs: overlay tela cheia (primitiva `Overlay`), estado do dashboard preservado
-  por trás. Nunca navegação, nunca aba.
+  por trás. Nunca navegação, nunca aba. **Drawer lateral não existe mais** — gerenciar
+  categorias virou drill-down como todo o resto.
 
 ## Components
 
 - Primitivas (`primitives.js`): `Overlay` (drill), `Modal` (Esc fecha + focus trap),
   `SegmentControl`, `BankChip`, `TxRow`, `Money`, `FilterBar`, toasts (`useToasts`),
   `Donut`/`DualLine`/`SingleAreaChart` (Chart.js).
-- Painéis (`.widget`, `.kpi-strip`, `.modal`, `.table-widget`): borda preta 3px + sombra
-  em degrau `4px 4px 0 #05060d`. Hover do widget levanta 1px e a sombra vira `6px 6px`.
+- Painéis (`.widget`, `.kpi-strip`, `.modal`, `.table-widget`): borda preta **1px**, sem
+  sombra. Hover só troca a cor da borda para `--line-2`. **O cromo é quieto**: a diversão
+  pixel mora no movimento (`juice.js`, `steps()`), nas barras dithered e no press do
+  `.px-btn` — nunca na moldura de cada bloco.
   A faixa KPI é emoldurada como **um** painel, não quatro cards.
 - Barras dithered: `.dither-pos` / `.dither-neg` / `.dither-warn` (gradiente 45° em
   faixas de 3–4px). Fluxo mês a mês é clicável = seletor de mês global.

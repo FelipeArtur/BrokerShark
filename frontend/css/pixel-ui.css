@@ -1,57 +1,60 @@
 .px-row {
   display: flex; align-items: center; gap: var(--s-5);
   padding: var(--s-3) var(--s-4);
-  min-height: 36px;
-  background: var(--bg-1);
-  border: 2px solid var(--line-1);
-  box-shadow: 2px 2px 0 #05060d;
+  min-height: 34px;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--line-1);
 }
-.px-row:hover { background: var(--bg-2); }
-.px-row + .px-row { margin-top: var(--s-3); }
+.px-row:hover { background: var(--bg-1); }
+.px-row:last-child { border-bottom: 0; }
 
 .px-list { display: flex; flex-direction: column; }
 
 .px-swatch {
-  width: 20px; height: 20px; flex-shrink: 0;
+  width: 14px; height: 14px; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
-  border: 2px solid var(--line-1);
-  font-family: var(--ff-sans); font-size: var(--fz-9); line-height: 1;
+  border: 1px solid var(--line-1);
+  font-family: var(--ff-mono); font-size: var(--fz-9); line-height: 1;
   color: var(--bg-0);
 }
 
 .px-field {
   height: 28px; padding: 0 var(--s-4);
   background: var(--bg-0); color: var(--fg-0);
-  border: 2px solid var(--line-2);
+  border: 1px solid var(--line-2);
   font-family: var(--ff-mono); font-size: var(--fz-7);
   outline: none;
 }
 .px-field:focus { border-color: var(--accent); }
 select.px-field { cursor: pointer; appearance: none; padding-right: var(--s-7); }
 
+/* Botão canônico — sistema ÚNICO. A diversão pixel vive no press
+   (translate + steps) e no juice.js, nunca na moldura. */
 .px-btn {
   height: 28px; padding: 0 var(--s-5);
-  display: inline-flex; align-items: center; gap: var(--s-3);
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--s-3);
   background: var(--bg-2); color: var(--fg-0);
-  border: 2px solid var(--line-1);
-  box-shadow: 2px 2px 0 #05060d;
+  border: 1px solid var(--line-1);
   font-family: var(--ff-sans); font-size: var(--fz-9); letter-spacing: 1px;
-  cursor: pointer;
-  transition: transform 60ms steps(2), box-shadow 60ms steps(2);
+  white-space: nowrap; cursor: pointer;
+  transition: transform 60ms steps(2), background 0.12s, border-color 0.12s;
 }
-.px-btn:hover { background: var(--bg-3); }
-.px-btn:active { transform: translate(2px, 2px); box-shadow: 0 0 0 #05060d; }
-.px-btn:disabled { opacity: 0.4; cursor: default; }
-.px-btn:disabled:active { transform: none; box-shadow: 2px 2px 0 #05060d; }
-.px-btn--primary { background: var(--accent); color: var(--accent-fg); }
-.px-btn--primary:hover { background: var(--accent); filter: brightness(1.12); }
+.px-btn:hover { background: var(--bg-3); color: var(--fg-0); }
+.px-btn:active { transform: translate(1px, 1px); }
+.px-btn:disabled { opacity: 0.4; cursor: default; pointer-events: none; }
+.px-btn--primary { background: var(--accent); color: var(--accent-fg); border-color: var(--line-1); font-weight: 700; }
+.px-btn--primary:hover { background: var(--accent); filter: brightness(1.12); color: var(--accent-fg); }
 .px-btn--danger { background: var(--neg); color: var(--bg-0); }
 .px-btn--danger:hover { background: var(--neg); filter: brightness(1.12); }
+.px-btn--ghost { background: transparent; border-color: transparent; color: var(--fg-1); }
+.px-btn--ghost:hover { background: var(--bg-2); color: var(--fg-0); }
+.px-btn--sm { height: 24px; padding: 0 var(--s-4); }
 
 .px-chip {
   padding: 1px var(--s-3);
   background: var(--bg-2); color: var(--fg-2);
-  border: 2px solid var(--line-1);
+  border: 1px solid var(--line-1);
   font-family: var(--ff-mono); font-size: var(--fz-9);
   white-space: nowrap;
 }
@@ -60,9 +63,9 @@ select.px-field { cursor: pointer; appearance: none; padding-right: var(--s-7); 
   padding: var(--s-8) var(--s-6);
   text-align: center;
   background: var(--bg-1);
-  border: 3px dashed var(--line-2);
+  border: 2px dashed var(--line-2);
   color: var(--fg-2);
-  font-family: var(--ff-sans); font-size: var(--fz-8); letter-spacing: 1px;
+  font-family: var(--ff-mono); font-size: var(--fz-8);
   cursor: pointer;
 }
 .px-dropzone:hover, .px-dropzone--over {
@@ -73,7 +76,7 @@ select.px-field { cursor: pointer; appearance: none; padding-right: var(--s-7); 
 .px-step {
   width: 18px; height: 18px;
   display: flex; align-items: center; justify-content: center;
-  border: 2px solid var(--line-1);
+  border: 1px solid var(--line-1);
   background: var(--bg-2); color: var(--fg-3);
   font-family: var(--ff-sans); font-size: var(--fz-9);
 }
@@ -84,8 +87,36 @@ select.px-field { cursor: pointer; appearance: none; padding-right: var(--s-7); 
 .px-empty {
   padding: var(--s-9) var(--s-6);
   text-align: center; color: var(--fg-3);
-  font-family: var(--ff-sans); font-size: var(--fz-8); letter-spacing: 1px;
+  font-family: var(--ff-mono); font-size: var(--fz-8);
 }
+
+/* Linha de categoria — lista, não card. Ações aparecem no hover;
+   o × só fica vermelho quando o ponteiro está sobre ele. */
+.cat-row {
+  display: flex; align-items: center; gap: var(--s-4);
+  padding: var(--s-3) var(--s-4);
+  border-bottom: 1px solid var(--line-1);
+}
+.cat-row:last-child { border-bottom: 0; }
+.cat-row:hover { background: var(--bg-1); }
+.cat-name {
+  flex: 1; min-width: 0; text-align: left;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--ff-sans); font-size: var(--fz-8); letter-spacing: 1px;
+  text-transform: uppercase; color: var(--fg-0); cursor: text;
+  background: transparent; border: 0;
+}
+.cat-name:hover { color: var(--accent); }
+.cat-count {
+  flex-shrink: 0; font-family: var(--ff-mono); font-size: var(--fz-8);
+  color: var(--fg-3); white-space: nowrap;
+}
+.cat-actions {
+  flex-shrink: 0; display: flex; gap: var(--s-2);
+  opacity: 0; transition: opacity 0.12s;
+}
+.cat-row:hover .cat-actions, .cat-row:focus-within .cat-actions { opacity: 1; }
+.cat-del:hover { background: var(--neg); color: var(--bg-0); border-color: var(--neg); }
 
 @media (prefers-reduced-motion: reduce) {
   .px-btn { transition: none; }

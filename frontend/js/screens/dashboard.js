@@ -73,7 +73,7 @@ const KpiStrip = React.memo(function KpiStrip({ available, availErr, accounts, c
       h("span", { className: "kpi-label" }, "Em Caixa (Disponível Agora)"),
       availErr
         ? h("span", { style: { fontSize: 13, fontWeight: 600, color: "var(--neg)" } }, "falha ao carregar")
-        : h("span", { className: "kpi-value", style: { color: availNeg ? "var(--neg)" : "var(--pos)" } },
+        : h("span", { className: "kpi-value", style: { color: availNeg ? "var(--neg)" : "var(--fg-0)" } },
             availValue == null ? "—" : (availNeg ? "−" : "") + fmtBRL(Math.abs(availValue))),
       h("span", { className: "kpi-sub" },
         checking.map(a => h("span", { key: a.id, style: { display: "inline-flex", gap: 5, alignItems: "baseline" } },
@@ -98,7 +98,7 @@ const KpiStrip = React.memo(function KpiStrip({ available, availErr, accounts, c
     ),
 
     h("div", { className: "kpi" },
-      h("span", { className: "kpi-label" }, `Resultado Líquido do Mês (${monthLabel})`),
+      h("span", { className: "kpi-label" }, "Resultado do Mês"),
       h("span", { className: "kpi-value", style: { color: livre >= 0 ? "var(--pos)" : (inc === 0 ? "var(--warn)" : "var(--neg)") } },
         (livre >= 0 ? "+" : "−") + fmtBRL(Math.abs(livre))),
       h("span", { className: "kpi-sub" },
@@ -170,7 +170,7 @@ const GeneralWidget = React.memo(function GeneralWidget({ cashflow, liquidityHis
     }
   }
 
-  return h("div", { className: "widget wg-3" },
+  return h("div", { className: "widget wg-4" },
     h("div", { className: "widget-h" },
       h("span", { className: "widget-title" }, "Visão Geral do Mês"),
       patDelta != null && h("span", { style: { marginLeft: "auto", display: "inline-flex", gap: 6, alignItems: "baseline" } },
@@ -227,7 +227,7 @@ const TimelineWidget = React.memo(function TimelineWidget({ monthly, monthSel, o
   const maxV = Math.max(...slots.map(s => s.data ? Math.max(s.data.income, s.data.expenses) : 0), 1);
   const sel = monthSel && monthly.find(x => x.year === monthSel.year && x.month === monthSel.month);
 
-  return h("div", { className: "widget wg-3" },
+  return h("div", { className: "widget wg-6" },
     h("div", { className: "widget-h" },
       h("span", { className: "widget-title" }, "Fluxo mês a mês"),
       h("button", { onClick: () => setCompare(c => !c), className: compare ? "filter-chip" : "filter-chip",
@@ -299,7 +299,7 @@ const AccountsWidget = React.memo(function AccountsWidget({ accounts, available,
   const total = available ? available.checking_total : checking.reduce((s, a) => s + (a.balance || 0), 0);
   const colorOf = a => (a.id || "").startsWith("nu") ? "var(--nubank)" : "var(--inter)";
 
-  return h("div", { className: "widget wg-2" },
+  return h("div", { className: "widget wg-4" },
     h("div", { className: "widget-h" },
       h("span", { className: "widget-title" }, "Contas"),
       h("span", { className: "mono", style: { marginLeft: "auto", fontSize: 12, fontWeight: 700, color: "var(--fg-0)" } }, fmtBRL(total))
@@ -350,14 +350,14 @@ const CategoriesWidget = React.memo(function CategoriesWidget({ monthTx, uncatCo
     return [...g.values()].sort((a, b) => b.total - a.total);
   }, [monthTx]);
 
-  return h("div", { className: "widget wg-2" },
+  return h("div", { className: "widget wg-7" },
     h("div", { className: "widget-h" },
       h("span", { className: "widget-title" }, "Categorias"),
       h("span", { className: "mono", style: { marginLeft: "auto", fontSize: 12, fontWeight: 700, color: "var(--neg)" } }, "−" + fmtBRL(totalExp))
     ),
     h("div", { className: "widget-body", style: { gap: 8 } },
       byCat.length === 0
-        ? h("div", { style: { color: "var(--fg-3)", fontSize: 11, textAlign: "center", padding: "20px 0" } }, "Nenhuma despesa no mês.")
+        ? h("div", { className: "px-empty" }, "Nenhuma despesa no mês.")
         : byCat.map((c) => h(CategoryRow, {
             key: c.id ?? "none", c, monthSel, onBudgetSaved,
             meta: c.id != null && catsIndex ? catsIndex.get(c.id) : null,
@@ -461,14 +461,14 @@ const FaturaWidget = React.memo(function FaturaWidget({ monthTx, filter, onToggl
     return { faturaItems: items, totalFatura: total, byBank: banks };
   }, [monthTx]);
 
-  return h("div", { className: "widget wg-2" },
+  return h("div", { className: "widget wg-7" },
     h("div", { className: "widget-h" },
       h("span", { className: "widget-title" }, "Fatura do Cartão"),
       h("span", { className: "mono", style: { marginLeft: "auto", fontSize: 12, fontWeight: 700, color: totalFatura > 0 ? "var(--neg)" : "var(--fg-0)" } }, (totalFatura >= 0 ? "−" : "+") + fmtBRL(Math.abs(totalFatura)))
     ),
     h("div", { className: "widget-body", style: { gap: 10 } },
       faturaItems.length === 0
-        ? h("div", { style: { color: "var(--fg-3)", fontSize: 11, textAlign: "center", padding: "20px 0" } }, "Nenhuma despesa no crédito neste mês.")
+        ? h("div", { className: "px-empty" }, "Nenhuma despesa no crédito neste mês.")
         : h(React.Fragment, null,
             h("div", { style: { display: "flex", gap: 3, height: 5, flexShrink: 0 } },
               Object.entries(byBank).map(([bank, amt]) => {
@@ -522,14 +522,14 @@ const InvestmentsWidget = React.memo(function InvestmentsWidget({ investments, e
     return out.sort((a, b) => b.balance - a.balance);
   }, [investments]);
 
-  return h("div", { className: "widget wg-2" },
+  return h("div", { className: "widget wg-7" },
     h("div", { className: "widget-h" },
       h("span", { className: "widget-title" }, "Investimentos"),
       h("span", { className: "mono", style: { marginLeft: "auto", fontSize: 12, fontWeight: 700, color: "var(--reserve)" } }, fmtBRL(total))
     ),
     h("div", { className: "widget-body", style: { gap: 0 } },
       investments.length === 0
-        ? h("div", { style: { color: "var(--fg-3)", fontSize: 11, textAlign: "center", padding: "20px 0" } }, "Nenhum investimento — importe um relatório B3.")
+        ? h("div", { className: "px-empty" }, "Nenhum investimento — importe um relatório B3.")
         : rows.map((r, i, arr) => h("div", {
             key: i,
             style: { display: "flex", flexDirection: "column", gap: 1, padding: "7px 0", borderBottom: i < arr.length - 1 ? "1px dashed var(--line-1)" : "none", flexShrink: 0 }
@@ -556,13 +556,13 @@ const ForwardWidget = React.memo(function ForwardWidget({ commitments }) {
   const series = (commitments && commitments.series) || [];
   const maxV = series.reduce((m, s) => Math.max(m, s.total), 0) || 1;
 
-  return h("div", { className: "widget wg-3" },
+  return h("div", { className: "widget wg-7" },
     h("div", { className: "widget-h" },
       h("span", { className: "widget-title" }, "Compromissos Futuros"),
     ),
     h("div", { className: "widget-body", style: { gap: 8, overflow: "hidden" } },
       series.length === 0
-        ? h("span", { style: { color: "var(--fg-2)", fontSize: 12 } }, "Nenhum compromisso futuro registrado.")
+        ? h("div", { className: "px-empty" }, "Nenhum compromisso futuro registrado.")
         : h("div", { style: { display: "flex", alignItems: "flex-end", gap: 8, height: 64 } },
             series.map(s => h("div", { key: s.month, style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 4 } },
               h(window.BS.ProjectedBar, { value: s.total, maxV }),
@@ -655,26 +655,26 @@ function DashboardView({ monthSel, monthly, onPickMonth, refreshKey, onEditCateg
     return last.year === monthSel.year && last.month === monthSel.month;
   }, [monthly, monthSel]);
 
-  if (loadErr) return h("div", { style: { margin: "48px auto", background: "color-mix(in oklch, var(--neg) 5%, transparent)", border: "1px solid color-mix(in oklch, var(--neg) 30%, transparent)", borderRadius: 12, padding: 24, display: "flex", flexDirection: "column", gap: 12, alignItems: "flex-start", maxWidth: 480 } },
+  if (loadErr) return h("div", { style: { margin: "48px auto", background: "var(--neg-bg)", border: "1px solid var(--neg)", padding: 24, display: "flex", flexDirection: "column", gap: 12, alignItems: "flex-start", maxWidth: 480 } },
     h("div", { style: { color: "var(--neg)", fontSize: 14, fontWeight: 700 } }, "Falha ao carregar os dados."),
     h("div", { style: { color: "var(--fg-2)", fontSize: 13 } }, "O servidor local não respondeu. Verifique se o BrokerShark está rodando."),
-    h("button", { className: "btn btn-ghost", style: { color: "var(--neg)", border: "1px solid color-mix(in oklch, var(--neg) 30%, transparent)", fontWeight: 600 }, onClick: () => setRetryTick(t => t + 1) }, "Tentar de novo"));
+    h("button", { className: "px-btn px-btn--danger", onClick: () => setRetryTick(t => t + 1) }, "Tentar de novo"));
 
   const isFirstRun = available && available.checking_total === 0 && monthly.length === 0;
   if (isFirstRun) return h("div", { style: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 40 } },
-    h("div", { className: "fade-in", style: { padding: "64px 40px", width: "100%", maxWidth: 640, display: "flex", flexDirection: "column", gap: 32, alignItems: "center", textAlign: "center", background: "linear-gradient(180deg, color-mix(in oklch, var(--accent) 3%, transparent), transparent 100%)", border: "1px solid color-mix(in oklch, var(--accent) 10%, transparent)", borderRadius: 24, boxShadow: "0 24px 48px oklch(0% 0 0 / 0.2), inset 0 1px 0 color-mix(in oklch, white 5%, transparent)" } },
-      h("div", { style: { display: "flex", justifyContent: "center", alignItems: "center", width: 88, height: 88, borderRadius: "50%", background: "linear-gradient(135deg, color-mix(in oklch, var(--info) 15%, transparent), color-mix(in oklch, var(--accent) 5%, transparent))", color: "var(--info)", marginBottom: 16, border: "1px solid color-mix(in oklch, var(--info) 20%, transparent)", boxShadow: "0 8px 32px color-mix(in oklch, var(--info) 10%, transparent)" } },
-        h("svg", { width: 44, height: 44, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round" },
+    h("div", { className: "fade-in", style: { padding: "56px 40px", width: "100%", maxWidth: 560, display: "flex", flexDirection: "column", gap: 24, alignItems: "center", textAlign: "center", background: "var(--bg-1)", border: "1px solid var(--line-1)" } },
+      h("div", { style: { display: "flex", justifyContent: "center", alignItems: "center", width: 64, height: 64, background: "var(--bg-2)", color: "var(--accent)", border: "1px solid var(--accent)" } },
+        h("svg", { width: 32, height: 32, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round" },
           h("path", { d: "M8 11 L8 2" }), h("path", { d: "M4 6 L8 2 L12 6" }), h("path", { d: "M2 14 L14 14" })
         )
       ),
-      h("h1", { style: { fontSize: 36, fontWeight: 800, color: "var(--fg-0)", letterSpacing: "-0.03em", margin: 0, lineHeight: 1.1, textShadow: "0 2px 8px oklch(0% 0 0 / 0.5)" } }, "Você no controle."),
-      h("p", { style: { fontSize: 16, color: "var(--fg-2)", lineHeight: 1.6, maxWidth: 440, margin: 0 } },
+      h("h1", { style: { fontFamily: "var(--ff-sans)", fontSize: 22, color: "var(--fg-0)", letterSpacing: "1px", textTransform: "uppercase", margin: 0, lineHeight: 1.3 } }, "Você no controle"),
+      h("p", { style: { fontSize: 14, color: "var(--fg-2)", lineHeight: 1.6, maxWidth: 420, margin: 0 } },
         "Importe seus extratos (.csv) ou relatórios da B3 (.xlsx) para começar a responder à pergunta que importa: ",
-        h("strong", { style: { color: "var(--fg-0)", fontWeight: 600 } }, "Quanto posso gastar agora?")
+        h("strong", { style: { color: "var(--fg-0)", fontWeight: 700 } }, "Quanto posso gastar agora?")
       ),
-      h("button", { className: "btn btn-primary", style: { cursor: "pointer", fontSize: 15, fontWeight: 700, height: 52, padding: "0 32px", borderRadius: 26, display: "flex", alignItems: "center", gap: 10, marginTop: 16, border: "none", background: "var(--accent)", color: "var(--bg-0)", boxShadow: "0 8px 24px color-mix(in oklch, var(--accent) 35%, transparent), inset 0 1px 0 color-mix(in oklch, white 20%, transparent)", transition: "transform 0.2s, box-shadow 0.2s" }, onClick: onImport, onMouseEnter: e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "0 12px 32px color-mix(in oklch, var(--accent) 45%, transparent), inset 0 1px 0 color-mix(in oklch, white 20%, transparent)"; }, onMouseLeave: e => { e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = "0 8px 24px color-mix(in oklch, var(--accent) 35%, transparent), inset 0 1px 0 color-mix(in oklch, white 20%, transparent)"; } },
-        h("svg", { width: 18, height: 18, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" },
+      h("button", { className: "px-btn px-btn--primary", style: { height: 34, marginTop: 8 }, onClick: onImport },
+        h("svg", { width: 16, height: 16, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" },
           h("path", { d: "M8 11 L8 2" }), h("path", { d: "M4 6 L8 2 L12 6" }), h("path", { d: "M2 14 L14 14" })
         ),
         "Importar meus arquivos"
@@ -692,10 +692,12 @@ function DashboardView({ monthSel, monthly, onPickMonth, refreshKey, onEditCateg
         h(GeneralWidget, { cashflow, liquidityHistory, monthly, monthSel, monthTx, uncatCount, backup }),
         h(TimelineWidget, { monthly, monthSel, onPickMonth }),
         h(AccountsWidget, { accounts, available, filter, onToggleFacet }),
-        h(FaturaWidget, { monthTx, filter, onToggleFacet }),
         h(CategoriesWidget, { monthTx, uncatCount, onOpenBulk: () => setBulkOpen(true), filter, onToggleFacet,
           catsIndex, monthSel, onBudgetSaved: reloadBudgets }),
         h(InvestmentsWidget, { investments, evolution }),
+      ),
+      h("div", { className: "widget-row widget-row--soft" },
+        h(FaturaWidget, { monthTx, filter, onToggleFacet }),
         h(ForwardWidget, { commitments }),
       ),
       h(window.BS.FilterBar, { filter, onRemove: (kind, value) => {

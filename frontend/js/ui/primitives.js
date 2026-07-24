@@ -378,8 +378,11 @@ function useToasts() {
   return { push, Toaster };
 }
 
-function Drawer({ open, onClose, children, width = 480, title }) {
-  const drawerRef = _useRef(null);
+// Overlay — camada de drill-down tela cheia sobre o dashboard (estado preservado
+// atrás). Difere do Modal: coluna full-height, não caixa centrada. Conteúdo é dono
+// do próprio header. Esc fecha, foco preso, corpo rola por dentro.
+function Overlay({ open, onClose, children, width = 760 }) {
+  const ref = _useRef(null);
 
   _useEffect(() => {
     if (open) document.body.style.overflow = "hidden";
@@ -388,10 +391,10 @@ function Drawer({ open, onClose, children, width = 480, title }) {
   }, [open]);
 
   _useEffect(() => {
-    if (!open || !drawerRef.current) return;
+    if (!open || !ref.current) return;
     const prev = document.activeElement;
     const sel  = 'button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])';
-    const get  = () => Array.from(drawerRef.current.querySelectorAll(sel));
+    const get  = () => Array.from(ref.current.querySelectorAll(sel));
     get()[0]?.focus();
 
     function trap(e) {
@@ -410,20 +413,14 @@ function Drawer({ open, onClose, children, width = 480, title }) {
   if (!open) return null;
   return React.createElement("div", {
     onClick: onClose, role: "presentation",
-    style: { position: "fixed", inset: 0, background: "oklch(0% 0 0 / 0.4)", backdropFilter: "blur(2px)", zIndex: 200, display: "flex", justifyContent: "flex-end" }
+    style: { position: "fixed", inset: 0, background: "oklch(0% 0 0 / 0.55)", zIndex: "var(--z-layer)", display: "flex", justifyContent: "center" }
   },
     React.createElement("div", {
-      ref: drawerRef,
-      onClick: e => e.stopPropagation(),
+      ref,
+      onClick: e => e.stopPropagation(), className: "fade-in",
       role: "dialog", "aria-modal": "true",
-      style: { width, maxWidth: "100%", height: "100%", background: "var(--bg-0)", boxShadow: "-8px 0 32px oklch(0% 0 0 / 0.2)", display: "flex", flexDirection: "column", animation: "slide-left 0.25s cubic-bezier(0.16, 1, 0.3, 1)" }
-    },
-      title && React.createElement("div", { style: { padding: "16px 24px", borderBottom: "1px solid var(--line-0)", display: "flex", justifyContent: "space-between", alignItems: "center" } },
-        React.createElement("span", { style: { fontWeight: 700, fontSize: 16 } }, title),
-        React.createElement("button", { onClick: onClose, className: "btn btn-ghost btn-sm", "aria-label": "Fechar" }, "✕")
-      ),
-      React.createElement("div", { style: { flex: 1, overflowY: "auto" } }, children)
-    )
+      style: { width, maxWidth: "100%", height: "100%", background: "var(--bg-0)", borderLeft: "1px solid var(--line-1)", borderRight: "1px solid var(--line-1)", display: "flex", flexDirection: "column" }
+    }, children)
   );
 }
 
@@ -613,7 +610,7 @@ Object.assign(window.BS, {
   fmtBRL, fmtBRLCompact, fmtDateBR, prettifyDesc,
   PT_MONTHS, PT_SHORT, fmtCycleDate,
   DualLine, Donut,
-  Modal, Drawer, useToasts, BankChip, SegmentControl,
+  Modal, Overlay, useToasts, BankChip, SegmentControl,
   BrokerSharkLogo, TxRow, FilterBar, Money,
   isSelf, isConsumptionExpense, isRevenue, isInvest, isThirdParty,
 });

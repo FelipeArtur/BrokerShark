@@ -52,33 +52,22 @@ function CategoriesPanel({ refreshKey, onRefresh, onClose }) {
 
   const otherCats = deleteModal ? cats.filter(c => c.id !== deleteModal.id) : cats;
 
+  const swatch = flow === 'expense' ? "var(--neg)" : "var(--pos)";
+
   return h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", height: "100%", background: "var(--bg-0)" } },
 
-    h("div", { style: { padding: "24px 32px", borderBottom: "1px solid var(--line-1)", background: "var(--bg-0)", flexShrink: 0, display: "flex", flexDirection: "column", gap: 16 } },
-      h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between" } },
-        h("div", { style: { display: "flex", alignItems: "center", gap: 12 } },
-          h("div", { style: { width: 32, height: 32, background: "var(--bg-2)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--fg-1)" } },
-            h("svg", { width: 16, height: 16, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round" },
-              h("line", { x1: 2, y1: 5, x2: 14, y2: 5 }), h("circle", { cx: 9.5, cy: 5, r: 1.7, fill: "currentColor", stroke: "none" }),
-              h("line", { x1: 2, y1: 11, x2: 14, y2: 11 }), h("circle", { cx: 5.5, cy: 11, r: 1.7, fill: "currentColor", stroke: "none" })
-            )
-          ),
-          h("h2", { style: { margin: 0, fontSize: 18, fontWeight: 700, letterSpacing: "-0.02em", color: "var(--fg-0)" } }, "Gerenciar Categorias")
-        ),
-        onClose && h("button", { className: "px-btn", onClick: onClose, title: "Fechar", "aria-label": "Fechar" }, "✕")
+    h("div", { style: { padding: "20px 28px", borderBottom: "1px solid var(--line-1)", flexShrink: 0, display: "flex", flexDirection: "column", gap: 16 } },
+      h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 } },
+        h("h2", { style: { margin: 0, fontFamily: "var(--ff-sans)", fontSize: 15, letterSpacing: "1px", textTransform: "uppercase", color: "var(--fg-0)" } }, "Categorias"),
+        onClose && h("button", { className: "px-btn px-btn--ghost px-btn--sm", onClick: onClose, title: "Fechar (Esc)", "aria-label": "Fechar" }, "✕")
       ),
       h(window.BS.SegmentControl, {
         options: [{ value: "expense", label: "Despesas" }, { value: "income", label: "Receitas" }],
         value: flow, onChange: setFlow, columns: 2,
-      })
-    ),
-
-    h("div", { style: { flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", padding: "24px 32px", gap: 24 } },
-
-      h("form", { onSubmit: handleAdd, className: "px-row" },
-        h("div", { className: "px-swatch", style: { background: flow === 'expense' ? "var(--neg)" : "var(--pos)" } }, "+"),
+      }),
+      h("form", { onSubmit: handleAdd, style: { display: "flex", gap: 8 } },
         h("input", {
-          className: "px-field", type: "text", placeholder: `Nova categoria de ${flow === 'expense' ? 'despesa' : 'receita'}...`, value: newName,
+          className: "px-field", type: "text", placeholder: `Nova categoria de ${flow === 'expense' ? 'despesa' : 'receita'}…`, value: newName,
           onChange: e => setNewName(e.target.value),
           style: { flex: 1 }
         }),
@@ -86,14 +75,15 @@ function CategoriesPanel({ refreshKey, onRefresh, onClose }) {
           className: "px-btn px-btn--primary", type: "submit", disabled: adding || !newName.trim(),
         }, adding ? "ADICIONANDO…" : "ADICIONAR")
       ),
+      err && h("div", { style: { color: "var(--neg)", fontSize: 12 } }, err)
+    ),
 
-      err && h("div", { style: { padding: "12px 16px", color: "var(--neg)", fontSize: 13, background: "color-mix(in oklch, var(--neg) 10%, transparent)", fontWeight: 500 } }, err),
-
+    h("div", { style: { flex: 1, overflowY: "auto" } },
       cats.length === 0
-        ? h("div", { className: "px-empty" }, "NENHUMA CATEGORIA CADASTRADA")
-        : h("div", { className: "px-list" },
-            cats.map((cat) => h("div", { className: "px-row", key: cat.id },
-              h("div", { className: "px-swatch", style: { background: flow === 'expense' ? "var(--neg)" : "var(--pos)" } }),
+        ? h("div", { className: "px-empty" }, "Nenhuma categoria cadastrada")
+        : h("div", { className: "px-list", style: { padding: "0 12px" } },
+            cats.map((cat) => h("div", { className: "cat-row", key: cat.id },
+              h("div", { className: "px-swatch", style: { background: swatch } }),
               editingId === cat.id
                 ? h("input", {
                     className: "px-field", autoFocus: true,
@@ -106,22 +96,24 @@ function CategoriesPanel({ refreshKey, onRefresh, onClose }) {
                     onBlur: () => commitRename(cat),
                     style: { flex: 1 }
                   })
-                : h("span", {
-                    style: { flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 600, color: "var(--fg-0)", fontSize: 15, cursor: "text" },
+                : h("button", {
+                    className: "cat-name",
                     onClick: () => { setEditingId(cat.id); setEditName(cat.name); },
                     title: "Clique para renomear"
                   }, cat.name),
-              h("button", {
-                className: "px-btn", title: "Renomear", "aria-label": "Renomear",
-                onClick: () => { setEditingId(cat.id); setEditName(cat.name); }
-              }, "✎"),
-              h("span", { className: "px-chip" },
+              h("span", { className: "cat-count" },
                 cat.transaction_count === 1 ? "1 lançamento" : `${cat.transaction_count} lançamentos`
               ),
-              h("button", {
-                className: "px-btn px-btn--danger", title: "Excluir", "aria-label": "Excluir",
-                onClick: () => { setDeleteModal(cat); setReassignTo(cat.transaction_count > 0 ? "" : "0"); setErr(""); }
-              }, "×")
+              editingId !== cat.id && h("div", { className: "cat-actions" },
+                h("button", {
+                  className: "px-btn px-btn--ghost px-btn--sm", title: "Renomear", "aria-label": "Renomear",
+                  onClick: () => { setEditingId(cat.id); setEditName(cat.name); }
+                }, "✎"),
+                h("button", {
+                  className: "px-btn px-btn--ghost px-btn--sm cat-del", title: "Excluir", "aria-label": "Excluir",
+                  onClick: () => { setDeleteModal(cat); setReassignTo(cat.transaction_count > 0 ? "" : "0"); setErr(""); }
+                }, "×")
+              )
             ))
           )
     ),

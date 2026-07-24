@@ -148,11 +148,11 @@ function CategoryEditor({ tx, onClose, onSave }) {
 
       h("div", { style: { display: "flex", gap: 8, justifyContent: "space-between", alignItems: "center", paddingTop: 4 } },
         h("button", {
-          className: "btn btn-ghost btn-sm",
+          className: "px-btn px-btn--ghost px-btn--sm",
           onClick: handleDelete, disabled: deleting,
           style: { color: "var(--neg)", fontWeight: 600, marginLeft: -8 }
         }, deleting ? "Excluindo…" : "Excluir"),
-        h("button", { className: "btn btn-primary", onClick: save, disabled: saving, style: { padding: "0 20px", height: 32 } },
+        h("button", { className: "px-btn px-btn--primary", onClick: save, disabled: saving },
           saving ? "Salvando…" : "Salvar")
       )
     )

@@ -40,11 +40,11 @@ function ConfirmDeleteModal({ tx, onCancel, onConfirm }) {
       }, h("span", null, "ⓘ"), h("span", null, w))),
       h("div", { style: { fontSize: 12, color: "var(--fg-2)", marginBottom: 14 } }, "Esta ação não pode ser desfeita."),
       h("div", { style: { display: "flex", justifyContent: "flex-end", gap: 8 } },
-        h("button", { className: "btn btn-ghost btn-sm", onClick: onCancel, autoFocus: true }, "Cancelar"),
+        h("button", { className: "px-btn px-btn--ghost px-btn--sm", onClick: onCancel, autoFocus: true }, "Cancelar"),
         h("button", {
-          className: "btn btn-sm",
+          className: "px-btn px-btn--danger px-btn--sm",
           onClick: onConfirm,
-          style: { background: "var(--neg)", color: "var(--fg-0)", border: "1px solid var(--neg)", minWidth: 90 }
+          style: { minWidth: 90 }
         }, "Excluir")
       )
     )
@@ -155,10 +155,10 @@ function App() {
       h(BrokerSharkLogo, { size: 24 }),
       h(MonthNav, { monthly, monthSel, onPick: setMonthSel }),
       h("div", { style: { flex: 1 } }),
-      h("button", { className: "btn btn-primary", style: { height: 30, padding: "0 12px", gap: 6 }, onClick: () => setImportOpen(true) },
+      h("button", { className: "px-btn px-btn--primary", onClick: () => setImportOpen(true) },
         h(window.BS.IconImport, { size: 14 }), "Importar"
       ),
-      h("button", { className: "btn btn-ghost", style: { height: 30, padding: "0 12px", gap: 6 }, onClick: () => setCategoriesOpen(true) },
+      h("button", { className: "px-btn px-btn--ghost", onClick: () => setCategoriesOpen(true) },
         h(window.BS.IconSettings, { size: 14 }), "Categorias"
       ),
     ),
@@ -197,8 +197,8 @@ function App() {
         setRefreshKey(k => k + 1);
       },
     }),
-    categoriesOpen && h(window.BS.Drawer, {
-      open: categoriesOpen, onClose: () => setCategoriesOpen(false), width: 680
+    categoriesOpen && h(window.BS.Overlay, {
+      open: categoriesOpen, onClose: () => setCategoriesOpen(false), width: 720
     }, h(window.BS.CategoriesPanel, { refreshKey, onRefresh: () => setRefreshKey(k => k + 1), onClose: () => setCategoriesOpen(false) })),
 
     h(window.BS.CategoryEditor, {

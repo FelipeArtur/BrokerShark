@@ -2,14 +2,13 @@ html, body { background: var(--bg-0); }
 
 img, .bs-mascot { image-rendering: pixelated; }
 
-.widget, .kpi-strip, .modal, .drawer, .table-widget {
-  border: 3px solid var(--line-1) !important;
-  border-radius: 0 !important;
-  box-shadow: 4px 4px 0 #05060d !important;
+.widget, .kpi-strip, .modal, .table-widget {
+  border: 1px solid var(--line-1) !important;
+  box-shadow: none !important;
 }
 .widget:not(.table-widget):hover {
-  transform: translate(-1px, -1px);
-  box-shadow: 6px 6px 0 #05060d !important;
+  transform: none;
+  border-color: var(--line-2) !important;
 }
 
 .widget-title, .kpi-label, .label {
@@ -19,7 +18,7 @@ img, .bs-mascot { image-rendering: pixelated; }
 
 #app::after {
   content: "";
-  position: fixed; inset: 0; z-index: 9999; pointer-events: none;
+  position: fixed; inset: 0; z-index: var(--z-scanline); pointer-events: none;
   background: repeating-linear-gradient(0deg, rgba(0,0,0,0.05) 0 1px, transparent 1px 4px);
 }
 
@@ -39,7 +38,7 @@ img, .bs-mascot { image-rendering: pixelated; }
 .bs-shake { animation: bs-shake 200ms steps(2) 2; }
 
 .bs-coin {
-  position: fixed; z-index: 10000; pointer-events: none;
+  position: fixed; z-index: var(--z-toast); pointer-events: none;
   font-family: var(--ff-mono); font-weight: 700; color: var(--warn);
   animation: bs-coin 600ms steps(6) forwards;
 }
@@ -50,9 +49,9 @@ img, .bs-mascot { image-rendering: pixelated; }
 
 .filter-bar { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 10px; align-items: center; flex-shrink: 0; }
 .filter-chip {
-  font-family: var(--ff-sans); font-size: 9px; letter-spacing: 1px;
+  font-family: var(--ff-mono); font-size: var(--fz-8); letter-spacing: 0;
   color: var(--accent-fg); background: var(--accent);
-  border: 2px solid var(--line-1); padding: 3px 7px; cursor: pointer; display: inline-flex; gap: 5px; align-items: center;
+  border: 1px solid var(--line-1); padding: 3px 7px; cursor: pointer; display: inline-flex; gap: 5px; align-items: center;
 }
 .filter-chip-x { font-weight: 700; }
 .filter-chip-clear { background: var(--neg); color: var(--bg-0); }
