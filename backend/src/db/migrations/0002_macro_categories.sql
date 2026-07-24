@@ -29,8 +29,10 @@ SELECT 'Igreja/Dízimo', 'expense' WHERE NOT EXISTS
 UPDATE transactions SET category_id = (SELECT id FROM categories WHERE name='Transporte' AND flow='expense')
   WHERE category_id IN (SELECT id FROM categories WHERE flow='expense' AND name='Carro');
 
+-- 'Saúde' é categoria criada pelo usuário (não do seed) — mapeia explícito pro
+-- macro certo, senão o catch-all abaixo a jogaria em Compromissos por engano.
 UPDATE transactions SET category_id = (SELECT id FROM categories WHERE name='Saúde e Bem-Estar' AND flow='expense')
-  WHERE category_id IN (SELECT id FROM categories WHERE flow='expense' AND name='Atividade física');
+  WHERE category_id IN (SELECT id FROM categories WHERE flow='expense' AND name IN ('Atividade física','Saúde'));
 
 UPDATE transactions SET category_id = (SELECT id FROM categories WHERE name='Compras e Lazer' AND flow='expense')
   WHERE category_id IN (SELECT id FROM categories WHERE flow='expense' AND name IN ('Jogos','Lazer','Eletrônicos','Educação'));
@@ -38,8 +40,9 @@ UPDATE transactions SET category_id = (SELECT id FROM categories WHERE name='Com
 UPDATE transactions SET category_id = (SELECT id FROM categories WHERE name='Igreja/Dízimo' AND flow='expense')
   WHERE category_id IN (SELECT id FROM categories WHERE flow='expense' AND name IN ('Igreja','Dízimo'));
 
+-- 'Pagamentos' é categoria criada pelo usuário — decisão do usuário: → Compromissos.
 UPDATE transactions SET category_id = (SELECT id FROM categories WHERE name='Compromissos e Transferências' AND flow='expense')
-  WHERE category_id IN (SELECT id FROM categories WHERE flow='expense' AND name IN ('Eventos / Terceiros','Outro'));
+  WHERE category_id IN (SELECT id FROM categories WHERE flow='expense' AND name IN ('Eventos / Terceiros','Outro','Pagamentos'));
 
 -- catch-all: qualquer categoria de despesa não-macro que ainda carregue lançamentos
 UPDATE transactions SET category_id = (SELECT id FROM categories WHERE name='Compromissos e Transferências' AND flow='expense')

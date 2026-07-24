@@ -47,6 +47,25 @@ test("migration 0002: old expense cats collapse into the 6 macro, transactions r
   assert.equal((db.prepare("SELECT COUNT(*) n FROM categories WHERE flow='income'").get() as any).n, 1);
 });
 
+test("migration 0002 maps user-created categories (Saúde, Pagamentos) explicitly", () => {
+  const db = freshDb();
+  const cat = db.prepare("INSERT INTO categories (name, flow) VALUES (?, ?)");
+  for (const n of ["Alimentação", "Saúde", "Pagamentos", "Saúdea"]) cat.run(n, "expense");
+  const idOf = (n: string) => (db.prepare("SELECT id FROM categories WHERE name=?").get(n) as any).id;
+  const tx = db.prepare("INSERT INTO transactions (flow, category_id) VALUES ('expense', ?)");
+  tx.run(idOf("Saúde"));       // → Saúde e Bem-Estar (not the catch-all Compromissos)
+  tx.run(idOf("Pagamentos"));  // → Compromissos e Transferências (user decision)
+
+  db.exec(MIGRATION);
+
+  const catOfTx = (i: number) => (db.prepare("SELECT name FROM categories WHERE id=(SELECT category_id FROM transactions WHERE id=?)").get(i) as any).name;
+  assert.equal(catOfTx(1), "Saúde e Bem-Estar");
+  assert.equal(catOfTx(2), "Compromissos e Transferências");
+  // 'Saúdea' (empty, no txns) is dropped by the catch-all delete
+  const names = (db.prepare("SELECT name FROM categories WHERE flow='expense' ORDER BY name").all() as any[]).map(r => r.name);
+  assert.deepEqual(names, ["Alimentação", "Compras e Lazer", "Compromissos e Transferências", "Igreja/Dízimo", "Saúde e Bem-Estar", "Transporte"]);
+});
+
 test("migration 0002 is a no-op on a fresh DB that already has only the 6 macro", () => {
   const db = freshDb();
   const cat = db.prepare("INSERT INTO categories (name, flow) VALUES (?, 'expense')");
