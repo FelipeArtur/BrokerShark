@@ -27,9 +27,10 @@ test("e2e: fatura aberta vencendo este mês + parcela → net abatido e projeç�
   const db = freshDb();
   const now = new Date();
   const dd = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-15`;
+  const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   const inv = Number(db.prepare(
-    "INSERT INTO invoices (account_id, ref_month, due_date, total_cents, source_file) VALUES ('inter-cc','2026-07',?,20000,'ui')",
-  ).run(dd).lastInsertRowid);
+    "INSERT INTO invoices (account_id, ref_month, due_date, total_cents, source_file) VALUES ('inter-cc',?,?,20000,'ui')",
+  ).run(ym, dd).lastInsertRowid);
   db.prepare(`INSERT INTO transactions
     (date, flow, method, account_id, amount_cents, description, invoice_id, installment_seq, installment_total, import_batch_id)
     VALUES ('2026-07-10','expense','credit','inter-cc',5000,'Steam',?,1,3,'sess-1')`).run(inv);
