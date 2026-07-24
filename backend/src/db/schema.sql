@@ -1,6 +1,3 @@
--- BrokerShark v2 schema — dinheiro em CENTAVOS INTEIROS, sempre.
--- Fonte única de DDL. Drizzle entra na fase do servidor via drizzle-kit pull.
-
 CREATE TABLE IF NOT EXISTS migration_log (
     name    TEXT PRIMARY KEY,
     ran_at  TEXT NOT NULL
@@ -20,10 +17,6 @@ CREATE TABLE IF NOT EXISTS categories (
     flow  TEXT NOT NULL CHECK (flow IN ('expense', 'income'))
 );
 
--- Alvo de gasto por categoria. ref_month='' é o alvo fixo (vale todo mês);
--- ref_month='YYYY-MM' sobrescreve só aquele mês. Resolução: override ?? fixo ?? nenhum.
--- '' em vez de NULL de propósito: NULLs são distintos num índice UNIQUE do SQLite,
--- então PK com NULL deixaria cadastrar dois alvos fixos pra mesma categoria.
 CREATE TABLE IF NOT EXISTS category_budgets (
     category_id  INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
     ref_month    TEXT NOT NULL DEFAULT '',
@@ -34,38 +27,38 @@ CREATE TABLE IF NOT EXISTS category_budgets (
 CREATE TABLE IF NOT EXISTS invoices (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     account_id    TEXT NOT NULL REFERENCES accounts(id),
-    ref_month     TEXT NOT NULL,            -- 'YYYY-MM' (mês da fatura, do nome do arquivo)
-    total_cents   INTEGER NOT NULL,         -- soma assinada dos itens
-    payment_tx_id INTEGER,                  -- perna de pagamento casada no extrato
+    ref_month     TEXT NOT NULL,
+    total_cents   INTEGER NOT NULL,
+    payment_tx_id INTEGER,
     source_file   TEXT,
     UNIQUE (account_id, ref_month)
 );
 
 CREATE TABLE IF NOT EXISTS investments (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    name          TEXT NOT NULL,            -- display, editável
-    match_key     TEXT UNIQUE,              -- ISIN (tesouro) | Código (RF) | ticker (ações/BDR)
+    name          TEXT NOT NULL,
+    match_key     TEXT UNIQUE,
     code          TEXT,
-    type          TEXT NOT NULL,            -- tesouro|cdb|rdb|lci|acao|bdr|fundo|outro
+    type          TEXT NOT NULL,
     bank          TEXT NOT NULL,
-    indexer       TEXT,                     -- selic|ipca|prefixado|cdi
+    indexer       TEXT,
     rate_text     TEXT,
-    maturity_date TEXT,                     -- ISO
-    group_name    TEXT,                     -- agrupador visual ("Porquinho")
+    maturity_date TEXT,
+    group_name    TEXT,
     source        TEXT NOT NULL CHECK (source IN ('b3', 'ledger', 'manual')),
     opened_at     TEXT,
-    closed_at     TEXT                      -- soft-close; nunca DELETE
+    closed_at     TEXT
 );
 
 CREATE TABLE IF NOT EXISTS position_snapshots (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     investment_id   INTEGER NOT NULL REFERENCES investments(id),
-    ref_date        TEXT NOT NULL,          -- data de referência DO RELATÓRIO
+    ref_date        TEXT NOT NULL,
     quantity        REAL,
     unit_price_cents INTEGER,
-    applied_cents   INTEGER,                -- Valor Aplicado (custo) — aba Tesouro
+    applied_cents   INTEGER,
     gross_cents     INTEGER,
-    net_cents       INTEGER NOT NULL,       -- saldo oficial da posição
+    net_cents       INTEGER NOT NULL,
     source          TEXT NOT NULL CHECK (source IN ('b3', 'derived', 'manual')),
     import_batch_id TEXT,
     UNIQUE (investment_id, ref_date, source)
@@ -73,7 +66,7 @@ CREATE TABLE IF NOT EXISTS position_snapshots (
 
 CREATE TABLE IF NOT EXISTS transactions (
     id                    INTEGER PRIMARY KEY AUTOINCREMENT,
-    date                  TEXT NOT NULL,     -- ISO YYYY-MM-DD
+    date                  TEXT NOT NULL,
     flow                  TEXT NOT NULL CHECK (flow IN ('expense', 'income')),
     method                TEXT NOT NULL CHECK (method IN
         ('pix', 'credit', 'ted', 'transfer', 'debit',
@@ -83,20 +76,20 @@ CREATE TABLE IF NOT EXISTS transactions (
     description           TEXT NOT NULL,
     category_id           INTEGER REFERENCES categories(id),
     dest_account_id       TEXT REFERENCES accounts(id),
-    counterpart           TEXT,              -- 'SELF' = transferência entre contas próprias
+    counterpart           TEXT,
     is_revenue            INTEGER NOT NULL DEFAULT 0,
-    is_settlement         INTEGER NOT NULL DEFAULT 0, -- 1 = liquidação de fatura (fora dos totais)
+    is_settlement         INTEGER NOT NULL DEFAULT 0,
     is_third_party        INTEGER NOT NULL DEFAULT 0,
-    external_id           TEXT,              -- UUID Nubank (dedup)
+    external_id           TEXT,
     display_name          TEXT,
     original_amount_cents INTEGER,
     import_batch_id       TEXT,
-    investment_id         INTEGER REFERENCES investments(id), -- perna ligada à posição
-    invoice_id            INTEGER REFERENCES invoices(id),    -- item ou pagamento de fatura
+    investment_id         INTEGER REFERENCES investments(id),
+    invoice_id            INTEGER REFERENCES invoices(id),
     installment_seq       INTEGER,
     installment_total     INTEGER,
-    bank_category         TEXT,              -- categoria dada pelo banco (fatura Inter)
-    self_pair_tx_id       INTEGER,           -- perna oposta do pareamento SELF
+    bank_category         TEXT,
+    self_pair_tx_id       INTEGER,
     source_file           TEXT
 );
 
@@ -111,10 +104,10 @@ CREATE INDEX IF NOT EXISTS idx_snap_inv_date      ON position_snapshots(investme
 
 CREATE TABLE IF NOT EXISTS rules (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    matcher     TEXT NOT NULL,               -- substring (lowercase) por enquanto
+    matcher     TEXT NOT NULL,
     match_field TEXT NOT NULL DEFAULT 'description',
-    action      TEXT NOT NULL,               -- 'investment_leg'|'category'|'group'|'settlement'
-    value       TEXT,                        -- alvo da ação (nome/id)
+    action      TEXT NOT NULL,
+    value       TEXT,
     priority    INTEGER NOT NULL DEFAULT 100,
     enabled     INTEGER NOT NULL DEFAULT 1
 );

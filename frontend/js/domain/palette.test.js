@@ -28,9 +28,7 @@ test("swatchColor devolve um oklch() da paleta", () => {
 });
 
 test("swatchColor cobre a paleta inteira e nunca sai dela", () => {
-  // 200 nomes sintéticos: se a quantização estiver sã, os 8 matizes aparecem.
-  // A versão fraca deste teste só exigia size > 1 — uma quantização quebrada
-  // que colapsasse tudo em 2 cores passaria.
+
   const nomes = Array.from({ length: 200 }, (_, i) => `comerciante ${i}`);
   const cores = new Set(nomes.map(P.swatchColor));
   const daPaleta = new Set(P.HUES.map(hue => `oklch(75% 0.14 ${hue})`));

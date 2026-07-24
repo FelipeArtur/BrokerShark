@@ -1,19 +1,3 @@
-/**
- * @file csv.ts
- * @brief Parser CSV genérico (RFC-4180 mínimo) usado por todos os parsers de extrato.
- */
-
-/**
- * @brief Fatiar um texto CSV em linhas de campos.
- *
- * Parser CSV RFC-4180 mínimo (aspas, delimitador configurável, BOM). Sem deps.
- *
- * Trata aspas duplas escapadas (""), CRLF/LF e descarta linhas totalmente vazias.
- *
- * @param text conteúdo do arquivo; um BOM inicial é removido
- * @param delimiter separador de campo ("," no Nubank, ";" no Inter)
- * @return matriz linha × campo, com os campos já sem as aspas de citação
- */
 export function parseCsv(text: string, delimiter = ","): string[][] {
   if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
   const rows: string[][] = [];

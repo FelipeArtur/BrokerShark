@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """BrokerShark — janela desktop (WebKitGTK) dona do ciclo de vida do server.
 
 Abre → porta livre → sobe `node src/server.ts --port N` → espera 200 → carrega no
@@ -17,7 +16,6 @@ from pathlib import Path
 
 BACKEND = Path(__file__).resolve().parent.parent / "backend"
 
-
 def free_port() -> int:
     s = socket.socket()
     s.bind(("127.0.0.1", 0))
@@ -25,12 +23,10 @@ def free_port() -> int:
     s.close()
     return port
 
-
 def start_server(port: int) -> subprocess.Popen:
     return subprocess.Popen(
         ["node", "src/server.ts", "--port", str(port)], cwd=str(BACKEND)
     )
-
 
 def wait_ready(port: int, timeout: float = 15.0) -> bool:
     url = f"http://127.0.0.1:{port}/"
@@ -44,16 +40,14 @@ def wait_ready(port: int, timeout: float = 15.0) -> bool:
             time.sleep(0.25)
     return False
 
-
 def stop_server(proc: subprocess.Popen) -> None:
     if proc.poll() is not None:
         return
-    proc.terminate()  # SIGTERM
+    proc.terminate()
     try:
         proc.wait(timeout=5)
     except subprocess.TimeoutExpired:
-        proc.kill()  # SIGKILL
-
+        proc.kill()
 
 def run_check() -> int:
     port = free_port()
@@ -64,7 +58,6 @@ def run_check() -> int:
         return 0 if ok else 1
     finally:
         stop_server(proc)
-
 
 def run_gui() -> int:
     import gi
@@ -98,12 +91,10 @@ def run_gui() -> int:
     Gtk.main()
     return 0
 
-
 def main() -> int:
     if "--check" in sys.argv[1:]:
         return run_check()
     return run_gui()
-
 
 if __name__ == "__main__":
     sys.exit(main())

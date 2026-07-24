@@ -1,13 +1,7 @@
-/* pixel.css — structural pixel-art layer (borders, CRT, dither, animations).
-   Palette comes from style.css tokens. Pixel is the only theme. */
-
 html, body { background: var(--bg-0); }
-/* Only raster art should be nearest-neighbor scaled — never DOM/text (that read blurry). */
+
 img, .bs-mascot { image-rendering: pixelated; }
 
-/* Panels: hard black border + stepped drop shadow (Balatro feel).
-   The KPI strip is framed as ONE panel (not per-cell) so it reads as a single
-   elevated bar with strong contrast against the page, not four busy cards. */
 .widget, .kpi-strip, .modal, .drawer, .table-widget {
   border: 3px solid var(--line-1) !important;
   border-radius: 0 !important;
@@ -18,29 +12,23 @@ img, .bs-mascot { image-rendering: pixelated; }
   box-shadow: 6px 6px 0 #05060d !important;
 }
 
-/* Uppercase pixel labels */
 .widget-title, .kpi-label, .label {
   font-family: var(--ff-sans);
   letter-spacing: 1px;
 }
 
-/* Scanline overlay — whole viewport, non-interactive. Very faint and WITHOUT
-   multiply blend, so it doesn't haze text/colors (that made the UI look blurry). */
 #app::after {
   content: "";
   position: fixed; inset: 0; z-index: 9999; pointer-events: none;
   background: repeating-linear-gradient(0deg, rgba(0,0,0,0.05) 0 1px, transparent 1px 4px);
 }
 
-/* Dither fills for bars */
 .dither-pos { background: repeating-linear-gradient(45deg, var(--pos) 0 3px, #5cbf6e 3px 6px) !important; }
 .dither-neg { background: repeating-linear-gradient(45deg, var(--neg) 0 3px, #d8455a 3px 6px) !important; }
 .dither-warn { background: repeating-linear-gradient(45deg, var(--warn) 0 4px, #e0a93f 4px 8px) !important; }
 
-/* Filter chips */
 .facet-active { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-/* Keyframes */
 @keyframes bs-boot { 0% { opacity: 0; transform: scaleY(0.002); filter: brightness(3); } 40% { opacity: 1; transform: scaleY(1); } 100% { filter: none; } }
 @keyframes bs-coin { 0% { transform: translateY(0) scale(1); opacity: 1; } 100% { transform: translateY(-24px) scale(0.6); opacity: 0; } }
 @keyframes bs-pop { 0% { transform: scale(1); } 50% { transform: scale(1.12); } 100% { transform: scale(1); } }
@@ -60,7 +48,6 @@ img, .bs-mascot { image-rendering: pixelated; }
   .bs-boot, .bs-pop, .bs-shake, .bs-coin { animation: none !important; }
 }
 
-/* Faceted filter bar (chips above the tx table) */
 .filter-bar { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 10px; align-items: center; flex-shrink: 0; }
 .filter-chip {
   font-family: var(--ff-sans); font-size: 9px; letter-spacing: 1px;

@@ -1,16 +1,3 @@
-/**
- * @file transactions.ts
- * @brief Rotas de transação: leituras filtradas, busca, edição, undo e lançamento manual.
- *
- * transactions.ts — CRUD + busca de transações.
- *
- * Leituras: /api/transactions (filtros), /api/month-transactions (mês + sugestão
- * de categoria por rules), /api/search. Escritas: PATCH/DELETE/:id, restore
- * (undo), categorize-bulk, POST transactions|incomes (lançamento manual).
- *
- * FRONTEIRA DE UNIDADE: o ledger guarda centavos inteiros; o JSON fala REAIS
- * (`amount`) — conversão concentrada em txToJson e nos handlers de escrita.
- */
 import type { DatabaseSync } from "node:sqlite";
 import type { Req, Res } from "../http/respond.ts";
 import { json, error, readBody, qsStr, qsInt } from "../http/respond.ts";
@@ -26,15 +13,6 @@ const TX_SELECT = `
   LEFT JOIN categories c ON c.id = t.category_id
 `;
 
-/**
- * @brief Converter uma row de transação do DB no JSON do frontend.
- *
- * Row do DB → JSON do frontend (centavos → reais; alias v1 `category`).
- *
- * @param r row de transactions + `category_name` do JOIN
- * @return objeto do contrato da API: `amount` e `original_amount` em REAIS (o resto
- *         dos campos vai cru), com `category` duplicando `category_name` (alias v1)
- */
 function txToJson(r: any): Record<string, unknown> {
   return {
     id: r.id,
@@ -66,34 +44,14 @@ function txToJson(r: any): Record<string, unknown> {
   };
 }
 
-/**
- * @brief Montar as rotas de transação ligadas a esta conexão.
- * @param db conexão do DB
- * @return rotas de leitura, busca, edição, undo, lote e lançamento manual
- */
 export function transactionRoutes(db: DatabaseSync): Route[] {
-  /**
-   * @brief Checar se a categoria existe (validação de FK antes do write).
-   * @param id id candidato, vindo do body
-   * @return true se for id inteiro válido e existir em categories
-   */
+
   const categoryExists = (id: unknown): boolean =>
     isIntId(id) && db.prepare("SELECT 1 FROM categories WHERE id = ?").get(id) !== undefined;
-  /**
-   * @brief Checar se a conta existe (validação de FK antes do write).
-   * @param id id candidato, vindo do body
-   * @return true se for string e existir em accounts
-   */
+
   const accountExists = (id: unknown): boolean =>
     typeof id === "string" && db.prepare("SELECT 1 FROM accounts WHERE id = ?").get(id) !== undefined;
 
-  // ── GET /api/transactions?account=&month=&year=&limit= ────────────────
-  /**
-   * @brief Listar transações com filtros de conta e mês.
-   * @param req requisição; query `account`, `month`+`year` (só valem juntos) e
-   *            `limit` (default 200, teto 1000)
-   * @param res resposta; lista em txToJson, mais recentes primeiro
-   */
   function getTransactions(req: Req, res: Res) {
     const accountId = qsStr(req, "account");
     const limit = Math.min(qsInt(req, "limit") ?? 200, 1000);
@@ -114,18 +72,6 @@ export function transactionRoutes(db: DatabaseSync): Route[] {
     json(res, rows.map(txToJson));
   }
 
-  // ── GET /api/month-transactions?month=&year= ──────────────────────────
-  // Lançamentos do mês; linhas sem categoria ganham sugestão via rules
-  // (menor priority vence — matching em JS, o SQL não ordenaria por grupo).
-  /**
-   * @brief Listar os lançamentos do mês, sugerindo categoria para os sem categoria.
-   *
-   * A sugestão é só uma DICA (`suggested_category_id`) — não grava nada; quem
-   * categoriza é o usuário via PATCH ou categorize-bulk.
-   *
-   * @param req requisição; query `month`/`year` (default = mês corrente)
-   * @param res resposta; lista em txToJson, mais recentes primeiro
-   */
   function getMonthTransactions(req: Req, res: Res) {
     const { month: cm, year: cy } = currentMonth();
     const month = qsInt(req, "month") ?? cm;
@@ -157,12 +103,6 @@ export function transactionRoutes(db: DatabaseSync): Route[] {
     }));
   }
 
-  // ── GET /api/search?q= ────────────────────────────────────────────────
-  /**
-   * @brief Buscar transações por descrição, apelido ou nome de categoria.
-   * @param req requisição; query `q` (vazia → lista vazia, sem varrer o DB)
-   * @param res resposta; até 200 resultados em txToJson, mais recentes primeiro
-   */
   function searchTransactions(req: Req, res: Res) {
     const q = qsStr(req, "q");
     if (!q) return json(res, []);
@@ -176,19 +116,6 @@ export function transactionRoutes(db: DatabaseSync): Route[] {
     json(res, rows.map(txToJson));
   }
 
-  // ── PATCH /api/transactions/:id — campos editáveis pela UI ────────────
-  /**
-   * @brief Editar os campos que a UI pode mudar numa transação.
-   *
-   * Whitelist deliberada: só `category_id`, `display_name` e `is_third_party`. Valor,
-   * data, conta e flow vêm do extrato do banco e não se editam por aqui — o ledger
-   * espelha o banco; o que a UI adiciona é overlay (rotulagem).
-   *
-   * @param req requisição; param `:id`, body com um ou mais campos da whitelist
-   * @param res resposta; 400 em campo inválido ou body sem campo conhecido,
-   *            404 se a transação não existir
-   * @throws HttpError 400/413 vindos de readBody
-   */
   async function patchTransaction(req: Req, res: Res) {
     const id = Number(req.params!.id);
     if (!isIntId(id)) return error(res, "id inválido");
@@ -220,18 +147,6 @@ export function transactionRoutes(db: DatabaseSync): Route[] {
     json(res, { ok: true });
   }
 
-  // ── DELETE /api/transactions/:id — apaga o par SELF junto; retorna undo ─
-  /**
-   * @brief Apagar uma transação (e a perna SELF pareada), devolvendo o undo.
-   *
-   * As duas pernas de um par SELF caem juntas: deixar a órfã quebraria o
-   * cruzamento `self_pair_tx_id` e a perna restante voltaria a contar como
-   * gasto/receita real.
-   *
-   * @param req requisição; param `:id`
-   * @param res resposta; `restore` traz as rows apagadas inteiras, prontas para
-   *            /api/transactions/restore; 404 se a transação não existir
-   */
   async function deleteTransaction(req: Req, res: Res) {
     const id = Number(req.params!.id);
     if (!isIntId(id)) return error(res, "id inválido");
@@ -250,17 +165,6 @@ export function transactionRoutes(db: DatabaseSync): Route[] {
     json(res, { ok: true, deleted: deleted.length, restore: deleted });
   }
 
-  // ── POST /api/transactions/restore — desfaz um delete (INSERT OR REPLACE) ─
-  /**
-   * @brief Restaurar transações apagadas (o undo do delete).
-   *
-   * Reinsere com o id ORIGINAL, o que refaz o par SELF: `self_pair_tx_id` das duas
-   * pernas volta a apontar certo.
-   *
-   * @param req requisição; body `{ restore: [...] }` — as rows devolvidas pelo DELETE
-   * @param res resposta; 400 se `restore` não for lista não-vazia
-   * @throws HttpError 400/413 vindos de readBody
-   */
   async function restoreTransactions(req: Req, res: Res) {
     const body = await readBody<{ restore: any[] }>(req);
     if (!Array.isArray(body.restore) || !body.restore.length) return error(res, "nada para restaurar");
@@ -280,13 +184,6 @@ export function transactionRoutes(db: DatabaseSync): Route[] {
     json(res, { ok: true, restored: body.restore.length });
   }
 
-  // ── POST /api/transactions/categorize-bulk ────────────────────────────
-  /**
-   * @brief Aplicar uma categoria a várias transações de uma vez.
-   * @param req requisição; body `{ ids, category_id }` (até 10.000 ids)
-   * @param res resposta; 400 em ids inválidos ou categoria inexistente
-   * @throws HttpError 400/413 vindos de readBody
-   */
   async function categorizeBulk(req: Req, res: Res) {
     const body = await readBody<{ ids: unknown; category_id: unknown }>(req);
     if (!isIntIdArray(body.ids)) return error(res, "ids inválidos");
@@ -299,32 +196,8 @@ export function transactionRoutes(db: DatabaseSync): Route[] {
     json(res, { ok: true, updated: body.ids.length });
   }
 
-  // ── POST /api/transactions | /api/incomes — lançamento manual ─────────
-  /**
-   * @brief Criar o handler de lançamento manual de um flow (despesa ou receita).
-   *
-   * Uma fábrica para as duas rotas: `POST /api/transactions` (expense) e
-   * `POST /api/incomes` (income). O flow vem daqui, nunca do body — assim o
-   * endpoint não pode ser usado para lançar o flow oposto.
-   *
-   * @param flow flow fixo das transações criadas por este handler
-   * @return handler que valida o body e insere a transação
-   */
   function createManual(flow: "expense" | "income") {
-    /**
-     * @brief Validar e inserir um lançamento manual.
-     *
-     * Lançamento manual nasce sempre `is_settlement=0`: liquidação é derivada da
-     * reconciliação de fatura, não declarada à mão. `is_revenue` só é 0 numa receita
-     * quando o cliente pede explicitamente (movimento que não é receita real).
-     *
-     * @param req requisição; body `{ date, amount, account_id, method?, description?,
-     *            category_id?, counterpart?, is_revenue?, is_third_party? }` —
-     *            `amount` em REAIS (> 0), convertido para centavos inteiros
-     * @param res resposta; 201 no sucesso, 400 em campo inválido, FK inexistente ou
-     *            counterpart 'SELF' (ver guarda abaixo)
-     * @throws HttpError 400/413 vindos de readBody
-     */
+
     return async (req: Req, res: Res) => {
       const body = await readBody<any>(req);
       if (!isIsoDate(body.date)) return error(res, "date deve ser YYYY-MM-DD");
@@ -332,9 +205,7 @@ export function transactionRoutes(db: DatabaseSync): Route[] {
       if (!accountExists(body.account_id)) return error(res, "conta inexistente");
       const method = body.method ?? "other";
       if (!TX_METHODS.has(method)) return error(res, "method inválido");
-      // SELF é DERIVADO do pareamento de pernas (selfPairs.ts), nunca declarado:
-      // uma perna SELF avulsa nasceria sem self_pair_tx_id (quebra o cruzamento)
-      // e sem method='transfer' (a regra consumo-despesa a contaria como gasto).
+
       if (body.counterpart === "SELF") {
         return error(res, "counterpart 'SELF' é derivado do pareamento de pernas, não aceito no lançamento manual");
       }

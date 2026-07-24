@@ -1,27 +1,11 @@
-/* IIFE-wrapped */
 (function () {
-/**
- * @file transaction.js
- * @brief CategoryEditor — modal de edição de um lançamento: categoria, apelido,
- *        marca de terceiros e exclusão.
- */
-/* modal-transaction.js — Editor modal para uma transação */
 
 const { useState, useEffect } = React;
 
-/**
- * @brief Renderiza o editor de um lançamento.
- * @param props.tx transação em edição (`amount` em REAIS); null fecha o modal
- * @param props.onClose fecha sem salvar
- * @param props.onSave recebe os campos alterados + {category}, ou
- *        {deleted: true, _tx} quando o usuário pediu a exclusão — quem exclui
- *        de fato (e oferece o desfazer) é o shell
- * @return elemento React do modal
- */
 function CategoryEditor({ tx, onClose, onSave }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   const { Modal, BankChip, fmtDateBR, fmtBRL, isSelf, isInvest, prettifyDesc } = window.BS;
-  
+
   const [cats, setCats] = useState([]);
   const [selected, setSelected] = useState(tx?.category_id || null);
   const [displayName, setDisplayName] = useState(tx?.display_name || "");
@@ -42,10 +26,6 @@ function CategoryEditor({ tx, onClose, onSave }) {
     }
   }, [tx]);
 
-  /**
-   * @brief Alterna a marca de terceiros; ao ligar sem categoria, pré-seleciona
-   *        "Eventos / Terceiros" — a categoria que a marca quase sempre implica.
-   */
   async function handleToggleThirdParty() {
     const next = !isThirdParty;
     setIsThirdParty(next);
@@ -55,12 +35,6 @@ function CategoryEditor({ tx, onClose, onSave }) {
     }
   }
 
-  /**
-   * @brief Salva só o que mudou e devolve os campos alterados ao caller.
-   *
-   * O PATCH leva apenas os campos divergentes do `tx` original: mandar o objeto
-   * inteiro reescreveria campos que a UI não edita.
-   */
   async function save() {
     if (saving) return;
     setSaving(true); setErr(null);
@@ -81,9 +55,6 @@ function CategoryEditor({ tx, onClose, onSave }) {
     finally { setSaving(false); }
   }
 
-  /**
-   * @brief Sinaliza a exclusão ao caller — não chama a API daqui.
-   */
   async function handleDelete() {
     if (deleting) return;
     onSave({ deleted: true, _tx: tx });
@@ -92,17 +63,12 @@ function CategoryEditor({ tx, onClose, onSave }) {
   const METHOD_LABELS = { pix: "PIX", pix_received: "PIX", credit: "Crédito", ted: "TED", transfer: "Transfer.", other: "Outro" };
   const methodLabel = tx ? (METHOD_LABELS[tx.method] || tx.method || "") : "";
   const flowIsExpense = tx?.flow === "expense";
-  
+
   const _self = isSelf(tx);
   const _invest = isInvest(tx);
   const amtColor = _self ? "var(--info)" : _invest ? "var(--reserve)" : (flowIsExpense ? "var(--neg)" : "var(--pos)");
   const sign = flowIsExpense ? "−" : "+";
 
-  /**
-   * @brief Monta o rótulo pequeno de um campo do modal.
-   * @param text texto do rótulo
-   * @return elemento React <span>
-   */
   const fieldLabel = (text) => h("span", {
     style: { fontSize: 10, color: "var(--fg-3)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em" }
   }, text);

@@ -1,21 +1,3 @@
-/**
- * @file server.ts
- * @brief Bootstrap do servidor local: config → db → pipeline de request → listen.
- *
- * server.ts — bootstrap do servidor local.
- *
- * Pipeline por request: host allowlist → headers de segurança → SSE →
- * backup-status → rotas /api → frontend estático.
- *
- * A ORDEM do pipeline é load-bearing: Host antes de tudo (anti DNS-rebinding), e a
- * checagem de Origin antes de qualquer rota de escrita (anti-CSRF).
- *
- * Bind fixo em 127.0.0.1 — o app não tem auth; a máquina é o perímetro.
- *
- * Uso: node src/server.ts [<db>] [--port N]   (PORT no env também vale)
- *
- * Script de entrada — executa no import; não exporta nada.
- */
 import { createServer } from "node:http";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
@@ -39,7 +21,6 @@ import { importRoutes } from "./routes/import.ts";
 import { commitmentRoutes } from "./routes/commitments.ts";
 import { backupStatus } from "./jobs/backup.ts";
 
-// ── Config ─────────────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
 const portIdx = args.indexOf("--port");
 const PORT = portIdx >= 0 ? Number(args[portIdx + 1]) : Number(process.env.PORT ?? 8000);
@@ -54,12 +35,10 @@ if (!existsSync(dbPath)) {
 }
 
 const db: DatabaseSync = openDb(dbPath);
-// schema.sql (CREATE IF NOT EXISTS) = baseline idempotente: cria tabela nova num
-// DB vivo sem rebuild, no-op quando já existe. Migrations cobrem o que ele não
-// expressa (ALTER/rename/drop) — aplicadas uma vez por DB logo em seguida.
+
 initSchema(db);
 runMigrations(db);
-restrictPermissions(dbPath); // WAL/SHM recriados pelo server também ficam 0600
+restrictPermissions(dbPath);
 
 const routes: Route[] = [
   ...accountRoutes(db),
@@ -71,15 +50,10 @@ const routes: Route[] = [
   ...commitmentRoutes(db),
 ];
 
-/**
- * @brief Responder o estado do backup mais recente lendo o diretório de backups.
- * @param _req requisição (ignorada) · @param res resposta {exists, name?, age_seconds?}
- */
 function handleBackupStatus(_req: Req, res: Res): void {
   json(res, backupStatus(BACKUP_DIR));
 }
 
-// ── Server ─────────────────────────────────────────────────────────────────
 const server = createServer(async (req: Req, res: Res) => {
   const method = req.method ?? "GET";
   const url = req.url ?? "/";
@@ -89,7 +63,7 @@ const server = createServer(async (req: Req, res: Res) => {
   try {
     if (!hostAllowed(req)) return error(res, "host não permitido", 403);
     securityHeaders(res);
-    // CSRF: escrita só de origem localhost (GET/HEAD são idempotentes/leitura)
+
     if (method !== "GET" && method !== "HEAD" && !originAllowed(req)) {
       return error(res, "origin não permitido", 403);
     }

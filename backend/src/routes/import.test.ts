@@ -19,7 +19,7 @@ test("detectAccount: extrato Inter → inter-db (sem regressão)", () => {
 });
 
 test("detectAccount: fatura não colide com inter-db (sem 'data lançamento' junto)", () => {
-  // header da fatura tem 'lançamento' e 'data' separados por vírgula, nunca juntos
+
   assert.notEqual(detectAccount(INTER_FATURA), "inter-db");
 });
 

@@ -1,16 +1,5 @@
-/* IIFE-wrapped */
 (function () {
-/**
- * @file icons.js
- * @brief Ícones SVG inline usados pelo shell e pelos modais (sem dependência
- *        externa — o app é 100% offline).
- */
 
-/**
- * @brief Desenha o ícone de lupa (busca).
- * @param props.size lado do ícone em px (padrão 17)
- * @return elemento React <svg>
- */
 function IconSearch({ size = 17 }) {
   return React.createElement("svg", {
     width: size, height: size, viewBox: "0 0 16 16", fill: "none",
@@ -22,11 +11,6 @@ function IconSearch({ size = 17 }) {
   );
 }
 
-/**
- * @brief Desenha o ícone de ajustes (dois sliders).
- * @param props.size lado do ícone em px (padrão 17)
- * @return elemento React <svg>
- */
 function IconSettings({ size = 17 }) {
   return React.createElement("svg", {
     width: size, height: size, viewBox: "0 0 16 16", fill: "none",
@@ -40,12 +24,6 @@ function IconSettings({ size = 17 }) {
   );
 }
 
-/**
- * @brief Desenha o cadeado — fechado marca lançamento de terceiros.
- * @param props.size lado do ícone em px (padrão 16)
- * @param props.open true desenha o arco aberto (não é de terceiros)
- * @return elemento React <svg>
- */
 function IconLock({ size = 16, open = false }) {
   return React.createElement("svg", {
     width: size, height: size, viewBox: "0 0 16 16", fill: "none",
@@ -57,11 +35,6 @@ function IconLock({ size = 16, open = false }) {
   );
 }
 
-/**
- * @brief Desenha o ícone de importar (seta pra cima sobre uma base).
- * @param props.size lado do ícone em px (padrão 17)
- * @return elemento React <svg>
- */
 function IconImport({ size = 17 }) {
   return React.createElement("svg", {
     width: size, height: size, viewBox: "0 0 16 16", fill: "none",

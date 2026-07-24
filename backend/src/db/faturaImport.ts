@@ -1,30 +1,14 @@
-/**
- * @file faturaImport.ts
- * @brief Ingestão de fatura Inter ABERTA pela UI (H2 de future-commitments).
- *
- * Diferente do backfill (`jobs/backfill/faturas.ts`), que só ingere faturas
- * históricas JÁ PAGAS: aqui a fatura entra ABERTA (`payment_tx_id IS NULL`) e o
- * pagamento é reconciliado depois, quando o extrato com a perna chega
- * (`db/reconcile.ts`, C1). Os itens são gasto real (`credit` no `inter-cc`),
- * byte-idênticos aos do backfill + `import_batch_id` (reverter-lote).
- *
- * Upsert por `(inter-cc, ref_month)` — a fatura aberta CRESCE semana a semana, então
- * reimportar deve mesclar, não duplicar. Itens deduplicam POR CONTAGEM (fatura não
- * tem UUID; merchant/valor/data repetem legítimo).
- */
 import type { DatabaseSync } from "node:sqlite";
 import type { FaturaItem } from "../ingest/interFatura.ts";
 
-/** @brief Parâmetros do import de uma fatura aberta. */
 export interface OpenFaturaParams {
-  refMonth: string;            // 'YYYY-MM'
-  dueDate: string | null;      // ISO ou null
+  refMonth: string;
+  dueDate: string | null;
   items: FaturaItem[];
   sourceFile: string;
   importBatchId: string;
 }
 
-/** @brief Resultado: invoice + quantos itens entraram vs deduplicados. */
 export interface OpenFaturaResult {
   invoiceId: number;
   inserted: number;
@@ -32,18 +16,9 @@ export interface OpenFaturaResult {
   totalCents: number;
 }
 
-/**
- * @brief Inserir/mesclar uma fatura Inter aberta e seus itens no `inter-cc`.
- *
- * @param db conexão do DB
- * @param p parâmetros da fatura
- * @return invoice id + contagem de itens inseridos/duplicados + total assinado
- * @throws Error se a fatura desse ref_month já estiver paga/reconciliada
- */
 export function insertOpenFatura(db: DatabaseSync, p: OpenFaturaParams): OpenFaturaResult {
   const totalCents = p.items.reduce((s, it) => s + it.amountCents, 0);
 
-  // Upsert da invoice — só faturas ABERTAS podem ser mescladas.
   const existing = db.prepare(
     "SELECT id, payment_tx_id FROM invoices WHERE account_id = 'inter-cc' AND ref_month = ?",
   ).get(p.refMonth) as { id: number; payment_tx_id: number | null } | undefined;
@@ -64,7 +39,6 @@ export function insertOpenFatura(db: DatabaseSync, p: OpenFaturaParams): OpenFat
     );
   }
 
-  // Dedup por CONTAGEM, escopado ao invoice_id — igual ao dedup do extrato Inter.
   const countStmt = db.prepare(`
     SELECT COUNT(*) AS n FROM transactions
     WHERE invoice_id = ? AND date = ? AND description = ? AND amount_cents = ? AND flow = ?
@@ -81,7 +55,7 @@ export function insertOpenFatura(db: DatabaseSync, p: OpenFaturaParams): OpenFat
   let inserted = 0;
   let duplicate = 0;
   for (const it of p.items) {
-    const flow = it.amountCents >= 0 ? "expense" : "income"; // estorno = income (is_revenue=0)
+    const flow = it.amountCents >= 0 ? "expense" : "income";
     const amt = Math.abs(it.amountCents);
     const seq = it.installmentSeq ?? null;
     const tot = it.installmentTotal ?? null;
@@ -99,19 +73,6 @@ export function insertOpenFatura(db: DatabaseSync, p: OpenFaturaParams): OpenFat
   return { invoiceId, inserted, duplicate, totalCents };
 }
 
-/**
- * @brief Apagar faturas ABERTAS que ficaram sem itens (H4).
- *
- * Chamada no revert de um lote (routes/import.ts `deleteBatch`): reverter o import
- * de uma fatura aberta apaga os itens, mas a invoice ficaria órfã — um compromisso
- * fantasma que o "Comprometido" (P2) leria como vivo. Só apaga invoice ABERTA
- * (`payment_tx_id IS NULL`) e sem nenhum item restante; fatura paga ou com itens
- * fica intacta.
- *
- * @param db conexão do DB
- * @param invoiceIds ids candidatos (dos itens revertidos)
- * @return quantas invoices foram apagadas
- */
 export function pruneEmptyOpenInvoices(db: DatabaseSync, invoiceIds: number[]): number {
   const del = db.prepare(`
     DELETE FROM invoices

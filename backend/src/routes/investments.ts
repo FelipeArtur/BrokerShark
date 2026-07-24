@@ -1,11 +1,3 @@
-/**
- * @file investments.ts
- * @brief Rotas de investimento: carteira atual, evolução mensal e movimento manual.
- *
- * investments.ts — carteira, evolução e movimento manual.
- *
- * FRONTEIRA DE UNIDADE: o ledger guarda centavos inteiros; o JSON sai em REAIS.
- */
 import type { DatabaseSync } from "node:sqlite";
 import type { Req, Res } from "../http/respond.ts";
 import { json, error, readBody, qsStr } from "../http/respond.ts";
@@ -16,14 +8,6 @@ import { isIsoDate, isPositiveAmount, isShortText } from "../http/validate.ts";
 import { today } from "../domain/dates.ts";
 import { monthlyPortfolioSeries } from "../domain/positions.ts";
 
-/**
- * @brief SQL do último snapshot de cada (investimento, mês), em centavos inteiros.
- *
- * Último snapshot de cada (investimento, mês) — base das séries mensais.
- *
- * Um mês pode ter vários snapshots da mesma posição (relatórios sobrepostos); só o
- * mais recente vale — somá-los contaria a mesma posição várias vezes.
- */
 const MONTHLY_SNAPS = `
   SELECT investment_id, ym, net_cents FROM (
     SELECT ps.investment_id, strftime('%Y-%m', ps.ref_date) AS ym, ps.net_cents,
@@ -35,23 +19,8 @@ const MONTHLY_SNAPS = `
   ) WHERE rn = 1 ORDER BY ym
 `;
 
-/**
- * @brief Montar as rotas de investimento ligadas a esta conexão.
- * @param db conexão do DB
- * @return rotas GET /api/investments, /api/investment-evolution e
- *         POST /api/investment-movements
- */
 export function investmentRoutes(db: DatabaseSync): Route[] {
-  // ── GET /api/investments?bank= ─────────────────────────────────────────
-  // Carteira ATUAL: posições soft-closed ficam fora — o último snapshot delas é
-  // histórico (CDB vencido/resgatado), somá-lo inflaria total e patrimônio.
-  /**
-   * @brief Listar as posições ABERTAS com o saldo do último snapshot de cada.
-   *
-   * @param req requisição; query `bank` filtra por banco (opcional)
-   * @param res resposta; `balance` em REAIS e `derived=1` marca a Caixinha
-   *            (posição derivada do ledger, não custodiada na B3)
-   */
+
   function getInvestments(req: Req, res: Res) {
     const bank = qsStr(req, "bank");
     const conditions = ["i.closed_at IS NULL"];
@@ -86,14 +55,6 @@ export function investmentRoutes(db: DatabaseSync): Route[] {
     })));
   }
 
-  // ── GET /api/investment-evolution ──────────────────────────────────────
-  // Série mensal contínua: carry-forward entre relatórios esparsos, posição
-  // zera após o soft-close.
-  /**
-   * @brief Série mensal do total da carteira (evolução do investido).
-   * @param _req requisição (ignorada)
-   * @param res resposta; lista `{ label: "MM/YYYY", cumulative }` em REAIS
-   */
   function getInvestmentEvolution(_req: Req, res: Res) {
     const snaps = db.prepare(MONTHLY_SNAPS).all() as any[];
     const closedYm = new Map<number, string>(
@@ -107,22 +68,6 @@ export function investmentRoutes(db: DatabaseSync): Route[] {
     }));
   }
 
-  // ── POST /api/investment-movements — aplicação/resgate manual ──────────
-  /**
-   * @brief Lançar uma aplicação/resgate manual: perna no ledger + snapshot.
-   *
-   * Escreve nos dois lados de uma vez: a perna entra como `method='transfer'` com
-   * `is_revenue=0` (fora de receita e de despesa de consumo — regra consumo-despesa)
-   * e o snapshot 'manual' recebe o saldo anterior ± o movimento. Sem a perna, o
-   * dinheiro sumiria do caixa sem explicação; sem o snapshot, a posição não andaria.
-   *
-   * A posição é criada sob demanda (`source='manual'`) quando o nome não existe.
-   *
-   * @param req requisição; body `{ investment_name, operation: apply|redeem, amount,
-   *            date?, description? }` — `amount` em REAIS (convertido para centavos)
-   * @param res resposta; 201 no sucesso, 400 em campo inválido
-   * @throws HttpError 400/413 vindos de readBody
-   */
   async function postInvestmentMovement(req: Req, res: Res) {
     const body = await readBody<{
       investment_name?: unknown; operation?: unknown; amount?: unknown;
@@ -148,7 +93,6 @@ export function investmentRoutes(db: DatabaseSync): Route[] {
       inv = db.prepare("SELECT id FROM investments WHERE name = ?").get(name) as any;
     }
 
-    // Perna no ledger: transfer, fora de receita/despesa de consumo.
     const flow = body.operation === "redeem" ? "income" : "expense";
     db.prepare(`
       INSERT INTO transactions (date, flow, method, account_id, amount_cents, description,
@@ -157,7 +101,6 @@ export function investmentRoutes(db: DatabaseSync): Route[] {
         ?, ?, 0, 0, 0, ?)
     `).run(date, flow, amountCents, String(body.description ?? name), inv.id);
 
-    // Snapshot manual: saldo anterior ± movimento.
     const lastSnap = db.prepare(`
       SELECT net_cents FROM position_snapshots
       WHERE investment_id = ? ORDER BY ref_date DESC LIMIT 1

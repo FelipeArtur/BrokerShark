@@ -1,27 +1,7 @@
-/* IIFE-wrapped: own scope (replaces Babel's per-file isolation) */
 (function () {
-/**
- * @file categories.js
- * @brief CategoriesPanel — gerenciamento de categorias (criar, renomear,
- *        excluir com reatribuição), aberto como Drawer pelo painel de ajustes.
- */
-/* view-overview.js — CategoriesPanel (a antiga tela "Dinheiro" virou o dashboard;
-   ver view-dashboard.js) */
-/* global React, fetchCategoriesFull, postCategory, patchCategory, deleteCategory */
 
 const { useState: _ovSt, useEffect: _ovEf } = React;
 
-/* ── CategoriesPanel — gerenciar categorias (Drawer via TweaksPanel) ──────────
-   Restaurada após o pivot ter apagado a declaração da função mas deixado o corpo
-   (form + lista + modal de exclusão) preso dentro de OverviewView, que quebrava
-   a tela Dinheiro com dados (`handleAdd`/`CategoriesPanel is not defined`). */
-/**
- * @brief Renderiza o painel de gerenciamento de categorias.
- * @param props.refreshKey muda para forçar a recarga da lista
- * @param props.onRefresh avisa o shell que as categorias mudaram
- * @param props.onClose fecha o painel; ausente esconde o botão ✕
- * @return elemento React do painel
- */
 function CategoriesPanel({ refreshKey, onRefresh, onClose }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   const [flow, setFlow] = _ovSt("expense");
@@ -29,7 +9,7 @@ function CategoriesPanel({ refreshKey, onRefresh, onClose }) {
   const [newName, setNewName] = _ovSt("");
   const [adding, setAdding] = _ovSt(false);
   const [err, setErr] = _ovSt("");
-  const [deleteModal, setDeleteModal] = _ovSt(null); // {id, name, transaction_count}
+  const [deleteModal, setDeleteModal] = _ovSt(null);
   const [reassignTo, setReassignTo] = _ovSt("");
   const [deleting, setDeleting] = _ovSt(false);
   const [editingId, setEditingId] = _ovSt(null);
@@ -37,10 +17,6 @@ function CategoriesPanel({ refreshKey, onRefresh, onClose }) {
 
   _ovEf(() => { fetchCategoriesFull(flow).then(setCats); }, [flow, refreshKey]);
 
-  /**
-   * @brief Cria a categoria digitada no formulário e recarrega a lista.
-   * @param e evento de submit do form
-   */
   async function handleAdd(e) {
     e.preventDefault();
     const name = newName.trim();
@@ -54,10 +30,6 @@ function CategoriesPanel({ refreshKey, onRefresh, onClose }) {
     } catch (ex) { setErr(ex.message); } finally { setAdding(false); }
   }
 
-  /**
-   * @brief Grava o novo nome da categoria em edição, se de fato mudou.
-   * @param cat categoria sendo renomeada
-   */
   async function commitRename(cat) {
     if (editName.trim() && editName.trim() !== cat.name) {
       await patchCategory(cat.id, editName.trim());
@@ -67,12 +39,6 @@ function CategoriesPanel({ refreshKey, onRefresh, onClose }) {
     setEditingId(null);
   }
 
-  /**
-   * @brief Exclui a categoria do modal, reatribuindo os lançamentos dela.
-   *
-   * Exige um destino escolhido: excluir sem reatribuir deixaria lançamentos
-   * órfãos, indistinguíveis dos que ainda faltam categorizar.
-   */
   async function handleDelete() {
     if (!deleteModal || !reassignTo) return;
     setDeleting(true); setErr("");
@@ -88,7 +54,6 @@ function CategoriesPanel({ refreshKey, onRefresh, onClose }) {
 
   return h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", height: "100%", background: "var(--bg-0)" } },
 
-    // Header
     h("div", { style: { padding: "24px 32px", borderBottom: "1px solid var(--line-1)", background: "var(--bg-0)", flexShrink: 0, display: "flex", flexDirection: "column", gap: 16 } },
       h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between" } },
         h("div", { style: { display: "flex", alignItems: "center", gap: 12 } },
@@ -108,10 +73,8 @@ function CategoriesPanel({ refreshKey, onRefresh, onClose }) {
       })
     ),
 
-    // Content
     h("div", { style: { flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", padding: "24px 32px", gap: 24 } },
 
-      // Inline Add Form
       h("form", { onSubmit: handleAdd, className: "px-row" },
         h("div", { className: "px-swatch", style: { background: flow === 'expense' ? "var(--neg)" : "var(--pos)" } }, "+"),
         h("input", {
@@ -126,7 +89,6 @@ function CategoriesPanel({ refreshKey, onRefresh, onClose }) {
 
       err && h("div", { style: { padding: "12px 16px", color: "var(--neg)", fontSize: 13, background: "color-mix(in oklch, var(--neg) 10%, transparent)", fontWeight: 500 } }, err),
 
-      // Categories List
       cats.length === 0
         ? h("div", { className: "px-empty" }, "NENHUMA CATEGORIA CADASTRADA")
         : h("div", { className: "px-list" },
@@ -164,7 +126,6 @@ function CategoriesPanel({ refreshKey, onRefresh, onClose }) {
           )
     ),
 
-    // Delete confirmation modal
     h(window.BS.Modal, { open: !!deleteModal, onClose: () => setDeleteModal(null), title: "Excluir Categoria", width: 400 },
       deleteModal && h("div", { style: { display: "flex", flexDirection: "column", gap: 20 } },
         h("p", { style: { fontSize: 15, color: "var(--fg-0)", margin: 0, lineHeight: 1.4 } },

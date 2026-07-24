@@ -1,39 +1,15 @@
-/**
- * @file interExtrato.ts
- * @brief Parser do extrato Inter (CSV ;), com check de consistência por running balance.
- *
- * Extrato Inter: preâmbulo 5 linhas; `Data Lançamento;Descrição;Valor;Saldo`.
- * A coluna Saldo (running balance) valida a consistência do arquivo — v1 a ignorava.
- */
 import { parseCsv } from "./csv.ts";
 import { parseMoneyCents, parseDateBR } from "../domain/money.ts";
 import * as classify from "../domain/classify.ts";
 import type { ParsedFile, TxRecord } from "./types.ts";
 
-/** @brief ParsedFile do Inter + saldos de abertura/fechamento em centavos inteiros. */
 export interface InterParsed extends ParsedFile {
-  /** saldo ANTES da primeira linha do arquivo (derivado: primeiro saldo − primeiro valor) */
+
   openingBalanceCents?: number;
   closingBalanceCents?: number;
   firstDate?: string;
 }
 
-/**
- * @brief Parsear um extrato Inter em registros normalizados da conta `inter-db`.
- *
- * Além do parse, cruza cada linha com a coluna Saldo: `saldoAnterior + valor` tem
- * que dar o saldo da linha. Divergência NÃO derruba o parse — vira warning, que o
- * backfill reporta na fase de verificação.
- *
- * Mesma precedência do Nubank: investimento antes de receita/despesa, para a perna
- * de investimento não contar como receita nem como despesa de consumo.
- *
- * @param text conteúdo do CSV (com o preâmbulo; o header é localizado por busca)
- * @param sourceFile nome do arquivo, propagado aos registros e aos warnings
- * @return registros (centavos inteiros, sempre positivos), descartes, warnings de
- *         saldo e os saldos de abertura/fechamento em centavos inteiros
- * @throws Error se a linha de header "Data Lançamento" não for encontrada
- */
 export function parseInterExtrato(text: string, sourceFile: string): InterParsed {
   const lines = text.split(/\r?\n/);
   const headerIdx = lines.findIndex((l) => l.toLowerCase().includes("data lançamento"));
@@ -53,7 +29,7 @@ export function parseInterExtrato(text: string, sourceFile: string): InterParsed
       out.skipped.push({ line: r.join(";"), reason: "linha não reconhecida" });
       continue;
     }
-    // check de consistência via running balance
+
     let saldo: number | undefined;
     try { saldo = r[3] !== undefined ? parseMoneyCents(r[3]) : undefined; } catch { saldo = undefined; }
     if (saldo !== undefined) {

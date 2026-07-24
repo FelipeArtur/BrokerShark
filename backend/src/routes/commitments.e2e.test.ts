@@ -11,7 +11,7 @@ function freshDb(): DatabaseSync {
   const db = new DatabaseSync(":memory:");
   db.exec("PRAGMA foreign_keys=ON");
   initSchema(db);
-  runMigrations(db); // due_date
+  runMigrations(db);
   seedAccountsAndCategories(db);
   return db;
 }

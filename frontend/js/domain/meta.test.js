@@ -1,7 +1,3 @@
-/**
- * @file meta.test.js
- * @brief Testes das derivações da camada "score": streak, recorde e orçamento.
- */
 const { test } = require("node:test");
 const assert = require("node:assert");
 const M = require("./meta.js");
@@ -15,7 +11,7 @@ test("savingsStreak counts trailing positive months", () => {
 
 test("isAllTimeHigh needs a strict trailing max and ≥2 points", () => {
   assert.equal(M.isAllTimeHigh([10, 20, 30]), true);
-  assert.equal(M.isAllTimeHigh([30, 20, 30]), false); // tie, not strict
+  assert.equal(M.isAllTimeHigh([30, 20, 30]), false);
   assert.equal(M.isAllTimeHigh([40, 20, 30]), false);
   assert.equal(M.isAllTimeHigh([30]), false);
   assert.equal(M.isAllTimeHigh([]), false);

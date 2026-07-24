@@ -1,19 +1,10 @@
-/**
- * @file b3.ts
- * @brief Parser do relatório consolidado B3 (.xlsx) → posições + snapshot datado.
- *
- * Relatório consolidado B3 (.xlsx) → posições + snapshot.
- * Abas reais no acervo: Posição - Tesouro Direto | Renda Fixa | Ações | BDR.
- * Valores vêm como string com decimal em PONTO ("188.02") ou número; "-" = ausente.
- */
 import * as XLSX from "xlsx";
 
-/** @brief Posição lida de uma aba do relatório; valores *Cents em centavos inteiros. */
 export interface B3Position {
   name: string;
   matchKey: string;
   code: string | null;
-  type: string;              // tesouro|cdb|lci|acao|bdr|...
+  type: string;
   bank: string;
   indexer: string | null;
   maturityIso: string | null;
@@ -25,16 +16,10 @@ export interface B3Position {
   sheet: string;
 }
 
-/**
- * @brief Relatório parseado: data de referência, posições e abas presentes.
- *
- * `sheets` é load-bearing: a aba Renda Fixa PISCA no consolidado, e sua ausência
- * significa "sem informação", não "posição fechada" (ver b3Sync.ts).
- */
 export interface B3Report {
-  refDate: string;           // ISO, derivada do nome do arquivo
+  refDate: string;
   positions: B3Position[];
-  sheets: string[];          // abas de posição presentes (p/ heurística de soft-close)
+  sheets: string[];
 }
 
 const MONTHS: Record<string, string> = {
@@ -43,16 +28,6 @@ const MONTHS: Record<string, string> = {
   outubro: "10", novembro: "11", dezembro: "12",
 };
 
-/**
- * @brief Derivar a data de referência do snapshot a partir do nome do arquivo.
- *
- * A data vem do NOME, não do conteúdo: relatório "anual-YYYY" ancora em 31/12;
- * "mensal-YYYY-<mês>" ancora no último dia daquele mês.
- *
- * @param file nome do arquivo do relatório
- * @return data de referência ISO "YYYY-MM-DD"
- * @throws Error se o nome não casar nenhum dos dois padrões
- */
 export function refDateFromFilename(file: string): string {
   let m = /anual-(\d{4})/.exec(file);
   if (m) return `${m[1]}-12-31`;
@@ -67,12 +42,6 @@ export function refDateFromFilename(file: string): string {
   throw new Error(`não consegui derivar ref_date de: ${file}`);
 }
 
-/**
- * @brief Ler uma célula numérica do xlsx, tolerando texto, "R$" e "-".
- * @param v valor cru da célula (número ou string)
- * @return o número em REAIS (ainda não convertido para centavos), ou `null` quando
- *         a célula é vazia, "-" ou não-numérica
- */
 function cellNum(v: unknown): number | null {
   if (v === null || v === undefined) return null;
   if (typeof v === "number") return Number.isFinite(v) ? v : null;
@@ -84,32 +53,13 @@ function cellNum(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-/**
- * @brief Converter reais (float do xlsx) em centavos inteiros.
- *
- * Único ponto do sistema onde dinheiro passa por float: o xlsx já entrega número
- * binário, então arredondar aqui é o mais fiel possível à célula original.
- *
- * @param n valor em reais, ou `null`
- * @return valor em centavos inteiros, ou `null` se a entrada for `null`
- */
 const toCents = (n: number | null): number | null =>
   n === null ? null : Math.round(n * 100);
 
-/**
- * @brief Ler uma célula como texto trimado.
- * @param v valor cru da célula
- * @return o texto trimado; "" quando a célula é nula
- */
 function cellStr(v: unknown): string {
   return String(v ?? "").trim();
 }
 
-/**
- * @brief Deduzir o banco a partir do nome da instituição custodiante.
- * @param inst nome da instituição na planilha
- * @return "inter", "nubank" ou "outro"
- */
 function bankFrom(inst: string): string {
   const s = inst.toLowerCase();
   if (s.includes("inter")) return "inter";
@@ -117,12 +67,6 @@ function bankFrom(inst: string): string {
   return "outro";
 }
 
-/**
- * @brief Normalizar o indexador do papel para um rótulo canônico.
- * @param raw texto do indexador na planilha
- * @return "ipca", "selic", "cdi", "prefixado", o texto em minúsculas quando não
- *         reconhecido, ou `null` se vazio/"-"
- */
 function indexerFrom(raw: string): string | null {
   const s = raw.toLowerCase();
   if (!s || s === "-") return null;
@@ -133,55 +77,19 @@ function indexerFrom(raw: string): string | null {
   return s;
 }
 
-/**
- * @brief Converter data "DD/MM/YYYY" da planilha em ISO, sem lançar.
- *
- * Variante tolerante de parseDateBR: célula de vencimento pode vir vazia ou "-",
- * e isso é ausência legítima, não erro de arquivo.
- *
- * @param raw texto da célula de data
- * @return data ISO "YYYY-MM-DD", ou `null` se não casar o formato
- */
 function brToIso(raw: string): string | null {
   const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(raw.trim());
   return m ? `${m[3]}-${m[2]}-${m[1]}` : null;
 }
 
-/** @brief Linha de planilha indexada pelo nome da coluna. */
 type Row = Record<string, unknown>;
 
-/**
- * @brief Converter uma aba em linhas indexadas por coluna.
- * @param ws worksheet do xlsx
- * @return as linhas, com célula ausente valendo `null`
- */
 function sheetRows(ws: XLSX.WorkSheet): Row[] {
   return XLSX.utils.sheet_to_json<Row>(ws, { defval: null });
 }
 
-/**
- * @brief Dizer se a linha é rodapé de total (não é posição).
- *
- * Linha de total somaria de novo o que já foi contado — nunca vira posição.
- *
- * @param product conteúdo da coluna "Produto"
- * @return true se o produto for vazio ou começar com "total"
- */
 const isTotalRow = (product: string) => !product || product.toLowerCase().startsWith("total");
 
-/**
- * @brief Parsear o relatório consolidado B3 em posições datadas.
- *
- * Cada aba tem sua coluna canônica de valor: Tesouro usa "Valor líquido" (com
- * fallback "Valor Atualizado"); Renda Fixa usa CURVA (ver comentário no corpo);
- * Ações/BDR usam "Valor Atualizado". Linha sem valor é ignorada.
- *
- * @param buf conteúdo binário do .xlsx
- * @param filename nome do arquivo — é dele que sai a `refDate`
- * @return relatório com posições (valores em centavos inteiros) e as abas de
- *         posição presentes
- * @throws Error se a `refDate` não puder ser derivada do nome do arquivo
- */
 export function parseB3(buf: Buffer, filename: string): B3Report {
   const wb = XLSX.read(buf, { type: "buffer" });
   const report: B3Report = { refDate: refDateFromFilename(filename), positions: [], sheets: [] };
@@ -217,7 +125,7 @@ export function parseB3(buf: Buffer, filename: string): B3Report {
       for (const r of sheetRows(ws)) {
         const product = cellStr(r["Produto"]);
         if (isTotalRow(product)) continue;
-        // CDBs do Inter não expõem MTM — CURVA é o valor canônico (regra v1 mantida)
+
         const value = cellNum(r["Valor Atualizado CURVA"]) ?? cellNum(r["Valor Atualizado MTM"]);
         if (value === null) continue;
         const code = cellStr(r["Código"]) || null;

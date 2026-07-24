@@ -1,9 +1,3 @@
-/**
- * @file tx-group.js
- * @brief Agrupamento da tabela de lançamentos por categoria/espécie, com alvo,
- *        Δ vs. mês anterior e escala tipográfica. Puro, sem React/DOM.
- */
-/* tx-group.js — agrupamento da tabela. Puro. UMD dual tail: node require + window.BS. */
 (function (root, factory) {
   const api = factory(
     typeof require !== "undefined" ? require("./money.js") : (root.BS || {}),
@@ -15,46 +9,16 @@
 
   const { KIND, moneyKind, KIND_LABEL } = M;
 
-  /* Grupo = categoria QUANDO a espécie tem categoria; senão, grupo = espécie.
-     Transferência/investimento/liquidação/third-party não têm category_id —
-     agrupá-los por categoria jogaria os quatro no balde "Sem categoria" junto
-     com os gastos que você realmente esqueceu de categorizar, que é justo o que
-     você precisa achar ali. */
-  /**
-   * @brief Devolve a chave do grupo de uma transação.
-   * @param t transação (`amount` em REAIS)
-   * @return "cat:<id>" p/ despesa/receita categorizada · "none:<espécie>" quando
-   *         não tem categoria (a espécie separa receita de despesa) · "kind:<espécie>"
-   *         p/ transferência/investimento/liquidação/terceiros
-   */
   function groupKeyOf(t) {
     const k = moneyKind(t);
     if (k !== KIND.EXPENSE && k !== KIND.REVENUE) return `kind:${k}`;
-    // Categoria tem flow próprio, então o id sozinho já é inequívoco. SEM categoria,
-    // não: despesa e receita não-categorizadas cairiam na mesma chave e os totais
-    // SOMARIAM (receita + despesa num número só, exibido com cara de gasto). A
-    // espécie entra na chave só nesse caso.
+
     return t.category_id != null ? `cat:${t.category_id}` : `none:${k}`;
   }
 
   const UNCATEGORIZED = "Sem categoria";
   const UNCATEGORIZED_INCOME = "Receita sem categoria";
 
-  /**
-   * @brief Agrupa as transações já filtradas.
-   *
-   * UNIDADE: tudo aqui dentro é REAIS, igual ao resto do front (a API manda
-   * `amount` em reais; só o ledger é centavos). `budget_cents`/`prev_spent_cents`
-   * do endpoint vêm em centavos e são convertidos UMA vez, aqui na fronteira —
-   * depois disso nenhum caller precisa saber de centavos.
-   *
-   * @param txs lista de transações (amount em reais)
-   * @param catsById Map(id → {name, flow, budget_cents, budget_source, prev_spent_cents})
-   * @returns grupos ordenados: categorias por total desc, espécies no fim.
-   *          Cada grupo traz {key, kind, isCat, categoryId, label, txs, total,
-   *          count, maxAmount, budget, budgetSource, prevSpent} — total/budget/
-   *          prevSpent/maxAmount em REAIS.
-   */
   function buildGroups(txs, catsById) {
     const cats = catsById || new Map();
     const byKey = new Map();
@@ -64,11 +28,9 @@
       let g = byKey.get(key);
       if (!g) {
         const kind = moneyKind(t);
-        const hasCat = key.startsWith("cat:");   // categorizada
-        const noCat = key.startsWith("none:");   // categorizável, mas sem categoria
-        // isCat = "linha de categoria" — inclui as sem categoria, que ainda são
-        // trabalho pendente e ficam no topo junto com as outras. Espécie contábil
-        // (transferência/investimento/…) não é.
+        const hasCat = key.startsWith("cat:");
+        const noCat = key.startsWith("none:");
+
         const isCat = hasCat || noCat;
         const catId = hasCat ? t.category_id : null;
         const meta = catId != null ? cats.get(catId) : null;
@@ -78,7 +40,7 @@
                : noCat  ? (kind === KIND.REVENUE ? UNCATEGORIZED_INCOME : UNCATEGORIZED)
                         : KIND_LABEL[kind],
           txs: [], total: 0, net: 0, count: 0,
-          // Alvo só existe em categoria de despesa. null = sem alvo (≠ alvo zero).
+
           budget: meta && kind === KIND.EXPENSE && meta.budget_cents != null
             ? meta.budget_cents / 100 : null,
           budgetSource: meta && kind === KIND.EXPENSE ? (meta.budget_source ?? null) : null,
@@ -88,11 +50,7 @@
       }
       g.txs.push(t);
       g.total += t.amount;
-      // Líquido assinado (saída positiva). Num grupo de CATEGORIA todas as linhas
-      // vão na mesma direção, então |net| == total. Numa ESPÉCIE, não: uma
-      // transferência tem DUAS pernas (somar as duas mostra o dobro do que você
-      // moveu) e investimento mistura aplicação com resgate. Por isso o cabeçalho
-      // de espécie usa net, e é o mesmo cálculo do rodapé — os dois têm que bater.
+
       g.net += (t.flow === "expense" ? t.amount : -t.amount);
       g.count += 1;
     }
@@ -100,48 +58,23 @@
     const groups = [...byKey.values()];
     for (const g of groups) g.maxAmount = g.txs.reduce((m, t) => Math.max(m, t.amount), 0);
 
-    // Categorias primeiro (é onde você age), espécies contábeis no fim.
     return groups.sort((a, b) =>
       (a.isCat === b.isCat) ? b.total - a.total : (a.isCat ? -1 : 1));
   }
 
-  /* Δ vs. mês anterior, em fração. null quando não há base (mês anterior zerado:
-     "subiu ∞%" não informa nada). */
-  /**
-   * @brief Calcula a variação do grupo contra o mesmo grupo no mês anterior.
-   * @param g grupo de buildGroups (total e prevSpent em REAIS)
-   * @return fração assinada (0.5 = +50%), ou null quando não há base de comparação
-   */
   function groupDelta(g) {
     if (g.prevSpent == null || g.prevSpent === 0) return null;
     return (g.total - g.prevSpent) / g.prevSpent;
   }
 
-  /* Escala por valor: o corpo do número cresce com a fatia DENTRO do grupo.
-     Escala local, não global — senão o mês do aluguel achata todo o resto.
-     Teto e piso fixos: legibilidade não é negociável. */
   const SCALE_MIN = 11, SCALE_MAX = 15;
-  /**
-   * @brief Devolve o corpo de fonte do valor, proporcional à fatia no grupo.
-   * @param amount valor da linha em REAIS (o sinal é ignorado)
-   * @param maxAmount maior valor DO MESMO grupo, em reais; 0/ausente devolve o piso
-   * @return corpo em px entre SCALE_MIN e SCALE_MAX, com uma casa decimal
-   */
+
   function scaleFor(amount, maxAmount) {
     if (!maxAmount || maxAmount <= 0) return SCALE_MIN;
     const share = Math.min(1, Math.abs(amount) / maxAmount);
     return Math.round((SCALE_MIN + (SCALE_MAX - SCALE_MIN) * Math.sqrt(share)) * 10) / 10;
   }
 
-  /* Estado do alvo (spent e budget em REAIS). Sem verde pra "dentro do alvo":
-     verde já significa receita, e reusar quebraria a semântica das espécies.
-     null = sem alvo, que a UI mostra diferente de "alvo de R$ 0,00". */
-  /**
-   * @brief Traduz gasto vs. alvo em razão e cor da barra.
-   * @param spent gasto do grupo em REAIS
-   * @param budget alvo do grupo em REAIS; null/≤0 = sem alvo
-   * @return {ratio, color} — neutro < 80%, atenção 80–100%, estouro > 100% — ou null
-   */
   function budgetState(spent, budget) {
     if (budget == null || budget <= 0) return null;
     const ratio = spent / budget;

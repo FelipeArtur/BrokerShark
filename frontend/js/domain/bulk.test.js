@@ -25,7 +25,6 @@ test("suggestionPlan aguenta lista vazia e undefined", () => {
 });
 
 test("suggestionPlan trata id 0 como sugestão ausente só se for null/undefined", () => {
-  // 0 não é um id válido no SQLite (AUTOINCREMENT começa em 1), mas a regra é
-  // != null — documenta que a checagem não é falsy.
+
   assert.equal(B.suggestionPlan([g("a", 0)]).length, 1);
 });

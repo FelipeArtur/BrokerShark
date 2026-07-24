@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>BrokerShark — Painel Financeiro</title>
   <link rel="icon" type="image/x-icon" href="/static/img/favicon.ico" />
-  <!-- Self-hosted fonts (vendored, no Google Fonts) → app is fully offline. -->
+
   <link rel="stylesheet" href="/static/css/fonts.css?v=43" />
   <link rel="stylesheet" href="/static/css/style.css?v=44" />
   <link rel="stylesheet" href="/static/css/pixel.css?v=44" />
@@ -14,18 +14,13 @@
 <body>
   <div id="root"></div>
 
-  <!-- Vendored locally (no CDN, no build step) so the app runs fully offline — e.g.
-       on a Raspberry Pi with no internet. The app code is plain JS hyperscript
-       (React.createElement), never JSX, so no Babel transform is needed. -->
   <script src="/static/js/vendor/react.production.min.js"></script>
   <script src="/static/js/vendor/react-dom.production.min.js"></script>
   <script src="/static/js/vendor/chart.umd.min.js"></script>
 
-  <!-- App scripts — plain JS, execute in order (shared global scope via window.BS) -->
   <script src="/static/js/core/api.js?v=47"></script>
   <script src="/static/js/ui/icons.js?v=45"></script>
-  <!-- money.js antes de tx-group.js e primitives.js: os dois consomem moneyKind
-       via window.BS no momento em que o factory roda. -->
+
   <script src="/static/js/domain/money.js?v=45"></script>
   <script src="/static/js/domain/tx-group.js?v=45"></script>
   <script src="/static/js/domain/palette.js?v=46"></script>

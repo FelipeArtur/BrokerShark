@@ -1,20 +1,4 @@
-/* IIFE-wrapped: own scope (replaces Babel's per-file isolation) */
 (function () {
-/**
- * @file dashboard.js
- * @brief DashboardView e seus widgets — a tela única: faixa KPI, grid de
- *        widgets facetados e a tabela de lançamentos.
- *
- * UNIDADE: todo valor aqui é REAIS (float), como a API entrega.
- */
-/* view-dashboard.js — DashboardView: a tela única do BrokerShark (1920×1080).
-   Topbar + faixa KPI + UMA linha de widgets (visão geral, fluxo, contas,
-   categorias, investimentos) + tabela full-width com scroll interno.
-   Nada de navegação: tudo visível, detalhe é filtro/ordenação na tabela. */
-/* global React, fetchAvailable, fetchAccounts, fetchMonthTransactions,
-          fetchCashflowStatement, fetchInvestments, fetchLiquidityHistory,
-          fetchInvestmentEvolution, fetchUncategorizedMerchants, fetchBackupStatus,
-          fetchCommitments */
 
 const { useState: _dSt, useEffect: _dEf, useMemo: _dMemo, useCallback: _dCb } = React;
 const { fmtBRL, fmtBRLCompact, fmtDateBR, PT_MONTHS, PT_SHORT,
@@ -25,14 +9,6 @@ const INV_TYPE_LABEL = {
   lci: "LCI / Renda fixa", lca: "LCA / Renda fixa", savings: "Poupança",
 };
 
-/* Δ assinado (mono, pos/neg) — o vocabulário único de "variação vs mês" */
-/**
- * @brief Renderiza uma variação assinada, verde quando é boa.
- * @param props.value variação em REAIS; null não renderiza nada
- * @param props.suffix texto após o número (padrão "vs mês anterior")
- * @param props.invert true quando cair é bom (ex.: despesa) — inverte a cor
- * @return Fragment React com o Δ e o sufixo, ou null
- */
 function Delta({ value, suffix = "vs mês anterior", invert = false }) {
   const h = React.createElement;
   if (value == null) return null;
@@ -44,14 +20,6 @@ function Delta({ value, suffix = "vs mês anterior", invert = false }) {
   );
 }
 
-/**
- * @brief Renderiza um sparkline SVG com a área preenchida.
- * @param props.data valores em REAIS, em ordem cronológica; < 2 pontos não rende
- * @param props.width largura do viewBox lógico (padrão 150) — o svg estica
- * @param props.height altura em px (padrão 36)
- * @param props.color cor da linha (padrão "var(--accent)")
- * @return elemento React <svg>, ou null quando não há série
- */
 function Sparkline({ data, width = 150, height = 36, color = "var(--accent)" }) {
   const h = React.createElement;
   if (!data || data.length < 2) return null;
@@ -63,32 +31,13 @@ function Sparkline({ data, width = 150, height = 36, color = "var(--accent)" }) 
   ]);
   const points = coords.map(([x, y]) => `${x},${y}`).join(" ");
   const area = `${coords[0][0]},${height} ${points} ${coords[coords.length - 1][0]},${height}`;
-  // width = viewBox lógico; o svg estica pro contêiner (stroke não escala)
+
   return h("svg", { width: "100%", height, viewBox: `0 0 ${width} ${height}`, preserveAspectRatio: "none", style: { display: "block" }, "aria-hidden": true },
     h("polygon", { points: area, fill: "var(--accent-bg)", stroke: "none" }),
     h("polyline", { fill: "none", stroke: color, strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", vectorEffect: "non-scaling-stroke", points })
   );
 }
 
-/* ── KpiStrip — os 4 números que respondem "como estou" ─────────────────── */
-/**
- * @brief Renderiza a faixa de KPIs: disponível, patrimônio, resultado do mês e
- *        total investido.
- *
- * Disponível e patrimônio são POSIÇÃO — valem "agora", não seguem o seletor de
- * mês. Só o resultado líquido é do mês selecionado.
- *
- * @param props.available {available, checking_total} em REAIS; null enquanto carrega
- * @param props.availErr true quando /api/available falhou
- * @param props.accounts contas com `balance` em reais
- * @param props.cashflow DRE do mês {income_total, expense_total, investment_net} em reais
- * @param props.investTotal soma das posições abertas, em reais
- * @param props.liquidityHistory série de patrimônio {value} em reais — dá o Δ e o recorde
- * @param props.evolution série da carteira {cumulative} em reais — dá o Δ investido
- * @param props.monthLabel rótulo curto do mês selecionado ("jul/26")
- * @param props.monthly série mensal {income, expenses} em reais — dá o streak
- * @return elemento React da faixa de KPIs
- */
 const KpiStrip = React.memo(function KpiStrip({ available, availErr, accounts, cashflow, investTotal,
                     liquidityHistory, evolution, monthLabel, monthly }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
@@ -99,11 +48,7 @@ const KpiStrip = React.memo(function KpiStrip({ available, availErr, accounts, c
 
   const checkingTotal = available ? available.checking_total : 0;
   const patrimonio = checkingTotal + investTotal;
-  /**
-   * @brief Variação entre os dois últimos pontos de uma série.
-   * @param s série com {value} em REAIS
-   * @return diferença em reais, ou null quando não há dois pontos
-   */
+
   const seriesDelta = s => (s && s.length > 1) ? s[s.length - 1].value - s[s.length - 2].value : null;
   const patDelta = seriesDelta(liquidityHistory);
   const invDelta = (evolution && evolution.length > 1)
@@ -123,7 +68,7 @@ const KpiStrip = React.memo(function KpiStrip({ available, availErr, accounts, c
     .sort((a, b) => ((a.id || "").startsWith("nu") ? 1 : 2) - ((b.id || "").startsWith("nu") ? 1 : 2));
 
   return h("div", { className: "kpi-strip" },
-    // 1. Disponível pra gastar — o herói; posição, sempre "agora"
+
     h("div", { className: "kpi kpi-hero" },
       h("span", { className: "kpi-label" }, "Em Caixa (Disponível Agora)"),
       availErr
@@ -144,14 +89,14 @@ const KpiStrip = React.memo(function KpiStrip({ available, availErr, accounts, c
         ath && h("span", { className: "filter-chip", style: { background: "var(--bg-2)", color: "var(--accent)" } }, "🏆 recorde")
       ),
     ),
-    // 2. Patrimônio total — caixa + investimentos, com Δ mensal
+
     h("div", { className: "kpi" },
       h("span", { className: "kpi-label" }, "Patrimônio Consolidado"),
       h("span", { className: "kpi-value", title: `Caixa ${fmtBRL(checkingTotal)} + investimentos ${fmtBRL(investTotal)}` },
         (patrimonio < 0 ? "−" : "") + fmtBRL(Math.abs(patrimonio))),
       h("span", { className: "kpi-sub" }, h(Delta, { value: patDelta, suffix: "vs mês passado" }))
     ),
-    // 3. Balanço do mês selecionado — saldo livre + composição
+
     h("div", { className: "kpi" },
       h("span", { className: "kpi-label" }, `Resultado Líquido do Mês (${monthLabel})`),
       h("span", { className: "kpi-value", style: { color: livre >= 0 ? "var(--pos)" : (inc === 0 ? "var(--warn)" : "var(--neg)") } },
@@ -163,7 +108,7 @@ const KpiStrip = React.memo(function KpiStrip({ available, availErr, accounts, c
           (invNet > 0 ? "→inv " : "←inv ") + fmtBRL(Math.abs(invNet)))
       )
     ),
-    // 4. Total investido — com Δ mensal da carteira
+
     h("div", { className: "kpi" },
       h("span", { className: "kpi-label" }, "Total Investido"),
       h("span", { className: "kpi-value", style: { color: "var(--reserve)" } }, fmtBRL(investTotal)),
@@ -172,19 +117,6 @@ const KpiStrip = React.memo(function KpiStrip({ available, availErr, accounts, c
   );
 });
 
-/* ── GeneralWidget — visão geral: patrimônio+evolução, resumo, saúde ─────── */
-/**
- * @brief Renderiza o resumo do mês em texto + a saúde dos dados (cobertura,
- *        pendências, última movimentação, backup).
- * @param props.cashflow DRE do mês {income_total, expense_total, investment_net} em REAIS
- * @param props.liquidityHistory série de patrimônio {value} em reais
- * @param props.monthly série mensal {year, month} — dá o período coberto
- * @param props.monthSel mês selecionado {month, year}
- * @param props.monthTx transações do mês (`amount` em reais)
- * @param props.uncatCount quantos lançamentos do mês seguem sem categoria
- * @param props.backup {exists, name, age_seconds}; null enquanto carrega
- * @return elemento React do widget
- */
 const GeneralWidget = React.memo(function GeneralWidget({ cashflow, liquidityHistory, monthly, monthSel,
                          monthTx, uncatCount, backup }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
@@ -195,26 +127,25 @@ const GeneralWidget = React.memo(function GeneralWidget({ cashflow, liquidityHis
   const livre = inc - exp - invNet;
   const monName = monthSel ? PT_MONTHS[monthSel.month].toLowerCase() : "";
 
-  // Resumo em texto — leitura de relance, números exatos, mais descritivo
   const parts = [];
-  parts.push(h("div", { key: "i", style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 2 } }, 
-    h("span", { style: { color: "var(--fg-2)" } }, "Entradas (receitas)"), 
+  parts.push(h("div", { key: "i", style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 2 } },
+    h("span", { style: { color: "var(--fg-2)" } }, "Entradas (receitas)"),
     h("b", { className: "mono", style: { color: "var(--pos)", fontSize: 13 } }, "+" + fmtBRL(inc))
   ));
-  parts.push(h("div", { key: "e", style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 2 } }, 
-    h("span", { style: { color: "var(--fg-2)" } }, "Saídas (despesas)"), 
+  parts.push(h("div", { key: "e", style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 2 } },
+    h("span", { style: { color: "var(--fg-2)" } }, "Saídas (despesas)"),
     h("b", { className: "mono", style: { color: "var(--neg)", fontSize: 13 } }, "−" + fmtBRL(exp))
   ));
-  if (invNet > 0) parts.push(h("div", { key: "v", style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 2 } }, 
-    h("span", { style: { color: "var(--fg-2)" } }, "Aplicações líquidas"), 
+  if (invNet > 0) parts.push(h("div", { key: "v", style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 2 } },
+    h("span", { style: { color: "var(--fg-2)" } }, "Aplicações líquidas"),
     h("b", { className: "mono", style: { color: "var(--reserve)", fontSize: 13 } }, fmtBRL(invNet))
   ));
-  if (invNet < 0) parts.push(h("div", { key: "v", style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 2 } }, 
-    h("span", { style: { color: "var(--fg-2)" } }, "Resgates líquidos"), 
+  if (invNet < 0) parts.push(h("div", { key: "v", style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 2 } },
+    h("span", { style: { color: "var(--fg-2)" } }, "Resgates líquidos"),
     h("b", { className: "mono", style: { color: "var(--info)", fontSize: 13 } }, fmtBRL(-invNet))
   ));
-  parts.push(h("div", { key: "s", style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 6, paddingTop: 6, borderTop: "1px dashed var(--line-1)" } }, 
-    h("span", { style: { color: "var(--fg-1)", fontWeight: 600 } }, "Saldo livre no mês"), 
+  parts.push(h("div", { key: "s", style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 6, paddingTop: 6, borderTop: "1px dashed var(--line-1)" } },
+    h("span", { style: { color: "var(--fg-1)", fontWeight: 600 } }, "Saldo livre no mês"),
     h("b", { className: "mono", style: { color: livre >= 0 ? "var(--pos)" : "var(--neg)", fontSize: 14 } }, (livre >= 0 ? "+" : "−") + fmtBRL(Math.abs(livre)))
   ));
 
@@ -224,7 +155,6 @@ const GeneralWidget = React.memo(function GeneralWidget({ cashflow, liquidityHis
   const target = (() => { const v = window.localStorage.getItem("bs.budgetCents"); return v ? parseInt(v) : null; })();
   const bp = window.BS.budgetProgress(exp, target);
 
-  // Saúde dos dados
   const first = monthly[0], last = monthly[monthly.length - 1];
   const cobertura = first && last
     ? `${PT_SHORT[first.month]}/${first.year} → ${PT_SHORT[last.month]}/${last.year} (${monthly.length} meses)` : "—";
@@ -236,7 +166,7 @@ const GeneralWidget = React.memo(function GeneralWidget({ cashflow, liquidityHis
     else {
       const d = Math.floor((backup.age_seconds || 0) / 86400);
       backupTxt = d <= 0 ? "Realizado hoje" : d === 1 ? "Realizado há 1 dia" : `Há ${d} dias`;
-      backupStale = d > 40; // backup é mensal — atrasado só passando de ~1 mês
+      backupStale = d > 40;
     }
   }
 
@@ -249,7 +179,7 @@ const GeneralWidget = React.memo(function GeneralWidget({ cashflow, liquidityHis
         h("span", { style: { fontSize: 9, color: "var(--fg-3)", textTransform: "uppercase" } }, "evolução patrimonial"))
     ),
     h("div", { className: "widget-body", style: { gap: 16 } },
-      // Resumo do mês em texto
+
       h("div", { style: { fontSize: 12, lineHeight: 1.4, color: "var(--fg-1)" } },
         h("div", { style: { color: "var(--fg-0)", fontWeight: 700, textTransform: "capitalize", marginBottom: 8 } }, `Resumo de ${monName}`),
         ...parts,
@@ -261,7 +191,7 @@ const GeneralWidget = React.memo(function GeneralWidget({ cashflow, liquidityHis
             `${fmtBRL(exp)} / ${fmtBRL(target)} · ${100 - bp.pct >= 0 ? (100 - bp.pct) : 0}% restante`)
         )
       ),
-      // Saúde dos dados
+
       h("div", { style: { marginTop: "auto", display: "flex", flexDirection: "column" } },
         h("div", { className: "stat-row" }, h("span", { className: "k" }, "Período analisado"), h("span", { className: "v mono" }, cobertura)),
         h("div", { className: "stat-row" },
@@ -279,19 +209,6 @@ const GeneralWidget = React.memo(function GeneralWidget({ cashflow, liquidityHis
   );
 });
 
-/* ── TimelineWidget — o controle de mês É o gráfico ──────────────────────── */
-/**
- * @brief Renderiza o fluxo mês a mês; clicar num mês move o seletor global.
- *
- * Os 12 meses do ano navegado aparecem sempre, com ou sem dados: um buraco na
- * série é informação. Mês sem dados fica desabilitado.
- *
- * @param props.monthly série mensal {year, month, income, expenses} em REAIS,
- *        em ordem cronológica — a vizinhança na lista define o "mês anterior"
- * @param props.monthSel mês selecionado {month, year}
- * @param props.onPickMonth chamado com {year, month} do mês clicado
- * @return elemento React do widget
- */
 const TimelineWidget = React.memo(function TimelineWidget({ monthly, monthSel, onPickMonth }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
   const now = new Date();
@@ -375,15 +292,6 @@ const TimelineWidget = React.memo(function TimelineWidget({ monthly, monthSel, o
   );
 });
 
-/* ── AccountsWidget — onde o caixa está ──────────────────────────────────── */
-/**
- * @brief Renderiza os saldos das contas correntes como facetas clicáveis.
- * @param props.accounts contas (`balance` em REAIS); só as de type "checking" entram
- * @param props.available {checking_total} em reais — ausente, soma as contas
- * @param props.filter filtro facetado, pra marcar a conta ativa
- * @param props.onToggleFacet alterna a faceta "accounts" com o id da conta
- * @return elemento React do widget
- */
 const AccountsWidget = React.memo(function AccountsWidget({ accounts, available, filter, onToggleFacet }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
   const checking = (accounts || []).filter(a => a.type === "checking")
@@ -425,29 +333,13 @@ const AccountsWidget = React.memo(function AccountsWidget({ accounts, available,
   );
 });
 
-/* ── CategoriesWidget — pra onde o dinheiro foi no mês ───────────────────── */
-/**
- * @brief Renderiza o gasto do mês por categoria, como facetas clicáveis.
- *
- * Só despesa de CONSUMO entra (isConsumptionExpense): transferência,
- * investimento e liquidação não são gasto, e somá-los aqui dobraria o total.
- *
- * @param props.monthTx transações do mês (`amount` em REAIS)
- * @param props.uncatCount quantos lançamentos seguem sem categoria
- * @param props.onOpenBulk abre a categorização em lote
- * @param props.filter filtro facetado, pra marcar a categoria ativa
- * @param props.onToggleFacet alterna a faceta "categories" com o nome da categoria
- * @return elemento React do widget
- */
 const CategoriesWidget = React.memo(function CategoriesWidget({ monthTx, uncatCount, onOpenBulk, filter,
                                                                onToggleFacet, catsIndex, monthSel, onBudgetSaved }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
   const expenses = monthTx.filter(isConsumptionExpense);
   const totalExp = expenses.reduce((s, t) => s + t.amount, 0);
-  const [editing, setEditing] = _dSt(null);   // category_id sendo editado
+  const [editing, setEditing] = _dSt(null);
 
-  /* Agrupa por ID, não por nome: o alvo mora no id, e duas categorias podem
-     ter nomes parecidos. "Sem categoria" (id null) nunca tem alvo. */
   const byCat = _dMemo(() => {
     const g = new Map();
     expenses.forEach(t => {
@@ -487,35 +379,19 @@ const CategoriesWidget = React.memo(function CategoriesWidget({ monthTx, uncatCo
   );
 });
 
-/* ── CategoryRow — uma categoria com gasto, alvo e edição inline ───────────
-   A barra significa UMA coisa: progresso contra o alvo. Categoria sem alvo não
-   ganha barra — mostra "definir", porque "sem alvo" e "alvo de R$ 0,00" são
-   estados diferentes e uma barra vazia sugeriria o segundo.
-
-   Sem verde pra "dentro do alvo": verde já significa receita nas espécies
-   (money.js), e reusar quebraria a semântica. Faixas em budgetState (tx-group.js). */
-/**
- * @brief Renderiza uma categoria do widget: gasto, barra de alvo e edição.
- * @param props.c {id, name, total} — total do mês em REAIS
- * @param props.meta linha de /api/categories-full (budget_cents em CENTAVOS) ou null
- * @param props.monthSel mês selecionado — decide se a edição grava fixo ou override
- * @param props.onBudgetSaved recarrega os alvos após gravar
- * @return elemento React da linha
- */
 function CategoryRow({ c, meta, active, onFacet, editing, onEdit, onEditDone, monthSel, onBudgetSaved }) {
   const h = (t, p, ...cc) => React.createElement(t, p, ...cc);
   const budget = meta && meta.budget_cents != null ? meta.budget_cents / 100 : null;
   const st = window.BS.budgetState(c.total, budget);
   const [draft, setDraft] = _dSt("");
-  // Alvo só existe pra categoria de despesa real — "Sem categoria" (id null) não tem.
+
   const canBudget = c.id != null;
 
   const save = async () => {
     const reais = parseFloat(String(draft).replace(/\./g, "").replace(",", "."));
     if (!Number.isFinite(reais) || reais < 0) { onEditDone(); return; }
     try {
-      // Editar num mês que não é o corrente grava override DAQUELE mês; no mês
-      // corrente, grava o alvo fixo. O rótulo ao lado diz qual está valendo.
+
       await putCategoryBudget(c.id, Math.round(reais * 100), refMonthOf(monthSel));
       onBudgetSaved && onBudgetSaved();
       window.dispatchEvent(new CustomEvent("bs-toast", { detail: { msg: `Alvo de ${c.name}: ${fmtBRL(reais)}`, kind: "success" } }));
@@ -570,21 +446,9 @@ function CategoryRow({ c, meta, active, onFacet, editing, onEdit, onEditDone, mo
   );
 }
 
-/* ── FaturaWidget — Fatura de Cartão de Crédito do Mês ───────────────────── */
-/**
- * @brief Renderiza o consumo no crédito do mês, quebrado por banco.
- *
- * Conta os ITENS do crédito e exclui as liquidações (`is_settlement`): o
- * pagamento da fatura é liquidação, e somá-lo aos itens dobraria o consumo.
- *
- * @param props.monthTx transações do mês (`amount` em REAIS)
- * @param props.filter filtro facetado, pra marcar o banco ativo
- * @param props.onToggleFacet alterna a faceta "banks" com o nome do banco
- * @return elemento React do widget
- */
 const FaturaWidget = React.memo(function FaturaWidget({ monthTx, filter, onToggleFacet }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
-  
+
   const { faturaItems, totalFatura, byBank } = _dMemo(() => {
     const items = monthTx.filter(t => t.method === "credit" && !t.is_settlement);
     const total = items.reduce((s, t) => s + (t.flow === "expense" ? t.amount : -t.amount), 0);
@@ -637,28 +501,14 @@ const FaturaWidget = React.memo(function FaturaWidget({ monthTx, filter, onToggl
   );
 });
 
-/* ── InvestmentsWidget — todas as posições no card (sem drill) ────────────── */
-/**
- * @brief Renderiza as posições abertas e o Δ mensal da carteira.
- * @param props.investments posições abertas (`balance` em REAIS, `group_name`,
- *        `derived` marcando a posição derivada do ledger — a Caixinha)
- * @param props.evolution série da carteira {cumulative} em reais — dá o Δ do mês
- * @return elemento React do widget
- */
 const InvestmentsWidget = React.memo(function InvestmentsWidget({ investments, evolution }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
-  /**
-   * @brief Traduz o tipo da posição pro rótulo em pt-BR.
-   * @param t tipo cru ("rdb", "cdb", "tesouro"…)
-   * @return rótulo conhecido, ou o tipo capitalizado quando não mapeado
-   */
+
   const typeLabel = t => INV_TYPE_LABEL[t] || (t ? t[0].toUpperCase() + t.slice(1) : "Investimento");
   const total = investments.reduce((s, i) => s + (i.balance || 0), 0);
   const invDelta = (evolution && evolution.length > 1)
     ? evolution[evolution.length - 1].cumulative - evolution[evolution.length - 2].cumulative : null;
 
-  // Posições individuais, maiores primeiro; CDBs do Porquinho agregados numa
-  // linha (mesmo emissor, mesma natureza — o detalhe fino não muda decisão).
   const rows = _dMemo(() => {
     const out = [];
     const porq = investments.filter(i => i.group_name === "Porquinho");
@@ -701,13 +551,6 @@ const InvestmentsWidget = React.memo(function InvestmentsWidget({ investments, e
   );
 });
 
-/* ── ForwardWidget — visão de futuro: o que já está comprometido ─────────── */
-/**
- * @brief Barras fantasma dos compromissos futuros (fatura aberta + parcelas
- *        projetadas). Display-only — nada aqui é fato do ledger.
- * @param props.commitments {open_invoices, series} em REAIS; null enquanto carrega
- * @return elemento React do widget
- */
 const ForwardWidget = React.memo(function ForwardWidget({ commitments }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
   const series = (commitments && commitments.series) || [];
@@ -736,31 +579,9 @@ const ForwardWidget = React.memo(function ForwardWidget({ commitments }) {
   );
 });
 
-/* ── DashboardView ────────────────────────────────────────────────────────── */
-/**
- * @brief Converte o seletor de mês no ref_month que a API espera.
- * @param monthSel mês selecionado {month, year}
- * @return "YYYY-MM", ou undefined quando não há mês selecionado
- */
 const refMonthOf = (monthSel) =>
   monthSel ? `${monthSel.year}-${String(monthSel.month).padStart(2, "0")}` : undefined;
-/**
- * @brief Renderiza a tela única: carrega os dados, mantém o filtro facetado e
- *        monta KPIs, widgets e tabela.
- *
- * Dois carregamentos separados de propósito: posição (contas, investimentos,
- * disponível) NÃO depende do mês selecionado; fluxo (DRE, lançamentos,
- * pendências) segue o seletor global.
- *
- * @param props.monthSel mês selecionado {month, year}
- * @param props.monthly série mensal {year, month, income, expenses} em REAIS
- * @param props.onPickMonth move o seletor global de mês
- * @param props.refreshKey muda para forçar a recarga de tudo
- * @param props.onEditCategory abre o editor de uma transação
- * @param props.onImport abre o modal de importação (usado no first-run)
- * @return Fragment React com a faixa de KPIs e o grid, ou a tela de erro/
- *         first-run quando é o caso
- */
+
 function DashboardView({ monthSel, monthly, onPickMonth, refreshKey, onEditCategory, onImport }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
   const [available, setAvailable] = _dSt(null);
@@ -777,29 +598,18 @@ function DashboardView({ monthSel, monthly, onPickMonth, refreshKey, onEditCateg
   const [monthTx, setMonthTx] = _dSt([]);
   const [uncatCount, setUncatCount] = _dSt(0);
   const [bulkOpen, setBulkOpen] = _dSt(false);
-  // Categorias COM alvo/gasto/Δ do mês — alimenta a barra de orçamento do widget
-  // e o cabeçalho de grupo da tabela. Segue o seletor de mês: o alvo vigente é
-  // resolvido no servidor (override do mês → fixo).
+
   const [expenseCats, setExpenseCats] = _dSt([]);
   const [filter, setFilter] = _dSt(() => window.BS.emptyFilter());
-  /**
-   * @brief Alterna um valor numa faceta de conjunto do filtro compartilhado.
-   * @param kind "categories", "accounts" ou "banks"
-   * @param value valor clicado no widget
-   */
+
   const onToggleFacet = (kind, value) => setFilter(f => window.BS.toggleFacet(f, kind, value));
-  /**
-   * @brief Ajusta um campo escalar do filtro.
-   * @param field "flow", "method" ou "search"
-   * @param value novo valor do campo
-   */
+
   const setFilterField = (field, value) => setFilter(f => Object.assign({}, f, { [field]: value }));
-  /** @brief Limpa todas as facetas, voltando ao filtro neutro. */
+
   const clearFilter = () => setFilter(window.BS.emptyFilter());
-  // Reset facets when the global month changes (stale facet values match nothing).
+
   _dEf(() => { setFilter(window.BS.emptyFilter()); }, [monthSel]);
 
-  // Dados de posição (independem do mês selecionado)
   _dEf(() => {
     setAvailErr(false); setLoadErr(false);
     fetchAvailable().then(setAvailable).catch(() => setAvailErr(true));
@@ -812,7 +622,6 @@ function DashboardView({ monthSel, monthly, onPickMonth, refreshKey, onEditCateg
       }).catch(() => setLoadErr(true));
   }, [refreshKey, retryTick]);
 
-  // Dados de fluxo (seguem o seletor de mês global)
   _dEf(() => {
     if (!monthSel) return;
     const { month, year } = monthSel;
@@ -824,30 +633,22 @@ function DashboardView({ monthSel, monthly, onPickMonth, refreshKey, onEditCateg
     fetchCategoriesFull("expense", refMonthOf(monthSel)).then(setExpenseCats).catch(() => setExpenseCats([]));
   }, [monthSel, refreshKey, retryTick]);
 
-  // Exclusão otimista (evento global disparado pelo shell)
   _dEf(() => {
     const handler = e => setMonthTx(prev => prev.filter(tx => tx.id !== e.detail.id));
     window.addEventListener("bs-tx-optimistic-delete", handler);
     return () => window.removeEventListener("bs-tx-optimistic-delete", handler);
   }, []);
 
-  // Índice de categoria p/ a tabela: alvo vigente, gasto e gasto do mês anterior.
-  // Chaveado por id — é o que buildGroups consulta.
   const catsIndex = _dMemo(
     () => new Map(expenseCats.map(c => [c.id, c])),
     [expenseCats],
   );
 
-  /** @brief Recarrega os alvos após uma edição, sem recarregar a tela toda. */
   const reloadBudgets = _dCb(() => {
     if (!monthSel) return;
     fetchCategoriesFull("expense", refMonthOf(monthSel)).then(setExpenseCats).catch(() => {});
   }, [monthSel]);
 
-  /* O saldo corrente parte do saldo ATUAL da conta e conta pra trás, então só
-     fecha se não houver lançamento DEPOIS do mês exibido. `monthly` vem com
-     present=1 e ordenado, e o último item é o mês mais recente com dados — a
-     mesma fonte de verdade que o botão "Hoje" do MonthNav usa (app.js). */
   const isLatestMonth = _dMemo(() => {
     if (!monthSel || !monthly || !monthly.length) return false;
     const last = monthly[monthly.length - 1];
@@ -859,7 +660,6 @@ function DashboardView({ monthSel, monthly, onPickMonth, refreshKey, onEditCateg
     h("div", { style: { color: "var(--fg-2)", fontSize: 13 } }, "O servidor local não respondeu. Verifique se o BrokerShark está rodando."),
     h("button", { className: "btn btn-ghost", style: { color: "var(--neg)", border: "1px solid color-mix(in oklch, var(--neg) 30%, transparent)", fontWeight: 600 }, onClick: () => setRetryTick(t => t + 1) }, "Tentar de novo"));
 
-  // First-run: nada importado → convite único, sem widgets zerados
   const isFirstRun = available && available.checking_total === 0 && monthly.length === 0;
   if (isFirstRun) return h("div", { style: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 40 } },
     h("div", { className: "fade-in", style: { padding: "64px 40px", width: "100%", maxWidth: 640, display: "flex", flexDirection: "column", gap: 32, alignItems: "center", textAlign: "center", background: "linear-gradient(180deg, color-mix(in oklch, var(--accent) 3%, transparent), transparent 100%)", border: "1px solid color-mix(in oklch, var(--accent) 10%, transparent)", borderRadius: 24, boxShadow: "0 24px 48px oklch(0% 0 0 / 0.2), inset 0 1px 0 color-mix(in oklch, white 5%, transparent)" } },
@@ -907,7 +707,7 @@ function DashboardView({ monthSel, monthly, onPickMonth, refreshKey, onEditCateg
         openBulk: bulkOpen, onBulkConsumed: () => setBulkOpen(false),
         monthTx, setMonthTx,
         filter, setFilterField, onToggleFacet,
-        // Alimenta alvo/Δ no cabeçalho de grupo e a coluna de saldo corrente.
+
         accounts, catsIndex, isLatestMonth,
       })
     )

@@ -1,4 +1,3 @@
-/* juice.js — silent micro-animations (coin/boot/pop/shake). No audio. UMD tail. */
 (function (root, factory) {
   const api = factory();
   if (typeof module !== "undefined" && module.exports) module.exports = api;
@@ -9,7 +8,6 @@
 
   const shouldAnimate = (reducedMotion) => !reducedMotion;
 
-  // Browser-only; guarded so require() in node doesn't touch window.
   const hasDOM = typeof window !== "undefined" && typeof document !== "undefined";
 
   function reduced() { return hasDOM && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches; }

@@ -1,12 +1,3 @@
-/* pixel-ui.css — vocabulário de componente interativo da linguagem pixel.
-   pixel.css é a camada ESTRUTURAL (bordas de painel, CRT, dither, keyframes);
-   este arquivo é o vocabulário que as telas consomem. Paleta e fonte vêm de
-   style.css — aqui não se define cor nem família, só forma. */
-
-/* ── Linha de item ────────────────────────────────────────────────────────
-   Substitui a linha inline-styled que existia em 3 cópias divergentes.
-   Compacta de propósito: a versão antiga (avatar 44px + padding 16px) mostrava
-   ~4 itens por tela. */
 .px-row {
   display: flex; align-items: center; gap: var(--s-5);
   padding: var(--s-3) var(--s-4);
@@ -20,9 +11,6 @@
 
 .px-list { display: flex; flex-direction: column; }
 
-/* ── Swatch: quadrado, nunca círculo ──────────────────────────────────────
-   Não existe círculo num grid de pixels — o avatar redondo era o que mais
-   fazia estas telas destoarem. A cor vem de domain/palette.js (quantizada). */
 .px-swatch {
   width: 20px; height: 20px; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
@@ -31,7 +19,6 @@
   color: var(--bg-0);
 }
 
-/* ── Campo (input/select) ─────────────────────────────────────────────── */
 .px-field {
   height: 28px; padding: 0 var(--s-4);
   background: var(--bg-0); color: var(--fg-0);
@@ -42,10 +29,6 @@
 .px-field:focus { border-color: var(--accent); }
 select.px-field { cursor: pointer; appearance: none; padding-right: var(--s-7); }
 
-/* ── Botão que afunda ─────────────────────────────────────────────────────
-   :active desloca 1px e a sombra degrau colapsa — o feedback Balatro, reusando
-   a linguagem de sombra que pixel.css já estabeleceu. steps() e não easing:
-   interpolação suave é a antítese de pixel. */
 .px-btn {
   height: 28px; padding: 0 var(--s-5);
   display: inline-flex; align-items: center; gap: var(--s-3);
@@ -65,7 +48,6 @@ select.px-field { cursor: pointer; appearance: none; padding-right: var(--s-7); 
 .px-btn--danger { background: var(--neg); color: var(--bg-0); }
 .px-btn--danger:hover { background: var(--neg); filter: brightness(1.12); }
 
-/* ── Chip: rótulo mono pra contagem/valor ────────────────────────────────── */
 .px-chip {
   padding: 1px var(--s-3);
   background: var(--bg-2); color: var(--fg-2);
@@ -74,8 +56,6 @@ select.px-field { cursor: pointer; appearance: none; padding-right: var(--s-7); 
   white-space: nowrap;
 }
 
-/* ── Dropzone ─────────────────────────────────────────────────────────────
-   Tracejado DURO: dash curto e igual, sem raio. */
 .px-dropzone {
   padding: var(--s-8) var(--s-6);
   text-align: center;
@@ -89,7 +69,6 @@ select.px-field { cursor: pointer; appearance: none; padding-right: var(--s-7); 
   border-color: var(--accent); color: var(--fg-0); background: var(--bg-2);
 }
 
-/* ── Indicador de passo do wizard ─────────────────────────────────────────── */
 .px-steps { display: flex; align-items: center; gap: var(--s-3); }
 .px-step {
   width: 18px; height: 18px;
@@ -102,7 +81,6 @@ select.px-field { cursor: pointer; appearance: none; padding-right: var(--s-7); 
 .px-step--done   { background: var(--pos);    color: var(--bg-0); }
 .px-step-bar { width: 16px; height: 2px; background: var(--line-2); }
 
-/* ── Estado vazio ─────────────────────────────────────────────────────────── */
 .px-empty {
   padding: var(--s-9) var(--s-6);
   text-align: center; color: var(--fg-3);

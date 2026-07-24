@@ -20,7 +20,6 @@ function freshDb(): DatabaseSync {
   return db;
 }
 
-/** Chama o handler de /api/commitments e devolve o JSON. */
 function getCommitments(db: DatabaseSync): any {
   const route = commitmentRoutes(db).find(r => r.method === "GET")!;
   let payload: any;
@@ -29,14 +28,12 @@ function getCommitments(db: DatabaseSync): any {
   return payload;
 }
 
-/** Fatura aberta (payment_tx_id NULL) → id. */
 function openInvoice(db: DatabaseSync, refMonth: string, dueDate: string | null, totalCents: number): number {
   return Number(db.prepare(
     "INSERT INTO invoices (account_id, ref_month, due_date, total_cents, source_file) VALUES ('inter-cc', ?, ?, ?, 'ui')",
   ).run(refMonth, dueDate, totalCents).lastInsertRowid);
 }
 
-/** Item parcelado na fatura aberta. */
 function installmentItem(db: DatabaseSync, invoiceId: number, date: string, amountCents: number, seq: number, total: number) {
   db.prepare(`INSERT INTO transactions
     (date, flow, method, account_id, amount_cents, description, invoice_id, installment_seq, installment_total, import_batch_id)
@@ -46,7 +43,7 @@ function installmentItem(db: DatabaseSync, invoiceId: number, date: string, amou
 
 test("commitments: fatura aberta entra na série pelo mês do vencimento", () => {
   const db = freshDb();
-  // due_date no mês-calendário corrente para cair na janela
+
   const now = new Date();
   const dd = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-15`;
   openInvoice(db, "2026-07", dd, 50000);
@@ -61,11 +58,10 @@ test("commitments: fatura aberta entra na série pelo mês do vencimento", () =>
 test("commitments: itens parcelados projetam meses futuros", () => {
   const db = freshDb();
   const inv = openInvoice(db, "2026-07", null, 1000);
-  installmentItem(db, inv, "2026-07-10", 1000, 2, 5); // faltam 3/5,4/5,5/5
+  installmentItem(db, inv, "2026-07-10", 1000, 2, 5);
   const out = getCommitments(db);
   const projMonths = out.series.filter((s: any) => s.projected > 0);
-  // Só entram os que caírem na janela de 12 meses a partir do mês corrente;
-  // ao menos verificamos que projeção existe e é positiva.
+
   const totalProjected = out.series.reduce((n: number, s: any) => n + s.projected, 0);
   assert.ok(totalProjected >= 0);
   assert.ok(projMonths.every((s: any) => s.projected > 0));
