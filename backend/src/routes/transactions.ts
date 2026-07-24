@@ -4,7 +4,7 @@ import { json, error, readBody, qsStr, qsInt } from "../http/respond.ts";
 import type { Route } from "../http/router.ts";
 import { compilePath } from "../http/router.ts";
 import { broadcast } from "../http/sse.ts";
-import { isIsoDate, isPositiveAmount, isIntId, isIntIdArray, isShortText, TX_METHODS } from "../http/validate.ts";
+import { isIntId, isIntIdArray, isShortText } from "../http/validate.ts";
 import { currentMonth, monthRange } from "../domain/dates.ts";
 import { normalizeMerchant } from "../domain/merchant.ts";
 
@@ -64,9 +64,6 @@ export function transactionRoutes(db: DatabaseSync): Route[] {
   const categoryExists = (id: unknown): boolean =>
     isIntId(id) && db.prepare("SELECT 1 FROM categories WHERE id = ?").get(id) !== undefined;
 
-  const accountExists = (id: unknown): boolean =>
-    typeof id === "string" && db.prepare("SELECT 1 FROM accounts WHERE id = ?").get(id) !== undefined;
-
   function getTransactions(req: Req, res: Res) {
     const accountId = qsStr(req, "account");
     const limit = Math.min(qsInt(req, "limit") ?? 200, 1000);
@@ -116,19 +113,6 @@ export function transactionRoutes(db: DatabaseSync): Route[] {
       }
       return obj;
     }));
-  }
-
-  function searchTransactions(req: Req, res: Res) {
-    const q = qsStr(req, "q");
-    if (!q) return json(res, []);
-    const like = `%${q}%`;
-    const rows = db.prepare(`
-      ${TX_SELECT}
-      WHERE t.description LIKE ? OR t.display_name LIKE ? OR c.name LIKE ?
-      ORDER BY t.date DESC, t.id DESC
-      LIMIT 200
-    `).all(like, like, like) as any[];
-    json(res, rows.map(txToJson));
   }
 
   async function patchTransaction(req: Req, res: Res) {
@@ -218,49 +202,13 @@ export function transactionRoutes(db: DatabaseSync): Route[] {
     json(res, { ok: true, updated: body.ids.length });
   }
 
-  function createManual(flow: "expense" | "income") {
-
-    return async (req: Req, res: Res) => {
-      const body = await readBody<any>(req);
-      if (!isIsoDate(body.date)) return error(res, "date deve ser YYYY-MM-DD");
-      if (!isPositiveAmount(body.amount)) return error(res, "amount deve ser número > 0");
-      if (!accountExists(body.account_id)) return error(res, "conta inexistente");
-      const method = body.method ?? "other";
-      if (!TX_METHODS.has(method)) return error(res, "method inválido");
-
-      if (body.counterpart === "SELF") {
-        return error(res, "counterpart 'SELF' é derivado do pareamento de pernas, não aceito no lançamento manual");
-      }
-      if (body.category_id != null && !categoryExists(body.category_id)) {
-        return error(res, "categoria inexistente");
-      }
-
-      const amountCents = Math.round(body.amount * 100);
-      const isRevenue = flow === "income" ? (body.is_revenue === 0 ? 0 : 1) : 0;
-      db.prepare(`
-        INSERT INTO transactions (date, flow, method, account_id, amount_cents, description,
-          category_id, counterpart, is_revenue, is_settlement, is_third_party)
-        VALUES (?,?,?,?,?,?,?,?,?, 0, ?)
-      `).run(
-        body.date, flow, method, body.account_id, amountCents,
-        String(body.description ?? ""), body.category_id ?? null, body.counterpart ?? null,
-        isRevenue, body.is_third_party === 1 ? 1 : 0,
-      );
-      broadcast();
-      json(res, { ok: true }, 201);
-    };
-  }
-
   const cp = compilePath;
   return [
     { method: "GET", ...cp("/api/transactions"), handler: getTransactions },
     { method: "GET", ...cp("/api/month-transactions"), handler: getMonthTransactions },
-    { method: "GET", ...cp("/api/search"), handler: searchTransactions },
     { method: "PATCH", ...cp("/api/transactions/:id"), handler: patchTransaction },
     { method: "DELETE", ...cp("/api/transactions/:id"), handler: deleteTransaction },
     { method: "POST", ...cp("/api/transactions/categorize-bulk"), handler: categorizeBulk },
     { method: "POST", ...cp("/api/transactions/restore"), handler: restoreTransactions },
-    { method: "POST", ...cp("/api/transactions"), handler: createManual("expense") },
-    { method: "POST", ...cp("/api/incomes"), handler: createManual("income") },
   ];
 }

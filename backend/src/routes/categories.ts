@@ -106,18 +106,6 @@ export function categoryRoutes(db: DatabaseSync): Route[] {
     json(res, db.prepare("SELECT id, name FROM categories WHERE flow='expense' ORDER BY name").all());
   }
 
-  function getExpenseCategoriesFull(_req: Req, res: Res) {
-    const rows = db.prepare(`
-      SELECT c.id, c.name, c.flow, COUNT(t.id) AS transaction_count
-      FROM categories c
-      LEFT JOIN transactions t ON t.category_id = c.id
-      WHERE c.flow = 'expense'
-      GROUP BY c.id
-      ORDER BY c.name
-    `).all() as any[];
-    json(res, rows);
-  }
-
   async function createCategory(req: Req, res: Res) {
     const body = await readBody<{ name?: unknown; flow?: unknown }>(req);
     if (!isShortText(body.name, 60)) return error(res, "name obrigatório (≤60 chars)");
@@ -169,7 +157,6 @@ export function categoryRoutes(db: DatabaseSync): Route[] {
   return [
     { method: "GET", ...cp("/api/categories-full"), handler: getCategoriesFull },
     { method: "GET", ...cp("/api/expense-categories"), handler: getExpenseCategories },
-    { method: "GET", ...cp("/api/expense-categories-full"), handler: getExpenseCategoriesFull },
     { method: "PUT", ...cp("/api/category-budget"), handler: putCategoryBudget },
     { method: "DELETE", ...cp("/api/category-budget"), handler: deleteCategoryBudget },
     { method: "POST", ...cp("/api/categories"), handler: createCategory },
