@@ -73,7 +73,7 @@ const KpiStrip = React.memo(function KpiStrip({ available, availErr, accounts, c
       h("span", { className: "kpi-label" }, "Em Caixa (Disponível Agora)"),
       availErr
         ? h("span", { style: { fontSize: 13, fontWeight: 600, color: "var(--neg)" } }, "falha ao carregar")
-        : h("span", { className: "kpi-value", style: { color: availNeg ? "var(--neg)" : "var(--pos)" } },
+        : h("span", { className: "kpi-value", style: { color: availNeg ? "var(--neg)" : "var(--fg-0)" } },
             availValue == null ? "—" : (availNeg ? "−" : "") + fmtBRL(Math.abs(availValue))),
       h("span", { className: "kpi-sub" },
         checking.map(a => h("span", { key: a.id, style: { display: "inline-flex", gap: 5, alignItems: "baseline" } },
@@ -227,7 +227,7 @@ const TimelineWidget = React.memo(function TimelineWidget({ monthly, monthSel, o
   const maxV = Math.max(...slots.map(s => s.data ? Math.max(s.data.income, s.data.expenses) : 0), 1);
   const sel = monthSel && monthly.find(x => x.year === monthSel.year && x.month === monthSel.month);
 
-  return h("div", { className: "widget wg-3" },
+  return h("div", { className: "widget wg-6" },
     h("div", { className: "widget-h" },
       h("span", { className: "widget-title" }, "Fluxo mês a mês"),
       h("button", { onClick: () => setCompare(c => !c), className: compare ? "filter-chip" : "filter-chip",
@@ -350,7 +350,7 @@ const CategoriesWidget = React.memo(function CategoriesWidget({ monthTx, uncatCo
     return [...g.values()].sort((a, b) => b.total - a.total);
   }, [monthTx]);
 
-  return h("div", { className: "widget wg-2" },
+  return h("div", { className: "widget wg-4" },
     h("div", { className: "widget-h" },
       h("span", { className: "widget-title" }, "Categorias"),
       h("span", { className: "mono", style: { marginLeft: "auto", fontSize: 12, fontWeight: 700, color: "var(--neg)" } }, "−" + fmtBRL(totalExp))
@@ -461,7 +461,7 @@ const FaturaWidget = React.memo(function FaturaWidget({ monthTx, filter, onToggl
     return { faturaItems: items, totalFatura: total, byBank: banks };
   }, [monthTx]);
 
-  return h("div", { className: "widget wg-2" },
+  return h("div", { className: "widget wg-3" },
     h("div", { className: "widget-h" },
       h("span", { className: "widget-title" }, "Fatura do Cartão"),
       h("span", { className: "mono", style: { marginLeft: "auto", fontSize: 12, fontWeight: 700, color: totalFatura > 0 ? "var(--neg)" : "var(--fg-0)" } }, (totalFatura >= 0 ? "−" : "+") + fmtBRL(Math.abs(totalFatura)))
@@ -522,7 +522,7 @@ const InvestmentsWidget = React.memo(function InvestmentsWidget({ investments, e
     return out.sort((a, b) => b.balance - a.balance);
   }, [investments]);
 
-  return h("div", { className: "widget wg-2" },
+  return h("div", { className: "widget wg-3" },
     h("div", { className: "widget-h" },
       h("span", { className: "widget-title" }, "Investimentos"),
       h("span", { className: "mono", style: { marginLeft: "auto", fontSize: 12, fontWeight: 700, color: "var(--reserve)" } }, fmtBRL(total))
@@ -556,7 +556,7 @@ const ForwardWidget = React.memo(function ForwardWidget({ commitments }) {
   const series = (commitments && commitments.series) || [];
   const maxV = series.reduce((m, s) => Math.max(m, s.total), 0) || 1;
 
-  return h("div", { className: "widget wg-3" },
+  return h("div", { className: "widget wg-7" },
     h("div", { className: "widget-h" },
       h("span", { className: "widget-title" }, "Compromissos Futuros"),
     ),

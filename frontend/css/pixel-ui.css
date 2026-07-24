@@ -1,28 +1,28 @@
 .px-row {
   display: flex; align-items: center; gap: var(--s-5);
   padding: var(--s-3) var(--s-4);
-  min-height: 36px;
-  background: var(--bg-1);
-  border: 2px solid var(--line-1);
-  box-shadow: 2px 2px 0 #05060d;
+  min-height: 34px;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--line-1);
 }
-.px-row:hover { background: var(--bg-2); }
-.px-row + .px-row { margin-top: var(--s-3); }
+.px-row:hover { background: var(--bg-1); }
+.px-row:last-child { border-bottom: 0; }
 
 .px-list { display: flex; flex-direction: column; }
 
 .px-swatch {
-  width: 20px; height: 20px; flex-shrink: 0;
+  width: 14px; height: 14px; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
-  border: 2px solid var(--line-1);
-  font-family: var(--ff-sans); font-size: var(--fz-9); line-height: 1;
+  border: 1px solid var(--line-1);
+  font-family: var(--ff-mono); font-size: var(--fz-9); line-height: 1;
   color: var(--bg-0);
 }
 
 .px-field {
   height: 28px; padding: 0 var(--s-4);
   background: var(--bg-0); color: var(--fg-0);
-  border: 2px solid var(--line-2);
+  border: 1px solid var(--line-2);
   font-family: var(--ff-mono); font-size: var(--fz-7);
   outline: none;
 }
@@ -33,7 +33,7 @@ select.px-field { cursor: pointer; appearance: none; padding-right: var(--s-7); 
   height: 28px; padding: 0 var(--s-5);
   display: inline-flex; align-items: center; gap: var(--s-3);
   background: var(--bg-2); color: var(--fg-0);
-  border: 2px solid var(--line-1);
+  border: 1px solid var(--line-1);
   box-shadow: 2px 2px 0 #05060d;
   font-family: var(--ff-sans); font-size: var(--fz-9); letter-spacing: 1px;
   cursor: pointer;
@@ -51,7 +51,7 @@ select.px-field { cursor: pointer; appearance: none; padding-right: var(--s-7); 
 .px-chip {
   padding: 1px var(--s-3);
   background: var(--bg-2); color: var(--fg-2);
-  border: 2px solid var(--line-1);
+  border: 1px solid var(--line-1);
   font-family: var(--ff-mono); font-size: var(--fz-9);
   white-space: nowrap;
 }
@@ -60,9 +60,9 @@ select.px-field { cursor: pointer; appearance: none; padding-right: var(--s-7); 
   padding: var(--s-8) var(--s-6);
   text-align: center;
   background: var(--bg-1);
-  border: 3px dashed var(--line-2);
+  border: 2px dashed var(--line-2);
   color: var(--fg-2);
-  font-family: var(--ff-sans); font-size: var(--fz-8); letter-spacing: 1px;
+  font-family: var(--ff-mono); font-size: var(--fz-8);
   cursor: pointer;
 }
 .px-dropzone:hover, .px-dropzone--over {
@@ -73,7 +73,7 @@ select.px-field { cursor: pointer; appearance: none; padding-right: var(--s-7); 
 .px-step {
   width: 18px; height: 18px;
   display: flex; align-items: center; justify-content: center;
-  border: 2px solid var(--line-1);
+  border: 1px solid var(--line-1);
   background: var(--bg-2); color: var(--fg-3);
   font-family: var(--ff-sans); font-size: var(--fz-9);
 }
@@ -84,7 +84,7 @@ select.px-field { cursor: pointer; appearance: none; padding-right: var(--s-7); 
 .px-empty {
   padding: var(--s-9) var(--s-6);
   text-align: center; color: var(--fg-3);
-  font-family: var(--ff-sans); font-size: var(--fz-8); letter-spacing: 1px;
+  font-family: var(--ff-mono); font-size: var(--fz-8);
 }
 
 @media (prefers-reduced-motion: reduce) {
