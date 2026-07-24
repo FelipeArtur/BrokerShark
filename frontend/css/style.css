@@ -295,6 +295,11 @@ button.data-tag:hover { border-color: var(--fg-2); color: var(--fg-0); backgroun
   display: grid; grid-template-columns: repeat(14, 1fr);
   gap: 10px; flex-shrink: 0; grid-auto-rows: 260px;
 }
+/* Faixa de widgets propensos a vazio: altura pelo conteúdo — quando não há
+   dado, a fatura e a visão de futuro encolhem em vez de reservar 260px. */
+.widget-row--soft { grid-auto-rows: min-content; align-items: start; }
+.widget-row--soft .widget { min-height: 96px; }
+.widget-row--soft .px-empty { padding: var(--s-6); }
 .wg-2 { grid-column: span 2; }
 .wg-3 { grid-column: span 3; }
 .wg-4 { grid-column: span 4; }

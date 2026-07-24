@@ -170,7 +170,7 @@ const GeneralWidget = React.memo(function GeneralWidget({ cashflow, liquidityHis
     }
   }
 
-  return h("div", { className: "widget wg-3" },
+  return h("div", { className: "widget wg-4" },
     h("div", { className: "widget-h" },
       h("span", { className: "widget-title" }, "Visão Geral do Mês"),
       patDelta != null && h("span", { style: { marginLeft: "auto", display: "inline-flex", gap: 6, alignItems: "baseline" } },
@@ -299,7 +299,7 @@ const AccountsWidget = React.memo(function AccountsWidget({ accounts, available,
   const total = available ? available.checking_total : checking.reduce((s, a) => s + (a.balance || 0), 0);
   const colorOf = a => (a.id || "").startsWith("nu") ? "var(--nubank)" : "var(--inter)";
 
-  return h("div", { className: "widget wg-2" },
+  return h("div", { className: "widget wg-4" },
     h("div", { className: "widget-h" },
       h("span", { className: "widget-title" }, "Contas"),
       h("span", { className: "mono", style: { marginLeft: "auto", fontSize: 12, fontWeight: 700, color: "var(--fg-0)" } }, fmtBRL(total))
@@ -350,7 +350,7 @@ const CategoriesWidget = React.memo(function CategoriesWidget({ monthTx, uncatCo
     return [...g.values()].sort((a, b) => b.total - a.total);
   }, [monthTx]);
 
-  return h("div", { className: "widget wg-4" },
+  return h("div", { className: "widget wg-7" },
     h("div", { className: "widget-h" },
       h("span", { className: "widget-title" }, "Categorias"),
       h("span", { className: "mono", style: { marginLeft: "auto", fontSize: 12, fontWeight: 700, color: "var(--neg)" } }, "−" + fmtBRL(totalExp))
@@ -461,7 +461,7 @@ const FaturaWidget = React.memo(function FaturaWidget({ monthTx, filter, onToggl
     return { faturaItems: items, totalFatura: total, byBank: banks };
   }, [monthTx]);
 
-  return h("div", { className: "widget wg-3" },
+  return h("div", { className: "widget wg-7" },
     h("div", { className: "widget-h" },
       h("span", { className: "widget-title" }, "Fatura do Cartão"),
       h("span", { className: "mono", style: { marginLeft: "auto", fontSize: 12, fontWeight: 700, color: totalFatura > 0 ? "var(--neg)" : "var(--fg-0)" } }, (totalFatura >= 0 ? "−" : "+") + fmtBRL(Math.abs(totalFatura)))
@@ -522,7 +522,7 @@ const InvestmentsWidget = React.memo(function InvestmentsWidget({ investments, e
     return out.sort((a, b) => b.balance - a.balance);
   }, [investments]);
 
-  return h("div", { className: "widget wg-3" },
+  return h("div", { className: "widget wg-7" },
     h("div", { className: "widget-h" },
       h("span", { className: "widget-title" }, "Investimentos"),
       h("span", { className: "mono", style: { marginLeft: "auto", fontSize: 12, fontWeight: 700, color: "var(--reserve)" } }, fmtBRL(total))
@@ -692,10 +692,12 @@ function DashboardView({ monthSel, monthly, onPickMonth, refreshKey, onEditCateg
         h(GeneralWidget, { cashflow, liquidityHistory, monthly, monthSel, monthTx, uncatCount, backup }),
         h(TimelineWidget, { monthly, monthSel, onPickMonth }),
         h(AccountsWidget, { accounts, available, filter, onToggleFacet }),
-        h(FaturaWidget, { monthTx, filter, onToggleFacet }),
         h(CategoriesWidget, { monthTx, uncatCount, onOpenBulk: () => setBulkOpen(true), filter, onToggleFacet,
           catsIndex, monthSel, onBudgetSaved: reloadBudgets }),
         h(InvestmentsWidget, { investments, evolution }),
+      ),
+      h("div", { className: "widget-row widget-row--soft" },
+        h(FaturaWidget, { monthTx, filter, onToggleFacet }),
         h(ForwardWidget, { commitments }),
       ),
       h(window.BS.FilterBar, { filter, onRemove: (kind, value) => {
