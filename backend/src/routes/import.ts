@@ -87,9 +87,13 @@ export function importRoutes(db: DatabaseSync): Route[] {
     GROUP BY category_id ORDER BY COUNT(*) DESC LIMIT 1
   `);
 
+  const ruleStmt = db.prepare("SELECT value, matcher FROM rules WHERE action='category' AND enabled=1 ORDER BY priority ASC, id ASC");
   const suggestCategory = (desc: string, flow: string): number | null => {
-    const row = suggestStmt.get(desc, flow) as { category_id: number } | undefined;
-    return row ? row.category_id : null;
+    const exact = suggestStmt.get(desc, flow) as { category_id: number } | undefined;
+    if (exact) return exact.category_id;
+    const hay = String(desc || "").toLowerCase();
+    const rule = (ruleStmt.all() as any[]).find(r => hay.includes(String(r.matcher).toLowerCase()));
+    return rule ? Number(rule.value) : null;
   };
 
   const nubankDup = db.prepare("SELECT 1 FROM transactions WHERE external_id = ?");
