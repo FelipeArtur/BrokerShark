@@ -158,15 +158,13 @@ function App() {
       h("button", { className: "px-btn px-btn--primary", onClick: () => setImportOpen(true) },
         h(window.BS.IconImport, { size: 14 }), "Importar"
       ),
-      h("button", { className: "px-btn px-btn--ghost", onClick: () => setCategoriesOpen(true) },
-        h(window.BS.IconSettings, { size: 14 }), "Categorias"
-      ),
     ),
 
     h(DashboardView, {
       monthSel, monthly, onPickMonth: setMonthSel, refreshKey,
       onEditCategory: setEditTx,
       onImport: () => setImportOpen(true),
+      onManageCategories: () => setCategoriesOpen(true),
     }),
 
     importOpen && h(ImportModal, {

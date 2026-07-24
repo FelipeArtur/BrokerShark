@@ -326,7 +326,8 @@ const AccountsWidget = React.memo(function AccountsWidget({ accounts, available,
 });
 
 const CategoriesWidget = React.memo(function CategoriesWidget({ monthTx, uncatCount, onOpenBulk, filter,
-                                                               onToggleFacet, catsIndex, monthSel, onBudgetSaved }) {
+                                                               onToggleFacet, catsIndex, monthSel, onBudgetSaved,
+                                                               onManageCategories, onCreateCategory }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
   const expenses = monthTx.filter(isConsumptionExpense);
   const totalExp = expenses.reduce((s, t) => s + t.amount, 0);
@@ -345,7 +346,9 @@ const CategoriesWidget = React.memo(function CategoriesWidget({ monthTx, uncatCo
   return h("div", { className: "widget wg-7" },
     h("div", { className: "widget-h" },
       h("span", { className: "widget-title" }, "Categorias"),
-      h("span", { className: "mono", style: { marginLeft: "auto", fontSize: 12, fontWeight: 700, color: "var(--neg)" } }, "−" + fmtBRL(totalExp))
+      h("span", { className: "mono", style: { marginLeft: "auto", fontSize: 12, fontWeight: 700, color: "var(--neg)" } }, "−" + fmtBRL(totalExp)),
+      h("button", { className: "px-btn px-btn--ghost px-btn--sm", style: { marginLeft: 8 }, title: "Nova categoria", onClick: onCreateCategory }, "+ Nova"),
+      h("button", { className: "px-btn px-btn--ghost px-btn--sm", title: "Gerenciar categorias", onClick: onManageCategories }, "⚙")
     ),
     h("div", { className: "widget-body", style: { gap: 8 } },
       byCat.length === 0
@@ -574,7 +577,7 @@ const ForwardWidget = React.memo(function ForwardWidget({ commitments }) {
 const refMonthOf = (monthSel) =>
   monthSel ? `${monthSel.year}-${String(monthSel.month).padStart(2, "0")}` : undefined;
 
-function DashboardView({ monthSel, monthly, onPickMonth, refreshKey, onEditCategory, onImport }) {
+function DashboardView({ monthSel, monthly, onPickMonth, refreshKey, onEditCategory, onImport, onManageCategories }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
   const [available, setAvailable] = _dSt(null);
   const [commitments, setCommitments] = _dSt(null);
@@ -686,7 +689,8 @@ function DashboardView({ monthSel, monthly, onPickMonth, refreshKey, onEditCateg
           h(TimelineWidget, { monthly, monthSel, onPickMonth }),
           h(AccountsWidget, { accounts, available, filter, onToggleFacet }),
           h(CategoriesWidget, { monthTx, uncatCount, onOpenBulk: () => setBulkOpen(true), filter, onToggleFacet,
-            catsIndex, monthSel, onBudgetSaved: reloadBudgets }),
+            catsIndex, monthSel, onBudgetSaved: reloadBudgets,
+            onManageCategories, onCreateCategory: onManageCategories }),
           h(InvestmentsWidget, { investments, evolution }),
         ),
         h("div", { className: "widget-row widget-row--soft" },
