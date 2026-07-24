@@ -194,8 +194,8 @@ const TimelineWidget = React.memo(function TimelineWidget({ monthly, monthSel, o
   return h("div", { className: "widget wg-6" },
     h("div", { className: "widget-h" },
       h("span", { className: "widget-title" }, "Fluxo mês a mês"),
-      h("button", { onClick: () => setCompare(c => !c), className: compare ? "filter-chip" : "filter-chip",
-        style: { marginLeft: "auto", opacity: compare ? 1 : 0.6 }, title: "Comparar com o mês anterior" }, "vs ant."),
+      h("button", { onClick: () => setCompare(c => !c), className: "filter-pill" + (compare ? " active" : ""),
+        style: { marginLeft: "auto" }, title: "Comparar com o mês anterior" }, "vs ant."),
       h("span", { style: { display: "flex", gap: 10, fontSize: 11, color: "var(--fg-3)", alignItems: "center" } },
         h("span", { style: { display: "inline-flex", alignItems: "center", gap: 3 } },
           h("span", { style: { width: 7, height: 7, borderRadius: 2, background: "var(--pos)" } }), "rec"),
@@ -335,12 +335,8 @@ const CategoriesWidget = React.memo(function CategoriesWidget({ monthTx, uncatCo
             onEditDone: () => setEditing(null),
           })),
       uncatCount > 0 && h("button", {
-        onClick: onOpenBulk,
-        style: {
-          marginTop: "auto", alignSelf: "flex-start", padding: "3px 9px", borderRadius: 999, flexShrink: 0,
-          fontSize: 10, fontWeight: 600, color: "var(--accent)", background: "var(--accent-bg)",
-          border: "1px solid color-mix(in oklch, var(--accent) 35%, transparent)",
-        }
+        onClick: onOpenBulk, className: "px-btn px-btn--ghost px-btn--sm",
+        style: { marginTop: "auto", alignSelf: "flex-start", flexShrink: 0, color: "var(--accent)" }
       }, `Categorizar em lote · ${uncatCount}`)
     )
   );

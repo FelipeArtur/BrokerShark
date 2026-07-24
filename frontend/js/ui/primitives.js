@@ -128,7 +128,7 @@ function Modal({ open, onClose, title, children, width = 480 }) {
   if (!open) return null;
   return React.createElement("div", {
     onClick: onClose, role: "presentation",
-    style: { position: "fixed", inset: 0, background: "oklch(0% 0 0 / 0.55)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }
+    style: { position: "fixed", inset: 0, background: "oklch(0% 0 0 / 0.55)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: "var(--z-modal)" }
   },
     React.createElement("div", {
       ref: dialogRef,
@@ -181,7 +181,7 @@ function useToasts() {
 
   const Toaster = _useCallback(() => React.createElement("div", {
     role: "status", "aria-live": "polite", "aria-atomic": "false",
-    style: { position: "fixed", bottom: 24, right: 24, display: "flex", flexDirection: "column", gap: 12, zIndex: 999, alignItems: "flex-end" }
+    style: { position: "fixed", bottom: 24, right: 24, display: "flex", flexDirection: "column", gap: 12, zIndex: "var(--z-toast)", alignItems: "flex-end" }
   },
     list.map(t => {
       const _k = t.kind === "success" ? "pos" : t.kind === "error" ? "neg" : "info";

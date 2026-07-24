@@ -26,11 +26,6 @@ async function _put(url, body) {
   return r.json();
 }
 
-async function _delBody(url, body) {
-  const r = await fetch(url, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || "request failed"); }
-  return r.json();
-}
 
 async function fetchInvestments(bank)      { return _get(`/api/investments${_qs(bank)}`); }
 

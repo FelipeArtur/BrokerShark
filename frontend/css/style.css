@@ -44,6 +44,7 @@
   --z-sticky: 10;
   --z-scanline: 30;
   --z-layer: 50;
+  --z-modal: 55;
   --z-toast: 60;
 
   --topbar-h: 52px;
