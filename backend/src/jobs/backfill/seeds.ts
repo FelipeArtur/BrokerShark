@@ -1,7 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 
-const EXPENSE_CATS = ["Alimentação", "Carro", "Jogos", "Lazer", "Atividade física",
-  "Eletrônicos", "Educação", "Igreja", "Dízimo", "Outro", "Eventos / Terceiros"];
+const EXPENSE_CATS = ["Alimentação", "Transporte", "Saúde e Bem-Estar",
+  "Compras e Lazer", "Compromissos e Transferências", "Igreja/Dízimo"];
 const INCOME_CATS = ["Salário", "Freela", "PIX recebido", "Transferência", "Outro"];
 
 export function seedAccountsAndCategories(db: DatabaseSync): void {
@@ -10,9 +10,16 @@ export function seedAccountsAndCategories(db: DatabaseSync): void {
   acc.run("inter-db", "inter", "checking", "Inter Conta");
   acc.run("inter-cc", "inter", "credit_card", "Inter Cartão");
 
-  const cat = db.prepare("INSERT INTO categories (name, flow) VALUES (?,?)");
-  for (const c of EXPENSE_CATS) cat.run(c, "expense");
-  for (const c of INCOME_CATS) cat.run(c, "income");
+  // guardado por NOT EXISTS: sem isso, um fresh backfill duplicaria as 6 macro
+  // (migration 0002 roda ANTES do seed em backfill.ts e já as insere numa
+  // tabela vazia; alguns testes de rota rodam o seed antes da migration —
+  // os dois caminhos precisam ser idempotentes um em relação ao outro).
+  const cat = db.prepare(
+    "INSERT INTO categories (name, flow) SELECT ?, ? WHERE NOT EXISTS " +
+    "(SELECT 1 FROM categories WHERE name=? AND flow=?)",
+  );
+  for (const c of EXPENSE_CATS) cat.run(c, "expense", c, "expense");
+  for (const c of INCOME_CATS) cat.run(c, "income", c, "income");
 }
 
 export function seedRules(db: DatabaseSync): void {
