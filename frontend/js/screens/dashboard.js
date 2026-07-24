@@ -98,7 +98,7 @@ const KpiStrip = React.memo(function KpiStrip({ available, availErr, accounts, c
     ),
 
     h("div", { className: "kpi" },
-      h("span", { className: "kpi-label" }, `Resultado Líquido do Mês (${monthLabel})`),
+      h("span", { className: "kpi-label" }, "Resultado do Mês"),
       h("span", { className: "kpi-value", style: { color: livre >= 0 ? "var(--pos)" : (inc === 0 ? "var(--warn)" : "var(--neg)") } },
         (livre >= 0 ? "+" : "−") + fmtBRL(Math.abs(livre))),
       h("span", { className: "kpi-sub" },

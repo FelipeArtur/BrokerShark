@@ -2,7 +2,7 @@ html, body { background: var(--bg-0); }
 
 img, .bs-mascot { image-rendering: pixelated; }
 
-.widget, .kpi-strip, .modal, .drawer, .table-widget {
+.widget, .kpi-strip, .modal, .table-widget {
   border: 1px solid var(--line-1) !important;
   box-shadow: none !important;
 }

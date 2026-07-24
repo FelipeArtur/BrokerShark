@@ -189,10 +189,6 @@ button.data-tag:hover { border-color: var(--fg-2); color: var(--fg-0); backgroun
 @keyframes slide-up { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 .fade-in { animation: fade-in 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
-@keyframes slide-left {
-  from { transform: translateX(100%); }
-  to { transform: translateX(0); }
-}
 @keyframes toast-in { from { transform: translateY(8px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 @keyframes toast-progress { from { width: 100%; } to { width: 0%; } }
 .toast { animation: toast-in 0.2s cubic-bezier(0.16, 1, 0.3, 1); }
@@ -260,7 +256,7 @@ button.data-tag:hover { border-color: var(--fg-2); color: var(--fg-0); backgroun
 
 .kpi-strip {
   position: sticky; top: 52px; z-index: var(--z-sticky);
-  display: grid; grid-template-columns: 1.5fr 1fr 1fr 1fr;
+  display: grid; grid-template-columns: 1.35fr 1fr 1fr 0.95fr;
   background: var(--bg-1);
 }
 .kpi-hero {
@@ -275,7 +271,8 @@ button.data-tag:hover { border-color: var(--fg-2); color: var(--fg-0); backgroun
 .kpi:last-child { border-right: none; }
 .kpi-label {
   font-size: var(--fz-8); font-weight: 700; text-transform: uppercase;
-  letter-spacing: 0.07em; color: var(--fg-3); white-space: nowrap;
+  letter-spacing: 0.05em; color: var(--fg-3); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; max-width: 100%;
 }
 .kpi-value {
   font-family: var(--ff-mono); font-size: 20px; font-weight: 700;

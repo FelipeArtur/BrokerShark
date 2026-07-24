@@ -197,8 +197,8 @@ function App() {
         setRefreshKey(k => k + 1);
       },
     }),
-    categoriesOpen && h(window.BS.Drawer, {
-      open: categoriesOpen, onClose: () => setCategoriesOpen(false), width: 680
+    categoriesOpen && h(window.BS.Overlay, {
+      open: categoriesOpen, onClose: () => setCategoriesOpen(false), width: 720
     }, h(window.BS.CategoriesPanel, { refreshKey, onRefresh: () => setRefreshKey(k => k + 1), onClose: () => setCategoriesOpen(false) })),
 
     h(window.BS.CategoryEditor, {

@@ -90,6 +90,34 @@ select.px-field { cursor: pointer; appearance: none; padding-right: var(--s-7); 
   font-family: var(--ff-mono); font-size: var(--fz-8);
 }
 
+/* Linha de categoria — lista, não card. Ações aparecem no hover;
+   o × só fica vermelho quando o ponteiro está sobre ele. */
+.cat-row {
+  display: flex; align-items: center; gap: var(--s-4);
+  padding: var(--s-3) var(--s-4);
+  border-bottom: 1px solid var(--line-1);
+}
+.cat-row:last-child { border-bottom: 0; }
+.cat-row:hover { background: var(--bg-1); }
+.cat-name {
+  flex: 1; min-width: 0; text-align: left;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--ff-sans); font-size: var(--fz-8); letter-spacing: 1px;
+  text-transform: uppercase; color: var(--fg-0); cursor: text;
+  background: transparent; border: 0;
+}
+.cat-name:hover { color: var(--accent); }
+.cat-count {
+  flex-shrink: 0; font-family: var(--ff-mono); font-size: var(--fz-8);
+  color: var(--fg-3); white-space: nowrap;
+}
+.cat-actions {
+  flex-shrink: 0; display: flex; gap: var(--s-2);
+  opacity: 0; transition: opacity 0.12s;
+}
+.cat-row:hover .cat-actions, .cat-row:focus-within .cat-actions { opacity: 1; }
+.cat-del:hover { background: var(--neg); color: var(--bg-0); border-color: var(--neg); }
+
 @media (prefers-reduced-motion: reduce) {
   .px-btn { transition: none; }
 }
