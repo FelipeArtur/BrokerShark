@@ -74,6 +74,7 @@ backend/
       analytics.ts      # monthly, cashflow-statement, pix-top, uncategorized-merchants
       investments.ts    # carteira (abertas), evolução, movimento manual
       import.ts         # /api/import/* — detect/preview/staging/confirm/batch + B3 (upload incremental)
+      commitments.ts    # /api/commitments — visão de futuro derivada
     server.ts           # bootstrap: config → db → initSchema → pipeline
                         # (host→headers→Origin→SSE→rotas→estático)
     jobs/
@@ -146,6 +147,7 @@ server.ts (node:http, 127.0.0.1:8000) → React frontend (SSE /api/events)
 - **Investimentos = posições + snapshots:** `position_snapshots` datados (quantity, applied/gross/net). Yield é computado, nunca chutado. Posições soft-close (`closed_at`) quando somem dos relatórios mais novos — nunca DELETE.
 - **B3 = tabela verdade (posições de corretora).** Full-sync por `match_key` (ISIN/código/ticker). Soft-close por tipo de aba: **Tesouro/Ações/BDR** — o consolidado sempre lista o que existe; posição ausente de qualquer relatório mais novo → fechada. **Renda Fixa (CDB Inter)** — a aba PISCA no consolidado (CDBs do Porquinho vivos no extrato somem em jan/fev/mar/mai-2026; registro em custódia atrasa); aba RF ausente = sem informação, só fecha quando um relatório mais novo COM aba RF deixa de listar a posição. CDBs Inter = Porquinho (`group_name='Porquinho'`).
 - **Caixinha Nubank = posição derivada do ledger.** RDB fora da B3. Saldo = `Σ(aplicações) − Σ(resgates)` das pernas `transfer` por keyword de poupança (`rdb`/`caixinha`/`dinheiro guardado`, banco Nubank). `source='ledger'`. Snapshots mensais derivados no backfill.
+- **Comprometido é DERIVADO** — fatura aberta (`payment_tx_id IS NULL`) + parcelas projetadas virtuais; nunca vira row; `available_net = available − committed_this_month` (só fatura vencendo no mês-calendário via `due_date`).
 - **Porquinho Inter NÃO é derivado** — é CDB custodiado na B3 (derivá-lo contaria em dobro; a derivação ignora rendimento). Suas pernas continuam classificadas como investimento (`INVESTMENT_KEYWORDS` mantém `porquinho`/`cdb porq`).
 - **Consumption-expense rule:** totais de despesa de consumo = `flow='expense' AND method != 'transfer' AND is_settlement=0 AND is_third_party=0 AND dest_account_id IS NULL`. Transferência (leg de investimento) **nunca** é despesa de consumo. Receita real = `flow='income' AND is_revenue=1 AND is_third_party=0` — os dois lados excluem terceiros.
 - **`is_revenue`** (Integer): `1` = receita real, `0` = self-transfer ou movimento de investimento. Controla totais de receita.

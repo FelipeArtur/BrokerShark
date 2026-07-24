@@ -133,6 +133,15 @@ aquele mês double-conta em silêncio. Portar a branch parcial fica pra fase fut
 
 Trivial depois que P1 existe. Só constrói quando P1 estiver mergeado.
 
+## Derivação — ✅ P2 COMPLETO (backend + frontend)
+
+> Backend: `domain/commitments.ts` (`projectInstallments`, `addMonths`) · `routes/commitments.ts`
+> endpoint `GET /api/commitments` (faturas abertas + parcelas projetadas) · `GET /api/available`
+> aditivo (`committed_this_month`, `available_net`). Frontend: `api.js` `fetchCommitments` ·
+> `pixel-bars.js` `ProjectedBar` (ghost bars) · `dashboard.js` `ForwardWidget` + herói mostra
+> líquido com sub-linha "Comprometido". ~128 testes verdes. Smoke real: herói mostra disponível
+> líquido, widget forward exibe cronograma projetado. **P2 FECHADO.** Visão de futuro derivada completa.
+
 ## Comprometido (derivado)
 
 - **Fatura aberta** = `invoices` com `payment_tx_id IS NULL` (produzida por P1).
