@@ -515,31 +515,99 @@ const InvestmentsWidget = React.memo(function InvestmentsWidget({ investments, e
   );
 });
 
+const CADENCE_LABEL = { 1: "todo mês", 2: "a cada 2 meses", 3: "a cada 3 meses" };
+const cadenceLabel = (n) => CADENCE_LABEL[n] || `a cada ${n} meses`;
+
+// Coluna de um mês: comprometido DURO sólido embaixo, previsto recorrente
+// dithered por cima. O dither é o vocabulário de "não é certo" do sistema.
+function ForwardColumn({ slot, scale }) {
+  const h = (t, p, ...c) => React.createElement(t, p, ...c);
+  const px = (v, max) => (v > 0 ? Math.max((v / max) * 52, 2) : 0);
+
+  return h("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 4, width: 24 } },
+    h("div", { style: { height: 52, width: 12, display: "flex", flexDirection: "column", justifyContent: "flex-end" } },
+      slot.recurringExpense > 0 && h("div", {
+        className: "dither-warn",
+        title: `previsto ${fmtBRL(slot.recurringExpense)}`,
+        style: { width: "100%", minHeight: 2, height: px(slot.recurringExpense, scale.outflow) },
+      }),
+      slot.committed > 0 && h("div", {
+        title: `comprometido ${fmtBRL(slot.committed)}`,
+        style: { width: "100%", minHeight: 2, height: px(slot.committed, scale.outflow), background: "var(--warn)" },
+      }),
+    ),
+    h("span", { className: "mono", style: { fontSize: 10, color: "var(--fg-2)" } }, slot.label.slice(0, 2)),
+  );
+}
+
 const ForwardWidget = React.memo(function ForwardWidget({ commitments }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
-  const series = (commitments && commitments.series) || [];
-  const maxV = series.reduce((m, s) => Math.max(m, s.total), 0) || 1;
+  const [detailOpen, setDetailOpen] = _dSt(false);
+
+  const recurring = (commitments && commitments.recurring) ||
+    { items: [], series: [], expense_monthly: 0, income_monthly: 0 };
+  const merged = window.BS.mergeForwardSeries((commitments && commitments.series) || [], recurring.series);
+  const scale = window.BS.forwardScale(merged);
+  const hasAny = merged.length > 0;
+
+  const detail = h(window.BS.Overlay, { open: detailOpen, onClose: () => setDetailOpen(false) },
+    h("div", { className: "widget-h", style: { flexShrink: 0 } },
+      h("span", { className: "widget-title" }, "Recorrências detectadas"),
+      h("button", { className: "px-btn", onClick: () => setDetailOpen(false) }, "‹ VOLTAR"),
+    ),
+    h("div", { style: { padding: 12, overflowY: "auto", display: "flex", flexDirection: "column", gap: 10 } },
+      h("p", { style: { fontSize: 11, color: "var(--fg-3)", margin: 0, lineHeight: 1.5 } },
+        "Derivado do extrato — nada aqui foi digitado. Um lançamento vira recorrência quando o mesmo ",
+        "destino se repete por 3 meses ou mais com valor estável e cadência regular."),
+      recurring.items.length === 0
+        ? h("div", { className: "px-empty" }, "Nenhuma recorrência detectada no histórico recente.")
+        : recurring.items.map(it => h("div", {
+            key: it.flow + "|" + it.merchant,
+            className: "px-row",
+            style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 },
+          },
+          h("div", { style: { minWidth: 0 } },
+            h("div", {
+              title: it.merchant,
+              style: { fontSize: 12, color: "var(--fg-1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+            }, window.BS.merchantLabel(it.merchant)),
+            h("div", { style: { fontSize: 11, color: "var(--fg-3)", marginTop: 2 } },
+              cadenceLabel(it.cadence_months), " · ", it.occurrences, " ocorrências · última em ", it.last_month,
+              it.stale_months > 0 ? ` · ${it.stale_months} ${it.stale_months === 1 ? "mês" : "meses"} sem repetir` : ""),
+          ),
+          h("span", { className: "mono", style: { flexShrink: 0, color: it.flow === "income" ? "var(--pos)" : "var(--warn)" } },
+            (it.flow === "income" ? "+" : "−") + fmtBRL(it.monthly)),
+        )),
+    ),
+  );
 
   return h("div", { className: "widget wg-7" },
     h("div", { className: "widget-h" },
-      h("span", { className: "widget-title" }, "Compromissos Futuros"),
+      h("span", { className: "widget-title" }, "Visão de Futuro"),
+      recurring.items.length > 0 && h("button", {
+        className: "px-btn", onClick: () => setDetailOpen(true),
+      }, `${recurring.items.length} RECORRÊNCIAS`),
     ),
     h("div", { className: "widget-body", style: { gap: 8, overflow: "hidden" } },
-      series.length === 0
-        ? h("div", { className: "px-empty" }, "Nenhum compromisso futuro registrado.")
-        : h("div", { style: { display: "flex", alignItems: "flex-end", gap: 8, height: 64 } },
-            series.map(s => h("div", { key: s.month, style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 4 } },
-              h(window.BS.ProjectedBar, { value: s.total, maxV }),
-              h("span", { className: "mono", style: { fontSize: 11, color: "var(--fg-2)" } }, s.label),
-            ))
-          ),
-      series.length > 0 && h("div", { style: { marginTop: 8, display: "flex", flexDirection: "column", gap: 2 } },
-        series.map(s => h("div", { key: s.month, style: { display: "flex", justifyContent: "space-between", fontSize: 11 } },
+      !hasAny
+        ? h("div", { className: "px-empty" }, "Nada comprometido nem recorrente à frente.")
+        : h("div", { style: { display: "flex", alignItems: "flex-end", gap: 6, overflowX: "auto" } },
+            merged.map(s => h(ForwardColumn, { key: s.month, slot: s, scale }))),
+
+      hasAny && h("div", { style: { marginTop: 8, display: "flex", flexDirection: "column", gap: 2 } },
+        merged.slice(0, 6).map(s => h("div", { key: s.month, style: { display: "flex", justifyContent: "space-between", gap: 8, fontSize: 11 } },
           h("span", { style: { color: "var(--fg-2)" } }, s.label),
-          h("span", { className: "mono", style: { color: "var(--warn)" } }, "− " + fmtBRL(s.total)),
+          h("span", { style: { display: "flex", gap: 8 } },
+            s.outflow > 0 && h("span", { className: "mono", style: { color: "var(--warn)" } }, "− " + fmtBRL(s.outflow)),
+            s.recurringIncome > 0 && h("span", { className: "mono", style: { color: "var(--pos)" } }, "+ " + fmtBRL(s.recurringIncome)),
+          ),
         ))
-      )
-    )
+      ),
+
+      hasAny && h("div", { style: { marginTop: 6, fontSize: 10, color: "var(--fg-3)", lineHeight: 1.5 } },
+        "Sólido = comprometido · dithered = previsto pela recorrência"),
+    ),
+    detail,
   );
 });
 

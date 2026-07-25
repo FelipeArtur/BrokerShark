@@ -23,7 +23,7 @@ Ferramenta **pessoal** de análise de dinheiro, 100% local (Linux, 1 usuário). 
 
 **v2 rewrite — TypeScript.** O backend Python/Flask foi removido (histórico preservado no git). O novo backend é TypeScript rodando sobre Node ≥ 26 (native type-stripping, sem build step). Ingestão (backfill) e servidor web (node:http + SSE, zero deps) prontos. **Import incremental via UI** (`/api/import/*`) implementado: extratos Nubank/Inter (CSV) + relatório B3 (xlsx) com preview/dedup/staging editável/confirm/reverter-lote; pós-insert re-pareia SELF e rederiva a Caixinha. Fatura Inter (cartão) só via backfill.
 
-**O produto é a análise (web dashboard — tela única, sem abas):** faixa KPI fixa (**Disponível pra gastar** herói · **Patrimônio total** com Δ mensal · **Saldo livre do mês** · **Investido** com Δ) + grid de widgets (visão geral do mês, fluxo mês a mês clicável = seletor de mês global, contas, categorias, investimentos, fatura do cartão, compromissos futuros). Detalhe abre em **drill-down overlay**, nunca navegação. Seletor de mês global rege os widgets de fluxo; posição é sempre "agora"; default = mês mais recente COM dados. **Apoio (não é o centro):** import de extratos e posições B3.
+**O produto é a análise (web dashboard — tela única, sem abas):** faixa KPI fixa (**Disponível pra gastar** herói · **Patrimônio total** com Δ mensal · **Saldo livre do mês** · **Investido** com Δ) + grid de widgets (visão geral do mês, fluxo mês a mês clicável = seletor de mês global, contas, categorias, investimentos, fatura do cartão, visão de futuro). Detalhe abre em **drill-down overlay**, nunca navegação. Seletor de mês global rege os widgets de fluxo; posição é sempre "agora"; default = mês mais recente COM dados. **Apoio (não é o centro):** import de extratos e posições B3.
 
 **Navegação é por mouse.** Não há hotkey global — teclado serve só pra Esc (fecha modal/overlay), Tab (focus trap) e Enter (submit de form). Adicionar tecla muda que mexe na tela é regressão.
 
@@ -55,6 +55,7 @@ backend/
       positions.ts      # monthlyPortfolioSeries (carry-forward de snapshots)
       merchant.ts       # normalizeMerchant — núcleo do comerciante, matcher das regras de categoria
       commitments.ts    # projeção pura de parcelas/compromissos (visão de futuro)
+      recurrence.ts     # detecção de recorrência (corrida recente por comerciante+sentido)
     ingest/             # parsers dos exports (1 arquivo por formato)
       types.ts          # TxRecord, ParsedFile
       csv.ts            # parser CSV genérico
@@ -78,7 +79,7 @@ backend/
       analytics.ts      # monthly, cashflow-statement, uncategorized-merchants
       investments.ts    # carteira (abertas), evolução
       import.ts         # /api/import/* — detect/preview/staging/confirm/batch + B3 (upload incremental)
-      commitments.ts    # /api/commitments — visão de futuro derivada
+      commitments.ts    # /api/commitments — visão de futuro derivada (duro + recorrente)
     server.ts           # bootstrap: config → db → initSchema → pipeline
                         # (host→headers→Origin→SSE→rotas→estático)
     jobs/
@@ -100,6 +101,7 @@ frontend/
                         # meta.js — derivações "score" (savingsStreak/isAllTimeHigh/budgetProgress) — testada
                         # palette.js — cor estável por nome, quantizada a 8 matizes — testada
                         # bulk.js — suggestionPlan (decisão do "aplicar todas") — testada
+                        # forward.js — merge duro+previsto, escala, rótulo do comerciante — testada
     core/               # api.js (fetch + contrato) · juice.js — engine feedback SILENCIOSO
                         # (coin/boot/pop/shake); sem áudio — respeita prefers-reduced-motion — testada
     ui/                 # primitives.js (Overlay de drill-down, Money, TxRow) · icons.js
@@ -156,6 +158,7 @@ server.ts (node:http, 127.0.0.1:8000) → React frontend (SSE /api/events)
 - **Consumption-expense rule:** totais de despesa de consumo = `flow='expense' AND method != 'transfer' AND is_settlement=0 AND is_third_party=0 AND dest_account_id IS NULL`. Transferência (leg de investimento) **nunca** é despesa de consumo. Receita real = `flow='income' AND is_revenue=1 AND is_third_party=0` — os dois lados excluem terceiros.
 - **`is_revenue`** (Integer): `1` = receita real, `0` = self-transfer ou movimento de investimento. Controla totais de receita.
 - **Espécies de dinheiro (front):** `money.js` → `moneyKind()` é a ÚNICA regra do frontend e devolve exatamente uma de seis espécies por linha: `settlement` · `transfer` · `invest` · `third_party` · `revenue` · `expense`. **A ordem de precedência é load-bearing** (liquidação antes de despesa senão o consumo dobra; SELF antes de investimento senão transferência vira aplicação). Equivale à regra consumo-despesa acima em toda linha alcançável — há teste combinatório que falha se divergir. Cor por espécie em `KIND_COLOR`; **verde é receita e só receita** (nunca reusar pra "dentro do alvo").
+- **Recorrência é DERIVADA e display-only.** `domain/recurrence.ts` recorta a **corrida recente** de meses por `flow|comerciante` (histórico inteiro enterra corrida viva sob anos de esporádico) e aceita ≥3 meses, `cv ≤ 0.35`, gap ≤ 2, parada ≤ 2 meses; valor = mediana. **Não entra no herói nem em `available_net`** — herói é dinheiro que existe, e somar entrada prevista faria salário atrasado virar estouro silencioso. `/api/commitments` mantém `series` como compromisso DURO; recorrência vive no campo irmão `recurring`. A projeção ancora no último mês **observado** de cada recorrência, não no mês corrente: mês já medido pelo ledger nunca recebe previsão (dobraria), mas o intervalo entre o fim dos dados e hoje recebe.
 - **Alvo de gasto:** `resolveBudget` (`domain/budget.ts`) → override do mês ?? alvo fixo ?? **null**. Categoria sem alvo é `null`, **nunca zero** — zero faria tudo nascer 100% estourado. Só categoria de despesa tem alvo.
 
 ---

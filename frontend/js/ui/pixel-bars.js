@@ -15,17 +15,6 @@
     return h("div", { className: "tl-bars" }, bars);
   }
 
-  function ProjectedBar({ value, maxV }) {
-    const scale = (v) => Math.max((v / (maxV || 1)) * 52, v > 0 ? 2 : 0);
-    return h("div", { className: "tl-bar", style: {
-      height: scale(value),
-      background: "transparent",
-      outline: "1px dashed var(--fg-3)",
-      outlineOffset: -1,
-      opacity: 0.6,
-    } });
-  }
   window.BS = window.BS || {};
   window.BS.PixelBars = PixelBars;
-  window.BS.ProjectedBar = ProjectedBar;
 })();

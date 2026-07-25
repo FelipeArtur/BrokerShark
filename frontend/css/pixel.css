@@ -24,6 +24,8 @@ img, .bs-mascot { image-rendering: pixelated; }
 
 .dither-pos { background: repeating-linear-gradient(45deg, var(--pos) 0 3px, #5cbf6e 3px 6px) !important; }
 .dither-neg { background: repeating-linear-gradient(45deg, var(--neg) 0 3px, #d8455a 3px 6px) !important; }
+/* Previsto, não comprometido: mesma matiz da barra sólida, textura carregando a incerteza. */
+.dither-warn { background: repeating-linear-gradient(45deg, var(--warn) 0 3px, transparent 3px 6px) !important; }
 .facet-active { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 @keyframes bs-boot { 0% { opacity: 0; transform: scaleY(0.002); filter: brightness(3); } 40% { opacity: 1; transform: scaleY(1); } 100% { filter: none; } }

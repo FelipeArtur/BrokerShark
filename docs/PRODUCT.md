@@ -12,7 +12,7 @@ Um único usuário (o dono), no Linux desktop/notebook (≥1280px; mobile não �
 
 BrokerShark é um painel pessoal de análise financeira. Pergunta central: **"quanto eu posso gastar agora?"** — depois, para onde o dinheiro vai (histórico/categorias) e onde ele está guardado (investimentos). Sucesso = confiança absoluta nos números (centavos inteiros, reconciliação) + leitura instantânea da situação financeira em uma única tela.
 
-**Formato do produto (decisão 2026-07): dashboard único**, sem abas. Faixa de KPIs fixa no topo (Disponível pra gastar · Patrimônio total · Saldo livre do mês · Total investido) + área de widgets (fluxo mês a mês, categorias, contas, fatura do cartão, investimentos, compromissos futuros) + tabela full-width com scroll interno — a página nunca rola. Seletor de mês global rege os widgets de fluxo; posição (saldo disponível) é sempre "agora". Detalhe abre em drill-down overlay. Investimentos: resumo no widget, posições em drill-down.
+**Formato do produto (decisão 2026-07): dashboard único**, sem abas. Faixa de KPIs fixa no topo (Disponível pra gastar · Patrimônio total · Saldo livre do mês · Total investido) + área de widgets (fluxo mês a mês, categorias, contas, fatura do cartão, investimentos, visão de futuro) + tabela full-width com scroll interno — a página nunca rola. Seletor de mês global rege os widgets de fluxo; posição (saldo disponível) é sempre "agora". Detalhe abre em drill-down overlay. Investimentos: resumo no widget, posições em drill-down.
 
 **Orçamento (decisão 2026-07):** alvo de gasto **por categoria**, fixo, com override opcional por mês. Substitui o teto global único que vivia no localStorage. Categoria sem alvo não é alvo zero — é "sem alvo", e a UI mostra os dois diferente.
 
