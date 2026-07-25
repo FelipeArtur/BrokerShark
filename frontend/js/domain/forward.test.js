@@ -6,7 +6,8 @@ test("mergeForwardSeries: mês só com compromisso duro", () => {
   const out = F.mergeForwardSeries([{ month: "2026-08", label: "08/2026", total: 500 }], []);
   assert.deepEqual(out, [{
     month: "2026-08", label: "08/2026",
-    committed: 500, recurringExpense: 0, recurringIncome: 0, outflow: 500,
+    committed: 500, recurringExpense: 0, recurringIncome: 0, maturity: 0,
+    outflow: 500, inflow: 0,
   }]);
 });
 
@@ -14,7 +15,8 @@ test("mergeForwardSeries: mês só com previsto", () => {
   const out = F.mergeForwardSeries([], [{ month: "2026-08", label: "08/2026", expense: 100, income: 3850 }]);
   assert.deepEqual(out, [{
     month: "2026-08", label: "08/2026",
-    committed: 0, recurringExpense: 100, recurringIncome: 3850, outflow: 100,
+    committed: 0, recurringExpense: 100, recurringIncome: 3850, maturity: 0,
+    outflow: 100, inflow: 3850,
   }]);
 });
 
@@ -46,6 +48,21 @@ test("mergeForwardSeries: meses ficam em ordem cronológica", () => {
 test("mergeForwardSeries: entradas vazias/ausentes → []", () => {
   assert.deepEqual(F.mergeForwardSeries([], []), []);
   assert.deepEqual(F.mergeForwardSeries(null, undefined), []);
+});
+
+test("mergeForwardSeries: vencimento de posição entra como entrada, nunca como saída", () => {
+  const out = F.mergeForwardSeries([{ month: "2026-09", label: "09/2026", total: 0, maturity: 216.48 }], []);
+  assert.equal(out[0].maturity, 216.48);
+  assert.equal(out[0].inflow, 216.48);
+  assert.equal(out[0].outflow, 0, "vencimento não compromete nada");
+});
+
+test("mergeForwardSeries: vencimento e receita recorrente somam na entrada", () => {
+  const out = F.mergeForwardSeries(
+    [{ month: "2026-09", label: "09/2026", total: 0, maturity: 200 }],
+    [{ month: "2026-09", label: "09/2026", expense: 0, income: 3850 }],
+  );
+  assert.equal(out[0].inflow, 4050);
 });
 
 test("forwardScale: teto de saída é o maior mês, não a soma", () => {

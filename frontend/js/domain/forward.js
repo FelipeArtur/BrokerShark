@@ -14,12 +14,16 @@
     const slot = (month, label) => {
       let s = byMonth.get(month);
       if (!s) byMonth.set(month, (s = {
-        month, label, committed: 0, recurringExpense: 0, recurringIncome: 0,
+        month, label, committed: 0, recurringExpense: 0, recurringIncome: 0, maturity: 0,
       }));
       return s;
     };
 
-    for (const s of hardSeries || []) slot(s.month, s.label).committed += s.total || 0;
+    for (const s of hardSeries || []) {
+      const t = slot(s.month, s.label);
+      t.committed += s.total || 0;
+      t.maturity += s.maturity || 0;
+    }
     for (const s of recurringSeries || []) {
       const t = slot(s.month, s.label);
       t.recurringExpense += s.expense || 0;
@@ -27,7 +31,10 @@
     }
 
     return [...byMonth.values()]
-      .map(s => Object.assign(s, { outflow: s.committed + s.recurringExpense }))
+      .map(s => Object.assign(s, {
+        outflow: s.committed + s.recurringExpense,
+        inflow: s.recurringIncome + s.maturity,
+      }))
       .sort((a, b) => a.month.localeCompare(b.month));
   }
 
@@ -37,7 +44,7 @@
   function forwardScale(merged) {
     return {
       outflow: (merged || []).reduce((m, s) => Math.max(m, s.outflow), 0) || 1,
-      income: (merged || []).reduce((m, s) => Math.max(m, s.recurringIncome), 0) || 1,
+      income: (merged || []).reduce((m, s) => Math.max(m, s.inflow), 0) || 1,
     };
   }
 

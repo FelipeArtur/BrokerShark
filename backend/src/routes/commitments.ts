@@ -28,6 +28,24 @@ const SQL_RECURRENCE_ROWS = `
 
 const SQL_LAST_LEDGER_MONTH = `SELECT MAX(substr(date, 1, 7)) AS ym FROM transactions`;
 
+// Vencimento de posição aberta: evento de ENTRADA na visão de futuro.
+// O valor é o do último snapshot — projetar rendimento até o vencimento seria
+// chute, e a regra da casa é que yield se computa, não se estima.
+const SQL_MATURITIES = `
+  SELECT i.name, i.type, i.bank, i.group_name, i.maturity_date AS maturityDate,
+         ps.net_cents AS netCents
+  FROM investments i
+  LEFT JOIN (
+    SELECT ps1.*
+    FROM position_snapshots ps1
+    INNER JOIN (
+      SELECT investment_id, MAX(ref_date) AS max_date
+      FROM position_snapshots GROUP BY investment_id
+    ) ps2 ON ps1.investment_id = ps2.investment_id AND ps1.ref_date = ps2.max_date
+  ) ps ON ps.investment_id = i.id
+  WHERE i.closed_at IS NULL AND i.maturity_date IS NOT NULL AND i.maturity_date >= ?
+  ORDER BY i.maturity_date`;
+
 export function commitmentRoutes(db: DatabaseSync): Route[] {
 
   function getCommitments(_req: Req, res: Res) {
@@ -66,16 +84,29 @@ export function commitmentRoutes(db: DatabaseSync): Route[] {
 
     const { month, year } = currentMonth();
     const startYm = `${year}-${String(month).padStart(2, "0")}`;
+
+    const maturities = (db.prepare(SQL_MATURITIES).all(`${startYm}-01`) as any[]).map(m => ({
+      name: m.name, type: m.type, bank: m.bank, group_name: m.group_name,
+      maturity_date: m.maturityDate, value: (m.netCents ?? 0) / 100,
+    }));
+    const matByMonth = new Map<string, number>();
+    for (const m of maturities) {
+      const ym = String(m.maturity_date).slice(0, 7);
+      matByMonth.set(ym, (matByMonth.get(ym) ?? 0) + m.value);
+    }
+
     const series: any[] = [];
     for (let k = 0; k < HORIZON_MONTHS; k++) {
       const ym = addMonths(startYm, k);
       const invoice = invByMonth.get(ym) ?? 0;
       const proj = projByMonth.get(ym) ?? 0;
-      if (invoice === 0 && proj === 0) continue;
+      const maturity = matByMonth.get(ym) ?? 0;
+      if (invoice === 0 && proj === 0 && maturity === 0) continue;
       const [y, m] = ym.split("-");
       series.push({
         month: ym, label: `${m}/${y}`,
         invoice: invoice / 100, projected: proj / 100, total: (invoice + proj) / 100,
+        maturity,
       });
     }
 
@@ -85,6 +116,7 @@ export function commitmentRoutes(db: DatabaseSync): Route[] {
         account_id: o.account_id, total: o.total_cents / 100,
       })),
       series,
+      maturities,
       recurring: buildRecurring(startYm),
     });
   }
