@@ -5,6 +5,28 @@ import type { Route } from "../http/router.ts";
 import { compilePath } from "../http/router.ts";
 import { currentMonth } from "../domain/dates.ts";
 import { addMonths, projectInstallments } from "../domain/commitments.ts";
+import { normalizeMerchant } from "../domain/merchant.ts";
+import { detectRecurrences, projectRecurrences } from "../domain/recurrence.ts";
+import type { Recurrence } from "../domain/recurrence.ts";
+
+const HORIZON_MONTHS = 12;
+// Nada mais velho que isto pode passar no filtro de staleness — varrer o
+// histórico inteiro seria trabalho jogado fora.
+const RECURRENCE_LOOKBACK_MONTHS = 18;
+
+// Regras canônicas (CLAUDE.md): consumo-despesa e receita real.
+const CONSUMPTION_EXPENSE =
+  `flow='expense' AND method != 'transfer' AND is_settlement=0
+   AND is_third_party=0 AND dest_account_id IS NULL`;
+const REAL_INCOME = `flow='income' AND is_revenue=1 AND is_third_party=0`;
+
+const SQL_RECURRENCE_ROWS = `
+  SELECT date, amount_cents AS amountCents, flow, description
+  FROM transactions
+  WHERE date >= ? AND ((${CONSUMPTION_EXPENSE}) OR (${REAL_INCOME}))
+  ORDER BY date`;
+
+const SQL_LAST_LEDGER_MONTH = `SELECT MAX(substr(date, 1, 7)) AS ym FROM transactions`;
 
 export function commitmentRoutes(db: DatabaseSync): Route[] {
 
@@ -45,7 +67,7 @@ export function commitmentRoutes(db: DatabaseSync): Route[] {
     const { month, year } = currentMonth();
     const startYm = `${year}-${String(month).padStart(2, "0")}`;
     const series: any[] = [];
-    for (let k = 0; k < 12; k++) {
+    for (let k = 0; k < HORIZON_MONTHS; k++) {
       const ym = addMonths(startYm, k);
       const invoice = invByMonth.get(ym) ?? 0;
       const proj = projByMonth.get(ym) ?? 0;
@@ -63,7 +85,57 @@ export function commitmentRoutes(db: DatabaseSync): Route[] {
         account_id: o.account_id, total: o.total_cents / 100,
       })),
       series,
+      recurring: buildRecurring(startYm),
     });
+  }
+
+  // Camada PREVISTA — separada da `series`, que é só compromisso DURO.
+  // Detecta contra o último mês COM dados (a mesma convenção do seletor de mês);
+  // projeta a partir do mês-calendário corrente, pra alinhar com a série dura e
+  // nunca emitir mês passado.
+  function buildRecurring(startYm: string) {
+    const lastLedgerYm =
+      (db.prepare(SQL_LAST_LEDGER_MONTH).get() as any)?.ym as string | null;
+    if (!lastLedgerYm) {
+      return { items: [], expense_monthly: 0, income_monthly: 0, series: [] };
+    }
+
+    const cutoff = `${addMonths(lastLedgerYm, -RECURRENCE_LOOKBACK_MONTHS)}-01`;
+    const rows = db.prepare(SQL_RECURRENCE_ROWS).all(cutoff) as any[];
+
+    const recs = detectRecurrences(
+      rows.map(r => ({
+        date: String(r.date),
+        amountCents: r.amountCents,
+        flow: r.flow as "expense" | "income",
+        merchant: normalizeMerchant(r.description),
+      })),
+      lastLedgerYm,
+    );
+
+    const monthlyTotal = (flow: Recurrence["flow"]) =>
+      recs.filter(r => r.flow === flow).reduce((n, r) => n + r.monthlyCents, 0) / 100;
+
+    return {
+      items: recs.map(r => ({
+        merchant: r.merchant,
+        flow: r.flow,
+        monthly: r.monthlyCents / 100,
+        cadence_months: r.cadenceMonths,
+        occurrences: r.occurrences,
+        last_month: r.lastMonth,
+        stale_months: r.staleMonths,
+      })),
+      expense_monthly: monthlyTotal("expense"),
+      income_monthly: monthlyTotal("income"),
+      series: projectRecurrences(recs, startYm, HORIZON_MONTHS).map(m => {
+        const [y, mm] = m.month.split("-");
+        return {
+          month: m.month, label: `${mm}/${y}`,
+          expense: m.expenseCents / 100, income: m.incomeCents / 100,
+        };
+      }),
+    };
   }
 
   return [{ method: "GET", ...compilePath("/api/commitments"), handler: getCommitments }];

@@ -80,4 +80,97 @@ test("commitments: DB vazio → série vazia", () => {
   const out = getCommitments(db);
   assert.deepEqual(out.open_invoices, []);
   assert.deepEqual(out.series, []);
+  assert.deepEqual(out.recurring.items, []);
+  assert.deepEqual(out.recurring.series, []);
+  assert.equal(out.recurring.expense_monthly, 0);
+  assert.equal(out.recurring.income_monthly, 0);
+});
+
+// ---- recurring ----
+
+function ym(offsetMonths: number): string {
+  const now = new Date();
+  const idx = now.getFullYear() * 12 + now.getMonth() + offsetMonths;
+  return `${Math.floor(idx / 12)}-${String((idx % 12) + 1).padStart(2, "0")}`;
+}
+
+function checkingExpense(db: DatabaseSync, date: string, amountCents: number, description: string) {
+  db.prepare(`INSERT INTO transactions
+    (date, flow, method, account_id, amount_cents, description, is_revenue, is_settlement, is_third_party)
+    VALUES (?, 'expense', 'pix', 'nu-db', ?, ?, 0, 0, 0)`).run(date, amountCents, description);
+}
+
+function checkingIncome(db: DatabaseSync, date: string, amountCents: number, description: string) {
+  db.prepare(`INSERT INTO transactions
+    (date, flow, method, account_id, amount_cents, description, is_revenue, is_settlement, is_third_party)
+    VALUES (?, 'income', 'ted', 'nu-db', ?, ?, 1, 0, 0)`).run(date, amountCents, description);
+}
+
+test("recurring: três meses de saída estável viram recorrência projetada", () => {
+  const db = freshDb();
+  for (const k of [-2, -1, 0]) checkingExpense(db, `${ym(k)}-10`, 171119, "Aluguel Fulano");
+
+  const out = getCommitments(db);
+  assert.equal(out.recurring.items.length, 1);
+  assert.equal(out.recurring.items[0].flow, "expense");
+  assert.equal(out.recurring.items[0].monthly, 1711.19);
+  assert.equal(out.recurring.expense_monthly, 1711.19);
+  assert.ok(out.recurring.series.length > 0);
+  assert.equal(out.recurring.series[0].month, ym(1), "projeção começa no mês seguinte");
+  assert.equal(out.recurring.series[0].expense, 1711.19);
+});
+
+test("recurring: receita recorrente vai pra banda de entrada, não some com a saída", () => {
+  const db = freshDb();
+  for (const k of [-2, -1, 0]) {
+    checkingExpense(db, `${ym(k)}-10`, 100000, "Aluguel Fulano");
+    checkingIncome(db, `${ym(k)}-05`, 385000, "Transferência recebida - empresa exemplo");
+  }
+
+  const out = getCommitments(db);
+  assert.equal(out.recurring.expense_monthly, 1000);
+  assert.equal(out.recurring.income_monthly, 3850);
+  assert.equal(out.recurring.series[0].expense, 1000);
+  assert.equal(out.recurring.series[0].income, 3850);
+});
+
+test("recurring: liquidação de fatura não conta como recorrência de consumo", () => {
+  const db = freshDb();
+  for (const k of [-2, -1, 0]) {
+    db.prepare(`INSERT INTO transactions
+      (date, flow, method, account_id, amount_cents, description, is_revenue, is_settlement, is_third_party)
+      VALUES (?, 'expense', 'credit', 'inter-db', 100000, 'Pagamento de fatura', 0, 1, 0)`).run(`${ym(k)}-10`);
+  }
+  const out = getCommitments(db);
+  assert.deepEqual(out.recurring.items, []);
+});
+
+test("recurring: terceiro não conta como recorrência", () => {
+  const db = freshDb();
+  for (const k of [-2, -1, 0]) {
+    db.prepare(`INSERT INTO transactions
+      (date, flow, method, account_id, amount_cents, description, is_revenue, is_settlement, is_third_party)
+      VALUES (?, 'expense', 'pix', 'nu-db', 50000, 'Compra do vizinho', 0, 0, 1)`).run(`${ym(k)}-10`);
+  }
+  const out = getCommitments(db);
+  assert.deepEqual(out.recurring.items, []);
+});
+
+test("recurring: perna de investimento (transfer) não conta como recorrência", () => {
+  const db = freshDb();
+  for (const k of [-2, -1, 0]) {
+    db.prepare(`INSERT INTO transactions
+      (date, flow, method, account_id, amount_cents, description, is_revenue, is_settlement, is_third_party)
+      VALUES (?, 'expense', 'transfer', 'nu-db', 80000, 'Aplicação RDB', 0, 0, 0)`).run(`${ym(k)}-10`);
+  }
+  const out = getCommitments(db);
+  assert.deepEqual(out.recurring.items, []);
+});
+
+test("recurring: série dura (fatura/parcela) não é contaminada pela recorrência", () => {
+  const db = freshDb();
+  for (const k of [-2, -1, 0]) checkingExpense(db, `${ym(k)}-10`, 171119, "Aluguel Fulano");
+  const out = getCommitments(db);
+  assert.ok(out.series.every((s: any) => s.total === s.invoice + s.projected),
+    "series continua sendo só compromisso duro");
 });
