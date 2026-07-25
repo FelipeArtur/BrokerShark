@@ -117,7 +117,7 @@ frontend/
                         # categories.js — só CategoriesPanel
     vendor/             # react, react-dom, chart — vendorizados (inalterado)
   css/                  # estilos; pixel.css — estrutural (bordas duras, sombras degrau, scanlines CRT, dither, keyframes)
-                        # pixel-ui.css — vocabulário de componente (.px-row/.px-field/.px-btn/.px-swatch/.px-chip…)
+                        # pixel-ui.css — vocabulário de componente (.px-row/.px-field/.px-btn/.px-seg/.px-swatch/.px-chip…)
   fonts/                # Silkscreen, Departure Mono — vendorizados (100% offline); só essas duas
   img/                  # assets
 ```

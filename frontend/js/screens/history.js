@@ -207,20 +207,20 @@ function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkC
         hasFilter ? `${sortedTx.length} de ${monthTx.length}` : `${monthTx.length}`),
       h("div", { style: { flex: 1 } }),
       h("button", {
-        className: `filter-pill${grouped ? " active" : ""}`,
+        className: `px-seg-btn${grouped ? " active" : ""}`,
         onClick: () => setGrouped(g => !g),
         title: grouped
           ? "Agrupado por categoria — desagrupe pra ver em ordem cronológica (e o saldo corrente, com uma conta filtrada)"
           : "Lista corrida — agrupe pra ver totais e alvo por categoria",
       }, grouped ? "agrupado" : "corrido"),
-      h("div", { className: "filter-pills" },
+      h("div", { className: "px-seg" },
         [["all", "Tudo"], ["expense", "Despesas"], ["income", "Receitas"]].map(([k, l]) =>
-          h("button", { key: k, className: `filter-pill${filter.flow === k ? " active" : ""}`,
+          h("button", { key: k, className: `px-seg-btn${filter.flow === k ? " active" : ""}`,
             onClick: () => { setFilterField("flow", k); if (k === "income") setFilterField("method", "all"); } }, l))
       ),
-      h("div", { className: "filter-pills" },
+      h("div", { className: "px-seg" },
         [["all", "Todos"], ["pix", "PIX"], ["credit", "Crédito"], ["ted", "TED"]].map(([k, l]) =>
-          h("button", { key: k, className: `filter-pill${filter.method === k ? " active" : ""}`,
+          h("button", { key: k, className: `px-seg-btn${filter.method === k ? " active" : ""}`,
             onClick: () => setFilterField("method", k) }, l))
       ),
       h("input", {

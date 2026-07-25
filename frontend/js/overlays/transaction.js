@@ -117,7 +117,7 @@ function CategoryEditor({ tx, onClose, onSave }) {
             onClick: () => setSelected(c.id),
             "aria-pressed": selected === c.id,
             style: {
-              padding: "7px 8px", borderRadius: 6, textAlign: "center",
+              padding: "7px 8px", textAlign: "center",
               fontSize: 11, fontWeight: selected === c.id ? 700 : 500,
               background: selected === c.id ? "var(--accent-bg)" : "var(--bg-0)",
               border: `1px solid ${selected === c.id ? "color-mix(in oklch, var(--accent) 45%, transparent)" : "var(--line-1)"}`,
@@ -133,7 +133,7 @@ function CategoryEditor({ tx, onClose, onSave }) {
         onClick: handleToggleThirdParty,
         style: {
           display: "flex", alignItems: "center", justifyContent: "space-between",
-          padding: "9px 12px", borderRadius: 6, textAlign: "left",
+          padding: "9px 12px", textAlign: "left",
           background: isThirdParty ? "var(--warn-bg)" : "var(--bg-0)",
           border: `1px solid ${isThirdParty ? "color-mix(in oklch, var(--warn) 45%, transparent)" : "var(--line-1)"}`,
           color: isThirdParty ? "var(--warn)" : "var(--fg-2)",
@@ -144,7 +144,7 @@ function CategoryEditor({ tx, onClose, onSave }) {
         h(window.BS.IconLock, { size: 14, open: !isThirdParty })
       ),
 
-      err && h("div", { style: { fontSize: 12, color: "var(--neg)", background: "color-mix(in oklch, var(--neg) 10%, transparent)", padding: "10px 12px", borderRadius: 6 } }, err),
+      err && h("div", { style: { fontSize: 12, color: "var(--neg)", background: "color-mix(in oklch, var(--neg) 10%, transparent)", padding: "10px 12px",} }, err),
 
       h("div", { style: { display: "flex", gap: 8, justifyContent: "space-between", alignItems: "center", paddingTop: 4 } },
         h("button", {

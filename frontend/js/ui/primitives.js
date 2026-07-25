@@ -134,13 +134,13 @@ function Modal({ open, onClose, title, children, width = 480 }) {
       ref: dialogRef,
       onClick: e => e.stopPropagation(), className: "fade-in",
       role: "dialog", "aria-modal": "true", "aria-labelledby": titleId,
-      style: { width, maxWidth: "92vw", maxHeight: "88vh", display: "flex", flexDirection: "column", background: "var(--bg-1)", border: "1px solid var(--line-2)", boxShadow: "0 24px 48px oklch(0% 0 0 / 0.6)", borderRadius: 16 }
+      style: { width, maxWidth: "92vw", maxHeight: "88vh", display: "flex", flexDirection: "column", background: "var(--bg-1)", border: "1px solid var(--line-2)", boxShadow: "0 24px 48px oklch(0% 0 0 / 0.6)",}
     },
       React.createElement("div", { style: { padding: "24px 32px 16px 32px", display: "flex", alignItems: "center", justifyContent: "space-between" } },
         React.createElement("div", { id: titleId, style: { fontWeight: 700, fontSize: "var(--fz-4)", letterSpacing: "-0.01em" } }, title),
         React.createElement("button", {
           onClick: onClose, "aria-label": "Fechar", title: "Fechar",
-          style: { width: 32, height: 32, borderRadius: "50%", background: "transparent", border: "none", color: "var(--fg-3)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.1s" },
+          style: { width: 32, height: 32, background: "transparent", border: "none", color: "var(--fg-3)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.1s" },
           onMouseEnter: e => { e.currentTarget.style.color = "var(--fg-0)"; e.currentTarget.style.background = "var(--bg-2)"; },
           onMouseLeave: e => { e.currentTarget.style.color = "var(--fg-3)"; e.currentTarget.style.background = "transparent"; }
         }, "✕")
@@ -191,8 +191,7 @@ function useToasts() {
           background: "var(--bg-1)",
           border: "1px solid var(--line-2)",
           color: "var(--fg-0)",
-          padding: "10px 16px 10px 12px", minWidth: 320, maxWidth: 500,
-          borderRadius: 12, fontSize: 13, fontWeight: 500,
+          padding: "10px 16px 10px 12px", minWidth: 320, maxWidth: 500, fontSize: 13, fontWeight: 500,
           boxShadow: "0 12px 32px oklch(0% 0 0 / 0.25), 0 4px 12px oklch(0% 0 0 / 0.15)",
           display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16,
           position: "relative", overflow: "hidden"
@@ -201,21 +200,21 @@ function useToasts() {
         React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 12, zIndex: 1 } },
           React.createElement("div", {
             dangerouslySetInnerHTML: { __html: ICONS[t.kind] || ICONS.info },
-            style: { display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: "50%", background: `var(--${_k}-bg)`, color: `var(--${_k})`, flexShrink: 0 }
+            style: { display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, background: `var(--${_k}-bg)`, color: `var(--${_k})`, flexShrink: 0 }
           }),
           React.createElement("span", { style: { lineHeight: 1.3 } }, t.msg)
         ),
         React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "center", zIndex: 1 } },
           t.action && React.createElement("button", {
             onClick: () => { t.action.onClick(); setList(l => l.filter(x => x.id !== t.id)); },
-            style: { cursor: "pointer", background: "transparent", border: "none", padding: "6px 12px", borderRadius: 8, fontSize: 12, fontWeight: 700, color: `var(--${_k})`, textTransform: "uppercase", letterSpacing: "0.04em", transition: "background 0.15s" },
+            style: { cursor: "pointer", background: "transparent", border: "none", padding: "6px 12px", fontSize: 12, fontWeight: 700, color: `var(--${_k})`, textTransform: "uppercase", letterSpacing: "0.04em", transition: "background 0.15s" },
             onMouseEnter: e => e.currentTarget.style.background = `var(--${_k}-bg)`,
             onMouseLeave: e => e.currentTarget.style.background = "transparent"
           }, t.action.label),
           React.createElement("button", {
             onClick: () => setList(l => l.filter(x => x.id !== t.id)),
             title: "Fechar",
-            style: { cursor: "pointer", background: "transparent", border: "none", padding: 0, width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "50%", color: "var(--fg-3)", transition: "all 0.15s" },
+            style: { cursor: "pointer", background: "transparent", border: "none", padding: 0, width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--fg-3)", transition: "all 0.15s" },
             onMouseEnter: e => { e.currentTarget.style.color = "var(--fg-0)"; e.currentTarget.style.background = "var(--bg-2)"; },
             onMouseLeave: e => { e.currentTarget.style.color = "var(--fg-3)"; e.currentTarget.style.background = "transparent"; }
           }, "✕")
@@ -288,12 +287,16 @@ function BankChip({ bank, accountId }) {
   return React.createElement("span", { className: `chip ${cls}` }, label);
 }
 
-function SegmentControl({ options, value, onChange, columns = 3 }) {
-  return React.createElement("div", { className: "seg-control", role: "radiogroup", style: { gridTemplateColumns: `repeat(${columns}, 1fr)` } },
+// fill=true ocupa a largura toda em `columns` colunas; sem ele, fica inline.
+function SegmentControl({ options, value, onChange, columns = 3, fill = true }) {
+  return React.createElement("div", {
+    className: `px-seg${fill ? " px-seg--fill" : ""}`, role: "radiogroup",
+    style: fill ? { gridTemplateColumns: `repeat(${columns}, 1fr)` } : undefined,
+  },
     options.map(opt => React.createElement("button", {
       key: opt.value, type: "button",
       role: "radio", "aria-checked": opt.value === value,
-      className: `seg-btn${opt.value === value ? " active" : ""}`,
+      className: `px-seg-btn${opt.value === value ? " active" : ""}`,
       onClick: () => onChange(opt.value),
     }, opt.icon && React.createElement("span", null, opt.icon), React.createElement("span", null, opt.label)))
   );
@@ -305,7 +308,7 @@ function BrokerSharkLogo({ size = 28 }) {
       src: "/static/img/favicon.ico",
       alt: "",
       width: size, height: size,
-      style: { borderRadius: 6, display: "block", flexShrink: 0 }
+      style: { display: "block", flexShrink: 0 }
     }),
     React.createElement("span", { style: { fontWeight: 700, fontSize: 14, letterSpacing: "-0.015em", color: "var(--fg-0)" } },
       "Broker",

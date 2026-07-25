@@ -59,6 +59,29 @@ select.px-field { cursor: pointer; appearance: none; padding-right: var(--s-7); 
   white-space: nowrap;
 }
 
+/* Controle segmentado — escolher UM entre N. Substitui .seg-control/.seg-btn e
+   .filter-pills/.filter-pill, que faziam a mesma coisa com nomes diferentes.
+   Sem modificador é inline (barra de filtro); com --fill vira grid de largura
+   cheia (formulário). */
+.px-seg {
+  display: inline-flex; gap: 2px; padding: 2px;
+  background: var(--bg-1); border: 1px solid var(--line-1);
+}
+.px-seg--fill { display: grid; gap: var(--s-2); padding: var(--s-2); background: var(--bg-0); }
+
+.px-seg-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--s-2);
+  padding: var(--s-3) var(--s-5);
+  font-size: var(--fz-8); font-weight: 500;
+  color: var(--fg-2); background: transparent; border: 1px solid transparent;
+  cursor: pointer; white-space: nowrap;
+}
+.px-seg-btn:hover { color: var(--fg-0); }
+.px-seg-btn.active {
+  font-weight: 600; color: var(--fg-0);
+  background: var(--bg-3); border-color: var(--line-2);
+}
+
 .px-dropzone {
   padding: var(--s-8) var(--s-6);
   text-align: center;

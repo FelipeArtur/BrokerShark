@@ -63,7 +63,7 @@ function CategoriesPanel({ refreshKey, onRefresh, onClose }) {
       ),
       h(window.BS.SegmentControl, {
         options: [{ value: "expense", label: "Despesas" }, { value: "income", label: "Receitas" }],
-        value: flow, onChange: setFlow, columns: 2,
+        value: flow, onChange: setFlow, columns: 2, fill: true,
       }),
       h("form", { onSubmit: handleAdd, style: { display: "flex", gap: 8 } },
         h("input", {

@@ -194,13 +194,13 @@ const TimelineWidget = React.memo(function TimelineWidget({ monthly, monthSel, o
   return h("div", { className: "widget wg-6" },
     h("div", { className: "widget-h" },
       h("span", { className: "widget-title" }, "Fluxo mês a mês"),
-      h("button", { onClick: () => setCompare(c => !c), className: "filter-pill" + (compare ? " active" : ""),
+      h("button", { onClick: () => setCompare(c => !c), className: "px-seg-btn" + (compare ? " active" : ""),
         style: { marginLeft: "auto" }, title: "Comparar com o mês anterior" }, "vs ant."),
       h("span", { style: { display: "flex", gap: 10, fontSize: 11, color: "var(--fg-3)", alignItems: "center" } },
         h("span", { style: { display: "inline-flex", alignItems: "center", gap: 3 } },
-          h("span", { style: { width: 7, height: 7, borderRadius: 2, background: "var(--pos)" } }), "rec"),
+          h("span", { style: { width: 7, height: 7, background: "var(--pos)" } }), "rec"),
         h("span", { style: { display: "inline-flex", alignItems: "center", gap: 3 } },
-          h("span", { style: { width: 7, height: 7, borderRadius: 2, background: "var(--neg)" } }), "desp"))
+          h("span", { style: { width: 7, height: 7, background: "var(--neg)" } }), "desp"))
     ),
     h("div", { className: "widget-body", style: { gap: 8, overflow: "hidden" } },
       h("div", { style: { display: "flex", gap: 10, overflowX: "auto", scrollbarWidth: "none", flexShrink: 0 } },
@@ -272,7 +272,7 @@ const AccountsWidget = React.memo(function AccountsWidget({ accounts, available,
       total > 0 && checking.length > 1 && h("div", { style: { display: "flex", gap: 3, height: 5, flexShrink: 0 } },
         checking.map(a => {
           const pct = ((a.balance || 0) / total) * 100;
-          return pct > 0.5 && h("div", { key: a.id, title: `${a.name}: ${pct.toFixed(0)}%`, style: { width: pct + "%", background: colorOf(a), borderRadius: 2, opacity: 0.85 } });
+          return pct > 0.5 && h("div", { key: a.id, title: `${a.name}: ${pct.toFixed(0)}%`, style: { width: pct + "%", background: colorOf(a), opacity: 0.85 } });
         })
       ),
       h("div", { style: { display: "flex", flexDirection: "column" } },
@@ -438,7 +438,7 @@ const FaturaWidget = React.memo(function FaturaWidget({ monthTx, filter, onToggl
               Object.entries(byBank).map(([bank, amt]) => {
                 const pct = ((amt) / totalFatura) * 100;
                 const color = bank === "Nubank" ? "var(--nubank)" : bank === "Inter" ? "var(--inter)" : "var(--accent)";
-                return pct > 0.5 && h("div", { key: bank, title: `${bank}: ${pct.toFixed(0)}%`, style: { width: pct + "%", background: color, borderRadius: 2, opacity: 0.85 } });
+                return pct > 0.5 && h("div", { key: bank, title: `${bank}: ${pct.toFixed(0)}%`, style: { width: pct + "%", background: color, opacity: 0.85 } });
               })
             ),
             h("div", { style: { display: "flex", flexDirection: "column" } },
