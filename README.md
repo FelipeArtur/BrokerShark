@@ -60,7 +60,7 @@ lido pelo endpoint `backup-status`.
 - **Dashboard web** — tela única, sem abas: faixa KPI fixa (Disponível pra gastar ·
   Patrimônio · Saldo livre do mês · Investido) + grid de widgets (visão geral do mês,
   fluxo mês a mês clicável = seletor de mês global, contas, categorias, investimentos,
-  fatura do cartão, compromissos futuros). Detalhe abre em **overlay de drill-down**,
+  fatura do cartão, visão de futuro). Detalhe abre em **overlay de drill-down**,
   nunca navegação.
 - **Orçamento por categoria** — alvo fixo por categoria, com override opcional por mês.
 - **Backfill** — reconstrói o banco do zero a partir do acervo de exports.

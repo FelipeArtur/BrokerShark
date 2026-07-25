@@ -1,0 +1,121 @@
+import type { DatabaseSync } from "node:sqlite";
+
+// Auditoria de invariantes sobre um DB VIVO.
+//
+// O `printReport` do backfill só roda depois de uma reconstrução; o DB do dia a
+// dia muda pelo import da UI e nunca era conferido. Cada check aqui é uma das
+// invariantes documentadas no CLAUDE.md virada em consulta — se uma delas
+// quebra, algum total da tela está mentindo.
+
+export type Violation = { check: string; message: string; count: number };
+
+type Check = { check: string; message: string; sql: string };
+
+const CHECKS: Check[] = [
+  {
+    check: "self-sem-par",
+    message: "perna SELF declarada sem contraparte — seria contada como despesa de consumo",
+    sql: `SELECT COUNT(*) AS n FROM transactions
+          WHERE counterpart = 'SELF' AND self_pair_tx_id IS NULL`,
+  },
+  {
+    check: "self-par-nao-reciproco",
+    message: "self_pair_tx_id aponta pra linha que não aponta de volta",
+    sql: `SELECT COUNT(*) AS n FROM transactions a
+          LEFT JOIN transactions b ON b.id = a.self_pair_tx_id
+          WHERE a.self_pair_tx_id IS NOT NULL
+            AND (b.id IS NULL OR b.self_pair_tx_id IS NULL OR b.self_pair_tx_id != a.id)`,
+  },
+  {
+    check: "self-saida-nao-transfer",
+    message: "perna SELF de saída fora de method='transfer' — a regra consumo-despesa não a excluiria",
+    sql: `SELECT COUNT(*) AS n FROM transactions
+          WHERE self_pair_tx_id IS NOT NULL AND flow = 'expense' AND method != 'transfer'`,
+  },
+  {
+    check: "self-entrada-como-receita",
+    message: "perna SELF de entrada com is_revenue=1 — inflaria a receita real",
+    sql: `SELECT COUNT(*) AS n FROM transactions
+          WHERE self_pair_tx_id IS NOT NULL AND flow = 'income' AND is_revenue = 1`,
+  },
+  {
+    check: "liquidacao-mal-classificada",
+    message: "liquidação de fatura marcada como transferência ou terceiro — dupla contagem de consumo",
+    sql: `SELECT COUNT(*) AS n FROM transactions
+          WHERE is_settlement = 1 AND (method = 'transfer' OR is_third_party = 1)`,
+  },
+  {
+    check: "item-fatura-conta-errada",
+    // A liquidação mora na conta corrente e aponta pra fatura do cartão — isso é
+    // por desenho e fica de fora do check.
+    message: "item de fatura lançado em conta diferente da fatura",
+    sql: `SELECT COUNT(*) AS n FROM transactions t JOIN invoices i ON i.id = t.invoice_id
+          WHERE t.is_settlement = 0 AND t.account_id != i.account_id`,
+  },
+  {
+    check: "fatura-total-diverge",
+    // Estorno entra como income na fatura e ABATE o total, então o confronto é
+    // com o líquido (despesas − estornos), não com a soma bruta.
+    message: "total da fatura não bate com o líquido dos seus itens",
+    sql: `SELECT COUNT(*) AS n FROM invoices i
+          WHERE EXISTS (SELECT 1 FROM transactions t WHERE t.invoice_id = i.id AND t.is_settlement = 0)
+            AND i.total_cents != (
+              SELECT COALESCE(SUM(CASE WHEN t.flow = 'expense' THEN t.amount_cents ELSE -t.amount_cents END), 0)
+              FROM transactions t WHERE t.invoice_id = i.id AND t.is_settlement = 0)`,
+  },
+  {
+    check: "fatura-pagamento-inexistente",
+    message: "fatura marcada como paga apontando pra lançamento que não existe",
+    sql: `SELECT COUNT(*) AS n FROM invoices i
+          LEFT JOIN transactions t ON t.id = i.payment_tx_id
+          WHERE i.payment_tx_id IS NOT NULL AND t.id IS NULL`,
+  },
+  {
+    check: "parcela-seq-invalida",
+    message: "parcela com número acima do total — projeção de compromisso sairia errada",
+    sql: `SELECT COUNT(*) AS n FROM transactions
+          WHERE installment_seq IS NOT NULL AND installment_total IS NOT NULL
+            AND installment_seq > installment_total`,
+  },
+  // external_id duplicado não entra aqui: o schema já tem UNIQUE na coluna, então
+  // o INSERT falha antes de virar dado — checar seria teatro.
+  {
+    check: "destino-igual-origem",
+    message: "transferência com conta de destino igual à de origem",
+    sql: `SELECT COUNT(*) AS n FROM transactions WHERE dest_account_id = account_id`,
+  },
+  {
+    check: "posicao-sem-snapshot",
+    message: "posição aberta sem nenhum snapshot — entraria no patrimônio valendo zero",
+    sql: `SELECT COUNT(*) AS n FROM investments i WHERE i.closed_at IS NULL
+          AND NOT EXISTS (SELECT 1 FROM position_snapshots s WHERE s.investment_id = i.id)`,
+  },
+  {
+    check: "snapshot-negativo",
+    message: "snapshot de posição com valor líquido negativo",
+    sql: `SELECT COUNT(*) AS n FROM position_snapshots WHERE net_cents < 0`,
+  },
+  {
+    check: "categoria-sentido-errado",
+    message: "lançamento categorizado com categoria do sentido oposto",
+    sql: `SELECT COUNT(*) AS n FROM transactions t JOIN categories c ON c.id = t.category_id
+          WHERE t.flow != c.flow`,
+  },
+  {
+    check: "alvo-em-categoria-de-receita",
+    message: "alvo de gasto definido em categoria que não é de despesa",
+    sql: `SELECT COUNT(*) AS n FROM category_budgets cb JOIN categories c ON c.id = cb.category_id
+          WHERE c.flow != 'expense'`,
+  },
+];
+
+export const AUDIT_CHECK_COUNT = CHECKS.length;
+
+export function auditLedger(db: DatabaseSync): Violation[] {
+  const out: Violation[] = [];
+  for (const c of CHECKS) {
+    const count = Number((db.prepare(c.sql).get() as { n: number }).n ?? 0);
+    if (count > 0) out.push({ check: c.check, message: c.message, count });
+  }
+  return out;
+}

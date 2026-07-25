@@ -2,7 +2,7 @@
 
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
 const {
-  fmtBRL, fmtDateBR, Modal, useToasts, SegmentControl, BankChip, BrokerSharkLogo,
+  fmtBRL, fmtDateBR, Modal, useToasts, BankChip, BrokerSharkLogo,
   PT_MONTHS, PT_SHORT,
   DashboardView,
   CategoriesPanel,
@@ -26,7 +26,7 @@ function ConfirmDeleteModal({ tx, onCancel, onConfirm }) {
 
   return h(Modal, { open: true, onClose: onCancel, title: "Excluir lançamento?", width: 440 },
     h("div", { style: { padding: 4 } },
-      h("div", { style: { background: "var(--bg-2)", border: "1px solid var(--line-1)", borderRadius: 6, padding: "10px 12px", marginBottom: 12 } },
+      h("div", { style: { background: "var(--bg-2)", border: "1px solid var(--line-1)", padding: "10px 12px", marginBottom: 12 } },
         h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 } },
           h("span", { style: { fontSize: 13, color: "var(--fg-0)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, desc),
           h("span", { className: "mono", style: { fontSize: 14, fontWeight: 700, color: tx.flow === "expense" ? "var(--neg)" : "var(--pos)", flexShrink: 0 } },
@@ -36,7 +36,7 @@ function ConfirmDeleteModal({ tx, onCancel, onConfirm }) {
       ),
       warnings.map((w, i) => h("div", {
         key: i,
-        style: { display: "flex", gap: 6, fontSize: 12, color: "var(--fg-1)", background: "var(--info-bg)", border: "1px solid color-mix(in oklch, var(--info) 30%, transparent)", borderRadius: 6, padding: "8px 10px", marginBottom: 8 }
+        style: { display: "flex", gap: 6, fontSize: 12, color: "var(--fg-1)", background: "var(--info-bg)", border: "1px solid color-mix(in oklch, var(--info) 30%, transparent)", padding: "8px 10px", marginBottom: 8 }
       }, h("span", null, "ⓘ"), h("span", null, w))),
       h("div", { style: { fontSize: 12, color: "var(--fg-2)", marginBottom: 14 } }, "Esta ação não pode ser desfeita."),
       h("div", { style: { display: "flex", justifyContent: "flex-end", gap: 8 } },

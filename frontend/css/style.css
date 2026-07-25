@@ -144,26 +144,6 @@ button.data-tag:hover { border-color: var(--fg-2); color: var(--fg-0); backgroun
 .nav-btn:hover { color: var(--fg-0); background: var(--bg-2); }
 .nav-btn.active { color: var(--fg-0); background: var(--bg-2); border-color: var(--line-2); font-weight: 600; box-shadow: inset 0 -2px 0 var(--accent); }
 
-.seg-control { display: grid; gap: 4px; padding: 3px; background: var(--bg-0); border: 1px solid var(--line-1); }
-.seg-btn {
-  display: flex; align-items: center; justify-content: center; gap: 4px;
-  padding: 7px 4px; font-size: var(--fz-7); font-weight: 500;
-  color: var(--fg-2); background: transparent; border: 1px solid transparent; transition: all 0.12s;
-}
-.seg-btn.active { font-weight: 600; color: var(--fg-0); background: var(--bg-2); border-color: var(--line-2); }
-
-.filter-pills {
-  display: inline-flex; gap: 2px; padding: 2px;
-  background: var(--bg-1); border: 1px solid var(--line-1);
-}
-.filter-pill {
-  padding: 4px 12px; font-size: var(--fz-8); font-weight: 500;
-  color: var(--fg-2); background: transparent; border: none;
-  cursor: pointer; white-space: nowrap; transition: background 0.12s, color 0.12s;
-}
-.filter-pill:hover { color: var(--fg-0); }
-.filter-pill.active { background: var(--bg-3); color: var(--fg-0); font-weight: 600; }
-
 
 .v3-topbar {
   height: 52px; flex-shrink: 0;
