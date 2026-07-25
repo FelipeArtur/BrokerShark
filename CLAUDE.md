@@ -46,6 +46,7 @@ backend/
       migrate.ts        # runMigrations — forward-only sobre migration_log (boot: server + backfill)
       migrations/       # NNNN_slug.sql numerados; ALTER/rename/drop/data-fix (sem BEGIN/COMMIT)
       reconcile.ts      # reconciliação de pagamento de fatura (valor exato + liquidações parciais)
+      audit.ts          # auditLedger — invariantes documentadas viradas em consulta (backfill + CLI)
       faturaImport.ts   # insert de fatura aberta (itens + due_date)
     domain/             # lógica PURA (sem DB/IO)
       money.ts          # parseMoneyCents (string→centavos inteiros), fmtCents, parseDateBR
@@ -87,6 +88,7 @@ backend/
       backfill/         # files, seeds, txInsert, extratos, faturas, selfPairs, caixinha,
                         # b3Sync, guard (overlay da UI), investReview, verify — 1 fase por arquivo
       backup.ts         # backup mensal: snapshot VACUUM INTO datado (retém 12, 0600) + backupStatus + CLI
+      audit.ts          # CLI read-only: db/audit.ts + investReview sobre o DB vivo (exit 1 se violou)
 desktop/                # launcher-only (nunca importa backend/src)
   brokershark.py        # wrapper WebKitGTK: sobe server em porta efêmera, mata node ao fechar (--check headless)
   brokershark.desktop   # entrada de menu · icon.png (derivado do favicon)
@@ -267,7 +269,8 @@ npm install       # instala xlsx
 node src/jobs/backfill.ts "<dir do acervo>"   # → backend/data/brokershark-v2.db (--force p/ reconstruir sobre DB com dados da UI)
 npm start         # server em http://127.0.0.1:8000 (PORT ou --port N para mudar)
 npm test          # rede node:test — backend (src/**/*.test.ts, co-locado) + frontend
-                  # (../frontend/js/**/*.test.js: domain/, core/juice — money, tx-group, filter, meta, juice)
+                  # (../frontend/js/**/*.test.js: domain/, core/juice — money, tx-group, filter, juice)
+npm run audit     # confere as invariantes contra o DB VIVO (read-only, sem rebuild); sai 1 se quebrou
 ```
 
 ---

@@ -1,14 +1,20 @@
 import type { DatabaseSync } from "node:sqlite";
 
-export interface CaixinhaResult { investmentId: number; balanceCents: number; legs: number }
+export interface CaixinhaResult { investmentId: number | null; balanceCents: number; legs: number }
+
+const MATCH_KEY = "ledger:caixinha-nubank";
+
+const CREATE_POSITION = `
+  INSERT INTO investments (name, match_key, type, bank, source, group_name)
+  VALUES ('Caixinha Nubank', '${MATCH_KEY}', 'rdb', 'nubank', 'ledger', NULL)`;
 
 export function deriveCaixinha(db: DatabaseSync, caixinhaTxIds: number[]): CaixinhaResult {
-  const investmentId = Number(db.prepare(`
-    INSERT INTO investments (name, match_key, type, bank, source, group_name)
-    VALUES ('Caixinha Nubank', 'ledger:caixinha-nubank', 'rdb', 'nubank', 'ledger', NULL)
-  `).run().lastInsertRowid);
+  // Sem perna nenhuma não há Caixinha: criar a posição assim mesmo produziria
+  // uma linha aberta e sem snapshot, que o painel mostra como "R$ 0,00" pra quem
+  // nunca usou a Caixinha — e quebra a invariante posição-aberta-tem-snapshot.
+  if (!caixinhaTxIds.length) return { investmentId: null, balanceCents: 0, legs: 0 };
 
-  if (!caixinhaTxIds.length) return { investmentId, balanceCents: 0, legs: 0 };
+  const investmentId = Number(db.prepare(CREATE_POSITION).run().lastInsertRowid);
 
   const ph = caixinhaTxIds.map(() => "?").join(",");
   db.prepare(`UPDATE transactions SET investment_id = ? WHERE id IN (${ph})`)
@@ -40,12 +46,13 @@ export function deriveCaixinha(db: DatabaseSync, caixinhaTxIds: number[]): Caixi
 
 export function rederiveCaixinha(db: DatabaseSync, newLegIds: number[]): CaixinhaResult {
   const found = db.prepare(
-    "SELECT id FROM investments WHERE match_key = 'ledger:caixinha-nubank'",
-  ).get() as { id: number } | undefined;
-  const investmentId = found ? found.id : Number(db.prepare(`
-    INSERT INTO investments (name, match_key, type, bank, source, group_name)
-    VALUES ('Caixinha Nubank', 'ledger:caixinha-nubank', 'rdb', 'nubank', 'ledger', NULL)
-  `).run().lastInsertRowid);
+    "SELECT id FROM investments WHERE match_key = ?",
+  ).get(MATCH_KEY) as { id: number } | undefined;
+
+  // Nada pra ligar e nenhuma posição existente → não há o que derivar.
+  if (!found && !newLegIds.length) return { investmentId: null, balanceCents: 0, legs: 0 };
+
+  const investmentId = found ? found.id : Number(db.prepare(CREATE_POSITION).run().lastInsertRowid);
 
   if (newLegIds.length) {
     const ph = newLegIds.map(() => "?").join(",");

@@ -5,6 +5,7 @@ import type { InsertStats } from "./txInsert.ts";
 import type { InterImport } from "./extratos.ts";
 import type { CaixinhaResult } from "./caixinha.ts";
 import { reviewInvestments } from "./investReview.ts";
+import { AUDIT_CHECK_COUNT, auditLedger } from "../../db/audit.ts";
 
 export interface BackfillReport {
   dbPath: string;
@@ -82,15 +83,12 @@ export function printReport(db: DatabaseSync, r: BackfillReport): void {
   console.log(`\n■ Ledger: ${totals.n} transações | receitas reais ${fmtCents(totals.receitas as number)} | despesas de consumo ${fmtCents(totals.despesas as number)}`);
 
   console.log("\n■ Validação de Invariantes:");
-  const overCount = q<Row>(`
-    SELECT COUNT(*) AS n FROM transactions
-    WHERE is_settlement = 1 AND (method = 'transfer' OR is_third_party = 1)
-  `)[0]!.n as number;
-  if (overCount > 0) {
-    console.error(`  [ERRO] ${overCount} liquidações mal classificadas (poderia causar dupla contagem)!`);
+  const violations = auditLedger(db);
+  if (violations.length) {
+    for (const v of violations) console.error(`  [ERRO] ${v.check} (${v.count}): ${v.message}`);
     process.exit(1);
   } else {
-    console.log("  ✓ Regra consumo-despesa e liquidações intactas");
+    console.log(`  ✓ ${AUDIT_CHECK_COUNT} invariantes do ledger intactas`);
   }
 
   const invRev = reviewInvestments(db);

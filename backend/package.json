@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node src/server.ts",
     "backfill": "node src/jobs/backfill.ts",
-    "test": "node --test \"src/**/*.test.ts\" \"../frontend/js/**/*.test.js\""
+    "test": "node --test \"src/**/*.test.ts\" \"../frontend/js/**/*.test.js\"",
+    "audit": "node src/jobs/audit.ts"
   },
   "keywords": [],
   "author": "",
