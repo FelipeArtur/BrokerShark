@@ -19,7 +19,6 @@
   --accent-fg: #0e0f1a;
 
   --pos: #7be08a;
-  --pos-bg: rgba(123, 224, 138, 0.16);
   --neg: #ff5b6e;
   --neg-bg: rgba(255, 91, 110, 0.16);
   --warn: #ffcf5c;
@@ -34,8 +33,8 @@
   --ff-sans: "Silkscreen", system-ui, sans-serif;
   --ff-mono: "Departure Mono", ui-monospace, monospace;
 
-  --fz-9: 11px; --fz-8: 11px; --fz-7: 12px; --fz-6: 13px;
-  --fz-5: 14px; --fz-4: 16px; --fz-0: 44px;
+  --fz-9: 11px; --fz-8: 11px; --fz-7: 12px; --fz-6: 14px;
+  --fz-5: 15px; --fz-4: 16px; --fz-0: 44px;
 
   --s-1: 2px; --s-2: 4px; --s-3: 6px; --s-4: 8px;
   --s-5: 12px; --s-6: 16px; --s-7: 20px; --s-8: 24px; --s-9: 32px;
@@ -46,12 +45,7 @@
   --z-layer: 50;
   --z-modal: 55;
   --z-toast: 60;
-
-  --topbar-h: 52px;
 }
-
-:root[data-density="compact"]     { --fz-6: 12px; --fz-5: 13px; --topbar-h: 44px; }
-:root[data-density="comfortable"] { --fz-6: 14px; --fz-5: 15px; --topbar-h: 60px; }
 
 *, *::before, *::after {
   box-sizing: border-box;
@@ -227,15 +221,13 @@ button.data-tag:hover { border-color: var(--fg-2); color: var(--fg-0); backgroun
 .widget-row--soft { grid-auto-rows: min-content; align-items: start; }
 .widget-row--soft .widget { min-height: 96px; }
 .widget-row--soft .px-empty { padding: var(--s-6); }
-.wg-2 { grid-column: span 2; }
-.wg-3 { grid-column: span 3; }
 .wg-4 { grid-column: span 4; }
 .wg-6 { grid-column: span 6; }
 .wg-7 { grid-column: span 7; }
 @media (max-width: 1500px) {
 
   .widget-row { grid-template-columns: repeat(6, 1fr); grid-auto-rows: 250px; }
-  .wg-2, .wg-3, .wg-4 { grid-column: span 2; }
+  .wg-4 { grid-column: span 2; }
   .wg-6, .wg-7 { grid-column: span 4; }
 }
 @media (max-width: 1024px) {
@@ -244,7 +236,7 @@ button.data-tag:hover { border-color: var(--fg-2); color: var(--fg-0); backgroun
   .kpi:nth-child(1), .kpi:nth-child(2) { border-bottom: 1px solid var(--line-1); }
   .kpi:nth-child(2) { border-right: none; }
   .widget-row { grid-template-columns: repeat(2, 1fr); grid-auto-rows: 250px; }
-  .wg-2, .wg-3, .wg-4, .wg-6, .wg-7 { grid-column: span 1; }
+  .wg-4, .wg-6, .wg-7 { grid-column: span 1; }
 }
 @media (max-width: 640px) {
 

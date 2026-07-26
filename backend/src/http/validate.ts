@@ -20,7 +20,3 @@ export function isIntIdArray(v: unknown): v is number[] {
 export function isShortText(v: unknown, max = 200): v is string {
   return typeof v === "string" && v.trim().length > 0 && v.length <= max;
 }
-
-export const TX_METHODS = new Set([
-  "pix", "credit", "ted", "transfer", "debit", "salary", "freelance", "pix_received", "other",
-]);

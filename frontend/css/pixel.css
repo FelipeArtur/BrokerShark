@@ -1,6 +1,6 @@
 html, body { background: var(--bg-0); }
 
-img, .bs-mascot { image-rendering: pixelated; }
+img { image-rendering: pixelated; }
 
 .widget, .kpi-strip, .modal, .table-widget {
   border: 1px solid var(--line-1) !important;

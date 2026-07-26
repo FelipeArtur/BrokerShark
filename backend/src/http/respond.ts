@@ -44,7 +44,7 @@ export async function readBody<T = Record<string, unknown>>(req: Req): Promise<T
   }
 }
 
-export function qs(req: Req): URLSearchParams {
+function qs(req: Req): URLSearchParams {
   const url = req.url ?? "/";
   const idx = url.indexOf("?");
   return new URLSearchParams(idx >= 0 ? url.slice(idx + 1) : "");

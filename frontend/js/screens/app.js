@@ -10,12 +10,6 @@ const {
   isSelf, isInvest,
 } = window.BS;
 
-function useAppInit() {
-  useEffect(() => {
-    document.documentElement.dataset.density = "comfortable";
-  }, []);
-}
-
 function ConfirmDeleteModal({ tx, onCancel, onConfirm }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   const desc = tx.display_name || window.BS.prettifyDesc(tx.description) || "";
@@ -71,7 +65,6 @@ function MonthNav({ monthly, monthSel, onPick }) {
 
 function App() {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
-  useAppInit();
   const [editTx, setEditTx] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [searchModalOpen, setSearchModalOpen] = useState(false);

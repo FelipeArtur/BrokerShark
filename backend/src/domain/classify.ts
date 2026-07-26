@@ -1,10 +1,10 @@
-export const INVESTMENT_KEYWORDS = [
+const INVESTMENT_KEYWORDS = [
   "rdb", "nuinvest", "tesouro", "irrf", "cobrança de investimentos",
   "cobranca de investimentos", "aplicação", "aplicacao", "resgate",
   "caixinha", "porquinho", "cdb porq",
 ] as const;
 
-export const CAIXINHA_KEYWORDS = ["rdb", "caixinha", "dinheiro guardado"] as const;
+const CAIXINHA_KEYWORDS = ["rdb", "caixinha", "dinheiro guardado"] as const;
 
 export function isInvestment(desc: string): boolean {
   const low = desc.toLowerCase();
@@ -19,7 +19,7 @@ export function isCaixinhaLeg(desc: string, bank: string): boolean {
   return CAIXINHA_KEYWORDS.some((k) => low.includes(k));
 }
 
-export function isFaturaPayment(desc: string): boolean {
+function isFaturaPayment(desc: string): boolean {
   return desc.toLowerCase().includes("fatura");
 }
 

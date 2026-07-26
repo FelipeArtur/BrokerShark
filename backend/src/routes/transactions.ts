@@ -1,6 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { Req, Res } from "../http/respond.ts";
-import { json, error, readBody, qsStr, qsInt } from "../http/respond.ts";
+import { json, error, readBody, qsInt } from "../http/respond.ts";
 import type { Route } from "../http/router.ts";
 import { compilePath } from "../http/router.ts";
 import { broadcast } from "../http/sse.ts";
@@ -63,26 +63,6 @@ export function transactionRoutes(db: DatabaseSync): Route[] {
 
   const categoryExists = (id: unknown): boolean =>
     isIntId(id) && db.prepare("SELECT 1 FROM categories WHERE id = ?").get(id) !== undefined;
-
-  function getTransactions(req: Req, res: Res) {
-    const accountId = qsStr(req, "account");
-    const limit = Math.min(qsInt(req, "limit") ?? 200, 1000);
-    const month = qsInt(req, "month");
-    const year = qsInt(req, "year");
-
-    const conditions: string[] = [];
-    const params: unknown[] = [];
-    if (accountId) { conditions.push("t.account_id = ?"); params.push(accountId); }
-    if (month && year) {
-      const { start, end } = monthRange(month, year);
-      conditions.push("t.date >= ? AND t.date <= ?");
-      params.push(start, end);
-    }
-    const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
-    const rows = db.prepare(`${TX_SELECT} ${where} ORDER BY t.date DESC, t.id DESC LIMIT ?`)
-      .all(...params, limit) as any[];
-    json(res, rows.map(txToJson));
-  }
 
   function getMonthTransactions(req: Req, res: Res) {
     const { month: cm, year: cy } = currentMonth();
@@ -204,7 +184,6 @@ export function transactionRoutes(db: DatabaseSync): Route[] {
 
   const cp = compilePath;
   return [
-    { method: "GET", ...cp("/api/transactions"), handler: getTransactions },
     { method: "GET", ...cp("/api/month-transactions"), handler: getMonthTransactions },
     { method: "PATCH", ...cp("/api/transactions/:id"), handler: patchTransaction },
     { method: "DELETE", ...cp("/api/transactions/:id"), handler: deleteTransaction },
