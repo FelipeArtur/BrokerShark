@@ -2,10 +2,13 @@
 
 > Histórico completo (roadmap, hashes, logs de decisão datados, revisões de segurança) vive no `git log`. Este arquivo guarda só o que é load-bearing para não quebrar a lógica financeira.
 
-> **Este arquivo mora na raiz de propósito** — é auto-carregado em toda sessão. Movê-lo pra `docs/` o tiraria do contexto padrão e as invariantes financeiras abaixo deixariam de ser lidas.
+> **Este arquivo mora na raiz de propósito** — é auto-carregado em toda sessão. Movê-lo pra uma subpasta (ou pro vault) o tiraria do contexto padrão e as invariantes financeiras abaixo deixariam de ser lidas.
 >
-> Documentação de apoio (não é auto-carregada; leia sob demanda):
-> `README.md` (raiz, porta de entrada) · `docs/DESIGN.md` (tokens/sistema visual) · `docs/PRODUCT.md` (usuário/escopo) · `docs/superpowers/` (specs, planos, auditorias datadas).
+> **A documentação de apoio NÃO mora mais no repo** — mora no vault Obsidian, em `~/Documents/Rede de projetos/BrokerShark/` (não é auto-carregada; leia sob demanda pelo caminho absoluto):
+> `BrokerShark.md` (índice — comece por aqui) · `Produto.md` (usuário/escopo) · `Design System.md` (tokens/sistema visual) · `Specs/` e `Planos/` (datados) · `Arquivo/` (superados).
+> O `CLAUDE.md` que aparece lá é symlink para **este** arquivo. No repo ficam só `README.md` (porta de entrada humana) e este guia.
+>
+> **Doc novo de spec/plano/auditoria nasce no vault, nunca em `docs/`** — o repo não tem mais `docs/`.
 
 ## gstack
 

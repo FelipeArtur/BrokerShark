@@ -9,8 +9,8 @@ credentials/
 
 # ── Dados locais (nunca versionar) ──────────────────────────────────────
 # data/ = SQLite (ledger pessoal) — o ledger NUNCA é versionado.
-# docs/ saiu daqui: specs/planos/auditoria não têm dado pessoal (verificado:
-# nenhum valor em R$, nenhum número de conta) e valem como histórico de decisão.
+# A doc de apoio saiu do repo (vive no vault Obsidian, ver README) — não há mais
+# docs/ pra ignorar nem pra versionar.
 data/
 backups/
 logs/

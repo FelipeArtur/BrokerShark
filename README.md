@@ -117,7 +117,7 @@ App local sem auth — a máquina é o perímetro:
 - Body cap 1MB (upload multipart 20MB / 64 partes).
 
 O `.gitignore` mantém `data/` e `backups/` fora do VCS: **o ledger nunca é
-versionado.** `docs/` é versionado normalmente.
+versionado.**
 
 ## Stack
 
@@ -131,11 +131,24 @@ versionado.** `docs/` é versionado normalmente.
 
 ## Documentação
 
-- `CLAUDE.md` — fonte única da verdade: schema, contas, invariantes, arquitetura.
-  **Fica na raiz de propósito**: é auto-carregado em toda sessão de agente; em
-  `docs/` ele deixaria de entrar em contexto e viraria letra morta.
-- `docs/DESIGN.md` — sistema visual (tokens, tipografia, layout, motion).
-- `docs/PRODUCT.md` — usuário, propósito, escopo.
-- `docs/superpowers/` — specs, planos e auditorias datadas.
-- Histórico completo (roadmap, decisões datadas, revisões de segurança) vive no
-  `git log`, não em arquivo.
+O repositório guarda só o que serve pra rodar e entender o código:
+
+- **este `README.md`** — porta de entrada.
+- **`CLAUDE.md`** — fonte única da verdade pra agentes de IA: schema, contas,
+  invariantes, arquitetura. **Fica na raiz de propósito**: é auto-carregado em toda
+  sessão de agente; numa subpasta deixaria de entrar em contexto e viraria letra morta.
+- **`git log`** — roadmap, decisões datadas, revisões de segurança.
+
+O resto da documentação (produto, sistema visual, specs, planos e auditorias datadas)
+mora num vault Obsidian, fora do repo:
+
+```
+~/Documents/Rede de projetos/BrokerShark/
+├── BrokerShark.md      # índice do projeto (comece por aqui)
+├── CLAUDE.md           # symlink pro arquivo da raiz deste repo
+├── Produto.md          # usuário, propósito, escopo
+├── Design System.md    # tokens, tipografia, layout, motion
+├── Specs/              # design docs datados
+├── Planos/             # planos de execução datados
+└── Arquivo/            # documentos superados, mantidos como registro
+```

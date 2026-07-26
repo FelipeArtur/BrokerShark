@@ -31,7 +31,7 @@ export type Recurrence = {
 
 export type RecurringMonth = { month: string; expenseCents: number; incomeCents: number };
 
-// Calibrados contra o ledger real (ver docs/superpowers/specs/2026-07-25-…).
+// Calibrados contra o ledger real (spec datada de 2026-07-25 no vault de docs).
 // Limiares mais estritos devolvem ZERO recorrências nos dados de verdade.
 export const RECURRENCE_THRESHOLDS = {
   minMonths: 3,
