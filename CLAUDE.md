@@ -59,6 +59,7 @@ backend/
       dates.ts          # currentMonth, monthRange, prevRefMonth, today
       budget.ts         # resolveBudget (override do mês → alvo fixo), isRefMonth
       positions.ts      # monthlyPortfolioSeries (carry-forward de snapshots)
+      accountBalances.ts# monthlyCheckingSeries — saldo POR CONTA, com corte no encerramento
       merchant.ts       # normalizeMerchant — núcleo do comerciante, matcher das regras de categoria
       commitments.ts    # projeção pura de parcelas/compromissos (visão de futuro)
       recurrence.ts     # detecção de recorrência (corrida recente por comerciante+sentido)
@@ -78,7 +79,8 @@ backend/
       multipart.ts      # parser multipart/form-data (upload do import; cap 20MB / 64 partes)
       validate.ts       # isIsoDate, isPositiveAmount, isIntId… (writes validam tudo)
     routes/             # handlers finos por domínio; SQL nomeado no topo
-      accounts.ts       # /api/accounts, /api/available, /api/liquidity-history
+      accounts.ts       # /api/accounts (GET/POST/PATCH/DELETE), /api/available,
+                        # /api/liquidity-history + openCheckingIds (allowlist do import)
       transactions.ts   # month-transactions (com sugestão), PATCH/DELETE + undo, bulk
       categories.ts     # categories-full (alvo+gasto+Δ), expense-categories,
                         # POST/PATCH/DELETE + PUT/DELETE /api/category-budget
@@ -107,6 +109,8 @@ frontend/
                         # filter.js — lógica pura filtro facetado (applyFilter/toggleFacet/searchMatch) — testada
                         # meta.js — derivações "score" (savingsStreak/isAllTimeHigh/budgetProgress) — testada
                         # palette.js — cor estável por nome, quantizada a 8 matizes — testada
+                        # bank.js — cor e rótulo de banco (Nu/Inter têm identidade;
+                        # banco novo pega cor do palette) — testada
                         # bulk.js — suggestionPlan (decisão do "aplicar todas") — testada
                         # forward.js — merge duro+previsto, escala, rótulo do comerciante — testada
     core/               # api.js (fetch + contrato) · juice.js — engine feedback SILENCIOSO
@@ -120,6 +124,7 @@ frontend/
                         # transaction.js (editor de lançamento) · import.js (import via UI)
                         # bulk.js — categorização em lote por comerciante
                         # categories.js — só CategoriesPanel
+                        # accounts.js — AccountsPanel (criar/renomear/encerrar/reabrir)
     vendor/             # react, react-dom, chart — vendorizados (inalterado)
   css/                  # estilos; pixel.css — estrutural (bordas duras, sombras degrau, scanlines CRT, dither, keyframes)
                         # pixel-ui.css — vocabulário de componente (.px-row/.px-field/.px-btn/.px-seg/.px-swatch/.px-chip…)
@@ -167,6 +172,13 @@ server.ts (node:http, 127.0.0.1:8000) → React frontend (SSE /api/events)
 - **Espécies de dinheiro (front):** `money.js` → `moneyKind()` é a ÚNICA regra do frontend e devolve exatamente uma de seis espécies por linha: `settlement` · `transfer` · `invest` · `third_party` · `revenue` · `expense`. **A ordem de precedência é load-bearing** (liquidação antes de despesa senão o consumo dobra; SELF antes de investimento senão transferência vira aplicação). Equivale à regra consumo-despesa acima em toda linha alcançável — há teste combinatório que falha se divergir. Cor por espécie em `KIND_COLOR`; **verde é receita e só receita** (nunca reusar pra "dentro do alvo").
 - **Recorrência é DERIVADA e display-only.** `domain/recurrence.ts` recorta a **corrida recente** de meses por `flow|comerciante` (histórico inteiro enterra corrida viva sob anos de esporádico) e aceita ≥3 meses, `cv ≤ 0.35`, gap ≤ 2, parada ≤ 2 meses; valor = mediana. **Não entra no herói nem em `available_net`** — herói é dinheiro que existe, e somar entrada prevista faria salário atrasado virar estouro silencioso. `/api/commitments` mantém `series` como compromisso DURO; recorrência vive no campo irmão `recurring`. A projeção ancora no último mês **observado** de cada recorrência, não no mês corrente: mês já medido pelo ledger nunca recebe previsão (dobraria), mas o intervalo entre o fim dos dados e hoje recebe.
 - **Alvo de gasto:** `resolveBudget` (`domain/budget.ts`) → override do mês ?? alvo fixo ?? **null**. Categoria sem alvo é `null`, **nunca zero** — zero faria tudo nascer 100% estourado. Só categoria de despesa tem alvo.
+- **Conta encerrada: `closed_at` afeta POSIÇÃO, nunca HISTÓRICO.** Soft-close, como `investments` — **nunca DELETE**. A regra em duas leituras:
+  - *"quanto eu tenho agora"* (`available`, `checking_total`, patrimônio, saldo do card, allowlist do import) soma **só contas abertas**, e o saldo de uma conta encerrada é **zero por definição** — nunca o último saldo que o extrato deixou. Sem isso, encerrar sem transferência de saída (saque em espécie, ou só parar de importar) deixaria o herói mentindo pra cima pra sempre.
+  - *"o que aconteceu"* (fluxo mês a mês, categorias, receita/despesa, tabela) ignora `closed_at` por completo — o dinheiro se moveu de verdade, na época.
+  - **Série de liquidez corre POR CONTA** (`domain/accountBalances.ts`), não num acumulado global: a conta contribui 0 a partir do mês do `closed_at` (**inclusive** — o que a série plota é saldo de fim de mês, e conta encerrada não tem nenhum). Diferente de propósito de `monthlyPortfolioSeries`, que corta em `ym > closed` porque lá o snapshot do mês do fechamento é medição real.
+  - **`DELETE /api/accounts/:id` recusa (409) conta com qualquer lançamento** — é a garantia mecânica de que "tirar conta" nunca vira "perder histórico". Só serve pra desfazer conta criada por engano.
+  - `PATCH` recusa `closed_at` anterior ao último lançamento; a auditoria tem o check espelho (`lancamento-pos-encerramento`).
+- **Banco não é um par fixo Nu/Inter.** Cor e rótulo saem de `frontend/js/domain/bank.js`; banco novo pega cor estável do palette e o próprio nome. `bankLabel` é a MESMA chave usada pela faceta do widget de fatura e pelo filtro da tabela — se divergirem, clicar na faceta de um banco novo não filtra nada.
 
 ---
 
@@ -185,7 +197,10 @@ server.ts (node:http, 127.0.0.1:8000) → React frontend (SSE /api/events)
 ## Data Model (v2)
 
 ```sql
-accounts (id TEXT PK, bank, type CHECK('checking'|'credit_card'), name, initial_balance_cents)
+accounts (id TEXT PK, bank, type CHECK('checking'|'credit_card'), name, initial_balance_cents,
+          opened_at TEXT, closed_at TEXT)
+          -- closed_at = soft-close. Afeta POSIÇÃO (disponível, patrimônio,
+          -- destino de import), nunca HISTÓRICO.
 categories (id INTEGER PK, name, flow CHECK('expense'|'income'))
 category_budgets (category_id FK ON DELETE CASCADE, ref_month TEXT DEFAULT '',
                   amount_cents CHECK(>=0), PK(category_id, ref_month))

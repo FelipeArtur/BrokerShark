@@ -31,6 +31,20 @@ async function fetchInvestments(bank)      { return _get(`/api/investments${_qs(
 
 async function fetchAccounts(bank)         { return _get(`/api/accounts${_qs(bank)}`); }
 
+// closed=1 traz as encerradas junto — o painel de contas precisa vê-las pra
+// poder reabrir; os widgets, não.
+async function fetchAllAccounts()          { return _get("/api/accounts?closed=1"); }
+
+async function postAccount(account)        { return _post("/api/accounts", account); }
+
+async function patchAccount(id, fields)    { return _patch(`/api/accounts/${encodeURIComponent(id)}`, fields); }
+
+async function deleteAccount(id) {
+  const r = await fetch(`/api/accounts/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || "request failed"); }
+  return r.json();
+}
+
 async function fetchExpenseCategories()         { return _get("/api/expense-categories"); }
 
 async function fetchCategoriesFull(flow = "expense", month) { return _get(`/api/categories-full${_params({ flow, month })}`); }

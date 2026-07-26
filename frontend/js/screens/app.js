@@ -70,6 +70,7 @@ function App() {
   const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [categoriesOpen, setCategoriesOpen] = useState(false);
+  const [accountsOpen, setAccountsOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [monthly, setMonthly] = useState([]);
   const [monthSel, setMonthSel] = useState(null);
@@ -90,7 +91,7 @@ function App() {
     fetchAccounts().then(accs => {
       window.BS.accountNames = Object.fromEntries(accs.map(a => [a.id, a.name]));
     }).catch(() => {});
-  }, []);
+  }, [refreshKey]);
 
   useEffect(() => {
     let es, debounce;
@@ -147,6 +148,7 @@ function App() {
       onEditCategory: setEditTx,
       onImport: () => setImportOpen(true),
       onManageCategories: () => setCategoriesOpen(true),
+      onManageAccounts: () => setAccountsOpen(true),
     }),
 
     importOpen && h(ImportModal, {
@@ -180,6 +182,10 @@ function App() {
     categoriesOpen && h(window.BS.Overlay, {
       open: categoriesOpen, onClose: () => setCategoriesOpen(false), width: 720
     }, h(window.BS.CategoriesPanel, { refreshKey, onRefresh: () => setRefreshKey(k => k + 1), onClose: () => setCategoriesOpen(false) })),
+
+    accountsOpen && h(window.BS.Overlay, {
+      open: accountsOpen, onClose: () => setAccountsOpen(false), width: 720
+    }, h(window.BS.AccountsPanel, { onRefresh: () => setRefreshKey(k => k + 1), onClose: () => setAccountsOpen(false) })),
 
     h(window.BS.CategoryEditor, {
       tx: editTx, onClose: () => setEditTx(null),

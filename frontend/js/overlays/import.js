@@ -76,13 +76,18 @@ function _parseAmountInput(raw) {
 function ImportModal({ onClose, onDone }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   const { Modal, BankChip, isSelf, isInvest, fmtDateBR, fmtBRL, fmtBRLCompact, IconImport } = window.BS;
-  const names = (window.BS && window.BS.accountNames) || {};
-  const BANKS = [
-    { id: "nu-db",    label: names["nu-db"]    || "Nubank" },
-    { id: "inter-db", label: names["inter-db"] || "Inter" },
-  ];
+  // Os destinos vêm do servidor, não de uma lista literal: conta nova aparece
+  // aqui no minuto em que é criada, e conta encerrada some (o backend recusaria
+  // de qualquer jeito — extrato não chega mais dela).
+  const [BANKS, setBanks] = useState([]);
+  useEffect(() => {
+    fetchAccounts()
+      .then(accs => setBanks(accs.filter(a => a.type === "checking").map(a => ({ id: a.id, label: a.name }))))
+      .catch(() => setBanks([]));
+  }, []);
 
-  const accLabel = id => (BANKS.find(b => b.id === id) || {}).label || id;
+  const names = (window.BS && window.BS.accountNames) || {};
+  const accLabel = id => (BANKS.find(b => b.id === id) || {}).label || names[id] || id;
 
   const uuid = () => (window.crypto && crypto.randomUUID)
     ? crypto.randomUUID()

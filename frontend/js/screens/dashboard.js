@@ -2,7 +2,7 @@
 
 const { useState: _dSt, useEffect: _dEf, useMemo: _dMemo, useCallback: _dCb } = React;
 const { fmtBRL, fmtBRLCompact, fmtDateBR, PT_MONTHS, PT_SHORT,
-        isConsumptionExpense } = window.BS;
+        isConsumptionExpense, bankColor, bankLabel, bankShortLabel } = window.BS;
 
 const INV_TYPE_LABEL = {
   rdb: "Caixinha (RDB)", cdb: "CDB / Renda fixa", tesouro: "Tesouro Direto",
@@ -55,8 +55,7 @@ const KpiStrip = React.memo(function KpiStrip({ available, availErr, accounts, c
             availValue == null ? "—" : (availNeg ? "−" : "") + fmtBRL(Math.abs(availValue))),
       h("span", { className: "kpi-sub" },
         checking.map(a => h("span", { key: a.id, style: { display: "inline-flex", gap: 5, alignItems: "baseline" } },
-          h("span", { style: { color: (a.id || "").startsWith("nu") ? "var(--nubank)" : "var(--inter)", fontWeight: 700 } },
-            (a.id || "").startsWith("nu") ? "Nu" : "Inter"),
+          h("span", { style: { color: bankColor(a.bank, a.id), fontWeight: 700 } }, bankShortLabel(a.bank, a.id)),
           h("span", { className: "mono", style: { color: "var(--fg-1)", fontSize: 11 } }, fmtBRL(a.balance || 0))
         )),
         committed > 0 && h("span", { className: "mono", style: { color: "var(--warn)", fontSize: 11, marginTop: 2, display: "block" } },
@@ -256,17 +255,18 @@ const TimelineWidget = React.memo(function TimelineWidget({ monthly, monthSel, o
   );
 });
 
-const AccountsWidget = React.memo(function AccountsWidget({ accounts, available, filter, onToggleFacet }) {
+const AccountsWidget = React.memo(function AccountsWidget({ accounts, available, filter, onToggleFacet, onManageAccounts }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
   const checking = (accounts || []).filter(a => a.type === "checking")
     .sort((a, b) => ((a.id || "").startsWith("nu") ? 1 : 2) - ((b.id || "").startsWith("nu") ? 1 : 2));
   const total = available ? available.checking_total : checking.reduce((s, a) => s + (a.balance || 0), 0);
-  const colorOf = a => (a.id || "").startsWith("nu") ? "var(--nubank)" : "var(--inter)";
+  const colorOf = a => bankColor(a.bank, a.id);
 
   return h("div", { className: "widget wg-4" },
     h("div", { className: "widget-h" },
       h("span", { className: "widget-title" }, "Contas"),
-      h("span", { className: "mono", style: { marginLeft: "auto", fontSize: 12, fontWeight: 700, color: "var(--fg-0)" } }, fmtBRL(total))
+      h("span", { className: "mono", style: { marginLeft: "auto", fontSize: 12, fontWeight: 700, color: "var(--fg-0)" } }, fmtBRL(total)),
+      h("button", { className: "px-btn px-btn--ghost px-btn--sm", title: "Gerenciar contas", onClick: onManageAccounts }, "⚙")
     ),
     h("div", { className: "widget-body", style: { gap: 10 } },
       total > 0 && checking.length > 1 && h("div", { style: { display: "flex", gap: 3, height: 5, flexShrink: 0 } },
@@ -418,8 +418,7 @@ const FaturaWidget = React.memo(function FaturaWidget({ monthTx, filter, onToggl
     const total = items.reduce((s, t) => s + (t.flow === "expense" ? t.amount : -t.amount), 0);
     const banks = {};
     items.forEach(t => {
-      const bank = (t.bank === "nubank" || (t.account_id && t.account_id.startsWith("nu"))) ? "Nubank" :
-                   (t.bank === "inter" || (t.account_id && t.account_id.startsWith("inter"))) ? "Inter" : "Outros";
+      const bank = bankLabel(t.bank, t.account_id);
       banks[bank] = (banks[bank] || 0) + (t.flow === "expense" ? t.amount : -t.amount);
     });
     return { faturaItems: items, totalFatura: total, byBank: banks };
@@ -437,13 +436,13 @@ const FaturaWidget = React.memo(function FaturaWidget({ monthTx, filter, onToggl
             h("div", { style: { display: "flex", gap: 3, height: 5, flexShrink: 0 } },
               Object.entries(byBank).map(([bank, amt]) => {
                 const pct = ((amt) / totalFatura) * 100;
-                const color = bank === "Nubank" ? "var(--nubank)" : bank === "Inter" ? "var(--inter)" : "var(--accent)";
+                const color = bankColor(bank, null);
                 return pct > 0.5 && h("div", { key: bank, title: `${bank}: ${pct.toFixed(0)}%`, style: { width: pct + "%", background: color, opacity: 0.85 } });
               })
             ),
             h("div", { style: { display: "flex", flexDirection: "column" } },
               Object.entries(byBank).map(([bank, amt], i, arr) => {
-                const color = bank === "Nubank" ? "var(--nubank)" : bank === "Inter" ? "var(--inter)" : "var(--accent)";
+                const color = bankColor(bank, null);
                 const active = filter && filter.banks.has(bank);
                 return h("button", {
                   key: bank, onClick: () => onToggleFacet && onToggleFacet("banks", bank),
@@ -644,7 +643,7 @@ const ForwardWidget = React.memo(function ForwardWidget({ commitments }) {
 const refMonthOf = (monthSel) =>
   monthSel ? `${monthSel.year}-${String(monthSel.month).padStart(2, "0")}` : undefined;
 
-function DashboardView({ monthSel, monthly, onPickMonth, refreshKey, onEditCategory, onImport, onManageCategories }) {
+function DashboardView({ monthSel, monthly, onPickMonth, refreshKey, onEditCategory, onImport, onManageCategories, onManageAccounts }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
   const [available, setAvailable] = _dSt(null);
   const [commitments, setCommitments] = _dSt(null);
@@ -754,7 +753,7 @@ function DashboardView({ monthSel, monthly, onPickMonth, refreshKey, onEditCateg
         h("div", { className: "widget-row" },
           h(GeneralWidget, { cashflow, liquidityHistory, monthly, monthSel, monthTx, uncatCount, backup }),
           h(TimelineWidget, { monthly, monthSel, onPickMonth }),
-          h(AccountsWidget, { accounts, available, filter, onToggleFacet }),
+          h(AccountsWidget, { accounts, available, filter, onToggleFacet, onManageAccounts }),
           h(CategoriesWidget, { monthTx, uncatCount, onOpenBulk: () => setBulkOpen(true), filter, onToggleFacet,
             catsIndex, monthSel, onBudgetSaved: reloadBudgets,
             onManageCategories, onCreateCategory: onManageCategories }),

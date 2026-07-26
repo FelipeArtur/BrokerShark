@@ -102,6 +102,15 @@ const CHECKS: Check[] = [
           WHERE t.flow != c.flow`,
   },
   {
+    check: "lancamento-pos-encerramento",
+    // Conta encerrada sai da posição mas continua carregando o histórico dela.
+    // Movimento datado DEPOIS do fim é uma das duas coisas, as duas ruins: a
+    // data do encerramento está errada, ou a linha entrou na conta errada.
+    message: "lançamento com data posterior ao encerramento da conta",
+    sql: `SELECT COUNT(*) AS n FROM transactions t JOIN accounts a ON a.id = t.account_id
+          WHERE a.closed_at IS NOT NULL AND t.date > a.closed_at`,
+  },
+  {
     check: "alvo-em-categoria-de-receita",
     message: "alvo de gasto definido em categoria que não é de despesa",
     sql: `SELECT COUNT(*) AS n FROM category_budgets cb JOIN categories c ON c.id = cb.category_id

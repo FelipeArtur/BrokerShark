@@ -17,6 +17,7 @@ import { parseB3, type B3Report } from "../ingest/b3.ts";
 import { pairSelfTransfers } from "../jobs/backfill/selfPairs.ts";
 import { rederiveCaixinha } from "../jobs/backfill/caixinha.ts";
 import { reconcileOpenInvoices } from "../db/reconcile.ts";
+import { openCheckingIds } from "./accounts.ts";
 
 interface StagingRow {
   id: number;
@@ -114,7 +115,12 @@ export function importRoutes(db: DatabaseSync): Route[] {
     gcStaging();
     const parts = await parseMultipart(req);
     const account = fieldValue(parts, "account_id");
-    if (account !== "nu-db" && account !== "inter-db") return error(res, "account_id inválido");
+    // Allowlist derivada do DB, não literal: conta nova vira destino válido no
+    // minuto em que é criada, e conta encerrada some das opções — extrato não
+    // chega mais dela, e aceitar um deixaria movimento datado depois do fim.
+    if (!account || !openCheckingIds(db).has(account)) {
+      return error(res, "account_id inválido — precisa ser conta corrente aberta");
+    }
     const files = fileParts(parts);
     if (!files.length) return error(res, "nenhum arquivo enviado");
 

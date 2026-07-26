@@ -6,6 +6,21 @@ import { fileURLToPath } from "node:url";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = join(HERE, "migrations");
 
+/**
+ * Migrations que existem no disco e ainda não rodaram neste DB.
+ *
+ * Quem só LÊ o banco (a CLI de auditoria abre readOnly) não pode aplicá-las, e
+ * consultar uma coluna que a migration pendente ainda vai criar estoura com um
+ * "SQL logic error" que não explica nada. Melhor perguntar antes.
+ */
+export function pendingMigrations(db: DatabaseSync, dir: string = MIGRATIONS_DIR): string[] {
+  const applied = new Set(
+    (db.prepare("SELECT name FROM migration_log").all() as { name: string }[])
+      .map((r) => r.name),
+  );
+  return readdirSync(dir).filter((f) => f.endsWith(".sql") && !applied.has(f)).sort();
+}
+
 export function runMigrations(db: DatabaseSync, dir: string = MIGRATIONS_DIR): string[] {
   const files = readdirSync(dir).filter((f) => f.endsWith(".sql")).sort();
   const applied = new Set(

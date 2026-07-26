@@ -83,8 +83,7 @@ function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkC
 
   const monthLabel = monthSel ? `${PT_MONTHS[monthSel.month]} ${monthSel.year}` : "";
 
-  const bankOf = (t) => (t.bank === "nubank" || (t.account_id && t.account_id.startsWith("nu"))) ? "Nubank"
-    : (t.bank === "inter" || (t.account_id && t.account_id.startsWith("inter"))) ? "Inter" : (t.bank || t.account_id);
+  const bankOf = (t) => window.BS.bankLabel(t.bank, t.account_id);
 
   const filteredTx = _s2Memo(() => monthTx.filter(t => {
     const norm = {

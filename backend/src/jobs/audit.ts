@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { AUDIT_CHECK_COUNT, auditLedger } from "../db/audit.ts";
+import { pendingMigrations } from "../db/migrate.ts";
 import { reviewInvestments } from "./backfill/investReview.ts";
 import { fmtCents } from "../domain/money.ts";
 
@@ -24,6 +25,17 @@ if (!existsSync(dbPath)) {
 const db = new DatabaseSync(dbPath, { readOnly: true });
 
 console.log("AUDITORIA —", dbPath);
+
+// Um check pode consultar coluna que só existe depois de uma migration. Como
+// aqui o DB é read-only, não dá pra aplicá-la — e rodar assim mesmo estouraria
+// com "SQL logic error", que não conta nada. Aviso e saio.
+const pending = pendingMigrations(db);
+if (pending.length) {
+  console.error(`  ✗ ${pending.length} migration(s) pendente(s): ${pending.join(", ")}`);
+  console.error("    Suba o server (npm start) ou rode o backfill uma vez pra aplicar, depois audite.");
+  db.close();
+  process.exit(1);
+}
 
 const violations = auditLedger(db);
 const invRev = reviewInvestments(db);

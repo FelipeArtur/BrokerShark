@@ -63,6 +63,10 @@ lido pelo endpoint `backup-status`.
   fatura do cartão, visão de futuro). Detalhe abre em **overlay de drill-down**,
   nunca navegação.
 - **Orçamento por categoria** — alvo fixo por categoria, com override opcional por mês.
+- **Contas entram e saem sem perder histórico** — conta nova pela UI, conta encerrada
+  vira *soft-close*: sai do disponível, do patrimônio e das opções de import, mas cada
+  lançamento dela continua no ledger e os meses passados seguem contando o que ela
+  movimentou. Apagar uma conta com histórico é recusado — encerre.
 - **Backfill** — reconstrói o banco do zero a partir do acervo de exports.
 - **Import incremental via UI** — extratos Nubank/Inter (CSV) e relatório B3 (xlsx),
   com preview, dedup, staging editável, confirmação e reverter-lote. Fatura Inter
@@ -100,6 +104,9 @@ O que não pode quebrar (detalhe e raciocínio em `CLAUDE.md` e nos comentários
   chutado. Posição some do relatório → soft-close (`closed_at`), nunca DELETE.
 - **Caixinha Nubank é derivada do ledger** (RDB fora da B3); **Porquinho Inter não é** —
   é CDB custodiado na B3, e derivá-lo contaria em dobro.
+- **`closed_at` de conta afeta posição, nunca histórico** — o disponível soma só contas
+  abertas (e conta encerrada vale zero, não o último saldo conhecido); todo total mensal
+  ignora o encerramento, porque o dinheiro se moveu de verdade na época.
 
 O backfill valida as invariantes ao final e **aborta** se alguma quebrar.
 
