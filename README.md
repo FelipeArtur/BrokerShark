@@ -24,36 +24,30 @@ npm test                                       # node:test (backend + frontend)
 
 O servidor sobe em `127.0.0.1:8000` (`PORT` no env ou `--port N` pra mudar).
 
-## Rodar como app desktop
+**É um dashboard web, e só isso.** Não há app desktop nem empacotamento: abra
+`http://127.0.0.1:8000` no navegador. Houve um wrapper WebKitGTK
+(`desktop/brokershark.py`); foi removido em 2026-07-26 — está no `git log` se um
+dia fizer falta.
 
-Wrapper opcional (`desktop/brokershark.py`, WebKitGTK) que sobe o server numa porta
-efêmera, abre numa janela nativa e mata o `node` ao fechar — nada sobra rodando.
+## Backup do ledger
 
-Deps runtime: `python-gobject`, `gtk3`, `webkit2gtk-4.1`, `node ≥ 26`.
-
-```bash
-python desktop/brokershark.py            # abre a janela
-python desktop/brokershark.py --check    # smoke headless: sobe, confirma 200, encerra
-
-# Entrada de menu (ajuste os caminhos absolutos no .desktop pro seu clone):
-cp desktop/brokershark.desktop ~/.local/share/applications/
-update-desktop-database ~/.local/share/applications 2>/dev/null || true
-```
-
-**Backup mensal automático** (`desktop/systemd/`): snapshot datado (`VACUUM INTO`,
-retém 12) via systemd user timer. Confirme o caminho do `node` no `.service`
-(`which node`), então:
+Snapshot mensal datado (`VACUUM INTO`, retém 12) por systemd user timer. Confirme
+o caminho do `node` no `.service` (`which node`), então:
 
 ```bash
 mkdir -p ~/.config/systemd/user
-cp desktop/systemd/brokershark-backup.* ~/.config/systemd/user/
+cp backend/systemd/brokershark-backup.* ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user start brokershark-backup.service   # dispara já, uma vez
 systemctl --user enable --now brokershark-backup.timer
 ```
 
 Backups em `~/brokershark-backups/` (0600). `BROKERSHARK_BACKUP_DIR` muda o destino
-lido pelo endpoint `backup-status`.
+lido pelo endpoint `backup-status`. Rodar avulso, sem timer:
+
+```bash
+node backend/src/jobs/backup.ts
+```
 
 ## O que faz
 

@@ -26,6 +26,8 @@ Ferramenta **pessoal** de análise de dinheiro, 100% local (Linux, 1 usuário). 
 
 **v2 rewrite — TypeScript.** O backend Python/Flask foi removido (histórico preservado no git). O novo backend é TypeScript rodando sobre Node ≥ 26 (native type-stripping, sem build step). Ingestão (backfill) e servidor web (node:http + SSE, zero deps) prontos. **Import incremental via UI** (`/api/import/*`) implementado: extratos Nubank/Inter (CSV) + relatório B3 (xlsx) com preview/dedup/staging editável/confirm/reverter-lote; pós-insert re-pareia SELF e rederiva a Caixinha. Fatura Inter (cartão) só via backfill.
 
+**Entrega é dashboard web no navegador, e só.** Não há app desktop nem empacotamento — houve um wrapper WebKitGTK em `desktop/`, removido em 2026-07-26 por decisão do dono. Não reintroduzir: um segundo jeito de rodar é um segundo ciclo de vida de processo pra manter em pé, e o navegador já resolve.
+
 **O produto é a análise (web dashboard — tela única, sem abas):** faixa KPI fixa (**Disponível pra gastar** herói · **Patrimônio total** com Δ mensal · **Saldo livre do mês** · **Investido** com Δ) + grid de widgets (visão geral do mês, fluxo mês a mês clicável = seletor de mês global, contas, categorias, investimentos, fatura do cartão, visão de futuro). Detalhe abre em **drill-down overlay**, nunca navegação. Seletor de mês global rege os widgets de fluxo; posição é sempre "agora"; default = mês mais recente COM dados. **Apoio (não é o centro):** import de extratos e posições B3.
 
 **Navegação é por mouse.** Não há hotkey global — teclado serve só pra Esc (fecha modal/overlay), Tab (focus trap) e Enter (submit de form). Adicionar tecla muda que mexe na tela é regressão.
@@ -96,10 +98,7 @@ backend/
                         # b3Sync, guard (overlay da UI), investReview, verify — 1 fase por arquivo
       backup.ts         # backup mensal: snapshot VACUUM INTO datado (retém 12, 0600) + backupStatus + CLI
       audit.ts          # CLI read-only: db/audit.ts + investReview sobre o DB vivo (exit 1 se violou)
-desktop/                # launcher-only (nunca importa backend/src)
-  brokershark.py        # wrapper WebKitGTK: sobe server em porta efêmera, mata node ao fechar (--check headless)
-  brokershark.desktop   # entrada de menu · icon.png (derivado do favicon)
-  systemd/              # brokershark-backup.{service,timer} — user timer mensal
+  systemd/              # brokershark-backup.{service,timer} — user timer mensal do backup
 frontend/
   index.html            # React 18 SPA (hyperscript puro, sem build step)
   js/
