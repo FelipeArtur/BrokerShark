@@ -6,6 +6,7 @@ import type { InterImport } from "./extratos.ts";
 import type { CaixinhaResult } from "./caixinha.ts";
 import { reviewInvestments } from "./investReview.ts";
 import { AUDIT_CHECK_COUNT, auditLedger } from "../../db/audit.ts";
+import { consumptionExpense, realIncome } from "../../db/ledgerSql.ts";
 
 export interface BackfillReport {
   dbPath: string;
@@ -75,9 +76,8 @@ export function printReport(db: DatabaseSync, r: BackfillReport): void {
 
   const totals = q<Row>(`
     SELECT COUNT(*) AS n,
-      SUM(CASE WHEN flow='income'  AND is_revenue=1 THEN amount_cents ELSE 0 END) AS receitas,
-      SUM(CASE WHEN flow='expense' AND method != 'transfer' AND is_settlement=0
-                AND is_third_party=0 AND dest_account_id IS NULL THEN amount_cents ELSE 0 END) AS despesas
+      SUM(CASE WHEN ${realIncome()} THEN amount_cents ELSE 0 END) AS receitas,
+      SUM(CASE WHEN ${consumptionExpense()} THEN amount_cents ELSE 0 END) AS despesas
     FROM transactions
   `)[0]!;
   console.log(`\n■ Ledger: ${totals.n} transações | receitas reais ${fmtCents(totals.receitas as number)} | despesas de consumo ${fmtCents(totals.despesas as number)}`);

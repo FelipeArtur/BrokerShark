@@ -8,22 +8,17 @@ import { addMonths, projectInstallments } from "../domain/commitments.ts";
 import { normalizeMerchant } from "../domain/merchant.ts";
 import { detectRecurrences, projectRecurrences } from "../domain/recurrence.ts";
 import type { Recurrence } from "../domain/recurrence.ts";
+import { consumptionExpense, realIncome } from "../db/ledgerSql.ts";
 
 const HORIZON_MONTHS = 12;
 // Nada mais velho que isto pode passar no filtro de staleness — varrer o
 // histórico inteiro seria trabalho jogado fora.
 const RECURRENCE_LOOKBACK_MONTHS = 18;
 
-// Regras canônicas (CLAUDE.md): consumo-despesa e receita real.
-const CONSUMPTION_EXPENSE =
-  `flow='expense' AND method != 'transfer' AND is_settlement=0
-   AND is_third_party=0 AND dest_account_id IS NULL`;
-const REAL_INCOME = `flow='income' AND is_revenue=1 AND is_third_party=0`;
-
 const SQL_RECURRENCE_ROWS = `
   SELECT date, amount_cents AS amountCents, flow, description
   FROM transactions
-  WHERE date >= ? AND ((${CONSUMPTION_EXPENSE}) OR (${REAL_INCOME}))
+  WHERE date >= ? AND ((${consumptionExpense()}) OR (${realIncome()}))
   ORDER BY date`;
 
 const SQL_LAST_LEDGER_MONTH = `SELECT MAX(substr(date, 1, 7)) AS ym FROM transactions`;

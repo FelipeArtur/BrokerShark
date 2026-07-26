@@ -7,6 +7,7 @@ import { broadcast } from "../http/sse.ts";
 import { isIntId, isShortText } from "../http/validate.ts";
 import { resolveBudget, isRefMonth, FIXED, type BudgetRow } from "../domain/budget.ts";
 import { prevRefMonth } from "../domain/dates.ts";
+import { consumptionExpense, realIncome } from "../db/ledgerSql.ts";
 
 // Ao excluir uma categoria, remove as regras de reconhecimento que apontavam pra ela
 // (senão sugeririam uma categoria que não existe mais). O usuário reaprende ao recategorizar.
@@ -19,11 +20,7 @@ const SPENT_BY_CAT_SQL = `
   FROM transactions
   WHERE category_id IS NOT NULL
     AND date >= ? AND date <= ?
-    AND (
-      (flow = 'expense' AND method != 'transfer' AND is_settlement = 0
-        AND is_third_party = 0 AND dest_account_id IS NULL)
-      OR (flow = 'income' AND is_revenue = 1 AND is_third_party = 0)
-    )
+    AND ((${consumptionExpense()}) OR (${realIncome()}))
   GROUP BY category_id
 `;
 

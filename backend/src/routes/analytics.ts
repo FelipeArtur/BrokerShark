@@ -4,15 +4,14 @@ import { json, qsStr, qsInt } from "../http/respond.ts";
 import type { Route } from "../http/router.ts";
 import { compilePath } from "../http/router.ts";
 import { currentMonth, monthRange } from "../domain/dates.ts";
+import { consumptionExpense, realIncome } from "../db/ledgerSql.ts";
 
 const FLOW_SUMS = `
   COALESCE(SUM(CASE
-    WHEN t.flow='income' AND t.is_revenue=1 AND t.is_third_party=0
+    WHEN ${realIncome("t")}
     THEN t.amount_cents ELSE 0 END), 0) AS income_cents,
   COALESCE(SUM(CASE
-    WHEN t.flow='expense' AND t.method != 'transfer'
-      AND t.is_settlement=0 AND t.is_third_party=0
-      AND t.dest_account_id IS NULL
+    WHEN ${consumptionExpense("t")}
     THEN t.amount_cents ELSE 0 END), 0) AS expense_cents,
   COALESCE(SUM(CASE
     WHEN t.flow='expense' AND t.method='transfer'
@@ -97,11 +96,7 @@ export function analyticsRoutes(db: DatabaseSync): Route[] {
       FROM transactions t
       WHERE t.category_id IS NULL
         AND t.date >= ? AND t.date <= ?
-        AND (
-          (t.flow = 'expense' AND t.method != 'transfer' AND t.is_settlement = 0
-            AND t.is_third_party = 0 AND t.dest_account_id IS NULL)
-          OR (t.flow = 'income' AND t.is_revenue = 1 AND t.is_third_party = 0)
-        )
+        AND ((${consumptionExpense("t")}) OR (${realIncome("t")}))
       GROUP BY merchant_key, t.flow
       ORDER BY total_cents DESC
     `).all(start, end) as any[];
