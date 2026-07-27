@@ -91,6 +91,8 @@ backend/
                         # (/api/investments/:id — ficha + snapshots, rendimento COMPUTADO)
       import.ts         # /api/import/* — detect/preview/staging/confirm/batch + B3 (upload incremental)
       commitments.ts    # /api/commitments — visão de futuro derivada (duro + recorrente)
+      rules.ts          # /api/rules — regras APRENDIDAS: listar/corrigir/desligar/apagar
+                        # (+ /api/rules/test, espelho do que a sugestão faria)
     server.ts           # bootstrap: config → db → initSchema → pipeline
                         # (host→headers→Origin→SSE→rotas→estático)
     jobs/
@@ -125,7 +127,7 @@ frontend/
     overlays/           # abre por cima da tela única — Modal ou Overlay (drill-down tela cheia), mesma ideia
                         # transaction.js (editor de lançamento) · import.js (import via UI)
                         # bulk.js — categorização em lote por comerciante
-                        # categories.js — só CategoriesPanel
+                        # categories.js — CategoriesPanel (abas Categorias | Regras)
                         # accounts.js — AccountsPanel (criar/renomear/encerrar/reabrir)
                         # investments.js — InvestmentPanel (ficha + histórico de medições)
     vendor/             # react, react-dom, chart — vendorizados (inalterado)

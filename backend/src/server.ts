@@ -19,6 +19,7 @@ import { analyticsRoutes } from "./routes/analytics.ts";
 import { investmentRoutes } from "./routes/investments.ts";
 import { importRoutes } from "./routes/import.ts";
 import { commitmentRoutes } from "./routes/commitments.ts";
+import { ruleRoutes } from "./routes/rules.ts";
 import { backupStatus } from "./jobs/backup.ts";
 
 const args = process.argv.slice(2);
@@ -48,6 +49,7 @@ const routes: Route[] = [
   ...investmentRoutes(db),
   ...importRoutes(db),
   ...commitmentRoutes(db),
+  ...ruleRoutes(db),
 ];
 
 function handleBackupStatus(_req: Req, res: Res): void {

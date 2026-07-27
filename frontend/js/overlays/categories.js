@@ -2,8 +2,90 @@
 
 const { useState: _ovSt, useEffect: _ovEf } = React;
 
+// Regras aprendidas: categorizar grava `comerciante → categoria`, e daí em
+// diante essa regra sugere sozinha. Sem tela, uma regra errada gravada uma vez
+// sugeria errado pra sempre — o único conserto era recategorizar por acaso o
+// mesmo comerciante. Mora aqui, e não num overlay próprio, porque regra é
+// justamente "categoria vista pelo lado do comerciante": mesma cabeça, mesma
+// entrada, um ponto de acesso a menos.
+function RulesTab({ onRefresh }) {
+  const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
+  const [rules, setRules] = _ovSt(null);
+  // As DUAS listas: uma regra pode apontar pra categoria de receita (estorno,
+  // reembolso) enquanto a aba de categorias está em despesa. Com a lista
+  // filtrada, o select não conteria o valor atual e a tela mostraria a regra
+  // apontando pra categoria errada.
+  const [cats, setCats] = _ovSt([]);
+  const [err, setErr] = _ovSt("");
+  const [busy, setBusy] = _ovSt(false);
+
+  const reload = () => fetchRules().then(setRules).catch(e => setErr(e.message));
+  _ovEf(() => {
+    reload();
+    Promise.all([fetchCategoriesFull("expense"), fetchCategoriesFull("income")])
+      .then(([e, i]) => setCats([...e, ...i]))
+      .catch(() => {});
+  }, []);
+
+  async function run(fn) {
+    setBusy(true); setErr("");
+    try { await fn(); await reload(); onRefresh && onRefresh(); }
+    catch (ex) { setErr(ex.message); }
+    finally { setBusy(false); }
+  }
+
+  if (rules == null) return h("div", { className: "px-empty" }, "Carregando…");
+
+  if (!rules.length) {
+    return h("div", { className: "px-empty", style: { lineHeight: 1.6 } },
+      "Nenhuma regra ainda.", h("br"),
+      h("span", { style: { fontSize: 11 } },
+        "Toda vez que você categoriza um lançamento, o comerciante dele vira uma regra e passa a sugerir sozinho. Elas aparecem aqui pra você corrigir ou apagar."));
+  }
+
+  return h(React.Fragment, null,
+    err && h("div", { style: { color: "var(--neg)", fontSize: 12, padding: "8px 12px" } }, err),
+    h("div", { className: "px-list", style: { padding: "0 12px" } },
+      rules.map(r => h("div", {
+        key: r.id, className: "cat-row",
+        style: r.enabled ? null : { opacity: 0.5 },
+      },
+        h("div", { className: "px-swatch", style: { background: r.orphan ? "var(--neg)" : "var(--accent)" } }),
+
+        h("div", { style: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 } },
+          h("span", { className: "mono", style: { fontSize: 12, color: "var(--fg-0)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, r.matcher),
+          h("span", { style: { fontSize: 10, color: "var(--fg-3)" } },
+            r.pending_matches > 0
+              ? `pegaria ${r.pending_matches} ${r.pending_matches === 1 ? "lançamento" : "lançamentos"} sem categoria`
+              : "nada sem categoria pra pegar agora")),
+
+        r.orphan
+          ? h("span", { style: { fontSize: 11, color: "var(--neg)", flexShrink: 0 } }, "categoria apagada")
+          : h("select", {
+              className: "px-field", value: r.category_id ?? "", disabled: busy,
+              style: { flexShrink: 0, maxWidth: 190 },
+              onChange: e => run(() => patchRule(r.id, { category_id: Number(e.target.value) })),
+            }, cats.map(c => h("option", { key: c.id, value: c.id }, c.name))),
+
+        h("div", { className: "cat-actions" },
+          h("button", {
+            className: "px-btn px-btn--ghost px-btn--sm", disabled: busy,
+            title: r.enabled ? "Desligar — para de sugerir, mas a regra fica" : "Religar",
+            onClick: () => run(() => patchRule(r.id, { enabled: r.enabled ? 0 : 1 })),
+          }, r.enabled ? "◉" : "○"),
+          h("button", {
+            className: "px-btn px-btn--ghost px-btn--sm cat-del", disabled: busy,
+            title: "Apagar a regra — o que já foi categorizado não muda",
+            onClick: () => run(() => deleteRule(r.id)),
+          }, "×"),
+        ),
+      ))),
+  );
+}
+
 function CategoriesPanel({ refreshKey, onRefresh, onClose }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
+  const [tab, setTab] = _ovSt("cats");
   const [flow, setFlow] = _ovSt("expense");
   const [cats, setCats] = _ovSt([]);
   const [newName, setNewName] = _ovSt("");
@@ -58,14 +140,19 @@ function CategoriesPanel({ refreshKey, onRefresh, onClose }) {
 
     h("div", { style: { padding: "20px 28px", borderBottom: "1px solid var(--line-1)", flexShrink: 0, display: "flex", flexDirection: "column", gap: 16 } },
       h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 } },
-        h("h2", { style: { margin: 0, fontFamily: "var(--ff-sans)", fontSize: 15, letterSpacing: "1px", textTransform: "uppercase", color: "var(--fg-0)" } }, "Categorias"),
+        h("h2", { style: { margin: 0, fontFamily: "var(--ff-sans)", fontSize: 15, letterSpacing: "1px", textTransform: "uppercase", color: "var(--fg-0)" } },
+          tab === "rules" ? "Regras de categoria" : "Categorias"),
         onClose && h("button", { className: "px-btn px-btn--ghost px-btn--sm", onClick: onClose, title: "Fechar (Esc)", "aria-label": "Fechar" }, "✕")
       ),
       h(window.BS.SegmentControl, {
+        options: [{ value: "cats", label: "Categorias" }, { value: "rules", label: "Regras" }],
+        value: tab, onChange: setTab, columns: 2, fill: true,
+      }),
+      tab === "cats" && h(window.BS.SegmentControl, {
         options: [{ value: "expense", label: "Despesas" }, { value: "income", label: "Receitas" }],
         value: flow, onChange: setFlow, columns: 2, fill: true,
       }),
-      h("form", { onSubmit: handleAdd, style: { display: "flex", gap: 8 } },
+      tab === "cats" && h("form", { onSubmit: handleAdd, style: { display: "flex", gap: 8 } },
         h("input", {
           className: "px-field", type: "text", placeholder: `Nova categoria de ${flow === 'expense' ? 'despesa' : 'receita'}…`, value: newName,
           onChange: e => setNewName(e.target.value),
@@ -79,7 +166,9 @@ function CategoriesPanel({ refreshKey, onRefresh, onClose }) {
     ),
 
     h("div", { style: { flex: 1, overflowY: "auto" } },
-      cats.length === 0
+      tab === "rules"
+        ? h(RulesTab, { onRefresh })
+        : cats.length === 0
         ? h("div", { className: "px-empty" }, "Nenhuma categoria cadastrada")
         : h("div", { className: "px-list", style: { padding: "0 12px" } },
             cats.map((cat) => h("div", { className: "cat-row", key: cat.id },

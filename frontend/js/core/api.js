@@ -52,6 +52,18 @@ async function deleteAccount(id) {
   return r.json();
 }
 
+// Regras APRENDIDAS ao categorizar. Aprender sem poder desaprender é o
+// problema: regra errada gravada uma vez sugere errado pra sempre.
+async function fetchRules()                { return _get("/api/rules"); }
+
+async function patchRule(id, fields)       { return _patch(`/api/rules/${id}`, fields); }
+
+async function deleteRule(id) {
+  const r = await fetch(`/api/rules/${id}`, { method: "DELETE" });
+  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || "request failed"); }
+  return r.json();
+}
+
 async function fetchExpenseCategories()         { return _get("/api/expense-categories"); }
 
 async function fetchCategoriesFull(flow = "expense", month) { return _get(`/api/categories-full${_params({ flow, month })}`); }
