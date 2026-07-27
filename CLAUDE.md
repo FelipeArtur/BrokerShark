@@ -87,7 +87,8 @@ backend/
       categories.ts     # categories-full (alvo+gasto+Δ), expense-categories,
                         # POST/PATCH/DELETE + PUT/DELETE /api/category-budget
       analytics.ts      # monthly, cashflow-statement, uncategorized-merchants
-      investments.ts    # carteira (abertas), evolução
+      investments.ts    # carteira (abertas), evolução, detalhe da posição
+                        # (/api/investments/:id — ficha + snapshots, rendimento COMPUTADO)
       import.ts         # /api/import/* — detect/preview/staging/confirm/batch + B3 (upload incremental)
       commitments.ts    # /api/commitments — visão de futuro derivada (duro + recorrente)
     server.ts           # bootstrap: config → db → initSchema → pipeline
@@ -106,8 +107,9 @@ frontend/
                         # money.js — ESPÉCIES de dinheiro (moneyKind/KIND_COLOR/fmtParts) — testada
                         # tx-group.js — agrupamento da tabela (buildGroups/scaleFor/budgetState) — testada
                         # filter.js — lógica pura filtro facetado (applyFilter/toggleFacet/searchMatch) — testada
-                        # meta.js — derivações "score" (savingsStreak/isAllTimeHigh/budgetProgress) — testada
                         # palette.js — cor estável por nome, quantizada a 8 matizes — testada
+                        # bars.js — quais barras um mês desenha (fantasma do mês anterior) — testada
+                        # month-nav.js — salto de 12 meses sobre série esparsa — testada
                         # bank.js — cor e rótulo de banco (Nu/Inter têm identidade;
                         # banco novo pega cor do palette) — testada
                         # bulk.js — suggestionPlan (decisão do "aplicar todas") — testada
@@ -124,6 +126,7 @@ frontend/
                         # bulk.js — categorização em lote por comerciante
                         # categories.js — só CategoriesPanel
                         # accounts.js — AccountsPanel (criar/renomear/encerrar/reabrir)
+                        # investments.js — InvestmentPanel (ficha + histórico de medições)
     vendor/             # react, react-dom, chart — vendorizados (inalterado)
   css/                  # estilos; pixel.css — estrutural (bordas duras, sombras degrau, scanlines CRT, dither, keyframes)
                         # pixel-ui.css — vocabulário de componente (.px-row/.px-field/.px-btn/.px-seg/.px-swatch/.px-chip…)

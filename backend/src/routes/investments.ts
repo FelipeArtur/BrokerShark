@@ -1,6 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { Req, Res } from "../http/respond.ts";
-import { json, qsStr } from "../http/respond.ts";
+import { json, error, qsStr } from "../http/respond.ts";
+import { isIntId } from "../http/validate.ts";
 import type { Route } from "../http/router.ts";
 import { compilePath } from "../http/router.ts";
 import { monthlyPortfolioSeries } from "../domain/positions.ts";
@@ -65,9 +66,63 @@ export function investmentRoutes(db: DatabaseSync): Route[] {
     }));
   }
 
+  // Drill-down de uma posição: a ficha dela + todos os snapshots datados.
+  // Rendimento é COMPUTADO aqui (net − applied), nunca guardado — snapshot
+  // guardado ficaria velho no instante seguinte e passaria a mentir.
+  function getInvestmentDetail(req: Req, res: Res) {
+    const id = Number(req.params!.id);
+    if (!isIntId(id)) return error(res, "id inválido");
+
+    const inv = db.prepare(`
+      SELECT id, name, code, type, bank, indexer, rate_text, maturity_date,
+             group_name, source, opened_at, closed_at
+      FROM investments WHERE id = ?
+    `).get(id) as any;
+    if (!inv) return error(res, "posição não encontrada", 404);
+
+    const snaps = db.prepare(`
+      SELECT ref_date, quantity, unit_price_cents, applied_cents, gross_cents, net_cents, source
+      FROM position_snapshots WHERE investment_id = ?
+      ORDER BY ref_date ASC, id ASC
+    `).all(id) as any[];
+
+    json(res, {
+      id: inv.id,
+      name: inv.name,
+      code: inv.code,
+      type: inv.type,
+      bank: inv.bank,
+      indexer: inv.indexer,
+      rate_text: inv.rate_text,
+      maturity_date: inv.maturity_date,
+      group_name: inv.group_name,
+      source: inv.source,
+      opened_at: inv.opened_at,
+      closed_at: inv.closed_at,
+      snapshots: snaps.map(s => {
+        const applied = s.applied_cents ?? 0;
+        const net = s.net_cents ?? 0;
+        return {
+          ref_date: s.ref_date,
+          quantity: s.quantity,
+          unit_price: s.unit_price_cents != null ? s.unit_price_cents / 100 : null,
+          applied: applied / 100,
+          gross: s.gross_cents != null ? s.gross_cents / 100 : null,
+          net: net / 100,
+          // Sem aplicado não há rendimento a calcular — null diz "não sei",
+          // e zero diria "rendeu nada", que é uma afirmação diferente.
+          yield: applied > 0 ? (net - applied) / 100 : null,
+          yield_pct: applied > 0 ? ((net - applied) / applied) * 100 : null,
+          source: s.source,
+        };
+      }),
+    });
+  }
+
   const cp = compilePath;
   return [
     { method: "GET", ...cp("/api/investments"), handler: getInvestments },
+    { method: "GET", ...cp("/api/investments/:id"), handler: getInvestmentDetail },
     { method: "GET", ...cp("/api/investment-evolution"), handler: getInvestmentEvolution },
   ];
 }

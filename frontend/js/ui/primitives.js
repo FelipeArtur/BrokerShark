@@ -50,6 +50,15 @@ function fmtDateBR(iso) {
   return `${d}/${m}`;
 }
 
+// Data COM ano. `fmtDateBR` corta em DD/MM porque no mês selecionado o ano é
+// óbvio — mas fora dele o corte mente: um vencimento "15/05" de 2029 lido como
+// deste ano vira "semana que vem", e três medições de 31/12 de anos diferentes
+// viram três linhas idênticas. Onde a data atravessa anos, use esta.
+function fullDateBR(iso) {
+  const [y, m, d] = String(iso || "").split("-");
+  return y && m && d ? `${d}/${m}/${y}` : (iso ? String(iso) : "—");
+}
+
 const PT_MONTHS = ["", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
   "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 const PT_SHORT = ["", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
@@ -132,9 +141,9 @@ function Modal({ open, onClose, title, children, width = 480 }) {
   },
     React.createElement("div", {
       ref: dialogRef,
-      onClick: e => e.stopPropagation(), className: "fade-in",
+      onClick: e => e.stopPropagation(), className: "modal fade-in",
       role: "dialog", "aria-modal": "true", "aria-labelledby": titleId,
-      style: { width, maxWidth: "92vw", maxHeight: "88vh", display: "flex", flexDirection: "column", background: "var(--bg-1)", border: "1px solid var(--line-2)", boxShadow: "0 24px 48px oklch(0% 0 0 / 0.6)",}
+      style: { width, maxWidth: "92vw", maxHeight: "88vh", display: "flex", flexDirection: "column", background: "var(--bg-1)", border: "1px solid var(--line-2)" }
     },
       React.createElement("div", { style: { padding: "24px 32px 16px 32px", display: "flex", alignItems: "center", justifyContent: "space-between" } },
         React.createElement("div", { id: titleId, style: { fontWeight: 700, fontSize: "var(--fz-4)", letterSpacing: "-0.01em" } }, title),
@@ -465,7 +474,7 @@ function FilterBar({ filter, onRemove, onClear }) {
 
 window.BS = window.BS || {};
 Object.assign(window.BS, {
-  fmtBRL, fmtBRLCompact, fmtDateBR, prettifyDesc,
+  fmtBRL, fmtBRLCompact, fmtDateBR, fullDateBR, prettifyDesc,
   PT_MONTHS, PT_SHORT,
   Modal, Overlay, useToasts, BankChip, SegmentControl,
   BrokerSharkLogo, TxRow, FilterBar, Money,

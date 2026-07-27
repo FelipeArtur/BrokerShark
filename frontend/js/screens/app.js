@@ -53,12 +53,19 @@ function MonthNav({ monthly, monthSel, onPick }) {
   const isCalCurrent = monthSel.year === now.getFullYear() && monthSel.month === now.getMonth() + 1;
   const isLatest = idx === monthly.length - 1;
   const pick = i => { const m = monthly[i]; if (m) onPick({ year: m.year, month: m.month }); };
+  // Salto de 12 meses nas pontas: sem ele, ir de jul/2026 a 2024 custava ~30
+  // cliques, e o único atalho de ano vivia na segunda dobra da tela.
+  const jump = d => pick(window.BS.jumpYearIndex(monthly, monthSel, d));
+  const canJump = d => window.BS.canJumpYear(monthly, monthSel, d);
+
   return h("div", { className: "month-nav", role: "group", "aria-label": "Mês analisado" },
+    h("button", { className: "month-nav-btn", disabled: !canJump(-1), onClick: () => jump(-1), title: "Um ano atrás", "aria-label": "Um ano atrás" }, "«"),
     h("button", { className: "month-nav-btn", disabled: idx <= 0, onClick: () => pick(idx - 1), title: "Mês anterior", "aria-label": "Mês anterior" }, "‹"),
     h("span", { className: "month-nav-label" },
       `${PT_MONTHS[monthSel.month]} ${monthSel.year}`,
       isCalCurrent && h("span", { style: { marginLeft: 6, fontSize: 11, fontWeight: 700, color: "var(--info)", textTransform: "uppercase", letterSpacing: "0.05em" } }, "atual")),
     h("button", { className: "month-nav-btn", disabled: idx < 0 || isLatest, onClick: () => pick(idx + 1), title: "Próximo mês", "aria-label": "Próximo mês" }, "›"),
+    h("button", { className: "month-nav-btn", disabled: !canJump(+1), onClick: () => jump(+1), title: "Um ano à frente", "aria-label": "Um ano à frente" }, "»"),
     !isLatest && h("button", { className: "month-nav-today", onClick: () => pick(monthly.length - 1) }, "Hoje")
   );
 }
@@ -67,10 +74,10 @@ function App() {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   const [editTx, setEditTx] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
-  const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [categoriesOpen, setCategoriesOpen] = useState(false);
   const [accountsOpen, setAccountsOpen] = useState(false);
+  const [position, setPosition] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [monthly, setMonthly] = useState([]);
   const [monthSel, setMonthSel] = useState(null);
@@ -149,6 +156,7 @@ function App() {
       onImport: () => setImportOpen(true),
       onManageCategories: () => setCategoriesOpen(true),
       onManageAccounts: () => setAccountsOpen(true),
+      onOpenPosition: (ids, name) => setPosition({ ids, name }),
     }),
 
     importOpen && h(ImportModal, {
@@ -182,6 +190,10 @@ function App() {
     categoriesOpen && h(window.BS.Overlay, {
       open: categoriesOpen, onClose: () => setCategoriesOpen(false), width: 720
     }, h(window.BS.CategoriesPanel, { refreshKey, onRefresh: () => setRefreshKey(k => k + 1), onClose: () => setCategoriesOpen(false) })),
+
+    position && h(window.BS.Overlay, {
+      open: true, onClose: () => setPosition(null), width: 820
+    }, h(window.BS.InvestmentPanel, { ids: position.ids, title: position.name, onClose: () => setPosition(null) })),
 
     accountsOpen && h(window.BS.Overlay, {
       open: accountsOpen, onClose: () => setAccountsOpen(false), width: 720

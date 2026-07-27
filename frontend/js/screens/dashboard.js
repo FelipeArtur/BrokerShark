@@ -2,7 +2,7 @@
 
 const { useState: _dSt, useEffect: _dEf, useMemo: _dMemo, useCallback: _dCb } = React;
 const { fmtBRL, fmtBRLCompact, fmtDateBR, PT_MONTHS, PT_SHORT,
-        isConsumptionExpense, bankColor, bankLabel, bankShortLabel } = window.BS;
+        isConsumptionExpense, bankColor, bankLabel, bankShortLabel, fullDateBR } = window.BS;
 
 const INV_TYPE_LABEL = {
   rdb: "Caixinha (RDB)", cdb: "CDB / Renda fixa", tesouro: "Tesouro Direto",
@@ -464,7 +464,7 @@ const FaturaWidget = React.memo(function FaturaWidget({ monthTx, filter, onToggl
   );
 });
 
-const InvestmentsWidget = React.memo(function InvestmentsWidget({ investments, evolution }) {
+const InvestmentsWidget = React.memo(function InvestmentsWidget({ investments, evolution, onOpenPosition }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
 
   const typeLabel = t => INV_TYPE_LABEL[t] || (t ? t[0].toUpperCase() + t.slice(1) : "Investimento");
@@ -477,10 +477,12 @@ const InvestmentsWidget = React.memo(function InvestmentsWidget({ investments, e
     const porq = investments.filter(i => i.group_name === "Porquinho");
     investments.filter(i => i.group_name !== "Porquinho").forEach(i => out.push({
       name: i.name, sub: typeLabel(i.type), balance: i.balance || 0, derived: !!i.derived,
+      ids: [i.id],
     }));
     if (porq.length) out.push({
       name: `Porquinho Inter${porq.length > 1 ? ` ×${porq.length}` : ""}`,
       sub: "CDB · B3", balance: porq.reduce((s, i) => s + (i.balance || 0), 0),
+      ids: porq.map(i => i.id),
     });
     return out.sort((a, b) => b.balance - a.balance);
   }, [investments]);
@@ -493,9 +495,12 @@ const InvestmentsWidget = React.memo(function InvestmentsWidget({ investments, e
     h("div", { className: "widget-body", style: { gap: 0 } },
       investments.length === 0
         ? h("div", { className: "px-empty" }, "Nenhum investimento — importe um relatório B3.")
-        : rows.map((r, i, arr) => h("div", {
+        : rows.map((r, i, arr) => h("button", {
             key: i,
-            style: { display: "flex", flexDirection: "column", gap: 1, padding: "7px 0", borderBottom: i < arr.length - 1 ? "1px dashed var(--line-1)" : "none", flexShrink: 0 }
+            className: "facet-row",
+            onClick: () => onOpenPosition && onOpenPosition(r.ids, r.name),
+            title: `Ver histórico de ${r.name}`,
+            style: { display: "flex", flexDirection: "column", gap: 1, padding: "7px 6px", borderBottom: i < arr.length - 1 ? "1px dashed var(--line-1)" : "none", flexShrink: 0, textAlign: "left", background: "none", border: "none", cursor: "pointer", width: "100%" }
           },
             h("div", { style: { display: "flex", justifyContent: "space-between", gap: 8, alignItems: "baseline" } },
               h("span", { title: r.name, style: { fontSize: 11, fontWeight: 600, color: "var(--fg-1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, r.name),
@@ -516,13 +521,6 @@ const InvestmentsWidget = React.memo(function InvestmentsWidget({ investments, e
 
 const CADENCE_LABEL = { 1: "todo mês", 2: "a cada 2 meses", 3: "a cada 3 meses" };
 const cadenceLabel = (n) => CADENCE_LABEL[n] || `a cada ${n} meses`;
-
-// Vencimento pede o ano: fmtDateBR corta em DD/MM, e "03/04" de 2028 lido como
-// deste ano muda a leitura de "daqui a dois anos" pra "semana que vem".
-const fullDateBR = (iso) => {
-  const [y, m, d] = String(iso || "").split("-");
-  return y && m && d ? `${d}/${m}/${y}` : String(iso || "");
-};
 
 // Coluna de um mês: comprometido DURO sólido embaixo, previsto recorrente
 // dithered por cima. O dither é o vocabulário de "não é certo" do sistema.
@@ -643,7 +641,7 @@ const ForwardWidget = React.memo(function ForwardWidget({ commitments }) {
 const refMonthOf = (monthSel) =>
   monthSel ? `${monthSel.year}-${String(monthSel.month).padStart(2, "0")}` : undefined;
 
-function DashboardView({ monthSel, monthly, onPickMonth, refreshKey, onEditCategory, onImport, onManageCategories, onManageAccounts }) {
+function DashboardView({ monthSel, monthly, onPickMonth, refreshKey, onEditCategory, onImport, onManageCategories, onManageAccounts, onOpenPosition }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
   const [available, setAvailable] = _dSt(null);
   const [commitments, setCommitments] = _dSt(null);
@@ -757,7 +755,7 @@ function DashboardView({ monthSel, monthly, onPickMonth, refreshKey, onEditCateg
           h(CategoriesWidget, { monthTx, uncatCount, onOpenBulk: () => setBulkOpen(true), filter, onToggleFacet,
             catsIndex, monthSel, onBudgetSaved: reloadBudgets,
             onManageCategories, onCreateCategory: onManageCategories }),
-          h(InvestmentsWidget, { investments, evolution }),
+          h(InvestmentsWidget, { investments, evolution, onOpenPosition }),
         ),
         h("div", { className: "widget-row widget-row--soft" },
           h(FaturaWidget, { monthTx, filter, onToggleFacet }),

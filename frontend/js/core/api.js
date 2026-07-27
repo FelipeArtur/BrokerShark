@@ -29,6 +29,13 @@ async function _put(url, body) {
 
 async function fetchInvestments(bank)      { return _get(`/api/investments${_qs(bank)}`); }
 
+// Ficha da posição + snapshots datados (rendimento computado no servidor).
+async function fetchInvestment(id) {
+  const r = await fetch(`/api/investments/${encodeURIComponent(id)}`);
+  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || "posição não encontrada"); }
+  return r.json();
+}
+
 async function fetchAccounts(bank)         { return _get(`/api/accounts${_qs(bank)}`); }
 
 // closed=1 traz as encerradas junto — o painel de contas precisa vê-las pra
