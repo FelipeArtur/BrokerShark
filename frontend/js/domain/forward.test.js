@@ -86,14 +86,14 @@ test("forwardScale: série vazia não divide por zero", () => {
 
 test("merchantLabel: corta CPF mascarado e banco", () => {
   assert.equal(
-    F.merchantLabel("joao da silva - •••.000.000-•• - itaú unibanco s.a. (0341) agência: 0001 conta: 12345-6"),
+    F.merchantLabel("joao da silva - •••.000.000-•• - banco exemplo s.a. (0000) agência: 0001 conta: 12345-6"),
     "joao da silva",
   );
 });
 
 test("merchantLabel: tira prefixo de transferência e corta no CNPJ", () => {
   assert.equal(
-    F.merchantLabel("transferência recebida - empresa exemplo do brasil ltda - 00.000.000/0001-00 - bco do brasil s.a. (0001) agência: 0001"),
+    F.merchantLabel("transferência recebida - empresa exemplo do brasil ltda - 00.000.000/0001-00 - banco exemplo s.a. (0000) agência: 0001"),
     "empresa exemplo do brasil ltda",
   );
 });

@@ -42,8 +42,8 @@ test("menos de minMonths na corrida é rejeitado", () => {
 test("corrida recente é recortada — histórico antigo com buraco grande não conta", () => {
   // Mesma pessoa: movimento esporádico em 2021, corrida viva em 2026.
   const rows = [
-    ...monthly("exemplo", "expense", ["2021-03", "2021-08", "2022-10"], 5000),
-    ...monthly("exemplo", "expense", ["2026-03", "2026-04", "2026-05", "2026-06"], 171119),
+    ...monthly("aluguel", "expense", ["2021-03", "2021-08", "2022-10"], 5000),
+    ...monthly("aluguel", "expense", ["2026-03", "2026-04", "2026-05", "2026-06"], 171119),
   ];
   const out = detectRecurrences(rows, "2026-06");
   assert.equal(out.length, 1);
@@ -116,8 +116,8 @@ test("mediana ignora um mês fora da curva", () => {
 
 test("entrada e saída do mesmo comerciante são itens separados", () => {
   const rows = [
-    ...monthly("exemplo", "expense", ["2026-04", "2026-05", "2026-06"], 171119),
-    ...monthly("exemplo", "income", ["2026-04", "2026-05", "2026-06"], 20000),
+    ...monthly("aluguel", "expense", ["2026-04", "2026-05", "2026-06"], 171119),
+    ...monthly("aluguel", "income", ["2026-04", "2026-05", "2026-06"], 20000),
   ];
   const out = detectRecurrences(rows, "2026-06");
   assert.equal(out.length, 2);

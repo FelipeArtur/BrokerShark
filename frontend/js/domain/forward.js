@@ -49,7 +49,7 @@
   }
 
   // O núcleo do comerciante vem do extrato carregando documento, banco, agência
-  // e conta ("fulano - •••.000.000-•• - itaú unibanco s.a. (0341) agência: …").
+  // e conta ("fulano - •••.000.000-•• - banco exemplo s.a. (0000) agência: …").
   // Para exibição, corta o ruído: tira o prefixo de transferência e para no
   // primeiro segmento que começa com documento (máscara de CPF ou dígito).
   const RECEIPT_PREFIX = /^(transferência recebida pelo pix|transferência recebida|pix recebido:|transferência enviada pelo pix|transferência enviada)\s*[-:]?\s*/i;
