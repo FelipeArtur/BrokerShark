@@ -8,6 +8,7 @@ import { isIsoDate, isShortText } from "../http/validate.ts";
 import { monthlyPortfolioSeries } from "../domain/positions.ts";
 import { monthlyCheckingSeries } from "../domain/accountBalances.ts";
 import { currentMonth, today } from "../domain/dates.ts";
+import { fmtCents } from "../domain/money.ts";
 
 const ACCOUNT_TYPES = new Set(["checking", "credit_card"]);
 // `id` vira parte de URL e de allowlist de import; nada de espaço nem acento.
@@ -39,6 +40,38 @@ export function accountRoutes(db: DatabaseSync): Route[] {
 
   const txCount = (id: string): number =>
     (db.prepare("SELECT COUNT(*) AS n FROM transactions WHERE account_id = ?").get(id) as { n: number }).n;
+
+  /**
+   * Dívida em aberto da conta, em texto — `null` quando está quite.
+   *
+   * Banco não encerra conta com saldo devedor, e a razão vale igual aqui:
+   * encerrar tira a conta da posição e o saldo dela passa a ser zero por
+   * definição. Fazer isso com dívida pendurada some com dinheiro que ainda
+   * precisa sair — o herói subiria sozinho, que é exatamente o erro que o
+   * encerramento existe pra evitar.
+   *
+   * Cartão: fatura sem pagamento casado. Conta corrente: saldo negativo.
+   * (No cartão o saldo é a soma dos itens da fatura, sempre negativo, então lá
+   * quem responde pela dívida é a fatura em aberto, não o saldo.)
+   */
+  function outstandingDebt(acc: any): string | null {
+    if (acc.type === "credit_card") {
+      const open = db.prepare(
+        `SELECT ref_month, total_cents FROM invoices
+         WHERE account_id = ? AND payment_tx_id IS NULL ORDER BY ref_month`,
+      ).all(acc.id) as { ref_month: string; total_cents: number }[];
+      if (!open.length) return null;
+      const list = open.map(i => `${i.ref_month} (${fmtCents(i.total_cents)})`).join(", ");
+      return `o cartão tem fatura em aberto: ${list}`;
+    }
+    const row = db.prepare(
+      `SELECT a.initial_balance_cents AS initial, ${BALANCE_SUMS}
+       FROM accounts a LEFT JOIN transactions t ON t.account_id = a.id
+       WHERE a.id = ?`,
+    ).get(acc.id) as { initial: number; total_income: number; total_expense: number };
+    const cents = row.initial + row.total_income - row.total_expense;
+    return cents < 0 ? `a conta está com saldo devedor de ${fmtCents(-cents)}` : null;
+  }
 
   function getAccounts(req: Req, res: Res) {
     const bank = qsStr(req, "bank");
@@ -216,6 +249,8 @@ export function accountRoutes(db: DatabaseSync): Route[] {
         if (last.d && last.d > (v as string)) {
           return error(res, `a conta tem lançamento em ${last.d}, posterior ao encerramento`, 409);
         }
+        const debt = outstandingDebt(acc);
+        if (debt) return error(res, `${debt} — quite a dívida antes de encerrar`, 409);
       }
       updates.push("closed_at = ?"); params.push(v);
     }

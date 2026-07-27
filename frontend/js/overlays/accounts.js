@@ -192,9 +192,14 @@ function AccountsPanel({ onRefresh, onClose }) {
     },
       closeTarget && h("div", { style: { display: "flex", flexDirection: "column", gap: 18 } },
         h("p", { style: { fontSize: 14, color: "var(--fg-0)", margin: 0, lineHeight: 1.5 } },
-          "Encerrar ", h("strong", null, closeTarget.name), "? O saldo de ",
-          h("span", { className: "mono" }, fmtBRL(closeTarget.balance || 0)),
-          " sai do disponível — é dinheiro que não está mais lá."),
+          closeTarget.type === "credit_card"
+            // O saldo do cartão é a soma dos itens de fatura e nunca entrou no
+            // disponível — prometer que ele "sai" seria mentira.
+            ? ["Encerrar ", h("strong", { key: "n" }, closeTarget.name),
+               "? O cartão sai das opções de import e some dos widgets. Só encerra com a fatura quitada."]
+            : ["Encerrar ", h("strong", { key: "n" }, closeTarget.name), "? O saldo de ",
+               h("span", { key: "b", className: "mono" }, fmtBRL(closeTarget.balance || 0)),
+               " sai do disponível — é dinheiro que não está mais lá."]),
         h("p", { style: { fontSize: 12, color: "var(--fg-2)", margin: 0, lineHeight: 1.5 } },
           "Nenhum lançamento é apagado. A conta some dos widgets e das opções de import, e volta a qualquer momento pelo botão de reabrir."),
         h("label", { style: { fontSize: 11, color: "var(--fg-2)", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 700 } },
@@ -206,7 +211,9 @@ function AccountsPanel({ onRefresh, onClose }) {
           }),
         ),
         h("p", { style: { fontSize: 11, color: "var(--fg-3)", margin: 0, lineHeight: 1.4 } },
-          "Precisa ser igual ou posterior ao último lançamento da conta."),
+          closeTarget.type === "credit_card"
+            ? "Precisa ser igual ou posterior ao último lançamento. Fatura em aberto barra o encerramento."
+            : "Precisa ser igual ou posterior ao último lançamento. Saldo devedor barra o encerramento."),
         h("div", { style: { display: "flex", gap: 12, justifyContent: "flex-end" } },
           h("button", { className: "px-btn", onClick: () => setCloseTarget(null) }, "CANCELAR"),
           h("button", {

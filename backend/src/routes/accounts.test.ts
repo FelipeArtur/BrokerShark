@@ -159,6 +159,77 @@ test("a auditoria acusa lançamento posterior ao encerramento", async () => {
   assert.ok(auditLedger(db).some(v => v.check === "lancamento-pos-encerramento"));
 });
 
+// ── encerrar exige estar quite (como no banco) ──────────────────────────────
+
+const openInvoice = (db: DatabaseSync, refMonth: string, cents: number) =>
+  db.prepare(
+    `INSERT INTO invoices (account_id, ref_month, total_cents, source_file)
+     VALUES ('inter-cc', ?, ?, 'ui')`,
+  ).run(refMonth, cents);
+
+test("encerrar cartão com fatura em aberto é recusado", async () => {
+  const db = freshDb();
+  openInvoice(db, "2026-06", 45000);
+  const r = await call(db, "PATCH", "/api/accounts/inter-cc", { closed_at: "2026-07-01" });
+  assert.equal(r.status, 409);
+  assert.match(r.payload.error, /fatura em aberto/);
+  assert.match(r.payload.error, /2026-06/);
+  assert.equal(
+    (db.prepare("SELECT closed_at FROM accounts WHERE id='inter-cc'").get() as any).closed_at, null,
+  );
+});
+
+test("cartão com a fatura já paga encerra normalmente", async () => {
+  const db = freshDb();
+  openInvoice(db, "2026-06", 45000);
+  const pay = tx(db, "inter-db", "2026-06-10", 45000);
+  db.prepare("UPDATE invoices SET payment_tx_id = ? WHERE ref_month = '2026-06'")
+    .run(pay.lastInsertRowid as number);
+  const r = await call(db, "PATCH", "/api/accounts/inter-cc", { closed_at: "2026-07-01" });
+  assert.equal(r.status, 200);
+});
+
+test("encerrar conta corrente no vermelho é recusado", async () => {
+  const db = freshDb();
+  tx(db, "inter-db", "2026-05-20", 30000);          // sem entrada: saldo −300,00
+  const r = await call(db, "PATCH", "/api/accounts/inter-db", { closed_at: "2026-06-01" });
+  assert.equal(r.status, 409);
+  assert.match(r.payload.error, /saldo devedor/);
+});
+
+test("conta corrente zerada encerra — sacar tudo em espécie é encerramento válido", async () => {
+  const db = freshDb();
+  tx(db, "inter-db", "2026-05-01", 30000, "income");
+  tx(db, "inter-db", "2026-05-20", 30000);
+  const r = await call(db, "PATCH", "/api/accounts/inter-db", { closed_at: "2026-06-01" });
+  assert.equal(r.status, 200);
+});
+
+test("reabrir conta nunca esbarra na dívida", async () => {
+  const db = freshDb();
+  tx(db, "inter-db", "2026-05-01", 30000, "income");
+  await call(db, "PATCH", "/api/accounts/inter-db", { closed_at: "2026-06-01" });
+  tx(db, "inter-db", "2026-05-02", 90000);          // entra por baixo e deixa o saldo negativo
+  const r = await call(db, "PATCH", "/api/accounts/inter-db", { closed_at: null });
+  assert.equal(r.status, 200);
+});
+
+test("a auditoria acusa conta encerrada com dívida que entrou por baixo da rota", async () => {
+  const db = freshDb();
+  await call(db, "PATCH", "/api/accounts/inter-cc", { closed_at: "2026-07-01" });
+  openInvoice(db, "2026-06", 45000);
+  assert.ok(auditLedger(db).some(v => v.check === "conta-encerrada-com-divida"));
+});
+
+test("cartão encerrado e quitado não acusa na auditoria", async () => {
+  const db = freshDb();
+  await call(db, "PATCH", "/api/accounts/inter-cc", { closed_at: "2026-07-01" });
+  // Itens de fatura deixam o saldo do cartão negativo por desenho — e isso não
+  // pode virar violação, senão todo cartão encerrado acusaria.
+  tx(db, "inter-cc", "2026-06-05", 45000);
+  assert.deepEqual(auditLedger(db).filter(v => v.check === "conta-encerrada-com-divida"), []);
+});
+
 test("apagar conta com histórico é recusado — encerre em vez de apagar", async () => {
   const db = freshDb();
   tx(db, "inter-db", "2026-01-10", 1000);

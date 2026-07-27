@@ -120,6 +120,22 @@ const CHECKS: Check[] = [
           WHERE a.closed_at IS NOT NULL AND t.date > a.closed_at`,
   },
   {
+    check: "conta-encerrada-com-divida",
+    // Espelho da recusa do PATCH: encerrar zera o saldo da conta na posição, e
+    // dívida pendurada nesse momento vira dinheiro que some do "disponível" sem
+    // ter sido pago. No cartão a dívida é a fatura em aberto; na conta corrente,
+    // o saldo negativo (no cartão o saldo é sempre negativo por desenho — são os
+    // itens da fatura — então lá só a fatura responde).
+    message: "conta encerrada com dívida em aberto — o valor a pagar sumiu da posição",
+    sql: `SELECT COUNT(*) AS n FROM accounts a WHERE a.closed_at IS NOT NULL AND (
+            EXISTS (SELECT 1 FROM invoices i
+                    WHERE i.account_id = a.id AND i.payment_tx_id IS NULL)
+            OR (a.type = 'checking' AND a.initial_balance_cents + COALESCE((
+                 SELECT SUM(CASE WHEN t.flow = 'income' THEN t.amount_cents
+                                 ELSE -t.amount_cents END)
+                 FROM transactions t WHERE t.account_id = a.id), 0) < 0))`,
+  },
+  {
     check: "alvo-em-categoria-de-receita",
     message: "alvo de gasto definido em categoria que não é de despesa",
     sql: `SELECT COUNT(*) AS n FROM category_budgets cb JOIN categories c ON c.id = cb.category_id
