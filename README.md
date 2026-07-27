@@ -145,7 +145,7 @@ O resto da documentação (produto, sistema visual, specs, planos e auditorias d
 mora num vault Obsidian, fora do repo:
 
 ```
-~/Documents/Rede de projetos/BrokerShark/
+~/Documents/Rede de projetos/Pessoal/BrokerShark/
 ├── BrokerShark.md      # índice do projeto (comece por aqui)
 ├── CLAUDE.md           # symlink pro arquivo da raiz deste repo
 ├── Produto.md          # usuário, propósito, escopo

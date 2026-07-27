@@ -4,7 +4,7 @@
 
 > **Este arquivo mora na raiz de propósito** — é auto-carregado em toda sessão. Movê-lo pra uma subpasta (ou pro vault) o tiraria do contexto padrão e as invariantes financeiras abaixo deixariam de ser lidas.
 >
-> **A documentação de apoio NÃO mora mais no repo** — mora no vault Obsidian, em `~/Documents/Rede de projetos/BrokerShark/` (não é auto-carregada; leia sob demanda pelo caminho absoluto):
+> **A documentação de apoio NÃO mora mais no repo** — mora no vault Obsidian, em `~/Documents/Rede de projetos/Pessoal/BrokerShark/` (não é auto-carregada; leia sob demanda pelo caminho absoluto):
 > `BrokerShark.md` (índice — comece por aqui) · `Produto.md` (usuário/escopo) · `Design System.md` (tokens/sistema visual) · `Specs/` e `Planos/` (datados) · `Arquivo/` (superados).
 > O `CLAUDE.md` que aparece lá é symlink para **este** arquivo. No repo ficam só `README.md` (porta de entrada humana) e este guia.
 >
@@ -53,8 +53,8 @@ backend/
       reconcile.ts      # reconciliação de pagamento de fatura (valor exato + liquidações parciais)
       audit.ts          # auditLedger — invariantes documentadas viradas em consulta (backfill + CLI)
       faturaImport.ts   # insert de fatura aberta (itens + due_date)
-      ledgerSql.ts      # consumptionExpense()/realIncome() — as duas regras de total,
-                        # em SQL, numa fonte só (alias da tabela é parâmetro)
+      ledgerSql.ts      # consumptionExpense()/realIncome()/investmentOut()/investmentIn() —
+                        # as regras de total em SQL, numa fonte só (alias da tabela é parâmetro)
     domain/             # lógica PURA (sem DB/IO)
       money.ts          # parseMoneyCents (string→centavos inteiros), fmtCents, parseDateBR
       classify.ts       # isInvestment, isCaixinhaLeg, checkingExpenseMethod
@@ -176,6 +176,7 @@ server.ts (node:http, 127.0.0.1:8000) → React frontend (SSE /api/events)
 - **Comprometido é DERIVADO** — fatura aberta (`payment_tx_id IS NULL`) + parcelas projetadas virtuais; nunca vira row; `available_net = available − committed_this_month` (só fatura vencendo no mês-calendário via `due_date`).
 - **Porquinho Inter NÃO é derivado** — é CDB custodiado na B3 (derivá-lo contaria em dobro; a derivação ignora rendimento). Suas pernas continuam classificadas como investimento (`INVESTMENT_KEYWORDS` mantém `porquinho`/`cdb porq`).
 - **Consumption-expense rule:** totais de despesa de consumo = `flow='expense' AND method != 'transfer' AND is_settlement=0 AND is_third_party=0 AND dest_account_id IS NULL`. Transferência (leg de investimento) **nunca** é despesa de consumo. Receita real = `flow='income' AND is_revenue=1 AND is_third_party=0` — os dois lados excluem terceiros. **Em SQL as duas regras têm uma fonte só: `db/ledgerSql.ts` (`consumptionExpense()` / `realIncome()`, alias da tabela como parâmetro).** Consulta nova que some dinheiro importa de lá; reescrever a condição à mão faz totais divergirem entre widgets sem quebrar teste nenhum.
+- **Perna de investimento ≠ perna SELF.** Aplicação = `flow='expense' AND method='transfer' AND self_pair_tx_id IS NULL AND dest_account_id IS NULL AND is_settlement=0`; resgate = `flow='income' AND is_revenue=0 AND method='transfer' AND self_pair_tx_id IS NULL`. **A exclusão do `self_pair_tx_id` é load-bearing:** `selfPairs` reescreve a perna SELF de saída pra `method='transfer'` (a marca da aplicação) e zera o `is_revenue` da de entrada (a marca do resgate) — sem excluí-la, mandar dinheiro da conta A pra B vira "aplicou" e o *saldo livre do mês* encolhe sozinho. Fonte única em `db/ledgerSql.ts` (`investmentOut()` / `investmentIn()`), ao lado das outras duas regras.
 - **`is_revenue`** (Integer): `1` = receita real, `0` = self-transfer ou movimento de investimento. Controla totais de receita.
 - **Espécies de dinheiro (front):** `money.js` → `moneyKind()` é a ÚNICA regra do frontend e devolve exatamente uma de seis espécies por linha: `settlement` · `transfer` · `invest` · `third_party` · `revenue` · `expense`. **A ordem de precedência é load-bearing** (liquidação antes de despesa senão o consumo dobra; SELF antes de investimento senão transferência vira aplicação). Equivale à regra consumo-despesa acima em toda linha alcançável — há teste combinatório que falha se divergir. Cor por espécie em `KIND_COLOR`; **verde é receita e só receita** (nunca reusar pra "dentro do alvo").
 - **Recorrência é DERIVADA e display-only.** `domain/recurrence.ts` recorta a **corrida recente** de meses por `flow|comerciante` (histórico inteiro enterra corrida viva sob anos de esporádico) e aceita ≥3 meses, `cv ≤ 0.35`, gap ≤ 2, parada ≤ 2 meses; valor = mediana. **Não entra no herói nem em `available_net`** — herói é dinheiro que existe, e somar entrada prevista faria salário atrasado virar estouro silencioso. `/api/commitments` mantém `series` como compromisso DURO; recorrência vive no campo irmão `recurring`. A projeção ancora no último mês **observado** de cada recorrência, não no mês corrente: mês já medido pelo ledger nunca recebe previsão (dobraria), mas o intervalo entre o fim dos dados e hoje recebe.

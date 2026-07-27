@@ -73,6 +73,19 @@ test("perna SELF de entrada com is_revenue=1 é violação (inflaria receita)", 
   assert.ok(checks(db).includes("self-entrada-como-receita"));
 });
 
+test("perna SELF ligada a uma posição é violação (transferência viraria aplicação)", () => {
+  const db = freshDb();
+  const inv = Number(db.prepare(
+    `INSERT INTO investments (name, match_key, type, bank, source)
+     VALUES ('Caixinha', 'k1', 'RDB', 'nubank', 'ledger')`,
+  ).run().lastInsertRowid);
+  const a = tx(db, { method: "transfer", investment_id: inv });
+  const b = tx(db, { flow: "income", method: "pix" });
+  db.prepare("UPDATE transactions SET self_pair_tx_id=? WHERE id=?").run(b, a);
+  db.prepare("UPDATE transactions SET self_pair_tx_id=? WHERE id=?").run(a, b);
+  assert.ok(checks(db).includes("self-como-investimento"));
+});
+
 test("liquidação marcada como transferência é violação", () => {
   const db = freshDb();
   tx(db, { method: "transfer", is_settlement: 1 });

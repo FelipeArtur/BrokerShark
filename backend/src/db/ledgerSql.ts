@@ -33,3 +33,31 @@ export function realIncome(alias = ""): string {
   const c = col(alias);
   return `${c}flow = 'income' AND ${c}is_revenue = 1 AND ${c}is_third_party = 0`;
 }
+
+/**
+ * Perna de INVESTIMENTO que sai da conta — aplicação.
+ *
+ * O par SELF é o vizinho perigoso: `selfPairs` reescreve a perna de saída pra
+ * `method='transfer'`, que é exatamente a marca da aplicação. Sem excluir
+ * `self_pair_tx_id`, mandar dinheiro da conta A pra conta B vira "aplicou" e o
+ * saldo livre do mês encolhe sozinho — foi o que acontecia no resumo do mês.
+ */
+export function investmentOut(alias = ""): string {
+  const c = col(alias);
+  return `${c}flow = 'expense' AND ${c}method = 'transfer' AND ${c}self_pair_tx_id IS NULL
+    AND ${c}dest_account_id IS NULL AND ${c}is_settlement = 0`;
+}
+
+/**
+ * Perna de INVESTIMENTO que entra na conta — resgate.
+ *
+ * `is_revenue = 0` sozinho não basta: `selfPairs` também zera o da perna de
+ * entrada. Hoje a perna SELF de entrada guarda o método original (pix/ted), mas
+ * depender disso é depender de um acaso do extrato — a exclusão explícita de
+ * `self_pair_tx_id` é o que sustenta a regra.
+ */
+export function investmentIn(alias = ""): string {
+  const c = col(alias);
+  return `${c}flow = 'income' AND ${c}is_revenue = 0 AND ${c}method = 'transfer'
+    AND ${c}self_pair_tx_id IS NULL`;
+}

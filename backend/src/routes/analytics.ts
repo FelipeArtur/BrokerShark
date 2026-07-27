@@ -4,7 +4,7 @@ import { json, qsStr, qsInt } from "../http/respond.ts";
 import type { Route } from "../http/router.ts";
 import { compilePath } from "../http/router.ts";
 import { currentMonth, monthRange } from "../domain/dates.ts";
-import { consumptionExpense, realIncome } from "../db/ledgerSql.ts";
+import { consumptionExpense, realIncome, investmentOut, investmentIn } from "../db/ledgerSql.ts";
 
 const FLOW_SUMS = `
   COALESCE(SUM(CASE
@@ -14,11 +14,10 @@ const FLOW_SUMS = `
     WHEN ${consumptionExpense("t")}
     THEN t.amount_cents ELSE 0 END), 0) AS expense_cents,
   COALESCE(SUM(CASE
-    WHEN t.flow='expense' AND t.method='transfer'
-      AND t.dest_account_id IS NULL AND t.is_settlement=0
+    WHEN ${investmentOut("t")}
     THEN t.amount_cents ELSE 0 END), 0) AS invest_out_cents,
   COALESCE(SUM(CASE
-    WHEN t.flow='income' AND t.is_revenue=0 AND t.method='transfer'
+    WHEN ${investmentIn("t")}
     THEN t.amount_cents ELSE 0 END), 0) AS invest_in_cents
 `;
 

@@ -39,6 +39,15 @@ const CHECKS: Check[] = [
           WHERE self_pair_tx_id IS NOT NULL AND flow = 'income' AND is_revenue = 1`,
   },
   {
+    check: "self-como-investimento",
+    // Uma perna SELF é dinheiro andando entre contas do próprio dono; ligá-la a
+    // uma posição a faria contar como aplicação ou resgate na carteira, e a
+    // mesma quantia apareceria em dois lugares.
+    message: "perna SELF ligada a uma posição de investimento — transferência viraria aplicação",
+    sql: `SELECT COUNT(*) AS n FROM transactions
+          WHERE self_pair_tx_id IS NOT NULL AND investment_id IS NOT NULL`,
+  },
+  {
     check: "liquidacao-mal-classificada",
     message: "liquidação de fatura marcada como transferência ou terceiro — dupla contagem de consumo",
     sql: `SELECT COUNT(*) AS n FROM transactions

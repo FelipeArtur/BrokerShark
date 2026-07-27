@@ -6,7 +6,9 @@ import { fileURLToPath } from "node:url";
 import { initSchema } from "./open.ts";
 import { runMigrations } from "./migrate.ts";
 import { seedAccountsAndCategories } from "../jobs/backfill/seeds.ts";
-import { consumptionExpense, realIncome } from "./ledgerSql.ts";
+import {
+  consumptionExpense, realIncome, investmentOut, investmentIn,
+} from "./ledgerSql.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = join(HERE, "migrations");
@@ -33,6 +35,22 @@ function tx(db: DatabaseSync, cols: Record<string, unknown>): void {
   ).run(...keys.map(k => all[k] as never));
 }
 
+// Um par SELF como `selfPairs` o deixa: saída reescrita pra `method='transfer'`,
+// entrada com `is_revenue=0` e método original, `self_pair_tx_id` cruzado.
+function selfPair(db: DatabaseSync, name: string): void {
+  tx(db, { description: `${name}-saida`, method: "transfer" });
+  tx(db, { description: `${name}-entrada`, flow: "income", method: "pix",
+           account_id: "inter-db", is_revenue: 0 });
+  db.exec(`
+    UPDATE transactions SET counterpart='SELF',
+      self_pair_tx_id=(SELECT id FROM transactions WHERE description='${name}-entrada')
+      WHERE description='${name}-saida';
+    UPDATE transactions SET counterpart='SELF',
+      self_pair_tx_id=(SELECT id FROM transactions WHERE description='${name}-saida')
+      WHERE description='${name}-entrada';
+  `);
+}
+
 const descs = (db: DatabaseSync, where: string): string[] =>
   (db.prepare(`SELECT description FROM transactions WHERE ${where} ORDER BY description`)
     .all() as { description: string }[]).map(r => r.description);
@@ -43,7 +61,7 @@ function ledger(): DatabaseSync {
   tx(db, { description: "mercado" });                                     // consumo puro
   tx(db, { description: "cinema", method: "credit" });                    // consumo no cartão
   tx(db, { description: "aplicacao", method: "transfer" });               // perna de investimento
-  tx(db, { description: "perna-self", method: "transfer" });              // saída SELF (reescrita p/ transfer)
+  selfPair(db, "perna-self");                                             // par SELF: saída + entrada
   tx(db, { description: "pagto-fatura", is_settlement: 1 });              // liquidação de fatura
   tx(db, { description: "gasto-de-terceiro", is_third_party: 1 });        // não é meu dinheiro
   tx(db, { description: "entre-contas", dest_account_id: "inter-db" });   // destino interno declarado
@@ -61,6 +79,23 @@ test("receita real pega só dinheiro que entrou de fora", () => {
   assert.deepEqual(descs(ledger(), realIncome()), ["salario"]);
 });
 
+test("aplicação pega só a perna de investimento, nunca a perna SELF de saída", () => {
+  assert.deepEqual(descs(ledger(), investmentOut()), ["aplicacao"]);
+});
+
+test("resgate pega só a entrada de investimento, nunca a perna SELF de entrada", () => {
+  assert.deepEqual(descs(ledger(), investmentIn()), ["resgate"]);
+});
+
+test("perna SELF de entrada com método reescrito continua fora do resgate", () => {
+  // Blindagem: hoje a entrada SELF guarda pix/ted, e a regra sobreviveria só
+  // por isso. Se um extrato entregar a entrada já como transferência, é o
+  // `self_pair_tx_id` que precisa segurar.
+  const db = ledger();
+  db.exec("UPDATE transactions SET method='transfer' WHERE description='perna-self-entrada'");
+  assert.deepEqual(descs(db, investmentIn()), ["resgate"]);
+});
+
 test("as duas regras não se sobrepõem e deixam o resto de fora", () => {
   const db = ledger();
   const total = (db.prepare("SELECT COUNT(*) AS n FROM transactions").get() as { n: number }).n;
@@ -72,7 +107,7 @@ test("as duas regras não se sobrepõem e deixam o resto de fora", () => {
 
 test("com apelido de tabela o recorte é idêntico", () => {
   const db = ledger();
-  for (const rule of [consumptionExpense, realIncome]) {
+  for (const rule of [consumptionExpense, realIncome, investmentOut, investmentIn]) {
     const bare = descs(db, rule());
     const aliased = (db.prepare(
       `SELECT t.description FROM transactions t WHERE ${rule("t")} ORDER BY t.description`,
