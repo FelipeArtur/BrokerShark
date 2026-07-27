@@ -20,7 +20,11 @@ npm install                                    # instala xlsx (única dependênc
 node src/jobs/backfill.ts "<dir do acervo>"    # → backend/data/brokershark-v2.db
 npm start                                      # http://127.0.0.1:8000
 npm test                                       # node:test (backend + frontend)
+npm run audit                                  # confere as invariantes no DB VIVO (read-only)
 ```
+
+`npm run audit` é read-only e sai com código 1 se alguma invariante quebrou — é o
+jeito de conferir o ledger do dia a dia sem reconstruir nada.
 
 O servidor sobe em `127.0.0.1:8000` (`PORT` no env ou `--port N` pra mudar).
 
@@ -60,7 +64,12 @@ node backend/src/jobs/backup.ts
 - **Contas entram e saem sem perder histórico** — conta nova pela UI, conta encerrada
   vira *soft-close*: sai do disponível, do patrimônio e das opções de import, mas cada
   lançamento dela continua no ledger e os meses passados seguem contando o que ela
-  movimentou. Apagar uma conta com histórico é recusado — encerre.
+  movimentou. Apagar uma conta com histórico é recusado — encerre. E, como no banco,
+  **só encerra quem está quite**: cartão com fatura em aberto ou conta no vermelho é
+  recusado.
+- **Categorização que aprende** — categorizar um lançamento vira regra; a aba *Regras*
+  deixa corrigir, desligar sem apagar, ou apagar. Apagar a regra não descategoriza o
+  que já passou.
 - **Backfill** — reconstrói o banco do zero a partir do acervo de exports.
 - **Import incremental via UI** — extratos Nubank/Inter (CSV), fatura Inter (CSV) e
   relatório B3 (xlsx), com preview, dedup, staging editável, confirmação e
@@ -95,15 +104,22 @@ O que não pode quebrar (detalhe e raciocínio em `CLAUDE.md` e nos comentários
 - **Self-transfer por pareamento de pernas** — saída + entrada de mesmo valor, contas
   diferentes, ±3 dias → `counterpart='SELF'`. Sem allow-list de keyword. SELF é
   **derivado**, nunca declarado pelo cliente.
+- **Perna de investimento ≠ perna SELF** — as duas se parecem no banco de dados (o
+  pareamento SELF reescreve a perna de saída pra `method='transfer'`, que é a marca
+  da aplicação), então toda soma de investimento exclui `self_pair_tx_id`. Sem isso,
+  mandar dinheiro de uma conta pra outra vira "aplicou".
 - **Investimento = posições + snapshots datados** — rendimento é computado, nunca
   chutado. Posição some do relatório → soft-close (`closed_at`), nunca DELETE.
 - **Caixinha Nubank é derivada do ledger** (RDB fora da B3); **Porquinho Inter não é** —
   é CDB custodiado na B3, e derivá-lo contaria em dobro.
 - **`closed_at` de conta afeta posição, nunca histórico** — o disponível soma só contas
   abertas (e conta encerrada vale zero, não o último saldo conhecido); todo total mensal
-  ignora o encerramento, porque o dinheiro se moveu de verdade na época.
+  ignora o encerramento, porque o dinheiro se moveu de verdade na época. Encerrar com
+  dívida em aberto é recusado, senão o valor a pagar sumiria do disponível sem ter sido
+  pago.
 
-O backfill valida as invariantes ao final e **aborta** se alguma quebrar.
+O backfill valida as invariantes ao final e **aborta** se alguma quebrar. No DB do dia
+a dia, `npm run audit` faz a mesma conferência sem reconstruir.
 
 ## Segurança
 
