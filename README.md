@@ -62,9 +62,10 @@ node backend/src/jobs/backup.ts
   lançamento dela continua no ledger e os meses passados seguem contando o que ela
   movimentou. Apagar uma conta com histórico é recusado — encerre.
 - **Backfill** — reconstrói o banco do zero a partir do acervo de exports.
-- **Import incremental via UI** — extratos Nubank/Inter (CSV) e relatório B3 (xlsx),
-  com preview, dedup, staging editável, confirmação e reverter-lote. Fatura Inter
-  (cartão) só via backfill.
+- **Import incremental via UI** — extratos Nubank/Inter (CSV), fatura Inter (CSV) e
+  relatório B3 (xlsx), com preview, dedup, staging editável, confirmação e
+  reverter-lote. Tudo entra por aqui: o backfill serve pra reconstruir do acervo,
+  não pra alimentar o dia a dia.
 
 ## Acervo
 

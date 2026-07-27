@@ -2,7 +2,7 @@ import { rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { openDb, initSchema, restrictPermissions } from "../db/open.ts";
 import { runMigrations } from "../db/migrate.ts";
-import { hasUserOverlay } from "./backfill/guard.ts";
+import { userOverlay } from "./backfill/guard.ts";
 import { collectAcervo } from "./backfill/files.ts";
 import { seedAccountsAndCategories, seedRules } from "./backfill/seeds.ts";
 import { makeTxInserter } from "./backfill/txInsert.ts";
@@ -24,13 +24,16 @@ if (!acervoDir) {
 
 if (existsSync(dbPath) && !force) {
   const existing = openDb(dbPath);
-  const overlay = hasUserOverlay(existing);
+  const found = userOverlay(existing);
   existing.close();
-  if (overlay) {
+  if (found.length) {
+    // Lista o que se perde, item a item: "dados da UI" não dá pra avaliar, e
+    // um aviso que não dá pra avaliar é um aviso que se aprende a ignorar.
+    console.error("Abortado: o DB tem dados que um rebuild apagaria e nenhum acervo recria:\n");
+    for (const f of found) console.error(`  · ${f.count} ${f.label}`);
     console.error(
-      "Abortado: o DB tem dados escritos pela UI (edições/lançamentos/importações).\n" +
-      "Um rebuild apagaria tudo. Use --force para reconstruir mesmo assim,\n" +
-      "ou importe novos meses pela UI (import incremental).",
+      "\nImporte os meses novos pela UI (import incremental) em vez de reconstruir.\n" +
+      "Se realmente quiser jogar isso fora, rode de novo com --force.",
     );
     process.exit(1);
   }

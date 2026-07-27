@@ -24,7 +24,7 @@ Desenvolvido com **Claude Code CLI**. `CLAUDE.md` = fonte única da verdade. **M
 
 Ferramenta **pessoal** de análise de dinheiro, 100% local (Linux, 1 usuário). Pergunta central: **"quanto eu posso gastar agora?"** — depois, para onde o dinheiro vai.
 
-**v2 rewrite — TypeScript.** O backend Python/Flask foi removido (histórico preservado no git). O novo backend é TypeScript rodando sobre Node ≥ 26 (native type-stripping, sem build step). Ingestão (backfill) e servidor web (node:http + SSE, zero deps) prontos. **Import incremental via UI** (`/api/import/*`) implementado: extratos Nubank/Inter (CSV) + relatório B3 (xlsx) com preview/dedup/staging editável/confirm/reverter-lote; pós-insert re-pareia SELF e rederiva a Caixinha. Fatura Inter (cartão) só via backfill.
+**v2 rewrite — TypeScript.** O backend Python/Flask foi removido (histórico preservado no git). O novo backend é TypeScript rodando sobre Node ≥ 26 (native type-stripping, sem build step). Ingestão (backfill) e servidor web (node:http + SSE, zero deps) prontos. **Import incremental via UI** (`/api/import/*`) implementado: extratos Nubank/Inter (CSV), fatura Inter (CSV) e relatório B3 (xlsx) com preview/dedup/staging editável/confirm/reverter-lote; pós-insert re-pareia SELF e rederiva a Caixinha. **Tudo entra pela UI — nada exige backfill.** O backfill existe pra reconstruir do acervo, não pra alimentar o dia a dia.
 
 **Entrega é dashboard web no navegador, e só.** Não há app desktop nem empacotamento — houve um wrapper WebKitGTK em `desktop/`, removido em 2026-07-26 por decisão do dono. Não reintroduzir: um segundo jeito de rodar é um segundo ciclo de vida de processo pra manter em pé, e o navegador já resolve.
 
@@ -96,7 +96,8 @@ backend/
     jobs/
       backfill.ts       # orquestrador (1 tela): fases em jobs/backfill/ (aborta se DB tem overlay da UI; --force)
       backfill/         # files, seeds, txInsert, extratos, faturas, selfPairs, caixinha,
-                        # b3Sync, guard (overlay da UI), investReview, verify — 1 fase por arquivo
+                        # b3Sync, guard (userOverlay: 4 sondas do que a UI escreveu),
+                        # investReview, verify — 1 fase por arquivo
       backup.ts         # backup mensal: snapshot VACUUM INTO datado (retém 12, 0600) + backupStatus + CLI
       audit.ts          # CLI read-only: db/audit.ts + investReview sobre o DB vivo (exit 1 se violou)
   systemd/              # brokershark-backup.{service,timer} — user timer mensal do backup
@@ -153,7 +154,10 @@ server.ts (node:http, 127.0.0.1:8000) → React frontend (SSE /api/events)
 - **SQLite é a fonte única.** `node:sqlite` builtin (zero deps nativas), WAL mode, `foreign_keys=ON`, `synchronous=NORMAL`.
 - **Schema no boot = baseline idempotente + migrations forward-only.** `schema.sql` é todo `CREATE ... IF NOT EXISTS` (baseline: **tabela nova nasce sozinha num DB vivo**, sem rebuild, no-op quando já existe). Logo após `initSchema`, `db/migrate.ts` roda `runMigrations` (server E backfill): aplica os `.sql` numerados de `db/migrations/` uma vez por DB, registrando em `migration_log`, cada um numa transação (falha → ROLLBACK + throw, aborta o boot). Migrations cobrem o que o baseline NÃO expressa — `ALTER`/rename/drop/data-fix; **não contêm `BEGIN`/`COMMIT`** (o runner envelopa). **Disciplina de baseline:** quando uma migration altera uma tabela, o DDL dela em `schema.sql` congela (o baseline reflete só o estado de criação; a migration leva daí pra frente). Tabela nova independente ainda pode entrar direto no `schema.sql`. Aditivo simples → prefira tabela nova; só use migration pra transformar o que já existe.
 - **Dinheiro = centavos inteiros.** `parseMoneyCents()` decompõe a string em inteiro+fração — jamais passa por float intermediário. `amount_cents`, `initial_balance_cents`, `net_cents`, etc.
-- **Backfill por reconstrução (guardado).** O DB é recriado do zero a cada run. **Guarda anti-perda-de-dados** (`jobs/backfill/guard.ts`): se o DB existente tem dados escritos pela UI (`import_batch_id`/`display_name`/`is_third_party`), aborta em vez de apagar — a menos de `--force`. Meses novos entram pelo **import incremental via UI**, não por rebuild.
+- **Backfill por reconstrução (guardado).** O DB é recriado do zero a cada run. **Guarda anti-perda-de-dados** (`jobs/backfill/guard.ts`): `userOverlay` roda **4 sondas** por tudo que a UI escreve e nenhum acervo recria — lançamentos (`import_batch_id`/`display_name`/`is_third_party`), **contas criadas ou encerradas** (`opened_at`/`closed_at`; o seed não preenche nenhuma das duas), **alvos de gasto** (`category_budgets`) e **regras aprendidas** (`rules.action='category'`; o seed só grava `investment_leg`/`settlement`). Aborta listando o que se perderia, item a item — a menos de `--force`.
+  - **Sonda nova declara `table` e `needs`.** A guarda roda ANTES das migrations, sobre o DB que já estava lá, então pode encontrar schema mais velho que ela; sonda cuja coluna não existe é pulada em vez de estourar. Pular está certo: sem a coluna, o dado não pode existir.
+  - Só escapa categoria criada pela UI e **nunca usada** — não há coluna que a distinga do seed, e comparar com a lista semeada duplicaria o seed dentro da guarda. Na prática toda categoria criada acaba usada, e o uso cai na sonda de regras.
+  - Meses novos entram pelo **import incremental via UI**, não por rebuild.
 - **DB chmod 0600** — sem auth na app, perms de arquivo = fronteira at-rest (backfill E server aplicam; WAL/SHM incluídos).
 - **Fronteiras do server local:** bind 127.0.0.1 + allowlist de **Host** (anti DNS-rebinding) + allowlist de **Origin** nos métodos != GET/HEAD (anti-CSRF — `readBody` ignora Content-Type, então todo write exige Origin localhost) + CSP self-only/nosniff/frame-deny + body cap 1MB (upload multipart 20MB / 64 partes) + writes 100% validados server-side (data, FKs, whitelists de method/flow/operation).
 
