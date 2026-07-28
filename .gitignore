@@ -43,3 +43,6 @@ Thumbs.db
 
 # Rascunho de sessão de agente — nunca versionar.
 .scratch/
+
+# Guia de agente — contexto local, fora da vitrine.
+CLAUDE.md
