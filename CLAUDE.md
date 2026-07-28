@@ -4,19 +4,11 @@
 
 > **Este arquivo mora na raiz de propósito** — é auto-carregado em toda sessão. Movê-lo pra uma subpasta (ou pro vault) o tiraria do contexto padrão e as invariantes financeiras abaixo deixariam de ser lidas.
 >
-> **A documentação de apoio NÃO mora mais no repo** — mora no vault Obsidian, em `~/Documents/Rede de projetos/Pessoal/BrokerShark/` (não é auto-carregada; leia sob demanda pelo caminho absoluto):
-> `BrokerShark.md` (índice — comece por aqui) · `Produto.md` (usuário/escopo) · `Design System.md` (tokens/sistema visual) · `Specs/` e `Planos/` (datados) · `Arquivo/` (superados).
-> O `CLAUDE.md` que aparece lá é symlink para **este** arquivo. No repo ficam só `README.md` (porta de entrada humana) e este guia.
+> **A documentação de apoio NÃO mora no repo** — mora no vault Obsidian, em `~/Documents/Rede de projetos/Pessoal/BrokerShark/` (não é auto-carregada; leia sob demanda pelo caminho absoluto): `BrokerShark.md` (índice) · `Produto.md` (usuário/escopo) · `Design System.md` (tokens/sistema visual). O `CLAUDE.md` que aparece lá é symlink para **este** arquivo. No repo ficam só `README.md` (porta de entrada humana) e este guia — não há `docs/`.
 >
-> **Doc novo de spec/plano/auditoria nasce no vault, nunca em `docs/`** — o repo não tem mais `docs/`.
+> **Spec e plano são descartáveis.** Enquanto o trabalho corre, nascem no vault; quando o código os alcança, o `git log` vira o registro e o doc datado sai de cena. O que precisa sobreviver ao ciclo vira invariante **aqui**.
 
-## gstack
-
-Use the `/browse` skill from gstack for all web browsing. **Never** use `mcp__claude-in-chrome__*` tools. Skills disponíveis: `/office-hours`, `/plan-ceo-review`, `/plan-eng-review`, `/plan-design-review`, `/design-consultation`, `/design-shotgun`, `/design-html`, `/review`, `/ship`, `/land-and-deploy`, `/canary`, `/benchmark`, `/browse`, `/connect-chrome`, `/qa`, `/qa-only`, `/design-review`, `/setup-browser-cookies`, `/setup-deploy`, `/setup-gbrain`, `/retro`, `/investigate`, `/document-release`, `/document-generate`, `/codex`, `/cso`, `/autoplan`, `/plan-devex-review`, `/devex-review`, `/careful`, `/freeze`, `/guard`, `/unfreeze`, `/gstack-upgrade`, `/learn`.
-
-## AI Development Tools
-
-Desenvolvido com **Claude Code CLI**. `CLAUDE.md` = fonte única da verdade. **Mudança permanente (schema/conta/invariante) → atualizar este arquivo.**
+**Mudança permanente (schema/conta/invariante) → atualizar este arquivo.** Use a skill `/browse` do gstack para navegação web; **nunca** as ferramentas `mcp__claude-in-chrome__*`.
 
 ---
 
@@ -65,9 +57,9 @@ redistribuir exige permissão escrita.
 
 Ferramenta **pessoal** de análise de dinheiro, 100% local (Linux, 1 usuário). Pergunta central: **"quanto eu posso gastar agora?"** — depois, para onde o dinheiro vai.
 
-**v2 rewrite — TypeScript.** O backend Python/Flask foi removido (histórico preservado no git). O novo backend é TypeScript rodando sobre Node ≥ 26 (native type-stripping, sem build step). Ingestão (backfill) e servidor web (node:http + SSE, zero deps) prontos. **Import incremental via UI** (`/api/import/*`) implementado: extratos (CSV, os dois formatos), fatura (CSV) e relatório de corretora (xlsx) com preview/dedup/staging editável/confirm/reverter-lote; pós-insert re-pareia SELF e rederiva a poupança. **Tudo entra pela UI — nada exige backfill.** O backfill existe pra reconstruir do acervo, não pra alimentar o dia a dia.
+**Tudo entra pela UI.** `/api/import/*` cobre extrato (CSV, os dois formatos), fatura (CSV) e relatório de corretora (xlsx), com preview/dedup/staging editável/confirm/reverter-lote; pós-insert re-pareia SELF e rederiva a poupança. O backfill existe pra reconstruir do acervo, **não** pra alimentar o dia a dia.
 
-**Entrega é dashboard web no navegador, e só.** Não há app desktop nem empacotamento — houve um wrapper WebKitGTK em `desktop/`, removido em 2026-07-26 por decisão do dono. Não reintroduzir: um segundo jeito de rodar é um segundo ciclo de vida de processo pra manter em pé, e o navegador já resolve.
+**Entrega é dashboard web no navegador, e só.** Não há app desktop nem empacotamento. Houve um wrapper WebKitGTK; **não reintroduzir** — um segundo jeito de rodar é um segundo ciclo de vida de processo pra manter em pé, e o navegador já resolve.
 
 **O produto é a análise (web dashboard — tela única, sem abas):** faixa KPI fixa (**Disponível pra gastar** herói · **Patrimônio total** com Δ mensal · **Saldo livre do mês** · **Investido** com Δ) + grid de widgets (visão geral do mês, fluxo mês a mês clicável = seletor de mês global, contas, categorias, investimentos, fatura do cartão, visão de futuro). Detalhe abre em **drill-down overlay**, nunca navegação. Seletor de mês global rege os widgets de fluxo; posição é sempre "agora"; default = mês mais recente COM dados. **Apoio (não é o centro):** import de extratos e posições B3.
 
@@ -81,112 +73,48 @@ Ferramenta **pessoal** de análise de dinheiro, 100% local (Linux, 1 usuário). 
 
 ## Repository Structure
 
+Um arquivo por preocupação; o nome diz o que faz. Abaixo só o que a árvore **não**
+conta sozinha.
+
 ```
-.github/
-  workflows/ci.yml       # Node 26 → npm ci → npm test → demo + auditoria de invariantes
-  assets/                # prints do README (gerados da DEMO, nunca do ledger real)
-LICENSE                  # proprietária de portfólio (ler/estudar livre; usar, não)
-README.md                # vitrine, em inglês · README.pt-BR.md — espelho em português
+.github/workflows/ci.yml  # Node 26 → npm ci → npm test → demo + auditoria de invariantes
+.github/assets/           # prints do README (gerados da DEMO, nunca do ledger real)
+config/                   # default.json (genérico, versionado) · local.json (o seu, ignorado)
 backend/
-  data/                  # brokershark-v2.db + demo.db (SQLite, 0600, NUNCA versionados)
-  package.json          # deps: xlsx (única npm dep); npm test = node:test (co-locado src/**/*.test.ts)
+  data/                   # *.db (SQLite, 0600, NUNCA versionados)
   src/
-    db/
-      schema.sql        # DDL v2 — baseline idempotente (CREATE IF NOT EXISTS)
-      open.ts           # openDb/initSchema/restrictPermissions (node:sqlite builtin)
-      migrate.ts        # runMigrations — forward-only sobre migration_log (boot: server + backfill)
-      migrations/       # NNNN_slug.sql numerados; ALTER/rename/drop/data-fix (sem BEGIN/COMMIT)
-      reconcile.ts      # reconciliação de pagamento de fatura (valor exato + liquidações parciais)
-      audit.ts          # auditLedger — invariantes documentadas viradas em consulta (backfill + CLI)
-      faturaImport.ts   # insert de fatura aberta (itens + due_date)
-      ledgerSql.ts      # consumptionExpense()/realIncome()/investmentOut()/investmentIn() —
-                        # as regras de total em SQL, numa fonte só (alias da tabela é parâmetro)
-    config.ts           # a config do ledger: contas, formatos, keywords, grupos
-    domain/             # lógica PURA (sem DB/IO)
-      money.ts          # parseMoneyCents (string→centavos inteiros), fmtCents, parseDateBR
-      classify.ts       # isInvestment/isDerivedSavingsLeg (vocabulário vem por parâmetro)
-      dates.ts          # currentMonth, monthRange, prevRefMonth, today
-      budget.ts         # resolveBudget (override do mês → alvo fixo), isRefMonth
-      positions.ts      # monthlyPortfolioSeries (carry-forward de snapshots)
-      accountBalances.ts# monthlyCheckingSeries — saldo POR CONTA, com corte no encerramento
-      merchant.ts       # normalizeMerchant — núcleo do comerciante, matcher das regras de categoria
-      commitments.ts    # projeção pura de parcelas/compromissos (visão de futuro)
-      recurrence.ts     # detecção de recorrência (corrida recente por comerciante+sentido)
-    ingest/             # parsers dos exports (1 arquivo por formato)
-      types.ts          # TxRecord, ParsedFile
-      csv.ts            # parser CSV genérico
-      statementWithIds.ts     # extrato CSV com identificador único (dedup exata)
-      statementWithBalance.ts # extrato CSV com saldo corrente (conferido linha a linha)
-      invoiceItemized.ts      # fatura CSV item a item (categoria do banco + parcelas)
-      b3.ts                   # relatório consolidado de corretora xlsx (posições + snapshots)
-    http/               # infraestrutura HTTP (1 preocupação por arquivo)
-      respond.ts        # json/error, readBody (limite 1MB, HttpError), query-string
-      router.ts         # compilePath + dispatch
-      sse.ts            # broadcaster /api/events + keepalive
-      static.ts         # frontend estático (guarda de traversal, mapa /static/)
-      security.ts       # host + Origin allowlist (anti DNS-rebinding + anti-CSRF) + headers (CSP etc.)
-      multipart.ts      # parser multipart/form-data (upload do import; cap 20MB / 64 partes)
-      validate.ts       # isIsoDate, isPositiveAmount, isIntId… (writes validam tudo)
-    testing/            # fixtures de TESTE (categorias genéricas) — nunca importado por produção
-    routes/             # handlers finos por domínio; SQL nomeado no topo
-      accounts.ts       # /api/accounts (GET/POST/PATCH/DELETE), /api/available,
-                        # /api/liquidity-history + openCheckingIds (allowlist do import)
-      transactions.ts   # month-transactions (com sugestão), PATCH/DELETE + undo, bulk
-      categories.ts     # categories-full (alvo+gasto+Δ), expense-categories,
-                        # POST/PATCH/DELETE + PUT/DELETE /api/category-budget
-      analytics.ts      # monthly, cashflow-statement, uncategorized-merchants
-      investments.ts    # carteira (abertas), evolução, detalhe da posição
-                        # (/api/investments/:id — ficha + snapshots, rendimento COMPUTADO)
-      import.ts         # /api/import/* — detect/preview/staging/confirm/batch + B3 (upload incremental)
-      commitments.ts    # /api/commitments — visão de futuro derivada (duro + recorrente)
-      rules.ts          # /api/rules — regras APRENDIDAS: listar/corrigir/desligar/apagar
-                        # (+ /api/rules/test, espelho do que a sugestão faria)
-    server.ts           # bootstrap: config → db → initSchema → pipeline
-                        # (host→headers→Origin→SSE→rotas→estático)
+    config.ts             # carrega/valida a config e serve os recortes prontos
+    db/                   # schema.sql (baseline idempotente) · migrate.ts + migrations/
+                          # open.ts · reconcile.ts · faturaImport.ts · audit.ts
+      ledgerSql.ts        # consumptionExpense()/realIncome()/investmentOut()/investmentIn()
+                          # — as regras de total em SQL, numa fonte só
+    domain/               # lógica PURA (sem DB/IO), testada: money, classify, dates, budget,
+                          # positions, accountBalances, merchant, commitments, recurrence
+    ingest/               # 1 parser por FORMATO (não por banco): statementWithIds,
+                          # statementWithBalance, invoiceItemized, b3 · csv.ts genérico
+    http/                 # respond · router · sse · static · security · multipart · validate
+    testing/              # fixtures de TESTE — nunca importado por produção
+    routes/               # handlers finos por domínio; SQL nomeado no topo
+    server.ts             # bootstrap: config → db → initSchema → migrations → pipeline
+                          # (host→headers→Origin→SSE→rotas→estático)
     jobs/
-      seedDemo.ts       # ledger SINTÉTICO determinístico (npm run demo) — passa pelos
-                        # mesmos módulos do backfill e se audita no fim; é o que faz o
-                        # projeto rodar sem acervo e a fonte dos prints do README
-      backfill.ts       # orquestrador (1 tela): fases em jobs/backfill/ (aborta se DB tem overlay da UI; --force)
-      backfill/         # files (padrões da config), seeds (contas; NUNCA categorias), txInsert,
-                        # extratos, faturas, selfPairs, derivedSavings,
-                        # b3Sync, guard (userOverlay: 4 sondas do que a UI escreveu),
-                        # investReview, verify — 1 fase por arquivo
-      backup.ts         # backup mensal: snapshot VACUUM INTO datado (retém 12, 0600) + backupStatus + CLI
-      audit.ts          # CLI read-only: db/audit.ts + investReview sobre o DB vivo (exit 1 se violou)
-  systemd/              # brokershark-backup.{service,timer} — user timer mensal do backup
-frontend/
-  index.html            # React 18 SPA (hyperscript puro, sem build step)
-  js/
-    domain/             # regra PURA e testada — espelha backend/src/domain
-                        # money.js — ESPÉCIES de dinheiro (moneyKind/KIND_COLOR/fmtParts) — testada
-                        # tx-group.js — agrupamento da tabela (buildGroups/scaleFor/budgetState) — testada
-                        # filter.js — lógica pura filtro facetado (applyFilter/toggleFacet/searchMatch) — testada
-                        # palette.js — cor estável por nome, quantizada a 8 matizes — testada
-                        # bars.js — quais barras um mês desenha (fantasma do mês anterior) — testada
-                        # month-nav.js — salto de 12 meses sobre série esparsa — testada
-                        # bank.js — cor e rótulo de banco (cor estável derivada do
-                        # nome; nenhum banco tem cor reservada) — testada
-                        # bulk.js — suggestionPlan (decisão do "aplicar todas") — testada
-                        # forward.js — merge duro+previsto, escala, rótulo do comerciante — testada
-    core/               # api.js (fetch + contrato) · juice.js — engine feedback SILENCIOSO
-                        # (coin/boot/pop/shake); sem áudio — respeita prefers-reduced-motion — testada
-    ui/                 # primitives.js (Overlay de drill-down, Money, TxRow) · icons.js
-                        # pixel-bars.js — barras dithered fluxo mês a mês (clique→seletor global) + compare toggle
-    screens/            # app.js (shell)
-                        # dashboard.js (a tela única: KPIs + widgets facetados)
-                        # history.js (TxTableWidget — a planilha, agrupada por categoria)
-    overlays/           # abre por cima da tela única — Modal ou Overlay (drill-down tela cheia), mesma ideia
-                        # transaction.js (editor de lançamento) · import.js (import via UI)
-                        # bulk.js — categorização em lote por comerciante
-                        # categories.js — CategoriesPanel (abas Categorias | Regras)
-                        # accounts.js — AccountsPanel (criar/renomear/encerrar/reabrir)
-                        # investments.js — InvestmentPanel (ficha + histórico de medições)
-    vendor/             # react, react-dom, chart — vendorizados (inalterado)
-  css/                  # estilos; pixel.css — estrutural (bordas duras, sombras degrau, scanlines CRT, dither, keyframes)
-                        # pixel-ui.css — vocabulário de componente (.px-row/.px-field/.px-btn/.px-seg/.px-swatch/.px-chip…)
-  fonts/                # Silkscreen, Departure Mono — vendorizados (100% offline); só essas duas
-  img/                  # assets
+      seedDemo.ts         # ledger SINTÉTICO determinístico (npm run demo) — passa pelos mesmos
+                          # módulos do backfill e se audita no fim; fonte dos prints do README
+      backfill.ts         # orquestrador (1 tela); fases em backfill/, 1 por arquivo
+      backup.ts           # snapshot VACUUM INTO datado (retém 12, 0600) + CLI
+      audit.ts            # CLI read-only sobre o DB vivo (exit 1 se violou)
+  systemd/                # user timer mensal do backup
+frontend/                 # sem build step; cada arquivo em IIFE
+  js/domain/              # regra PURA e testada — espelha backend/src/domain
+                          # money.js (ESPÉCIES de dinheiro) · tx-group · filter · palette
+                          # bars · month-nav · bank · bulk · forward
+  js/core/                # api.js (fetch + contrato) · juice.js (feedback SILENCIOSO, sem áudio)
+  js/ui/                  # primitives.js (Overlay/Modal/Money/TxRow) · icons · pixel-bars
+  js/screens/             # app (shell) · dashboard (a tela única) · history (a planilha)
+  js/overlays/            # abrem por cima da tela única: transaction, import, bulk,
+                          # categories, accounts, investments
+  css/                    # style.css (tokens) · pixel.css (estrutural) · pixel-ui.css (componente)
+  fonts/                  # Silkscreen, Departure Mono — vendorizadas; só essas duas
 ```
 
 ---
@@ -217,11 +145,11 @@ server.ts (node:http, 127.0.0.1:8000) → React frontend (SSE /api/events)
 
 ### Invariantes financeiras (load-bearing — não quebrar)
 
-- **Fatura itemizada (v2):** os itens da fatura são os gastos reais (`credit`, na conta do cartão). O pagamento da fatura no extrato é uma **liquidação** (`is_settlement=1`) — excluída dos totais de consumo. Sem isso, consumo contaria em dobro (itens + pagamento).
+- **Fatura itemizada:** os itens da fatura são os gastos reais (`credit`, na conta do cartão). O pagamento da fatura no extrato é uma **liquidação** (`is_settlement=1`) — excluída dos totais de consumo. Sem isso, consumo contaria em dobro (itens + pagamento).
 - **Reconciliação de fatura:** pagamento de valor EXATO do `total_cents` da fatura, janela −70/+35 dias do `ref_month`, casado por `invoice_id`. Pagamentos de fatura na cobertura das faturas importadas mas sem match exato são **liquidações parciais** (rotativo/débito automático).
-- **Self-transfers por pareamento de pernas (v2):** saída pix/ted numa conta + entrada de mesmo valor em conta diferente dentro de ±3 dias = `counterpart='SELF'`. Sem keyword allow-list (diferença do v1). Pernas SELF: `self_pair_tx_id` cruzado. Fora de despesas, receitas e investimento.
+- **Self-transfers por pareamento de pernas:** saída pix/ted numa conta + entrada de mesmo valor em conta diferente dentro de ±3 dias = `counterpart='SELF'`. Sem keyword allow-list. Pernas SELF: `self_pair_tx_id` cruzado. Fora de despesas, receitas e investimento.
   - **SELF é DERIVADO, nunca declarado.** `selfPairs.ts` reescreve a perna de saída pra `method='transfer'` — é disso que a regra consumo-despesa depende pra excluí-la (a regra não olha `counterpart`). Por isso **não existe rota que crie lançamento avulso**: uma perna SELF declarada pelo cliente nasceria sem `self_pair_tx_id` e seria contada como gasto. Linha nova entra só por import (que passa pelo re-pareamento). Se um dia voltar um `POST /api/transactions`, ele **tem** que recusar `counterpart='SELF'`.
-  - Verificado no ledger: 19 pernas de saída (`expense`/`transfer`) + 19 de entrada (`income`/`pix`, `is_revenue=0`). Os dois lados são excluídos por campos diferentes.
+  - Os dois lados da perna SELF são excluídos por campos diferentes: a saída pelo `method='transfer'`, a entrada pelo `is_revenue=0`.
 - **Investimentos = posições + snapshots:** `position_snapshots` datados (quantity, applied/gross/net). Yield é computado, nunca chutado. Posições soft-close (`closed_at`) quando somem dos relatórios mais novos — nunca DELETE.
 - **B3 = tabela verdade (posições de corretora).** Full-sync por `match_key` (ISIN/código/ticker). Soft-close por tipo de aba: **Tesouro/Ações/BDR** — o consolidado sempre lista o que existe; posição ausente de qualquer relatório mais novo → fechada. **Renda Fixa** — a aba PISCA no consolidado (posições vivas somem de um mês e voltam no outro; o registro em custódia atrasa); aba RF ausente = sem informação, só fecha quando um relatório mais novo COM aba RF deixa de listar a posição. O rótulo de grupo (`group_name`) sai de `positionGroups` na config.
 - **Poupança derivada = posição que o ledger calcula.** É a reserva SEM custódia em corretora: nenhum relatório a lista, então o saldo é `Σ(aplicações) − Σ(resgates)` das pernas `transfer` que casam as keywords de `derivedSavings`, na conta que a config indicar. `source='ledger'`, `match_key='ledger:derived-savings'`. Snapshots mensais derivados no backfill.
@@ -253,11 +181,11 @@ server.ts (node:http, 127.0.0.1:8000) → React frontend (SSE /api/events)
 | Database | SQLite via `node:sqlite` (builtin, WAL, `foreign_keys=ON`, file mode 0600) |
 | Parsing | own CSV parsers; `xlsx` for B3 reports (única npm dependency) |
 | Frontend | React 18 (pixel-art / 8-bit, Balatro-CRT palette, tema único) + fontes Silkscreen (headings/labels) + Departure Mono (números/body), ambas vendorizadas offline. Só essas duas — cobrem Latin-1/acentos PT, então não há camada de fallback webfont (stack termina em system-ui/ui-monospace). **Widgets = facetas clicáveis** (categoria/conta/banco), busca sempre visível, recategorização inline. **Sem build step** — hyperscript puro (`React.createElement`, nunca JSX); cada arquivo em IIFE. |
-| Server | `node:http` + micro-router próprio + SSE (`/api/events`) — zero deps, bind 127.0.0.1, preserva o API contract v1 |
+| Server | `node:http` + micro-router próprio + SSE (`/api/events`) — zero deps, bind 127.0.0.1 |
 
 ---
 
-## Data Model (v2)
+## Data Model
 
 ```sql
 accounts (id TEXT PK, bank, type CHECK('checking'|'credit_card'), name, initial_balance_cents,
@@ -291,16 +219,7 @@ migration_log (name TEXT PK, ran_at)
 
 `method` CHECK: `pix | credit | ted | transfer | debit | salary | freelance | pix_received | other`.
 
-### Diferenças-chave vs schema v1
-
-- `amount_cents` (integer) em vez de `amount` (float).
-- `invoices` + `invoice_id` em transactions → fatura itemizada.
-- `position_snapshots` → histórico de posições datado (yield computado).
-- `investment_id` em transactions → liga perna do extrato à posição.
-- `self_pair_tx_id` → pareamento bidirecional das pernas SELF.
-- `is_settlement` → marca liquidações de fatura (excluídas de consumo).
-- `bank_category` → categoria que o próprio banco atribuiu (vem na fatura).
-- `rules` → documenta a classificação aplicada; consultada para **sugestão de categoria** (month-transactions/import). As **aprendidas** (`action='category'`) são editáveis pela aba Regras (`/api/rules`); as semeadas pelo backfill (`investment_leg`/`settlement`) não — nada as lê em execução, então editá-las prometeria um efeito que não existe (as rotas dão 404).
+`rules` documenta a classificação aplicada e alimenta a **sugestão de categoria** (month-transactions/import). As **aprendidas** (`action='category'`) são editáveis pela aba Regras (`/api/rules`); as semeadas pelo backfill (`investment_leg`/`settlement`) não — nada as lê em execução, então editá-las prometeria um efeito que não existe (as rotas dão 404).
 
 ---
 
@@ -331,18 +250,6 @@ Pipeline sequencial:
 7. **Relatório da corretora** → upsert por `match_key` + snapshots + soft-close
 8. **Rules seed** → documenta keywords de classificação
 9. **Verificação** → saldo por conta, conferência contra o saldo declarado no extrato, resumo de investimentos, **invariantes** (regra consumo-despesa / liquidação) + **review de investimentos** (`investReview.ts`: invariantes que abortam — nenhuma posição de corretora derivada do ledger, poupança derivada reconcilia com Σ pernas, posição aberta sem snapshot, net negativo — + panorama de alocação)
-
----
-
-## Accounts
-
-| Account | Type | Bank |
-|---------|------|------|
-| `conta-a` | Checking | Banco A |
-| `conta-b` | Checking | Banco B |
-| `cartao-b` | Credit Card | Banco B |
-
-São as contas do `config/default.json` — exemplo genérico. O `config/local.json` de cada instalação declara as de verdade.
 
 ---
 

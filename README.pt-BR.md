@@ -153,7 +153,7 @@ versionado.**
 | Linguagem | TypeScript (Node ≥ 26, type-stripping nativo — sem build step) |
 | Banco | SQLite via `node:sqlite` (builtin, WAL, `foreign_keys=ON`, modo 0600) |
 | Parsing | parsers CSV próprios, por formato; `xlsx` pros relatórios de corretora (única dependência npm) |
-| Frontend | React 18 + Chart.js, vendorizados, sem CDN e sem build step (hyperscript puro, nunca JSX) |
+| Frontend | React 18 vendorizado, sem CDN e sem build step (hyperscript puro, nunca JSX) |
 | Servidor | `node:http` + micro-router próprio + SSE (`/api/events`) — zero dependências |
 
 ## Documentação
