@@ -20,6 +20,24 @@ Desenvolvido com **Claude Code CLI**. `CLAUDE.md` = fonte única da verdade. **M
 
 ---
 
+## O repositório é PÚBLICO
+
+Desde 2026-07-27 o repo é vitrine de portfólio no GitHub. Duas consequências que valem
+mais que qualquer preferência de estilo:
+
+- **Nenhum dado real entra em arquivo versionado. Nunca.** Nem em teste, nem em fixture,
+  nem em comentário, nem em mensagem de commit. Nome de pessoa, CPF (mesmo mascarado),
+  agência, conta, CNPJ de empregador, comerciante real — tudo fictício, e obviamente
+  fictício ("joao da silva", "banco exemplo", "•••.000.000-••"). O histórico já foi
+  reescrito uma vez pra tirar dado de terceiro que vazou por fixture de teste; a segunda
+  vez custa o mesmo e a exposição é irreversível. `data/` e `backups/` seguem fora do VCS.
+- **README.md é a vitrine, em inglês**; `README.pt-BR.md` é o espelho em português.
+  Código, comentários, commits e este arquivo continuam em português. Mudança que altere
+  o que o README afirma (rodar, testar, stack, invariante) atualiza os dois.
+
+`LICENSE` é proprietária de portfólio: ler, rodar e estudar é livre; usar em produto ou
+redistribuir exige permissão escrita.
+
 ## Overview
 
 Ferramenta **pessoal** de análise de dinheiro, 100% local (Linux, 1 usuário). Pergunta central: **"quanto eu posso gastar agora?"** — depois, para onde o dinheiro vai.
@@ -41,8 +59,13 @@ Ferramenta **pessoal** de análise de dinheiro, 100% local (Linux, 1 usuário). 
 ## Repository Structure
 
 ```
+.github/
+  workflows/ci.yml       # Node 26 → npm ci → npm test → demo + auditoria de invariantes
+  assets/                # prints do README (gerados da DEMO, nunca do ledger real)
+LICENSE                  # proprietária de portfólio (ler/estudar livre; usar, não)
+README.md                # vitrine, em inglês · README.pt-BR.md — espelho em português
 backend/
-  data/                  # brokershark-v2.db (ledger SQLite, 0600, NUNCA versionado)
+  data/                  # brokershark-v2.db + demo.db (SQLite, 0600, NUNCA versionados)
   package.json          # deps: xlsx (única npm dep); npm test = node:test (co-locado src/**/*.test.ts)
   src/
     db/
@@ -96,6 +119,9 @@ backend/
     server.ts           # bootstrap: config → db → initSchema → pipeline
                         # (host→headers→Origin→SSE→rotas→estático)
     jobs/
+      seedDemo.ts       # ledger SINTÉTICO determinístico (npm run demo) — passa pelos
+                        # mesmos módulos do backfill e se audita no fim; é o que faz o
+                        # projeto rodar sem acervo e a fonte dos prints do README
       backfill.ts       # orquestrador (1 tela): fases em jobs/backfill/ (aborta se DB tem overlay da UI; --force)
       backfill/         # files, seeds, txInsert, extratos, faturas, selfPairs, caixinha,
                         # b3Sync, guard (userOverlay: 4 sondas do que a UI escreveu),
@@ -296,8 +322,10 @@ Pipeline sequencial:
 ```bash
 cd backend
 npm install       # instala xlsx
+npm run demo      # ledger sintético em data/demo.db (24 meses, determinístico, se audita)
 node src/jobs/backfill.ts "<dir do acervo>"   # → backend/data/brokershark-v2.db (--force p/ reconstruir sobre DB com dados da UI)
 npm start         # server em http://127.0.0.1:8000 (PORT ou --port N para mudar)
+npm start -- data/demo.db                     # sobe o painel sobre a demo
 npm test          # rede node:test — backend (src/**/*.test.ts, co-locado) + frontend
                   # (../frontend/js/**/*.test.js: domain/, core/juice — money, tx-group, filter, juice)
 npm run audit     # confere as invariantes contra o DB VIVO (read-only, sem rebuild); sai 1 se quebrou

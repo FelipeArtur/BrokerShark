@@ -1,172 +1,164 @@
 # BrokerShark
 
-Ferramenta **pessoal** de análise de dinheiro. 100% local, Linux, um usuário, contas
-Nubank + Inter. Responde primeiro **"quanto eu posso gastar agora?"** — e só depois
-deixa cavar pra onde o dinheiro foi.
+A personal finance dashboard that answers one question first: **how much can I spend right now?**
 
-Sem API de banco, sem nuvem, sem telemetria: a entrada são os arquivos que os bancos
-já exportam.
+100% local, single user, no bank APIs, no cloud, no telemetry. The input is the CSV and
+XLSX files Brazilian banks already export. Money is stored in **integer cents** — there
+is no float anywhere in the ledger.
 
-> **North star:** fácil de alimentar + extremamente confiável.
-> Dinheiro em **centavos inteiros** — sem float no ledger.
+[![CI](https://github.com/FelipeArtur/BrokerShark/actions/workflows/ci.yml/badge.svg)](https://github.com/FelipeArtur/BrokerShark/actions/workflows/ci.yml)
 
-## Rodando
+*[Leia em português](README.pt-BR.md)*
 
-Requer **Node ≥ 26** (type-stripping nativo — o projeto não tem build step).
+![Dashboard](.github/assets/dashboard.png)
+
+*All figures in the screenshots come from the built-in synthetic ledger (`npm run demo`),
+not from real accounts.*
+
+---
+
+## Why it exists
+
+Budgeting apps answer "where did the money go?". That question is retrospective and, for
+me, useless at the moment of decision. The question that actually governs a purchase is
+**what is safe to spend today**, and answering it means subtracting what is already
+committed — an open credit card invoice, installments still running — from what is
+actually liquid.
+
+So the hero number on screen is `available − committed`, and everything else is
+arranged around defending it.
+
+## The interesting part: the invariants
+
+Most of the engineering here is not the UI. It is the set of rules that keep totals from
+lying, each one learned from a number that was wrong on screen.
+
+**A credit card invoice is counted once.** The itemized invoice lines are the real
+expenses. The payment that shows up on the bank statement is a *settlement*
+(`is_settlement=1`) and is excluded from spending totals. Count both and every month with
+a card is inflated twice.
+
+**Transfers between your own accounts are not expenses.** They are detected, never
+declared: an outgoing leg and an incoming leg of the same amount, in different accounts,
+within ±3 days, get paired (`self_pair_tx_id` on both sides). The pairing rewrites the
+outgoing leg to `method='transfer'`, which is what keeps it out of consumption spending.
+
+**...and a paired transfer is not an investment either.** This one cost me a real bug. An
+investment contribution is also `flow='expense' AND method='transfer'` — the exact
+signature the SELF pairing writes. Any query summing investments has to exclude
+`self_pair_tx_id`, or moving money from account A to account B reads as "invested" and
+the month's free balance silently shrinks. The frontend had it right and the backend did
+not, and the disagreement between the two is what exposed it.
+
+**Yield is computed, never stored as a claim.** Investment positions carry dated
+snapshots; the return is the difference between them. A position that disappears from a
+newer broker report is soft-closed, never deleted.
+
+**Closing an account affects the present, never the past.** A closed account counts zero
+in "what I have now" — not its last known balance — while every historical total ignores
+the closure entirely, because the money really did move back then. And, like a real bank,
+an account only closes when it is settled: a card with an open invoice or a checking
+account in the red is refused.
+
+These rules live in one place in SQL (`backend/src/db/ledgerSql.ts`) rather than being
+re-typed per query, because a copy that drifts makes two widgets disagree without failing
+a single test.
+
+Every rule above is enforced twice: as a unit test, and as an **audit query that runs
+against the live database** (`npm run audit`, 17 checks). If a total on screen is lying,
+the audit says so and exits non-zero.
+
+## Screenshots
+
+| Investment drill-down — yield computed across 16 dated measurements |
+|---|
+| ![Investment detail](.github/assets/investment.png) |
+
+| Forward view — hard commitments plus recurrence detected from history |
+|---|
+| ![Forward view](.github/assets/forward.png) |
+
+## Running it
+
+Requires **Node ≥ 26** (native type-stripping — the project has no build step).
 
 ```bash
 cd backend
-npm install                                    # instala xlsx (única dependência)
-node src/jobs/backfill.ts "<dir do acervo>"    # → backend/data/brokershark-v2.db
-npm start                                      # http://127.0.0.1:8000
-npm test                                       # node:test (backend + frontend)
-npm run audit                                  # confere as invariantes no DB VIVO (read-only)
+npm install                 # one dependency: xlsx
+npm run demo                # builds a synthetic 24-month ledger at data/demo.db
+npm start -- data/demo.db   # http://127.0.0.1:8000
 ```
 
-`npm run audit` é read-only e sai com código 1 se alguma invariante quebrou — é o
-jeito de conferir o ledger do dia a dia sem reconstruir nada.
+The demo generator is not a fixture dump: it feeds transactions through the same
+production modules the real importer uses (SELF pairing, savings derivation, itemized
+invoice, payment reconciliation) and then runs the invariant audit against what it
+produced, failing if anything broke. That is also why it is a CI step.
 
-O servidor sobe em `127.0.0.1:8000` (`PORT` no env ou `--port N` pra mudar).
-
-**É um dashboard web, e só isso.** Não há app desktop nem empacotamento: abra
-`http://127.0.0.1:8000` no navegador. Houve um wrapper WebKitGTK
-(`desktop/brokershark.py`); foi removido em 2026-07-26 — está no `git log` se um
-dia fizer falta.
-
-## Backup do ledger
-
-Snapshot mensal datado (`VACUUM INTO`, retém 12) por systemd user timer. Confirme
-o caminho do `node` no `.service` (`which node`), então:
+To use it with your own data, import statements through the UI (Nubank and Inter CSV,
+Inter card invoice CSV, B3 consolidated XLSX) or rebuild from a directory of exports:
 
 ```bash
-mkdir -p ~/.config/systemd/user
-cp backend/systemd/brokershark-backup.* ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user start brokershark-backup.service   # dispara já, uma vez
-systemctl --user enable --now brokershark-backup.timer
+npm run backfill "<archive dir>"
 ```
 
-Backups em `~/brokershark-backups/` (0600). `BROKERSHARK_BACKUP_DIR` muda o destino
-lido pelo endpoint `backup-status`. Rodar avulso, sem timer:
+## Testing
 
 ```bash
-node backend/src/jobs/backup.ts
+npm test     # 342 tests, node:test, backend + frontend
+npm run audit # invariant checks against the live database, read-only
 ```
 
-## O que faz
+Pure domain logic (`domain/`, `frontend/js/domain/`) has no database or IO, so the part
+that decides what money means is tested without infrastructure.
 
-- **Dashboard web** — tela única, sem abas: faixa KPI fixa (Disponível pra gastar ·
-  Patrimônio · Saldo livre do mês · Investido) + grid de widgets (visão geral do mês,
-  fluxo mês a mês clicável = seletor de mês global, contas, categorias, investimentos,
-  fatura do cartão, visão de futuro). Detalhe abre em **overlay de drill-down**,
-  nunca navegação.
-- **Orçamento por categoria** — alvo fixo por categoria, com override opcional por mês.
-- **Contas entram e saem sem perder histórico** — conta nova pela UI, conta encerrada
-  vira *soft-close*: sai do disponível, do patrimônio e das opções de import, mas cada
-  lançamento dela continua no ledger e os meses passados seguem contando o que ela
-  movimentou. Apagar uma conta com histórico é recusado — encerre. E, como no banco,
-  **só encerra quem está quite**: cartão com fatura em aberto ou conta no vermelho é
-  recusado.
-- **Categorização que aprende** — categorizar um lançamento vira regra; a aba *Regras*
-  deixa corrigir, desligar sem apagar, ou apagar. Apagar a regra não descategoriza o
-  que já passou.
-- **Backfill** — reconstrói o banco do zero a partir do acervo de exports.
-- **Import incremental via UI** — extratos Nubank/Inter (CSV), fatura Inter (CSV) e
-  relatório B3 (xlsx), com preview, dedup, staging editável, confirmação e
-  reverter-lote. Tudo entra por aqui: o backfill serve pra reconstruir do acervo,
-  não pra alimentar o dia a dia.
+## Architecture
 
-## Acervo
+```
+bank exports (CSV / XLSX)
+      ↓
+parsers + backfill  →  SQLite (WAL, foreign_keys=ON, chmod 0600)
+                              ↓
+                       node:http + SSE  →  React frontend (no build step)
+```
 
-O backfill descobre os arquivos **recursivamente e pelo nome**, então a árvore de pastas
-é livre. Os padrões reconhecidos:
-
-| Fonte | Padrão do arquivo | Formato |
-|---|---|---|
-| Extrato Nubank | `NU_<conta>_<DDMMMYYYY>_<DDMMMYYYY>.csv` | CSV (`Data,Valor,Identificador,Descrição`) |
-| Extrato Inter | `Extrato-DD-MM-YYYY-a-*.csv` | CSV (ponto-e-vírgula, preâmbulo de 5 linhas, saldo corrente conferido) |
-| Fatura Inter | `fatura-inter-YYYY-MM.csv` | CSV (categoria do banco + parcelas) |
-| Relatório B3 | `relatorio-consolidado-{anual-YYYY,mensal-YYYY-<mês>}.xlsx` | xlsx (Tesouro, Renda Fixa, Ações, BDR) |
-
-Arquivo que não casa com nenhum padrão é ignorado em silêncio — fatura do Nubank, por
-exemplo, não é suportada.
-
-## Invariantes financeiras
-
-O que não pode quebrar (detalhe e raciocínio em `CLAUDE.md` e nos comentários do código):
-
-- **Fatura itemizada** — os itens da fatura são os gastos reais; o pagamento no extrato
-  é uma **liquidação** (`is_settlement=1`), fora dos totais de consumo. Sem isso o
-  consumo contaria em dobro.
-- **Regra consumo-despesa** — `flow='expense' AND method != 'transfer' AND
-  is_settlement=0 AND is_third_party=0 AND dest_account_id IS NULL`. Transferência
-  nunca é despesa de consumo.
-- **Self-transfer por pareamento de pernas** — saída + entrada de mesmo valor, contas
-  diferentes, ±3 dias → `counterpart='SELF'`. Sem allow-list de keyword. SELF é
-  **derivado**, nunca declarado pelo cliente.
-- **Perna de investimento ≠ perna SELF** — as duas se parecem no banco de dados (o
-  pareamento SELF reescreve a perna de saída pra `method='transfer'`, que é a marca
-  da aplicação), então toda soma de investimento exclui `self_pair_tx_id`. Sem isso,
-  mandar dinheiro de uma conta pra outra vira "aplicou".
-- **Investimento = posições + snapshots datados** — rendimento é computado, nunca
-  chutado. Posição some do relatório → soft-close (`closed_at`), nunca DELETE.
-- **Caixinha Nubank é derivada do ledger** (RDB fora da B3); **Porquinho Inter não é** —
-  é CDB custodiado na B3, e derivá-lo contaria em dobro.
-- **`closed_at` de conta afeta posição, nunca histórico** — o disponível soma só contas
-  abertas (e conta encerrada vale zero, não o último saldo conhecido); todo total mensal
-  ignora o encerramento, porque o dinheiro se moveu de verdade na época. Encerrar com
-  dívida em aberto é recusado, senão o valor a pagar sumiria do disponível sem ter sido
-  pago.
-
-O backfill valida as invariantes ao final e **aborta** se alguma quebrar. No DB do dia
-a dia, `npm run audit` faz a mesma conferência sem reconstruir.
-
-## Segurança
-
-App local sem auth — a máquina é o perímetro:
-
-- Banco em `0600` (backfill e servidor aplicam; WAL/SHM inclusos). Sem auth, permissão
-  de arquivo é a fronteira at-rest.
-- Bind em `127.0.0.1` + allowlist de **Host** (anti DNS-rebinding) + allowlist de
-  **Origin** em todo método != GET/HEAD (anti-CSRF).
-- CSP self-only, `nosniff`, frame-deny. O frontend é 100% vendorizado — nada externo é
-  legítimo.
-- Writes 100% validados no servidor (data, FKs, whitelist de method/flow/operation).
-- Body cap 1MB (upload multipart 20MB / 64 partes).
-
-O `.gitignore` mantém `data/` e `backups/` fora do VCS: **o ledger nunca é
-versionado.**
-
-## Stack
-
-| Camada | Tecnologia |
+| Layer | Choice |
 |---|---|
-| Linguagem | TypeScript (Node ≥ 26, type-stripping nativo — sem build step) |
-| Banco | SQLite via `node:sqlite` (builtin, WAL, `foreign_keys=ON`, modo 0600) |
-| Parsing | parsers CSV próprios; `xlsx` pros relatórios B3 (única dependência npm) |
-| Frontend | React 18 + Chart.js, vendorizados, sem CDN e sem build step (hyperscript puro, nunca JSX) |
-| Servidor | `node:http` + micro-router próprio + SSE (`/api/events`) — zero dependências |
+| Language | TypeScript on Node ≥ 26, native type-stripping, no bundler |
+| Database | SQLite via the builtin `node:sqlite` |
+| Server | `node:http` plus a small router and SSE — zero dependencies |
+| Frontend | React 18, vendored, plain hyperscript (never JSX), no CDN |
+| Dependencies | One: `xlsx`, to read broker reports |
 
-## Documentação
+Bind is `127.0.0.1` only, with a Host allowlist (anti DNS-rebinding) and an Origin
+allowlist on every non-GET method (anti-CSRF). The database file is `chmod 0600`: with no
+auth layer, file permissions are the at-rest boundary. The frontend is fully vendored, so
+a request to an external host is by definition illegitimate and the CSP blocks it.
 
-O repositório guarda só o que serve pra rodar e entender o código:
+## Non-goals
 
-- **este `README.md`** — porta de entrada.
-- **`CLAUDE.md`** — fonte única da verdade pra agentes de IA: schema, contas,
-  invariantes, arquitetura. **Fica na raiz de propósito**: é auto-carregado em toda
-  sessão de agente; numa subpasta deixaria de entrar em contexto e viraria letra morta.
-- **`git log`** — roadmap, decisões datadas, revisões de segurança.
+- **Multi-user, accounts, sync.** One person, one machine.
+- **Mobile.** The screen is a dense desktop panel and does not pretend otherwise.
+- **Bank APIs.** Open Finance would remove the file import, and add a credential surface
+  this project deliberately does not have.
+- **A desktop wrapper.** There was one; it was removed. A browser already solves it, and
+  a second way to run the app is a second process lifecycle to keep alive.
 
-O resto da documentação (produto, sistema visual, specs, planos e auditorias datadas)
-mora num vault Obsidian, fora do repo:
+## A note on the data
 
-```
-~/Documents/Rede de projetos/Pessoal/BrokerShark/
-├── BrokerShark.md      # índice do projeto (comece por aqui)
-├── CLAUDE.md           # symlink pro arquivo da raiz deste repo
-├── Produto.md          # usuário, propósito, escopo
-├── Design System.md    # tokens, tipografia, layout, motion
-├── Specs/              # design docs datados
-├── Planos/             # planos de execução datados
-└── Arquivo/            # documentos superados, mantidos como registro
-```
+No ledger, statement, or export is versioned here, and none ever was — `data/` has been
+in `.gitignore` since the first commit. The history was rewritten before this repository
+went public to remove personal details that had leaked into test fixtures. Screenshots
+and demo figures are synthetic.
+
+## License
+
+Published for evaluation and study — read it, run it, learn from it. It is **not** open
+source: use in a product, or redistribution, needs written permission. See
+[LICENSE](LICENSE).
+
+---
+
+Built by [Felipe Artur](https://github.com/FelipeArtur) with Claude Code. The repository's
+`CLAUDE.md` is the single source of truth an AI agent loads on every session — schema,
+accounts, invariants, architecture — and keeping it accurate is part of the workflow, not
+an afterthought.

@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: testes e invariantes
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node ≥ 26 não é escolha estética: o backend é TypeScript rodando por
+      # type-stripping nativo, sem build step. Versão menor não executa o projeto.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: instalar dependências
+        working-directory: backend
+        run: npm ci
+
+      - name: testes (backend + frontend)
+        working-directory: backend
+        run: npm test
+
+      # O gerador de demo monta um ledger completo pelos mesmos módulos do
+      # backfill e roda a auditoria de invariantes contra o resultado, abortando
+      # se alguma quebrou. É o teste de integração mais barato que existe aqui:
+      # se a regra de dinheiro regrediu, este passo falha.
+      - name: ledger de demonstração + auditoria de invariantes
+        working-directory: backend
+        run: |
+          npm run demo -- "${RUNNER_TEMP}/ci-demo.db"
+          npm run audit -- "${RUNNER_TEMP}/ci-demo.db"

@@ -1,18 +1,21 @@
 {
-  "name": "backend",
+  "name": "brokershark",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Painel pessoal de análise financeira, 100% local — backend TypeScript sobre Node com type-stripping nativo",
   "scripts": {
     "start": "node src/server.ts",
     "backfill": "node src/jobs/backfill.ts",
+    "demo": "node src/jobs/seedDemo.ts",
     "test": "node --test \"src/**/*.test.ts\" \"../frontend/js/**/*.test.js\"",
     "audit": "node src/jobs/audit.ts"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": ["finance", "sqlite", "typescript", "local-first"],
+  "author": "Felipe Artur",
+  "license": "SEE LICENSE IN ../LICENSE",
   "type": "module",
+  "engines": {
+    "node": ">=26"
+  },
   "dependencies": {
     "xlsx": "^0.18.5"
   }

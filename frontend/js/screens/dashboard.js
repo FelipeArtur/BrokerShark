@@ -262,6 +262,15 @@ const AccountsWidget = React.memo(function AccountsWidget({ accounts, available,
   const total = available ? available.checking_total : checking.reduce((s, a) => s + (a.balance || 0), 0);
   const colorOf = a => bankColor(a.bank, a.id);
 
+  // A fatia é sobre o dinheiro que EXISTE, não sobre o líquido: uma conta no
+  // vermelho encolhe o total e faria as outras passarem de 100% ("315%" e
+  // "−215%" lado a lado). Conta negativa não tem fatia — é dívida, não parcela
+  // do que você tem — e aparece sem percentual, com o valor em vermelho.
+  const positiveTotal = checking.reduce((s, a) => s + Math.max(0, a.balance || 0), 0);
+  const shareOf = a => ((a.balance || 0) > 0 && positiveTotal > 0
+    ? ((a.balance || 0) / positiveTotal) * 100
+    : null);
+
   return h("div", { className: "widget wg-4" },
     h("div", { className: "widget-h" },
       h("span", { className: "widget-title" }, "Contas"),
@@ -269,10 +278,10 @@ const AccountsWidget = React.memo(function AccountsWidget({ accounts, available,
       h("button", { className: "px-btn px-btn--ghost px-btn--sm", title: "Gerenciar contas", onClick: onManageAccounts }, "⚙")
     ),
     h("div", { className: "widget-body", style: { gap: 10 } },
-      total > 0 && checking.length > 1 && h("div", { style: { display: "flex", gap: 3, height: 5, flexShrink: 0 } },
+      positiveTotal > 0 && checking.length > 1 && h("div", { style: { display: "flex", gap: 3, height: 5, flexShrink: 0 } },
         checking.map(a => {
-          const pct = ((a.balance || 0) / total) * 100;
-          return pct > 0.5 && h("div", { key: a.id, title: `${a.name}: ${pct.toFixed(0)}%`, style: { width: pct + "%", background: colorOf(a), opacity: 0.85 } });
+          const pct = shareOf(a);
+          return pct != null && pct > 0.5 && h("div", { key: a.id, title: `${a.name}: ${pct.toFixed(0)}%`, style: { width: pct + "%", background: colorOf(a), opacity: 0.85 } });
         })
       ),
       h("div", { style: { display: "flex", flexDirection: "column" } },
@@ -287,7 +296,7 @@ const AccountsWidget = React.memo(function AccountsWidget({ accounts, available,
             h("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
               h("span", { style: { width: 8, height: 8, background: colorOf(a), flexShrink: 0 } }),
               h("span", { style: { fontSize: 11, fontWeight: 600, color: "var(--fg-1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, a.name),
-              total > 0 && h("span", { className: "mono", style: { fontSize: 11, color: "var(--fg-3)", marginLeft: "auto" } }, `${(((a.balance || 0) / total) * 100).toFixed(0)}%`)
+              shareOf(a) != null && h("span", { className: "mono", style: { fontSize: 11, color: "var(--fg-3)", marginLeft: "auto" } }, `${shareOf(a).toFixed(0)}%`)
             ),
             h("span", { className: "mono", style: { fontSize: 15, fontWeight: 700, paddingLeft: 16, color: (a.balance || 0) < 0 ? "var(--neg)" : "var(--fg-0)" } }, fmtBRL(a.balance || 0))
           );

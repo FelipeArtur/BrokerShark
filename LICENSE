@@ -1,0 +1,34 @@
+Copyright (c) 2026 Felipe Artur Macedo Lima. All rights reserved.
+
+BrokerShark — Portfolio Source License
+======================================
+
+This source code is published for evaluation and study. It is not open source.
+
+PERMITTED, no permission needed:
+
+  - Read, browse, and clone this repository.
+  - Study the code, run it locally, and read it for learning purposes.
+  - Quote short excerpts with attribution, e.g. in reviews, articles, or
+    technical discussion.
+
+NOT PERMITTED without prior written permission from the copyright holder:
+
+  - Use of this code, in whole or in part, in any product or service,
+    commercial or not.
+  - Redistribution of the code or of derivative works.
+  - Removal or alteration of this notice.
+
+NO WARRANTY
+
+  This software is provided "as is", without warranty of any kind, express or
+  implied, including but not limited to the warranties of merchantability,
+  fitness for a particular purpose, and non-infringement. In no event shall the
+  author be liable for any claim, damages, or other liability arising from the
+  software or its use.
+
+  It performs financial calculations for its author's personal bookkeeping. It
+  is not accounting software, it gives no financial advice, and no number it
+  produces should be relied on for tax, legal, or investment decisions.
+
+To request a different license, open an issue.
