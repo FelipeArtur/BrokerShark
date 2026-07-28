@@ -101,6 +101,16 @@ export function detectAccount(csv: string): string | null {
   return acc ? acc.id : null;
 }
 
+/**
+ * O arquivo é uma fatura de cartão? O cliente precisa saber disso para escolher
+ * o fluxo de import, e a resposta é o FORMATO — nunca o id da conta detectada.
+ * Cravar um id aqui (ou no cliente) traria de volta pro código a decisão que
+ * mora na config.
+ */
+export function detectIsInvoice(csv: string): boolean {
+  return detectFormat(csv) === "itemized";
+}
+
 export function importRoutes(db: DatabaseSync): Route[] {
 
   const suggestStmt = db.prepare(`
@@ -125,10 +135,14 @@ export function importRoutes(db: DatabaseSync): Route[] {
 
   async function detect(req: Req, res: Res) {
     const parts = await parseMultipart(req);
-    const out = fileParts(parts).map((p) => ({
-      filename: p.filename,
-      account_id: detectAccount(p.data.toString("utf-8")),
-    }));
+    const out = fileParts(parts).map((p) => {
+      const csv = p.data.toString("utf-8");
+      return {
+        filename: p.filename,
+        account_id: detectAccount(csv),
+        invoice: detectIsInvoice(csv),
+      };
+    });
     json(res, out);
   }
 
@@ -308,7 +322,7 @@ export function importRoutes(db: DatabaseSync): Route[] {
       }
     }
     const restore = [...byId.values()];
-    const caixinhaTouched = restore.some((r) => r.investment_id != null);
+    const savingsTouched = restore.some((r) => r.investment_id != null);
 
     const invoiceIds = restore.map((r) => r.invoice_id).filter((v): v is number => v != null);
 
@@ -316,7 +330,7 @@ export function importRoutes(db: DatabaseSync): Route[] {
     try {
       for (const r of restore) db.prepare("DELETE FROM transactions WHERE id = ?").run(r.id);
       if (invoiceIds.length) pruneEmptyOpenInvoices(db, invoiceIds);
-      if (caixinhaTouched) rederiveSavings(db, []);
+      if (savingsTouched) rederiveSavings(db, []);
       db.prepare("COMMIT").run();
     } catch (e) {
       db.prepare("ROLLBACK").run();
@@ -396,7 +410,7 @@ export function importRoutes(db: DatabaseSync): Route[] {
     if (!files.length) throw new HttpError(400, "nenhum arquivo enviado");
     const f = files[0];
     const fat = parseInvoiceItemized(f.data.toString("utf-8"), f.filename ?? "fatura.csv");
-    return { fat, filename: f.filename ?? `fatura-inter-${fat.refMonth}.csv` };
+    return { fat, filename: f.filename ?? `fatura-${fat.refMonth}.csv` };
   }
 
   async function faturaPreview(req: Req, res: Res) {

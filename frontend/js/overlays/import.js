@@ -79,15 +79,21 @@ function ImportModal({ onClose, onDone }) {
   // Os destinos vêm do servidor, não de uma lista literal: conta nova aparece
   // aqui no minuto em que é criada, e conta encerrada some (o backend recusaria
   // de qualquer jeito — extrato não chega mais dela).
-  const [BANKS, setBanks] = useState([]);
+  const [ACCOUNTS, setAccounts] = useState([]);
   useEffect(() => {
-    fetchAccounts()
-      .then(accs => setBanks(accs.filter(a => a.type === "checking").map(a => ({ id: a.id, label: a.name }))))
-      .catch(() => setBanks([]));
+    fetchAccounts().then(setAccounts).catch(() => setAccounts([]));
   }, []);
+  // Só conta corrente recebe extrato; o cartão entra pelo fluxo de fatura.
+  const BANKS = ACCOUNTS.filter(a => a.type === "checking").map(a => ({ id: a.id, label: a.name }));
 
   const names = (window.BS && window.BS.accountNames) || {};
-  const accLabel = id => (BANKS.find(b => b.id === id) || {}).label || names[id] || id;
+  const accLabel = id => (ACCOUNTS.find(a => a.id === id) || {}).name || names[id] || id;
+  // Rótulo da fatura: o nome que a config deu ao cartão. Sem conta declarada,
+  // "Fatura de cartão" — nunca o nome de um banco escrito no código.
+  const faturaLabel = (id) => {
+    const acc = ACCOUNTS.find(a => a.id === id);
+    return acc ? `Fatura ${acc.name}` : "Fatura de cartão";
+  };
 
   const uuid = () => (window.crypto && crypto.randomUUID)
     ? crypto.randomUUID()
@@ -129,12 +135,11 @@ function ImportModal({ onClose, onDone }) {
     if (!incoming.length) { setErr("Envie .csv (extratos) ou .xlsx (relatório B3)."); return; }
     setFiles(prev => [...prev, ...incoming]);
     incoming.filter(f => !f.b3).forEach(f => {
-      window.importDetect(f.file).then(acc => {
+      window.importDetect(f.file).then(hit => {
         setFiles(prev => prev.map(x => x.key === f.key
-          ? (acc === "inter-cc"
-
-              ? { ...x, account: "inter-cc", fatura: true, auto: true, detecting: false }
-              : { ...x, account: acc || x.account, auto: !!acc, detecting: false })
+          ? (hit && hit.invoice
+              ? { ...x, account: hit.accountId, fatura: true, auto: true, detecting: false }
+              : { ...x, account: (hit && hit.accountId) || x.account, auto: !!hit, detecting: false })
           : x));
       });
     });
@@ -168,8 +173,8 @@ function ImportModal({ onClose, onDone }) {
           catch (e) { return { key: f.key, file: f.file, preview: null, err: e.message || "Falha ao ler B3." }; }
         })),
         Promise.all(files.filter(f => f.fatura).map(async f => {
-          try { return { key: f.key, file: f.file, preview: await window.importFaturaPreview(f.file), err: null }; }
-          catch (e) { return { key: f.key, file: f.file, preview: null, err: e.message || "Falha ao ler fatura." }; }
+          try { return { key: f.key, file: f.file, account: f.account, preview: await window.importFaturaPreview(f.file), err: null }; }
+          catch (e) { return { key: f.key, file: f.file, account: f.account, preview: null, err: e.message || "Falha ao ler fatura." }; }
         })),
       ]);
       const rmap = {};
@@ -303,7 +308,7 @@ function ImportModal({ onClose, onDone }) {
       f.b3
         ? h("span", { className: "px-chip" }, "B3")
         : f.fatura
-        ? h("span", { className: "px-chip", title: "fatura de cartão Inter (aberta)", style: { color: "var(--warn)" } }, "FATURA")
+        ? h("span", { className: "px-chip", title: "fatura de cartão em aberto", style: { color: "var(--warn)" } }, "FATURA")
         : h("div", { style: { display: "flex", alignItems: "center", gap: "var(--s-4)" } },
             f.auto && h("span", { className: "px-chip", title: "conta detectada automaticamente — confira", style: { color: "var(--info)" } }, "AUTO"),
             h("select", {
@@ -486,7 +491,7 @@ function ImportModal({ onClose, onDone }) {
       h("div", { style: { padding: "var(--s-5) var(--s-6)", background: "var(--bg-1)", borderBottom: "2px solid var(--warn)", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "var(--s-5)", flexWrap: "wrap" } },
         h("div", { style: { display: "flex", alignItems: "center", gap: "var(--s-5)" } },
           h("span", { className: "px-chip", style: { color: "var(--warn)" } }, "FATURA"),
-          h("span", { className: "widget-title" }, p ? `Fatura Inter — ${p.ref_month}` : "Fatura Inter")),
+          h("span", { className: "widget-title" }, p ? `${faturaLabel(fa.account)} — ${p.ref_month}` : faturaLabel(fa.account))),
         p && h("span", { className: "mono", style: { fontSize: "var(--fz-5)", color: "var(--warn)" } }, `−${fmtBRL(p.total)}`)),
       fa.err && h("div", { style: { padding: "var(--s-4) var(--s-6)", fontSize: "var(--fz-7)", fontWeight: 600, color: "var(--neg)", background: "color-mix(in oklch, var(--neg) 10%, transparent)" } }, fa.err),
       paid && h("div", { style: { padding: "var(--s-4) var(--s-6)", fontSize: "var(--fz-7)", fontWeight: 600, color: "var(--neg)", background: "color-mix(in oklch, var(--neg) 10%, transparent)" } },
@@ -520,7 +525,7 @@ function ImportModal({ onClose, onDone }) {
     h("div", { className: "label", style: { color: "var(--fg-1)" } }, "Resultado da importação (algumas contas falharam):"),
     h("div", { className: "px-list" },
       results.map((s, i) => h("div", { className: "px-row", key: i },
-        h("span", { style: { flex: 1 } }, s.account === "b3" ? "Relatório B3" : s.account === "fatura" ? "Fatura Inter" : accLabel(s.account)),
+        h("span", { style: { flex: 1 } }, s.account === "b3" ? "Relatório B3" : s.account === "fatura" ? "Fatura de cartão" : accLabel(s.account)),
         h("span", { className: "mono", style: { color: s.ok ? "var(--pos)" : "var(--neg)", fontWeight: 600 } },
           s.ok ? `${s.inserted} importadas` : (s.msg || "falhou"))))),
     h("div", { style: { display: "flex", justifyContent: "flex-end", gap: "var(--s-4)" } },

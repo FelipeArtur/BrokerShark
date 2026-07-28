@@ -163,10 +163,10 @@ export function seedDemo(dbPath: string): DemoReport {
     // Transferência entre contas do próprio dono. Vira par SELF no pareamento —
     // e é justamente o caso que não pode ser contado como gasto nem aplicação.
     //
-    // O valor não é decorativo: o salário cai no Nubank, mas a fatura do cartão
-    // e parte dos gastos saem do Inter. Transferir de menos faz a conta Inter
-    // afundar mês a mês e a demo termina com saldo negativo de dezenas de
-    // milhares — cenário que existe, mas não é o que a tela deve ilustrar.
+    // O valor não é decorativo: o salário cai numa conta, mas a fatura do
+    // cartão e parte dos gastos saem da outra. Transferir de menos faz a conta
+    // que paga afundar mês a mês e a demo termina com saldo negativo de dezenas
+    // de milhares — cenário que existe, mas não é o que a tela deve ilustrar.
     if (cap(7) >= 7) {
       tx({ date: iso(m.year, m.month, 7), amountCents: 320000, method: "ted",
            description: "Transferência enviada pelo Pix - Titular da conta" });

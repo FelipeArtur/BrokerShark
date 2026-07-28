@@ -8,7 +8,7 @@ test("parseMoneyCents: formato BR (vírgula decimal, ponto de milhar)", () => {
   assert.equal(parseMoneyCents("0,01"), 1);
 });
 
-test("parseMoneyCents: formato com ponto decimal (extrato Nubank)", () => {
+test("parseMoneyCents: formato com ponto decimal", () => {
   assert.equal(parseMoneyCents("-50.00"), -5000);
 });
 

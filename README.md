@@ -87,10 +87,16 @@ the audit says so and exits non-zero.
 
 ## Your banks are configuration, not code
 
-Nothing in this repository knows a real bank. Accounts, the file format each one
-exports, the archive filename patterns, the investment keywords and the derived savings
-position all live in `config/default.json` — generic by default. Copy it to
-`config/local.json` (git-ignored) and it wins.
+No real bank is wired into the code. Accounts, the file format each one exports, the
+archive filename patterns, the investment keywords and the derived savings position all
+live in `config/default.json` — generic by default. Copy it to `config/local.json`
+(git-ignored) and it wins.
+
+There is exactly one place a real product name survives, and it is deliberate: migration
+`0004` renames an old derived-savings key that predates the config split. It has to match
+the literal that is already written in existing databases, or the rename silently creates
+a second savings position and doubles it in net worth. A migration is history, and history
+does not get to be generic.
 
 ```jsonc
 {
@@ -139,7 +145,7 @@ npm run backfill "<archive dir>"
 ## Testing
 
 ```bash
-npm test      # 349 tests, node:test, backend + frontend
+npm test      # 353 tests, node:test, backend + frontend
 npm run audit # invariant checks against the live database, read-only
 ```
 
@@ -193,7 +199,8 @@ source: use in a product, or redistribution, needs written permission. See
 
 ---
 
-Built by [Felipe Artur](https://github.com/FelipeArtur) with Claude Code. The repository's
-`CLAUDE.md` is the single source of truth an AI agent loads on every session — schema,
-accounts, invariants, architecture — and keeping it accurate is part of the workflow, not
-an afterthought.
+Built by [Felipe Artur](https://github.com/FelipeArtur) with Claude Code. The rules above
+are written down and enforced precisely because an AI agent works on this code every day:
+an invariant that only lives in someone's head survives exactly one refactor. What is in
+this repository is what is built — there are no plans or roadmaps here, only the code and
+the reasoning behind it.

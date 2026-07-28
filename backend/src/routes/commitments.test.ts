@@ -175,7 +175,7 @@ test("recurring: perna de investimento (transfer) não conta como recorrência",
 function position(db: DatabaseSync, name: string, maturityDate: string | null, netCents: number, closedAt: string | null = null): number {
   const id = Number(db.prepare(
     `INSERT INTO investments (name, match_key, type, bank, maturity_date, source, closed_at)
-     VALUES (?, ?, 'cdb', 'Inter', ?, 'b3', ?)`,
+     VALUES (?, ?, 'cdb', 'Banco B', ?, 'b3', ?)`,
   ).run(name, name, maturityDate, closedAt).lastInsertRowid);
   db.prepare(
     `INSERT INTO position_snapshots (investment_id, ref_date, net_cents, source)
@@ -186,11 +186,11 @@ function position(db: DatabaseSync, name: string, maturityDate: string | null, n
 
 test("maturities: posição aberta com vencimento entra na lista com o valor do último snapshot", () => {
   const db = freshDb();
-  position(db, "CDB Inter 2028", "2028-04-03", 21648);
+  position(db, "CDB 2028", "2028-04-03", 21648);
 
   const out = getCommitments(db);
   assert.equal(out.maturities.length, 1);
-  assert.equal(out.maturities[0].name, "CDB Inter 2028");
+  assert.equal(out.maturities[0].name, "CDB 2028");
   assert.equal(out.maturities[0].maturity_date, "2028-04-03");
   assert.equal(out.maturities[0].value, 216.48);
 });
@@ -203,7 +203,7 @@ test("maturities: posição fechada não vence", () => {
 
 test("maturities: posição sem data de vencimento fica de fora", () => {
   const db = freshDb();
-  position(db, "Caixinha", null, 900000);
+  position(db, "Reserva", null, 900000);
   assert.deepEqual(getCommitments(db).maturities, []);
 });
 

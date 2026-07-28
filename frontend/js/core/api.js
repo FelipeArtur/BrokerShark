@@ -142,7 +142,11 @@ async function importDetect(file) {
     const r = await fetch("/api/import/detect", { method: "POST", body: form });
     if (!r.ok) return null;
     const out = await r.json().catch(() => []);
-    return (out[0] || {}).account_id || null;
+    const hit = out[0];
+    if (!hit || !hit.account_id) return null;
+    // O servidor diz se é fatura pelo FORMATO do arquivo. O cliente não deve
+    // deduzir isso de um id de conta — id de conta é configuração de quem usa.
+    return { accountId: hit.account_id, invoice: !!hit.invoice };
   } catch { return null; }
 }
 

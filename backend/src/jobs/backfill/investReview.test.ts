@@ -24,7 +24,7 @@ test("reviewInvestments: carteira sã → sem violações + panorama", () => {
   const db = db0();
   const t = addInv(db, { name: "Tesouro X", match_key: "b3:tx", type: "tesouro", bank: "tesouro", source: "b3" });
   addSnap(db, t, "2026-03-31", 500000);
-  const c = addInv(db, { name: "Caixinha Nubank", match_key: "ledger:derived-savings", type: "rdb", bank: "nubank", source: "ledger" });
+  const c = addInv(db, { name: "Reserva", match_key: "ledger:derived-savings", type: "rdb", bank: "banco-a", source: "ledger" });
   addSnap(db, c, "2026-03-31", 0, "derived");
   const r = reviewInvestments(db);
   assert.deepEqual(r.violations, []);
@@ -32,9 +32,9 @@ test("reviewInvestments: carteira sã → sem violações + panorama", () => {
   assert.equal(r.panorama.byType[0].type, "tesouro");
 });
 
-test("reviewInvestments: posição ledger não-Caixinha viola", () => {
+test("reviewInvestments: posição ledger que não é a poupança derivada viola", () => {
   const db = db0();
-  const p = addInv(db, { name: "Porquinho?", match_key: "ledger:porquinho", type: "cdb", bank: "inter", source: "ledger" });
+  const p = addInv(db, { name: "Posição inesperada", match_key: "ledger:inesperada", type: "cdb", bank: "banco-b", source: "ledger" });
   addSnap(db, p, "2026-03-31", 1000, "derived");
   assert.ok(reviewInvestments(db).violations.some((v) => /ledger inesperada/.test(v)));
 });
@@ -45,11 +45,11 @@ test("reviewInvestments: posição aberta sem snapshot viola", () => {
   assert.ok(reviewInvestments(db).violations.some((v) => /sem nenhum snapshot/.test(v)));
 });
 
-test("reviewInvestments: Caixinha reconciliação mismatch → viola", () => {
+test("reviewInvestments: poupança derivada: reconciliação mismatch → viola", () => {
   const db = db0();
   db.prepare("INSERT INTO accounts (id, bank, type, name) VALUES (?,?,?,?)")
-    .run("conta-a", "nubank", "checking", "Nubank Checking");
-  const cx = addInv(db, { name: "Caixinha Nubank", match_key: "ledger:derived-savings", type: "rdb", bank: "nubank", source: "ledger" });
+    .run("conta-a", "Banco A", "checking", "Banco A Conta");
+  const cx = addInv(db, { name: "Reserva", match_key: "ledger:derived-savings", type: "rdb", bank: "banco-a", source: "ledger" });
   db.prepare("INSERT INTO transactions (date,flow,method,account_id,amount_cents,description,investment_id) VALUES (?,?,?,?,?,?,?)")
     .run("2026-03-02", "expense", "transfer", "conta-a", 20000, "Aplicacao RDB", cx);
   addSnap(db, cx, "2026-03-31", 99999, "derived");
@@ -57,11 +57,11 @@ test("reviewInvestments: Caixinha reconciliação mismatch → viola", () => {
   assert.ok(r.violations.some((v) => /reconcilia/.test(v)));
 });
 
-test("reviewInvestments: Caixinha reconciliação match → NÃO viola", () => {
+test("reviewInvestments: poupança derivada: reconciliação match → NÃO viola", () => {
   const db = db0();
   db.prepare("INSERT INTO accounts (id, bank, type, name) VALUES (?,?,?,?)")
-    .run("conta-a", "nubank", "checking", "Nubank Checking");
-  const cx = addInv(db, { name: "Caixinha Nubank", match_key: "ledger:derived-savings", type: "rdb", bank: "nubank", source: "ledger" });
+    .run("conta-a", "Banco A", "checking", "Banco A Conta");
+  const cx = addInv(db, { name: "Reserva", match_key: "ledger:derived-savings", type: "rdb", bank: "banco-a", source: "ledger" });
   db.prepare("INSERT INTO transactions (date,flow,method,account_id,amount_cents,description,investment_id) VALUES (?,?,?,?,?,?,?)")
     .run("2026-03-02", "expense", "transfer", "conta-a", 20000, "Aplicacao RDB", cx);
   addSnap(db, cx, "2026-03-31", 20000, "derived");

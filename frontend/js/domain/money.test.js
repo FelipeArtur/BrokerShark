@@ -39,7 +39,7 @@ test("perna SELF de entrada (caso real: income/pix, is_revenue=0) não é receit
 });
 
 test("dest_account_id preenchido também é transferência", () => {
-  assert.equal(M.moneyKind(tx({ flow: "expense", method: "pix", dest_account_id: "inter-db" })), M.KIND.TRANSFER);
+  assert.equal(M.moneyKind(tx({ flow: "expense", method: "pix", dest_account_id: "conta-b" })), M.KIND.TRANSFER);
 });
 
 test("perna de investimento: saída via transfer", () => {
@@ -83,7 +83,7 @@ test("equivale à regra consumo-despesa do CLAUDE.md em toda linha alcançável"
       for (const is_settlement of [0, 1])
         for (const is_third_party of [0, 1])
           for (const is_revenue of [0, 1])
-            for (const dest of [null, "inter-db"])
+            for (const dest of [null, "conta-b"])
               for (const cp of [null, "SELF"]) {
                 const t = { flow, method, is_settlement, is_third_party, is_revenue,
                   dest_account_id: dest, counterpart: cp };

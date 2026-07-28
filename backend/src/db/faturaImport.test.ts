@@ -36,7 +36,7 @@ test("insertOpenFatura: cria fatura aberta + itens como credit no cartao-b", () 
     refMonth: "2026-06",
     dueDate: "2026-07-15",
     items: [item("2026-06-01", "Steam", 3100), item("2026-06-03", "Mercado", 8000)],
-    sourceFile: "fatura-inter-2026-06.csv",
+    sourceFile: "fatura-2026-06.csv",
     importBatchId: "sess-1",
   });
 
@@ -147,7 +147,7 @@ test("INTEGRAÇÃO (C1+H2): fatura aberta + pagamento no extrato → sem double-
   const fat = insertOpenFatura(db, {
     refMonth: "2026-05", dueDate: "2026-06-10",
     items: [item("2026-05-01", "Steam", 3100), item("2026-05-03", "Mercado", 8000)],
-    sourceFile: "fatura-inter-2026-05.csv", importBatchId: "fat-1",
+    sourceFile: "fatura-2026-05.csv", importBatchId: "fat-1",
   });
 
   db.prepare(`INSERT INTO transactions

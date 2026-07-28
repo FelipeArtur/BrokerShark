@@ -86,21 +86,21 @@ async function call(db: DatabaseSync, method: string, path: string, req: any): P
   return got;
 }
 
-const NUBANK_CSV = [
+const EXTRATO_CSV = [
   "Data,Valor,Identificador,Descrição",
   "01/06/2026,-150.00,uuid-a,Compra no mercado",
   "02/06/2026,4200.00,uuid-b,Transferência recebida - Empresa",
   "03/06/2026,-89.90,uuid-c,Pix enviado: Farmácia",
 ].join("\n");
 
-async function previewNubank(db: DatabaseSync, csv = NUBANK_CSV): Promise<Captured> {
+async function previewExtrato(db: DatabaseSync, csv = EXTRATO_CSV): Promise<Captured> {
   return call(db, "POST", "/api/import/preview",
     multipartReq("/api/import/preview", { account_id: "conta-a" }, [{ name: "nu.csv", content: csv }]));
 }
 
 test("preview lê o extrato e marca tudo como novo", async () => {
   const db = freshDb();
-  const out = await previewNubank(db);
+  const out = await previewExtrato(db);
   assert.equal(out.body.counts.new, 3);
   assert.equal(out.body.counts.duplicate, 0);
   assert.ok(out.body.batch_id);
@@ -109,14 +109,14 @@ test("preview lê o extrato e marca tudo como novo", async () => {
 
 test("preview não escreve nada no ledger", async () => {
   const db = freshDb();
-  await previewNubank(db);
+  await previewExtrato(db);
   const n = (db.prepare("SELECT COUNT(*) AS n FROM transactions").get() as any).n;
   assert.equal(n, 0, "staging é memória, não banco");
 });
 
 test("confirm insere as linhas novas com o lote gravado", async () => {
   const db = freshDb();
-  const prev = await previewNubank(db);
+  const prev = await previewExtrato(db);
   const out = await call(db, "POST", "/api/import/confirm",
     jsonReq("/api/import/confirm", { batch_id: prev.body.batch_id, import_batch_id: "lote-1" }));
 
@@ -131,7 +131,7 @@ test("confirm insere as linhas novas com o lote gravado", async () => {
 
 test("confirm respeita exclude_ids", async () => {
   const db = freshDb();
-  const prev = await previewNubank(db);
+  const prev = await previewExtrato(db);
   const out = await call(db, "POST", "/api/import/confirm",
     jsonReq("/api/import/confirm", { batch_id: prev.body.batch_id, exclude_ids: [0, 2] }));
   assert.equal(out.body.inserted, 1);
@@ -139,20 +139,20 @@ test("confirm respeita exclude_ids", async () => {
 
 test("segundo preview do mesmo arquivo marca tudo como duplicado", async () => {
   const db = freshDb();
-  const first = await previewNubank(db);
+  const first = await previewExtrato(db);
   await call(db, "POST", "/api/import/confirm", jsonReq("/api/import/confirm", { batch_id: first.body.batch_id }));
 
-  const second = await previewNubank(db);
+  const second = await previewExtrato(db);
   assert.equal(second.body.counts.duplicate, 3);
   assert.equal(second.body.counts.new, 0);
 });
 
 test("confirm de um lote todo duplicado não insere nada", async () => {
   const db = freshDb();
-  const first = await previewNubank(db);
+  const first = await previewExtrato(db);
   await call(db, "POST", "/api/import/confirm", jsonReq("/api/import/confirm", { batch_id: first.body.batch_id }));
 
-  const second = await previewNubank(db);
+  const second = await previewExtrato(db);
   const out = await call(db, "POST", "/api/import/confirm",
     jsonReq("/api/import/confirm", { batch_id: second.body.batch_id }));
   assert.equal(out.body.inserted, 0);
@@ -161,7 +161,7 @@ test("confirm de um lote todo duplicado não insere nada", async () => {
 
 test("edição de valor no staging chega no ledger e guarda o valor original", async () => {
   const db = freshDb();
-  const prev = await previewNubank(db);
+  const prev = await previewExtrato(db);
   const batch = prev.body.batch_id;
 
   const patched = await call(db, "PATCH", `/api/import/staging/${batch}/0`,
@@ -176,7 +176,7 @@ test("edição de valor no staging chega no ledger e guarda o valor original", a
 
 test("valor negativo no staging é recusado", async () => {
   const db = freshDb();
-  const prev = await previewNubank(db);
+  const prev = await previewExtrato(db);
   const batch = prev.body.batch_id;
   const out = await call(db, "PATCH", `/api/import/staging/${batch}/0`,
     jsonReq(`/api/import/staging/${batch}/0`, { amount: -5 }, { batch, row: "0" }));
@@ -186,7 +186,7 @@ test("valor negativo no staging é recusado", async () => {
 test("apelido e categoria editados no staging chegam no ledger", async () => {
   const db = freshDb();
   const cat = db.prepare("SELECT id FROM categories WHERE flow='expense' LIMIT 1").get() as any;
-  const prev = await previewNubank(db);
+  const prev = await previewExtrato(db);
   const batch = prev.body.batch_id;
 
   await call(db, "PATCH", `/api/import/staging/${batch}/0`,
@@ -210,7 +210,7 @@ test("batch expirado devolve 404 em vez de escrever", async () => {
 test("account_id fora da allowlist é recusado", async () => {
   const db = freshDb();
   const out = await call(db, "POST", "/api/import/preview",
-    multipartReq("/api/import/preview", { account_id: "cartao-b" }, [{ name: "x.csv", content: NUBANK_CSV }]));
+    multipartReq("/api/import/preview", { account_id: "cartao-b" }, [{ name: "x.csv", content: EXTRATO_CSV }]));
   assert.equal(out.status, 400);
 });
 
@@ -226,7 +226,7 @@ test("arquivo que não é extrato devolve erro legível, não 500", async () => 
 
 test("reverter o lote apaga exatamente o que ele inseriu", async () => {
   const db = freshDb();
-  const prev = await previewNubank(db);
+  const prev = await previewExtrato(db);
   await call(db, "POST", "/api/import/confirm",
     jsonReq("/api/import/confirm", { batch_id: prev.body.batch_id, import_batch_id: "lote-x" }));
 
@@ -245,12 +245,12 @@ test("reverter lote inexistente devolve 404", async () => {
 
 test("reverter não toca em lançamentos de outro lote", async () => {
   const db = freshDb();
-  const a = await previewNubank(db);
+  const a = await previewExtrato(db);
   await call(db, "POST", "/api/import/confirm",
     jsonReq("/api/import/confirm", { batch_id: a.body.batch_id, import_batch_id: "lote-a" }));
 
   const outroCsv = ["Data,Valor,Identificador,Descrição", "10/06/2026,-10.00,uuid-z,Padaria"].join("\n");
-  const b = await previewNubank(db, outroCsv);
+  const b = await previewExtrato(db, outroCsv);
   await call(db, "POST", "/api/import/confirm",
     jsonReq("/api/import/confirm", { batch_id: b.body.batch_id, import_batch_id: "lote-b" }));
 
@@ -261,7 +261,7 @@ test("reverter não toca em lançamentos de outro lote", async () => {
 
 test("import completo deixa o ledger sem violação de invariante", async () => {
   const db = freshDb();
-  const prev = await previewNubank(db);
+  const prev = await previewExtrato(db);
   await call(db, "POST", "/api/import/confirm", jsonReq("/api/import/confirm", { batch_id: prev.body.batch_id }));
   assert.deepEqual(auditLedger(db), []);
 });

@@ -81,7 +81,7 @@ test("perna SELF ligada a uma posição é violação (transferência viraria ap
   const db = freshDb();
   const inv = Number(db.prepare(
     `INSERT INTO investments (name, match_key, type, bank, source)
-     VALUES ('Caixinha', 'k1', 'RDB', 'nubank', 'ledger')`,
+     VALUES ('Reserva', 'k1', 'RDB', 'banco-a', 'ledger')`,
   ).run().lastInsertRowid);
   const a = tx(db, { method: "transfer", investment_id: inv });
   const b = tx(db, { flow: "income", method: "pix" });
@@ -167,20 +167,20 @@ test("transferência com destino igual à origem é violação", () => {
 
 test("posição aberta sem snapshot é violação", () => {
   const db = freshDb();
-  db.prepare("INSERT INTO investments (name, match_key, type, bank, source) VALUES ('X','x','cdb','inter','b3')").run();
+  db.prepare("INSERT INTO investments (name, match_key, type, bank, source) VALUES ('X','x','cdb','banco-b','b3')").run();
   assert.ok(checks(db).includes("posicao-sem-snapshot"));
 });
 
 test("posição fechada sem snapshot não é violação", () => {
   const db = freshDb();
-  db.prepare("INSERT INTO investments (name, match_key, type, bank, source, closed_at) VALUES ('X','x','cdb','inter','b3','2026-01-01')").run();
+  db.prepare("INSERT INTO investments (name, match_key, type, bank, source, closed_at) VALUES ('X','x','cdb','banco-b','b3','2026-01-01')").run();
   assert.ok(!checks(db).includes("posicao-sem-snapshot"));
 });
 
 test("snapshot com valor negativo é violação", () => {
   const db = freshDb();
   const id = Number(db.prepare(
-    "INSERT INTO investments (name, match_key, type, bank, source) VALUES ('X','x','cdb','inter','b3')",
+    "INSERT INTO investments (name, match_key, type, bank, source) VALUES ('X','x','cdb','banco-b','b3')",
   ).run().lastInsertRowid);
   db.prepare("INSERT INTO position_snapshots (investment_id, ref_date, net_cents, source) VALUES (?,'2026-06-30',-1,'b3')").run(id);
   assert.ok(checks(db).includes("snapshot-negativo"));

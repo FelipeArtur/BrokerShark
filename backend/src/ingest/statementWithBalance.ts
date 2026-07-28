@@ -23,7 +23,7 @@ export function parseStatementWithBalance(
 ): BalanceParsed {
   const lines = text.split(/\r?\n/);
   const headerIdx = lines.findIndex((l) => l.toLowerCase().includes("data lançamento"));
-  if (headerIdx < 0) throw new Error(`${sourceFile}: não parece extrato Inter`);
+  if (headerIdx < 0) throw new Error(`${sourceFile}: não parece extrato com saldo corrente (cabeçalho "Data Lançamento" não encontrado)`);
   const rows = parseCsv(lines.slice(headerIdx + 1).join("\n"), ";");
 
   const out: BalanceParsed = { records: [], skipped: [], signedSumCents: 0, warnings: [] };

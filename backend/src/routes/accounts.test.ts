@@ -116,9 +116,9 @@ test("conta encerrada some da listagem, mas volta com ?closed=1 valendo zero", a
   assert.equal(abertas.find((a: any) => a.id === "conta-b"), undefined);
 
   const todas = (await call(db, "GET", "/api/accounts?closed=1")).payload;
-  const inter = todas.find((a: any) => a.id === "conta-b");
-  assert.equal(inter.closed_at, "2026-02-01");
-  assert.equal(inter.balance, 0, "conta encerrada não guarda dinheiro");
+  const encerrada = todas.find((a: any) => a.id === "conta-b");
+  assert.equal(encerrada.closed_at, "2026-02-01");
+  assert.equal(encerrada.balance, 0, "conta encerrada não guarda dinheiro");
 });
 
 test("reabrir devolve a conta ao disponível", async () => {
@@ -306,9 +306,9 @@ test("renomear não mexe em saldo nem em histórico", async () => {
   const db = freshDb();
   tx(db, "conta-a", "2026-01-10", 30000, "income");
   const antes = (await call(db, "GET", "/api/available")).payload.available;
-  await call(db, "PATCH", "/api/accounts/conta-a", { name: "Nubank Principal" });
+  await call(db, "PATCH", "/api/accounts/conta-a", { name: "Conta Principal" });
   const lista = (await call(db, "GET", "/api/accounts")).payload;
-  assert.equal(lista.find((a: any) => a.id === "conta-a").name, "Nubank Principal");
+  assert.equal(lista.find((a: any) => a.id === "conta-a").name, "Conta Principal");
   assert.equal((await call(db, "GET", "/api/available")).payload.available, antes);
 });
 

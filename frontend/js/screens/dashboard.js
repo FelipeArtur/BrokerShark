@@ -5,7 +5,7 @@ const { fmtBRL, fmtBRLCompact, fmtDateBR, PT_MONTHS, PT_SHORT,
         isConsumptionExpense, bankColor, bankLabel, bankShortLabel, fullDateBR } = window.BS;
 
 const INV_TYPE_LABEL = {
-  rdb: "Caixinha (RDB)", cdb: "CDB / Renda fixa", tesouro: "Tesouro Direto",
+  rdb: "Reserva (RDB)", cdb: "CDB / Renda fixa", tesouro: "Tesouro Direto",
   lci: "LCI / Renda fixa", lca: "LCA / Renda fixa", savings: "Poupança",
 };
 
@@ -42,8 +42,11 @@ const KpiStrip = React.memo(function KpiStrip({ available, availErr, accounts, c
   const invNet = cashflow ? cashflow.investment_net : 0;
   const livre = inc - exp - invNet;
 
+  // Ordem estável e independente de quem são os bancos: maior saldo primeiro,
+  // desempate por nome. A ordenação anterior casava um prefixo de id de conta
+  // de um banco específico — no-op pra qualquer outra config.
   const checking = (accounts || []).filter(a => a.type === "checking")
-    .sort((a, b) => ((a.id || "").startsWith("nu") ? 1 : 2) - ((b.id || "").startsWith("nu") ? 1 : 2));
+    .sort((a, b) => (b.balance || 0) - (a.balance || 0) || String(a.name || "").localeCompare(String(b.name || "")));
 
   return h("div", { className: "kpi-strip" },
 
@@ -257,8 +260,11 @@ const TimelineWidget = React.memo(function TimelineWidget({ monthly, monthSel, o
 
 const AccountsWidget = React.memo(function AccountsWidget({ accounts, available, filter, onToggleFacet, onManageAccounts }) {
   const h = (t, p, ...c) => React.createElement(t, p, ...c);
+  // Ordem estável e independente de quem são os bancos: maior saldo primeiro,
+  // desempate por nome. A ordenação anterior casava um prefixo de id de conta
+  // de um banco específico — no-op pra qualquer outra config.
   const checking = (accounts || []).filter(a => a.type === "checking")
-    .sort((a, b) => ((a.id || "").startsWith("nu") ? 1 : 2) - ((b.id || "").startsWith("nu") ? 1 : 2));
+    .sort((a, b) => (b.balance || 0) - (a.balance || 0) || String(a.name || "").localeCompare(String(b.name || "")));
   const total = available ? available.checking_total : checking.reduce((s, a) => s + (a.balance || 0), 0);
   const colorOf = a => bankColor(a.bank, a.id);
 
@@ -481,18 +487,30 @@ const InvestmentsWidget = React.memo(function InvestmentsWidget({ investments, e
   const invDelta = (evolution && evolution.length > 1)
     ? evolution[evolution.length - 1].cumulative - evolution[evolution.length - 2].cumulative : null;
 
+  // Posição avulsa vira uma linha; posição com `group_name` entra numa linha
+  // agregada por grupo. Quais são os grupos é decisão da config
+  // (`positionGroups`) — o rótulo vem do dado, nunca de um literal aqui: com um
+  // nome cravado, quem usasse outra config não veria agrupamento nenhum.
   const rows = _dMemo(() => {
     const out = [];
-    const porq = investments.filter(i => i.group_name === "Porquinho");
-    investments.filter(i => i.group_name !== "Porquinho").forEach(i => out.push({
-      name: i.name, sub: typeLabel(i.type), balance: i.balance || 0, derived: !!i.derived,
-      ids: [i.id],
-    }));
-    if (porq.length) out.push({
-      name: `Porquinho Inter${porq.length > 1 ? ` ×${porq.length}` : ""}`,
-      sub: "CDB · B3", balance: porq.reduce((s, i) => s + (i.balance || 0), 0),
-      ids: porq.map(i => i.id),
+    const grouped = new Map();
+    investments.forEach(i => {
+      if (!i.group_name) {
+        out.push({ name: i.name, sub: typeLabel(i.type), balance: i.balance || 0,
+                   derived: !!i.derived, ids: [i.id] });
+        return;
+      }
+      const g = grouped.get(i.group_name) || { balance: 0, ids: [], types: new Set() };
+      g.balance += i.balance || 0;
+      g.ids.push(i.id);
+      g.types.add(i.type);
+      grouped.set(i.group_name, g);
     });
+    grouped.forEach((g, name) => out.push({
+      name: `${name}${g.ids.length > 1 ? ` ×${g.ids.length}` : ""}`,
+      sub: [...g.types].map(typeLabel).join(" · "),
+      balance: g.balance, ids: g.ids,
+    }));
     return out.sort((a, b) => b.balance - a.balance);
   }, [investments]);
 

@@ -2,8 +2,6 @@
 
 const { useState: _acSt, useEffect: _acEf } = React;
 
-const BANK_PRESETS = ["nubank", "inter", "c6", "itau", "bradesco", "santander", "bb", "caixa"];
-
 function slugify(s) {
   return String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "")
     .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32);
@@ -138,14 +136,12 @@ function AccountsPanel({ onRefresh, onClose }) {
         ? h("form", { onSubmit: handleCreate, style: { display: "flex", flexDirection: "column", gap: 8 } },
             h("div", { style: { display: "flex", gap: 8 } },
               h("input", {
-                className: "px-field", list: "bs-bank-presets", placeholder: "Banco (ex: c6)",
+                className: "px-field", placeholder: "Banco",
                 value: form.bank, onChange: e => setForm({ ...form, bank: e.target.value }),
                 style: { flex: 1 }, autoFocus: true,
               }),
-              h("datalist", { id: "bs-bank-presets" },
-                BANK_PRESETS.map(b => h("option", { key: b, value: b }))),
               h("input", {
-                className: "px-field", placeholder: "Nome (ex: C6 Conta)",
+                className: "px-field", placeholder: "Nome da conta",
                 value: form.name, onChange: e => setForm({ ...form, name: e.target.value }),
                 style: { flex: 1.4 },
               }),

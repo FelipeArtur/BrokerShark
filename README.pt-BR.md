@@ -79,6 +79,10 @@ node backend/src/jobs/backup.ts
 - **Bancos são configuração, não código** — contas, formato de arquivo de cada uma,
   padrão de nome no acervo e keywords vivem em `config/default.json` (genérico) ou
   `config/local.json` (o seu, fora do git). Parser tem nome de formato, não de banco.
+  A única exceção é a migration `0004`, que renomeia uma chave antiga: ela precisa
+  casar o literal que já está gravado nos bancos existentes, senão o rename vira uma
+  segunda posição de poupança e dobra o patrimônio. Migration é história, e história
+  não pode ser genérica.
 - **Import incremental via UI** — extratos (CSV, nos dois formatos), fatura (CSV) e
   relatório de corretora (xlsx), com preview, dedup, staging editável, confirmação e
   reverter-lote. Tudo entra por aqui: o backfill serve pra reconstruir do acervo,
@@ -101,7 +105,7 @@ não casa com nenhum é ignorado em silêncio.
 
 ## Invariantes financeiras
 
-O que não pode quebrar (detalhe e raciocínio em `CLAUDE.md` e nos comentários do código):
+O que não pode quebrar (cada uma vale como teste e como consulta de auditoria):
 
 - **Fatura itemizada** — os itens da fatura são os gastos reais; o pagamento no extrato
   é uma **liquidação** (`is_settlement=1`), fora dos totais de consumo. Sem isso o
@@ -162,21 +166,11 @@ O repositório guarda só o que serve pra rodar e entender o código:
 
 - **`README.md`** (em inglês) — porta de entrada do repositório público.
 - **este `README.pt-BR.md`** — a mesma coisa em português, com mais detalhe operacional.
-- **`CLAUDE.md`** — fonte única da verdade pra agentes de IA: schema, contas,
-  invariantes, arquitetura. **Fica na raiz de propósito**: é auto-carregado em toda
-  sessão de agente; numa subpasta deixaria de entrar em contexto e viraria letra morta.
-- **`git log`** — roadmap, decisões datadas, revisões de segurança.
+- **o código** — a regra que decide o que é dinheiro mora em `domain/` e em
+  `db/ledgerSql.ts`, comentada onde o *porquê* não é óbvio pelo *o quê*.
+- **`git log`** — decisões datadas, em Conventional Commits: cada mensagem diz o que
+  mudou e por que valia mudar.
 
-O resto da documentação (produto, sistema visual, specs, planos e auditorias datadas)
-mora num vault Obsidian, fora do repo:
-
-```
-~/Documents/Rede de projetos/Pessoal/BrokerShark/
-├── BrokerShark.md      # índice do projeto (comece por aqui)
-├── CLAUDE.md           # symlink pro arquivo da raiz deste repo
-├── Produto.md          # usuário, propósito, escopo
-├── Design System.md    # tokens, tipografia, layout, motion
-├── Specs/              # design docs datados
-├── Planos/             # planos de execução datados
-└── Arquivo/            # documentos superados, mantidos como registro
-```
+Documento de produto, sistema visual e plano de execução vivem fora deste repositório,
+num vault pessoal — enquanto um trabalho corre, e apagados quando o código os alcança.
+Aqui não há doc de etapa futura de propósito: **o que está escrito é o que está feito.**
