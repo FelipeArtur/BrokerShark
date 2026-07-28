@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import { initSchema } from "./open.ts";
 import { runMigrations } from "./migrate.ts";
-import { seedAccountsAndCategories } from "../jobs/backfill/seeds.ts";
+import { seedAccounts } from "../jobs/backfill/seeds.ts";
 import type { FaturaItem } from "../ingest/interFatura.ts";
 import { insertOpenFatura, pruneEmptyOpenInvoices } from "./faturaImport.ts";
 import { reconcileOpenInvoices } from "./reconcile.ts";
@@ -13,7 +13,7 @@ function freshDb(): DatabaseSync {
   db.exec("PRAGMA foreign_keys=ON");
   initSchema(db);
   runMigrations(db);
-  seedAccountsAndCategories(db);
+  seedAccounts(db);
   return db;
 }
 

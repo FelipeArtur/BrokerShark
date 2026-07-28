@@ -5,7 +5,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { initSchema } from "../../db/open.ts";
 import { runMigrations } from "../../db/migrate.ts";
-import { seedAccountsAndCategories, seedRules } from "./seeds.ts";
+import { seedAccounts, seedRules } from "./seeds.ts";
+import { seedTestCategories } from "../../testing/fixtures.ts";
 import { hasUserOverlay, userOverlay } from "./guard.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -16,7 +17,8 @@ function freshDb(): DatabaseSync {
   db.exec("PRAGMA foreign_keys=ON");
   initSchema(db);
   runMigrations(db, MIGRATIONS_DIR);
-  seedAccountsAndCategories(db);
+  seedAccounts(db);
+  seedTestCategories(db);
   return db;
 }
 
@@ -100,7 +102,7 @@ test("DB anterior à migration não estoura a guarda — a sonda é pulada", () 
   const db = new DatabaseSync(":memory:");
   db.exec("PRAGMA foreign_keys=ON");
   initSchema(db);            // baseline, SEM as migrations
-  seedAccountsAndCategories(db);
+  seedAccounts(db);
   assert.doesNotThrow(() => userOverlay(db));
   assert.equal(hasUserOverlay(db), false);
 });
@@ -109,7 +111,7 @@ test("sonda pulada por falta de coluna não vira falso positivo", () => {
   const db = new DatabaseSync(":memory:");
   db.exec("PRAGMA foreign_keys=ON");
   initSchema(db);
-  seedAccountsAndCategories(db);
+  seedAccounts(db);
   db.prepare(`INSERT INTO transactions
     (date, flow, method, account_id, amount_cents, description, import_batch_id)
     VALUES ('2026-03-01','expense','pix','nu-db',1000,'x','sess-1')`).run();

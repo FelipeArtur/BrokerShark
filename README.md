@@ -60,6 +60,13 @@ the closure entirely, because the money really did move back then. And, like a r
 an account only closes when it is settled: a card with an open invoice or a checking
 account in the red is refused.
 
+**A new ledger starts with no categories at all.** Spending taxonomy is a personal
+decision, not domain structure — the six categories this project ran on for months say
+more about its author's life than about money, so nothing seeds them. Imported
+transactions start uncategorized, which is a state the UI already knows how to show and
+resolve in bulk, and the categories you create teach rules that suggest themselves next
+time.
+
 These rules live in one place in SQL (`backend/src/db/ledgerSql.ts`) rather than being
 re-typed per query, because a copy that drifts makes two widgets disagree without failing
 a single test.

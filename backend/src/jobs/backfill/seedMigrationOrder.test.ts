@@ -3,51 +3,66 @@ import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import { initSchema } from "../../db/open.ts";
 import { runMigrations } from "../../db/migrate.ts";
-import { seedAccountsAndCategories } from "./seeds.ts";
+import { seedAccounts } from "./seeds.ts";
 
-// Trava a Task 1 (WHERE NOT EXISTS em vez de INSERT OR IGNORE, tanto na migration
-// 0002_macro_categories.sql quanto no seed): migration e seed inserem as mesmas
-// 6 macro categorias de despesa, e ambos os caminhos (backfill real roda
-// migration ANTES do seed; alguns testes de rota rodam o seed ANTES da migration)
-// precisam terminar num DB sem duplicatas — 6 despesa + 5 receita = 11 no total.
+// Este arquivo travava a regra antiga: seed e migration inseriam as MESMAS 6
+// macro categorias, e as duas ordens de execução (backfill roda migration antes
+// do seed; alguns testes de rota rodam o seed antes) precisavam terminar sem
+// duplicata.
+//
+// A regra virou outra quando o repositório ficou público: ledger novo nasce com
+// ZERO categorias, porque taxonomia de gasto é decisão de quem usa. O que estes
+// testes travam agora é o outro lado da mesma moeda — que nenhum dos dois
+// caminhos deixe escapar a taxonomia pessoal do autor pra dentro de um banco
+// recém-criado.
 
-const EXPENSE_MACRO = ["Alimentação", "Transporte", "Saúde e Bem-Estar",
-  "Compras e Lazer", "Compromissos e Transferências", "Igreja/Dízimo"];
-
-function assertNoDoubling(db: DatabaseSync): void {
-  const expenseCount = (db.prepare(
-    "SELECT COUNT(*) AS n FROM categories WHERE flow='expense'",
-  ).get() as { n: number }).n;
-  const incomeCount = (db.prepare(
-    "SELECT COUNT(*) AS n FROM categories WHERE flow='income'",
-  ).get() as { n: number }).n;
-
-  assert.equal(expenseCount, 6);
-  assert.equal(incomeCount, 5);
-  assert.equal(expenseCount + incomeCount, 11);
-
-  const expenseNames = (db.prepare(
-    "SELECT name FROM categories WHERE flow='expense' ORDER BY name",
-  ).all() as { name: string }[]).map((r) => r.name);
-  assert.deepEqual(expenseNames, [...EXPENSE_MACRO].sort());
+function categoryCount(db: DatabaseSync): number {
+  return (db.prepare("SELECT COUNT(*) AS n FROM categories").get() as { n: number }).n;
 }
 
-test("ordem real do backfill (initSchema → runMigrations → seedAccountsAndCategories): sem dobrar as 6 macro", () => {
+test("ordem real do backfill (initSchema → runMigrations → seedAccounts): nasce sem categoria", () => {
   const db = new DatabaseSync(":memory:");
   db.exec("PRAGMA foreign_keys=ON");
   initSchema(db);
   runMigrations(db);
-  seedAccountsAndCategories(db);
+  seedAccounts(db);
 
-  assertNoDoubling(db);
+  assert.equal(categoryCount(db), 0);
 });
 
-test("ordem invertida (initSchema → seedAccountsAndCategories → runMigrations): sem dobrar as 6 macro", () => {
+test("ordem invertida (initSchema → seedAccounts → runMigrations): nasce sem categoria", () => {
   const db = new DatabaseSync(":memory:");
   db.exec("PRAGMA foreign_keys=ON");
   initSchema(db);
-  seedAccountsAndCategories(db);
+  seedAccounts(db);
   runMigrations(db);
 
-  assertNoDoubling(db);
+  assert.equal(categoryCount(db), 0);
+});
+
+test("as contas do acervo continuam sendo semeadas", () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys=ON");
+  initSchema(db);
+  runMigrations(db);
+  seedAccounts(db);
+
+  const ids = (db.prepare("SELECT id FROM accounts ORDER BY id").all() as { id: string }[])
+    .map(r => r.id);
+  assert.deepEqual(ids, ["inter-cc", "inter-db", "nu-db"]);
+});
+
+test("num ledger que JÁ tinha categorias, a migration ainda consolida", () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys=ON");
+  initSchema(db);
+  // Uma categoria antiga qualquer basta pra caracterizar "ledger existente":
+  // é o gatilho que faz a 0002 materializar as macro e reatribuir o que havia.
+  db.prepare("INSERT INTO categories (name, flow) VALUES ('Carro', 'expense')").run();
+  runMigrations(db);
+
+  const names = (db.prepare("SELECT name FROM categories WHERE flow='expense' ORDER BY name")
+    .all() as { name: string }[]).map(r => r.name);
+  assert.ok(names.includes("Transporte"), "as macro entram quando há o que consolidar");
+  assert.ok(!names.includes("Carro"), "e a antiga sai");
 });

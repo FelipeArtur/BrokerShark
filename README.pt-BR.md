@@ -63,6 +63,9 @@ node backend/src/jobs/backup.ts
   fatura do cartão, visão de futuro). Detalhe abre em **overlay de drill-down**,
   nunca navegação.
 - **Orçamento por categoria** — alvo fixo por categoria, com override opcional por mês.
+- **Ledger novo nasce sem categoria nenhuma** — taxonomia de gasto é decisão de quem usa,
+  não estrutura do domínio. Lançamento importado nasce sem categoria (estado que a tela
+  mostra e resolve em lote), e cada categorização vira regra que passa a se sugerir.
 - **Contas entram e saem sem perder histórico** — conta nova pela UI, conta encerrada
   vira *soft-close*: sai do disponível, do patrimônio e das opções de import, mas cada
   lançamento dela continua no ledger e os meses passados seguem contando o que ela

@@ -2,14 +2,14 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import { initSchema } from "./open.ts";
-import { seedAccountsAndCategories } from "../jobs/backfill/seeds.ts";
+import { seedAccounts } from "../jobs/backfill/seeds.ts";
 import { reconcileInvoicePayment, reconcileOpenInvoices } from "./reconcile.ts";
 
 function freshDb(): DatabaseSync {
   const db = new DatabaseSync(":memory:");
   db.exec("PRAGMA foreign_keys=ON");
   initSchema(db);
-  seedAccountsAndCategories(db);
+  seedAccounts(db);
   return db;
 }
 

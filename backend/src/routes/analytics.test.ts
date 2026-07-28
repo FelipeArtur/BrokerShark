@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { initSchema } from "../db/open.ts";
 import { runMigrations } from "../db/migrate.ts";
-import { seedAccountsAndCategories } from "../jobs/backfill/seeds.ts";
+import { seedAccounts } from "../jobs/backfill/seeds.ts";
 import { analyticsRoutes } from "./analytics.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -16,7 +16,7 @@ function freshDb(): DatabaseSync {
   db.exec("PRAGMA foreign_keys=ON");
   initSchema(db);
   runMigrations(db, MIGRATIONS_DIR);
-  seedAccountsAndCategories(db);
+  seedAccounts(db);
   return db;
 }
 

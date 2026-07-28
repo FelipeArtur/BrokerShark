@@ -23,7 +23,7 @@ import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { openDb, initSchema, restrictPermissions } from "../db/open.ts";
 import { runMigrations } from "../db/migrate.ts";
-import { seedAccountsAndCategories, seedRules } from "./backfill/seeds.ts";
+import { seedAccounts, seedRules } from "./backfill/seeds.ts";
 import { makeTxInserter, newStats } from "./backfill/txInsert.ts";
 import type { TxRecord } from "../ingest/types.ts";
 import { pairSelfTransfers } from "./backfill/selfPairs.ts";
@@ -109,7 +109,7 @@ export function seedDemo(dbPath: string): DemoReport {
   const db = openDb(dbPath);
   initSchema(db);
   runMigrations(db);
-  seedAccountsAndCategories(db);
+  seedAccounts(db);
   seedRules(db);
 
   const months = monthList();
@@ -277,17 +277,22 @@ export function seedDemo(dbPath: string): DemoReport {
 }
 
 /**
- * Categoriza pelo comerciante e deixa a regra aprendida no banco — é assim que a
- * UI aprende quando o dono categoriza, e a aba Regras nasce com conteúdo.
+ * Cria as categorias DA DEMO e categoriza por comerciante, deixando a regra
+ * aprendida no banco — é assim que a UI aprende quando o dono categoriza, e a
+ * aba Regras nasce com conteúdo.
+ *
+ * As categorias nascem aqui, e não no seed, porque um ledger de verdade nasce
+ * sem nenhuma: taxonomia de gasto é escolha de quem usa. Estas são as escolhas
+ * da personagem fictícia da demonstração.
  */
 function categorize(db: DatabaseSync): void {
-  const catId = new Map<string, number>(
-    (db.prepare("SELECT id, name FROM categories WHERE flow='expense'").all() as
-      { id: number; name: string }[]).map(c => [c.name, c.id]),
-  );
-  const salario = (db.prepare(
-    "SELECT id FROM categories WHERE name='Salário' AND flow='income'",
-  ).get() as { id: number } | undefined)?.id;
+  const ins = db.prepare("INSERT INTO categories (name, flow) VALUES (?, ?)");
+  const catId = new Map<string, number>();
+  for (const n of ["Alimentação", "Transporte", "Saúde e Bem-Estar", "Compras e Lazer", "Moradia"]) {
+    catId.set(n, Number(ins.run(n, "expense").lastInsertRowid));
+  }
+  const salario = Number(ins.run("Salário", "income").lastInsertRowid);
+  ins.run("Freela", "income");
 
   const upd = db.prepare(
     "UPDATE transactions SET category_id = ? WHERE lower(description) LIKE ? AND category_id IS NULL",
@@ -305,12 +310,10 @@ function categorize(db: DatabaseSync): void {
     }
   }
 
-  const compromissos = catId.get("Compromissos e Transferências");
-  if (compromissos) {
-    upd.run(compromissos, "%aluguel%");
-    rule.run("imobiliária exemplo", String(compromissos));
-  }
-  if (salario) upd.run(salario, "%empresa exemplo%");
+  const moradia = catId.get("Moradia")!;
+  upd.run(moradia, "%aluguel%");
+  rule.run("imobiliária exemplo", String(moradia));
+  upd.run(salario, "%empresa exemplo%");
 }
 
 /**

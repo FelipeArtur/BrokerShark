@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import { initSchema } from "../db/open.ts";
 import { runMigrations } from "../db/migrate.ts";
-import { seedAccountsAndCategories } from "../jobs/backfill/seeds.ts";
+import { seedAccounts } from "../jobs/backfill/seeds.ts";
 import { commitmentRoutes } from "./commitments.ts";
 import { accountRoutes } from "./accounts.ts";
 
@@ -12,7 +12,7 @@ function freshDb(): DatabaseSync {
   db.exec("PRAGMA foreign_keys=ON");
   initSchema(db);
   runMigrations(db);
-  seedAccountsAndCategories(db);
+  seedAccounts(db);
   return db;
 }
 

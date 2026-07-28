@@ -4,7 +4,7 @@ import { openDb, initSchema, restrictPermissions } from "../db/open.ts";
 import { runMigrations } from "../db/migrate.ts";
 import { userOverlay } from "./backfill/guard.ts";
 import { collectAcervo } from "./backfill/files.ts";
-import { seedAccountsAndCategories, seedRules } from "./backfill/seeds.ts";
+import { seedAccounts, seedRules } from "./backfill/seeds.ts";
 import { makeTxInserter } from "./backfill/txInsert.ts";
 import { importNubank, importInter } from "./backfill/extratos.ts";
 import { importFaturas } from "./backfill/faturas.ts";
@@ -46,7 +46,7 @@ const db = openDb(dbPath);
 initSchema(db);
 runMigrations(db);
 
-seedAccountsAndCategories(db);
+seedAccounts(db);
 const ins = makeTxInserter(db);
 
 const nuStats = importNubank(ins, acervo.nubank);

@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import { initSchema } from "./open.ts";
 import { runMigrations } from "./migrate.ts";
-import { seedAccountsAndCategories } from "../jobs/backfill/seeds.ts";
+import { seedAccounts } from "../jobs/backfill/seeds.ts";
+import { seedTestCategories } from "../testing/fixtures.ts";
 import { auditLedger } from "./audit.ts";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,7 +17,8 @@ function freshDb(): DatabaseSync {
   db.exec("PRAGMA foreign_keys=ON");
   initSchema(db);
   runMigrations(db, MIGRATIONS_DIR);
-  seedAccountsAndCategories(db);
+  seedAccounts(db);
+  seedTestCategories(db);
   return db;
 }
 

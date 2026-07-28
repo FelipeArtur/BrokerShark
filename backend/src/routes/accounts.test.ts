@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { initSchema } from "../db/open.ts";
 import { runMigrations } from "../db/migrate.ts";
-import { seedAccountsAndCategories } from "../jobs/backfill/seeds.ts";
+import { seedAccounts } from "../jobs/backfill/seeds.ts";
 import { dispatch } from "../http/router.ts";
 import { accountRoutes } from "./accounts.ts";
 import { auditLedger } from "../db/audit.ts";
@@ -18,7 +18,7 @@ function freshDb(): DatabaseSync {
   const db = new DatabaseSync(":memory:");
   db.exec("PRAGMA foreign_keys=ON");
   initSchema(db);
-  seedAccountsAndCategories(db);
+  seedAccounts(db);
   runMigrations(db, MIGRATIONS_DIR);
   return db;
 }

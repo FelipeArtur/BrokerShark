@@ -103,6 +103,7 @@ backend/
       security.ts       # host + Origin allowlist (anti DNS-rebinding + anti-CSRF) + headers (CSP etc.)
       multipart.ts      # parser multipart/form-data (upload do import; cap 20MB / 64 partes)
       validate.ts       # isIsoDate, isPositiveAmount, isIntId… (writes validam tudo)
+    testing/            # fixtures de TESTE (categorias genéricas) — nunca importado por produção
     routes/             # handlers finos por domínio; SQL nomeado no topo
       accounts.ts       # /api/accounts (GET/POST/PATCH/DELETE), /api/available,
                         # /api/liquidity-history + openCheckingIds (allowlist do import)
@@ -123,7 +124,7 @@ backend/
                         # mesmos módulos do backfill e se audita no fim; é o que faz o
                         # projeto rodar sem acervo e a fonte dos prints do README
       backfill.ts       # orquestrador (1 tela): fases em jobs/backfill/ (aborta se DB tem overlay da UI; --force)
-      backfill/         # files, seeds, txInsert, extratos, faturas, selfPairs, caixinha,
+      backfill/         # files, seeds (contas; NUNCA categorias), txInsert, extratos, faturas, selfPairs, caixinha,
                         # b3Sync, guard (userOverlay: 4 sondas do que a UI escreveu),
                         # investReview, verify — 1 fase por arquivo
       backup.ts         # backup mensal: snapshot VACUUM INTO datado (retém 12, 0600) + backupStatus + CLI
@@ -184,7 +185,7 @@ server.ts (node:http, 127.0.0.1:8000) → React frontend (SSE /api/events)
 - **Dinheiro = centavos inteiros.** `parseMoneyCents()` decompõe a string em inteiro+fração — jamais passa por float intermediário. `amount_cents`, `initial_balance_cents`, `net_cents`, etc.
 - **Backfill por reconstrução (guardado).** O DB é recriado do zero a cada run. **Guarda anti-perda-de-dados** (`jobs/backfill/guard.ts`): `userOverlay` roda **4 sondas** por tudo que a UI escreve e nenhum acervo recria — lançamentos (`import_batch_id`/`display_name`/`is_third_party`), **contas criadas ou encerradas** (`opened_at`/`closed_at`; o seed não preenche nenhuma das duas), **alvos de gasto** (`category_budgets`) e **regras aprendidas** (`rules.action='category'`; o seed só grava `investment_leg`/`settlement`). Aborta listando o que se perderia, item a item — a menos de `--force`.
   - **Sonda nova declara `table` e `needs`.** A guarda roda ANTES das migrations, sobre o DB que já estava lá, então pode encontrar schema mais velho que ela; sonda cuja coluna não existe é pulada em vez de estourar. Pular está certo: sem a coluna, o dado não pode existir.
-  - Só escapa categoria criada pela UI e **nunca usada** — não há coluna que a distinga do seed, e comparar com a lista semeada duplicaria o seed dentro da guarda. Na prática toda categoria criada acaba usada, e o uso cai na sonda de regras.
+  - Categoria criada pela UI e **nunca usada** ainda escapa da guarda: o seed não cria categoria nenhuma, mas a migration `0002` cria as macro num ledger que já tinha categorias, então "existe categoria" não prova origem. Na prática toda categoria criada acaba usada, e o uso cai na sonda de regras.
   - Meses novos entram pelo **import incremental via UI**, não por rebuild.
 - **DB chmod 0600** — sem auth na app, perms de arquivo = fronteira at-rest (backfill E server aplicam; WAL/SHM incluídos).
 - **Fronteiras do server local:** bind 127.0.0.1 + allowlist de **Host** (anti DNS-rebinding) + allowlist de **Origin** nos métodos != GET/HEAD (anti-CSRF — `readBody` ignora Content-Type, então todo write exige Origin localhost) + CSP self-only/nosniff/frame-deny + body cap 1MB (upload multipart 20MB / 64 partes) + writes 100% validados server-side (data, FKs, whitelists de method/flow/operation).
@@ -206,6 +207,7 @@ server.ts (node:http, 127.0.0.1:8000) → React frontend (SSE /api/events)
 - **`is_revenue`** (Integer): `1` = receita real, `0` = self-transfer ou movimento de investimento. Controla totais de receita.
 - **Espécies de dinheiro (front):** `money.js` → `moneyKind()` é a ÚNICA regra do frontend e devolve exatamente uma de seis espécies por linha: `settlement` · `transfer` · `invest` · `third_party` · `revenue` · `expense`. **A ordem de precedência é load-bearing** (liquidação antes de despesa senão o consumo dobra; SELF antes de investimento senão transferência vira aplicação — o backend faz o mesmo recorte em `investmentOut()`/`investmentIn()`, e foi o front acertando enquanto o back errava que denunciou o furo). Equivale à regra consumo-despesa acima em toda linha alcançável — há teste combinatório que falha se divergir. Cor por espécie em `KIND_COLOR`; **verde é receita e só receita** (nunca reusar pra "dentro do alvo").
 - **Recorrência é DERIVADA e display-only.** `domain/recurrence.ts` recorta a **corrida recente** de meses por `flow|comerciante` (histórico inteiro enterra corrida viva sob anos de esporádico) e aceita ≥3 meses, `cv ≤ 0.35`, gap ≤ 2, parada ≤ 2 meses; valor = mediana. **Não entra no herói nem em `available_net`** — herói é dinheiro que existe, e somar entrada prevista faria salário atrasado virar estouro silencioso. `/api/commitments` mantém `series` como compromisso DURO; recorrência vive no campo irmão `recurring`. A projeção ancora no último mês **observado** de cada recorrência, não no mês corrente: mês já medido pelo ledger nunca recebe previsão (dobraria), mas o intervalo entre o fim dos dados e hoje recebe.
+- **Ledger novo nasce SEM categoria.** `seedAccounts` semeia só as três contas; nenhuma categoria. Taxonomia de gasto é decisão de quem usa — as seis macro que este projeto carregou dizem respeito à vida do dono, não ao domínio, e semeá-las num repo público empurraria essa vida pro ledger de qualquer pessoa. Consequências práticas: (a) a migration `0002_macro_categories` só materializa as macro se **já existir categoria de despesa** no banco (`EXISTS`), o que a torna no-op completo num DB fresh e mantém a consolidação do ledger antigo; (b) lançamento importado nasce sem categoria, estado que a UI já sabe mostrar ("Sem categoria", contador de pendentes) e resolver em lote; (c) teste que precisa de categoria usa `src/testing/fixtures.ts`, nunca o seed.
 - **Alvo de gasto:** `resolveBudget` (`domain/budget.ts`) → override do mês ?? alvo fixo ?? **null**. Categoria sem alvo é `null`, **nunca zero** — zero faria tudo nascer 100% estourado. Só categoria de despesa tem alvo.
 - **Conta encerrada: `closed_at` afeta POSIÇÃO, nunca HISTÓRICO.** Soft-close, como `investments` — **nunca DELETE**. A regra em duas leituras:
   - *"quanto eu tenho agora"* (`available`, `checking_total`, patrimônio, saldo do card, allowlist do import) soma **só contas abertas**, e o saldo de uma conta encerrada é **zero por definição** — nunca o último saldo que o extrato deixou. Sem isso, encerrar sem transferência de saída (saque em espécie, ou só parar de importar) deixaria o herói mentindo pra cima pra sempre.
@@ -295,7 +297,7 @@ migration_log (name TEXT PK, ran_at)
 > Aborta se o DB existente tiver dados escritos pela UI (guarda anti-perda; ver Key principles). `--force` reconstrói mesmo assim.
 
 Pipeline sequencial:
-1. **Schema + seeds** → contas (`nu-db`, `inter-db`, `inter-cc`) + categorias
+1. **Schema + seeds** → só as contas (`nu-db`, `inter-db`, `inter-cc`). **Categoria não é semeada** — ver a invariante abaixo
 2. **Nubank** → dedup por `external_id` (UUID)
 3. **Inter** → dedup por contagem de ocorrência em `(date, flow, amount, description)` + check de saldo corrente (running-balance)
 4. **Faturas Inter** → itens no `inter-cc` + reconciliação do pagamento (valor exato, janela −70/+35d) + liquidações parciais

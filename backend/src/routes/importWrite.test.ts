@@ -7,7 +7,8 @@ import { DatabaseSync } from "node:sqlite";
 import { Readable } from "node:stream";
 import { initSchema } from "../db/open.ts";
 import { runMigrations } from "../db/migrate.ts";
-import { seedAccountsAndCategories } from "../jobs/backfill/seeds.ts";
+import { seedAccounts } from "../jobs/backfill/seeds.ts";
+import { seedTestCategories } from "../testing/fixtures.ts";
 import { importRoutes } from "./import.ts";
 import { auditLedger } from "../db/audit.ts";
 import { dirname, join } from "node:path";
@@ -21,7 +22,8 @@ function freshDb(): DatabaseSync {
   db.exec("PRAGMA foreign_keys=ON");
   initSchema(db);
   runMigrations(db, MIGRATIONS_DIR);
-  seedAccountsAndCategories(db);
+  seedAccounts(db);
+  seedTestCategories(db);
   return db;
 }
 
