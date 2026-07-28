@@ -40,3 +40,6 @@ Thumbs.db
 
 # Tooling de agentes (local, fora do VCS)
 .impeccable/
+
+# Rascunho de sessão de agente — nunca versionar.
+.scratch/
