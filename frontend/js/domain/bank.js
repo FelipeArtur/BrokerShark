@@ -7,23 +7,16 @@
   Object.assign(root.BS, api);
 })(typeof self !== "undefined" ? self : globalThis, function (P) {
 
-  // Identidade de banco, num lugar só.
+  // Identidade visual de banco, num lugar só.
   //
-  // Nubank e Inter são as duas contas do dono e têm cor própria no sistema
-  // visual. Banco que entrar depois não pode herdar a cor nem o nome de um
-  // deles — antes disso, uma conta nova aparecia rotulada "Inter" na faixa
-  // herói e pintada com o laranja do Inter.
+  // A cor sai do nome do banco pelo palette — hash estável, oito matizes. Não há
+  // lista de bancos conhecidos aqui de propósito: o mesmo nome sempre recebe a
+  // mesma cor, e um banco que ninguém previu entra sem herdar a identidade de
+  // outro. (Antes existia um par fixo com os dois bancos do autor, e uma conta
+  // nova aparecia rotulada com o nome de um deles e pintada com a cor dele.)
 
-  const isNubank = (bank, id) =>
-    String(bank || "").toLowerCase() === "nubank" || String(id || "").startsWith("nu");
-
-  const isInter = (bank, id) =>
-    String(bank || "").toLowerCase() === "inter" || String(id || "").startsWith("inter");
-
-  /** Cor do banco. Banco novo ganha uma cor estável do palette. */
+  /** Cor estável do banco, derivada do nome. */
   function bankColor(bank, id) {
-    if (isNubank(bank, id)) return "var(--nubank)";
-    if (isInter(bank, id)) return "var(--inter)";
     return P.swatchColor(String(bank || id || ""));
   }
 
@@ -32,19 +25,22 @@
    *
    * Tem que ser o MESMO em todo lugar: o widget da fatura usa isso como chave de
    * faceta e a tabela de lançamentos usa pra casar a filtragem. Se um disser
-   * "Outros" e o outro "C6", clicar na faceta não filtra nada.
+   * "Outros" e o outro "Banco B", clicar na faceta não filtra nada.
    */
   function bankLabel(bank, id) {
-    if (isNubank(bank, id)) return "Nubank";
-    if (isInter(bank, id)) return "Inter";
     if (bank) return String(bank).replace(/^./, c => c.toUpperCase());
     return String(id || "Outros");
   }
 
-  /** Rótulo curto pra faixa de KPI, onde não cabe o nome inteiro. */
+  /**
+   * Rótulo curto pra faixa de KPI, onde não cabe o nome inteiro.
+   *
+   * Corta na primeira palavra quando ela já distingue ("Banco A" → "Banco"
+   * não distingue nada, então cai no corte por tamanho).
+   */
   function bankShortLabel(bank, id) {
-    if (isNubank(bank, id)) return "Nu";
-    return bankLabel(bank, id).slice(0, 6);
+    const full = bankLabel(bank, id);
+    return full.length <= 8 ? full : full.slice(0, 8);
   }
 
   return { bankColor, bankLabel, bankShortLabel };

@@ -7,6 +7,9 @@ import { seedAccounts } from "../jobs/backfill/seeds.ts";
 import { commitmentRoutes } from "./commitments.ts";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { useTestConfig } from "../testing/fixtures.ts";
+
+useTestConfig();
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = join(HERE, "../db/migrations");
@@ -30,14 +33,14 @@ function getCommitments(db: DatabaseSync): any {
 
 function openInvoice(db: DatabaseSync, refMonth: string, dueDate: string | null, totalCents: number): number {
   return Number(db.prepare(
-    "INSERT INTO invoices (account_id, ref_month, due_date, total_cents, source_file) VALUES ('inter-cc', ?, ?, ?, 'ui')",
+    "INSERT INTO invoices (account_id, ref_month, due_date, total_cents, source_file) VALUES ('cartao-b', ?, ?, ?, 'ui')",
   ).run(refMonth, dueDate, totalCents).lastInsertRowid);
 }
 
 function installmentItem(db: DatabaseSync, invoiceId: number, date: string, amountCents: number, seq: number, total: number) {
   db.prepare(`INSERT INTO transactions
     (date, flow, method, account_id, amount_cents, description, invoice_id, installment_seq, installment_total, import_batch_id)
-    VALUES (?, 'expense', 'credit', 'inter-cc', ?, 'Steam', ?, ?, ?, 'sess-1')`)
+    VALUES (?, 'expense', 'credit', 'cartao-b', ?, 'Steam', ?, ?, ?, 'sess-1')`)
     .run(date, amountCents, invoiceId, seq, total);
 }
 
@@ -97,13 +100,13 @@ function ym(offsetMonths: number): string {
 function checkingExpense(db: DatabaseSync, date: string, amountCents: number, description: string) {
   db.prepare(`INSERT INTO transactions
     (date, flow, method, account_id, amount_cents, description, is_revenue, is_settlement, is_third_party)
-    VALUES (?, 'expense', 'pix', 'nu-db', ?, ?, 0, 0, 0)`).run(date, amountCents, description);
+    VALUES (?, 'expense', 'pix', 'conta-a', ?, ?, 0, 0, 0)`).run(date, amountCents, description);
 }
 
 function checkingIncome(db: DatabaseSync, date: string, amountCents: number, description: string) {
   db.prepare(`INSERT INTO transactions
     (date, flow, method, account_id, amount_cents, description, is_revenue, is_settlement, is_third_party)
-    VALUES (?, 'income', 'ted', 'nu-db', ?, ?, 1, 0, 0)`).run(date, amountCents, description);
+    VALUES (?, 'income', 'ted', 'conta-a', ?, ?, 1, 0, 0)`).run(date, amountCents, description);
 }
 
 test("recurring: três meses de saída estável viram recorrência projetada", () => {
@@ -139,7 +142,7 @@ test("recurring: liquidação de fatura não conta como recorrência de consumo"
   for (const k of [-2, -1, 0]) {
     db.prepare(`INSERT INTO transactions
       (date, flow, method, account_id, amount_cents, description, is_revenue, is_settlement, is_third_party)
-      VALUES (?, 'expense', 'credit', 'inter-db', 100000, 'Pagamento de fatura', 0, 1, 0)`).run(`${ym(k)}-10`);
+      VALUES (?, 'expense', 'credit', 'conta-b', 100000, 'Pagamento de fatura', 0, 1, 0)`).run(`${ym(k)}-10`);
   }
   const out = getCommitments(db);
   assert.deepEqual(out.recurring.items, []);
@@ -150,7 +153,7 @@ test("recurring: terceiro não conta como recorrência", () => {
   for (const k of [-2, -1, 0]) {
     db.prepare(`INSERT INTO transactions
       (date, flow, method, account_id, amount_cents, description, is_revenue, is_settlement, is_third_party)
-      VALUES (?, 'expense', 'pix', 'nu-db', 50000, 'Compra do vizinho', 0, 0, 1)`).run(`${ym(k)}-10`);
+      VALUES (?, 'expense', 'pix', 'conta-a', 50000, 'Compra do vizinho', 0, 0, 1)`).run(`${ym(k)}-10`);
   }
   const out = getCommitments(db);
   assert.deepEqual(out.recurring.items, []);
@@ -161,7 +164,7 @@ test("recurring: perna de investimento (transfer) não conta como recorrência",
   for (const k of [-2, -1, 0]) {
     db.prepare(`INSERT INTO transactions
       (date, flow, method, account_id, amount_cents, description, is_revenue, is_settlement, is_third_party)
-      VALUES (?, 'expense', 'transfer', 'nu-db', 80000, 'Aplicação RDB', 0, 0, 0)`).run(`${ym(k)}-10`);
+      VALUES (?, 'expense', 'transfer', 'conta-a', 80000, 'Aplicação RDB', 0, 0, 0)`).run(`${ym(k)}-10`);
   }
   const out = getCommitments(db);
   assert.deepEqual(out.recurring.items, []);

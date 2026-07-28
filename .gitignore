@@ -12,6 +12,11 @@ credentials/
 # docs/ pra ignorar nem pra versionar.
 data/
 backups/
+
+# config/local.json = as SUAS contas, bancos e keywords. Fica de fora do repo
+# público de propósito: config/default.json é o exemplo genérico, e o que é seu
+# não precisa virar vitrine. No repositório pessoal, versione com `git add -f`.
+config/local.json
 logs/
 *.log
 

@@ -2,40 +2,39 @@ const { test } = require("node:test");
 const assert = require("node:assert");
 const B = require("./bank.js");
 
-test("Nubank e Inter mantêm cor de identidade", () => {
-  assert.equal(B.bankColor("nubank", "nu-db"), "var(--nubank)");
-  assert.equal(B.bankColor("inter", "inter-db"), "var(--inter)");
-  assert.equal(B.bankColor("inter", "inter-cc"), "var(--inter)");
-});
+// A regra que estes testes travam mudou quando o projeto virou público: não há
+// mais banco "de casa" com cor reservada. Todo banco é tratado igual, e a
+// identidade visual sai do nome — inclusive pros bancos que o autor usa.
 
-test("banco novo NÃO herda a cor de nenhum dos dois", () => {
-  for (const b of ["c6", "itau", "bradesco", "nomad"]) {
+test("nenhum banco tem cor reservada: todos saem do palette", () => {
+  for (const b of ["banco a", "banco b", "c6", "itau", "bradesco", "nomad"]) {
     const cor = B.bankColor(b, `${b}-db`);
-    assert.notEqual(cor, "var(--inter)", `${b} pegou o laranja do Inter`);
-    assert.notEqual(cor, "var(--nubank)", `${b} pegou o roxo do Nubank`);
     assert.match(cor, /^oklch\(/, `${b} → ${cor} não é cor do palette`);
   }
 });
 
-test("a cor de um banco novo é estável entre chamadas", () => {
+test("bancos diferentes não colidem na mesma cor", () => {
+  const cores = new Set(["banco a", "banco b", "c6", "itau"].map(b => B.bankColor(b, b)));
+  assert.ok(cores.size >= 3, "quatro bancos deveriam render ao menos três matizes");
+});
+
+test("a cor de um banco é estável entre chamadas", () => {
   assert.equal(B.bankColor("c6", "c6-db"), B.bankColor("c6", "c6-db"));
 });
 
-test("banco novo NÃO é rotulado como Nubank nem Inter", () => {
+test("o rótulo é o nome do banco, capitalizado", () => {
   assert.equal(B.bankLabel("c6", "c6-db"), "C6");
-  assert.equal(B.bankShortLabel("c6", "c6-db"), "C6");
   assert.equal(B.bankLabel("itau", "itau-db"), "Itau");
+  assert.equal(B.bankLabel("Banco B", "conta-b"), "Banco B");
 });
 
-test("os dois bancos do dono são reconhecidos pelo id, mesmo sem bank", () => {
-  assert.equal(B.bankLabel(null, "nu-db"), "Nubank");
-  assert.equal(B.bankLabel(null, "inter-cc"), "Inter");
-  assert.equal(B.bankShortLabel(null, "nu-db"), "Nu");
+test("sem banco, o id serve de rótulo — a tela nunca mostra vazio", () => {
+  assert.equal(B.bankLabel(null, "conta-a"), "conta-a");
 });
 
 test("rótulo curto cabe na faixa de KPI", () => {
-  for (const b of ["nubank", "inter", "c6", "bradesco", "santander"]) {
-    assert.ok(B.bankShortLabel(b, `${b}-db`).length <= 6);
+  for (const b of ["banco a", "banco b", "c6", "bradesco", "santander"]) {
+    assert.ok(B.bankShortLabel(b, `${b}-db`).length <= 8);
   }
 });
 

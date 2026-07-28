@@ -8,7 +8,7 @@
 // Duas regras de desenho:
 //
 // 1. **Passa pelos mesmos módulos do backfill.** Pareamento SELF, derivação da
-//    Caixinha, fatura itemizada e reconciliação do pagamento são os de produção.
+//    poupança derivada, fatura itemizada e reconciliação são os de produção.
 //    Um gerador que inserisse linhas prontas produziria um banco bonito e
 //    mentiroso, que não prova nada sobre o código.
 // 2. **É determinístico.** PRNG com semente fixa: a mesma demo hoje e daqui a um
@@ -27,14 +27,15 @@ import { seedAccounts, seedRules } from "./backfill/seeds.ts";
 import { makeTxInserter, newStats } from "./backfill/txInsert.ts";
 import type { TxRecord } from "../ingest/types.ts";
 import { pairSelfTransfers } from "./backfill/selfPairs.ts";
-import { deriveCaixinha } from "./backfill/caixinha.ts";
+import { deriveSavings } from "./backfill/derivedSavings.ts";
 import { insertOpenFatura } from "../db/faturaImport.ts";
-import type { FaturaItem } from "../ingest/interFatura.ts";
+import type { InvoiceItem } from "../ingest/invoiceItemized.ts";
 import { reconcileOpenInvoices } from "../db/reconcile.ts";
 import { auditLedger } from "../db/audit.ts";
 import { reviewInvestments } from "./backfill/investReview.ts";
 import { fmtCents } from "../domain/money.ts";
 import { today } from "../domain/dates.ts";
+import { config, checkingAccounts, primaryCard, groupNameFor } from "../config.ts";
 
 const MONTHS = 24;
 const SEED = 20260727;
@@ -112,6 +113,15 @@ export function seedDemo(dbPath: string): DemoReport {
   seedAccounts(db);
   seedRules(db);
 
+  // As contas da demo são as da config — genéricas por padrão. A demonstração
+  // ilustra o produto configurado, não um par de bancos escolhido a dedo.
+  const [contaSalario, contaCartao] = checkingAccounts();
+  if (!contaSalario || !contaCartao) {
+    throw new Error("a demo precisa de duas contas correntes na config");
+  }
+  const card = primaryCard();
+  const savingsCfg = config().derivedSavings;
+
   const months = monthList();
   const lastDay = Number(today().slice(8, 10));
   const ins = makeTxInserter(db);
@@ -120,8 +130,8 @@ export function seedDemo(dbPath: string): DemoReport {
 
   const tx = (r: Partial<TxRecord> & Pick<TxRecord, "date" | "amountCents" | "description">) => {
     ins.insert({
-      accountId: "nu-db", flow: "expense", method: "pix", isRevenue: 0,
-      isInvestmentLeg: false, isCaixinhaLeg: false, sourceFile: "demo",
+      accountId: contaSalario.id, flow: "expense", method: "pix", isRevenue: 0,
+      isInvestmentLeg: false, isSavingsLeg: false, sourceFile: "demo",
       externalId: `demo-${++seq}`,
       ...r,
     } as TxRecord, stats);
@@ -161,17 +171,22 @@ export function seedDemo(dbPath: string): DemoReport {
       tx({ date: iso(m.year, m.month, 7), amountCents: 320000, method: "ted",
            description: "Transferência enviada pelo Pix - Titular da conta" });
       tx({ date: iso(m.year, m.month, 7), amountCents: 320000, flow: "income", method: "pix",
-           accountId: "inter-db", isRevenue: 1, description: "Pix recebido: Titular da conta" });
+           accountId: contaCartao.id, isRevenue: 1, description: "Pix recebido: Titular da conta" });
     }
 
-    // Caixinha (RDB do Nubank): aplica todo mês, resgata de vez em quando.
-    if (cap(15) >= 15) {
+    // Poupança derivada: aplica todo mês, resgata de vez em quando. A descrição
+    // usa a primeira keyword configurada — é o que o parser reconheceria num
+    // extrato de verdade.
+    const savingsWord = savingsCfg?.keywords[0] ?? "reserva";
+    if (savingsCfg && cap(15) >= 15) {
       tx({ date: iso(m.year, m.month, 15), amountCents: 80000, method: "transfer",
-           description: "Aplicação RDB", isInvestmentLeg: true, isCaixinhaLeg: true });
+           accountId: savingsCfg.accountId,
+           description: `Aplicação ${savingsWord}`, isInvestmentLeg: true, isSavingsLeg: true });
     }
-    if (i > 6 && i % 9 === 0 && cap(20) >= 20) {
+    if (savingsCfg && i > 6 && i % 9 === 0 && cap(20) >= 20) {
       tx({ date: iso(m.year, m.month, 20), amountCents: 150000, flow: "income", method: "transfer",
-           description: "Resgate RDB", isInvestmentLeg: true, isCaixinhaLeg: true });
+           accountId: savingsCfg.accountId,
+           description: `Resgate ${savingsWord}`, isInvestmentLeg: true, isSavingsLeg: true });
     }
 
     // Gastos avulsos na conta corrente (pix e débito). O volume é calibrado pra
@@ -182,12 +197,12 @@ export function seedDemo(dbPath: string): DemoReport {
       const day = cap(between(2, 27));
       if (isCurrent && day > lastDay) continue;
       tx({ date: iso(m.year, m.month, day), amountCents: between(2500, 35000),
-           accountId: pick(["nu-db", "inter-db"]),
+           accountId: pick([contaSalario.id, contaCartao.id]),
            description: `Pix enviado: ${pick(MERCHANTS[kind])}` });
     }
 
     // ── fatura do cartão: itens itemizados, como o CSV do banco entrega ──────
-    const items: FaturaItem[] = [];
+    const items: InvoiceItem[] = [];
     for (let k = 0; k < between(9, 15); k++) {
       const kind = pick(["mercado", "restaurante", "lazer", "assinatura"] as const) as Kind;
       const day = cap(between(1, 14));
@@ -232,14 +247,14 @@ export function seedDemo(dbPath: string): DemoReport {
     // fica aberta de propósito: é ela que alimenta o "Comprometido".
     if (!isCurrent) {
       tx({ date: iso(m.year, m.month, dueDay), amountCents: fatura.totalCents,
-           accountId: "inter-db", method: "credit",
+           accountId: card ? card.paidFrom.id : contaCartao.id, method: "credit",
            description: "Pagamento de fatura cartão de crédito" });
     }
   }
 
   // ── as derivações de produção, na ordem do backfill ───────────────────────
   pairSelfTransfers(db);
-  deriveCaixinha(db, ins.caixinhaTxIds);
+  deriveSavings(db, ins.savingsTxIds);
   reconcileOpenInvoices(db);
 
   categorize(db);
@@ -326,7 +341,7 @@ function seedPositions(db: DatabaseSync, months: { year: number; month: number; 
     { name: "Tesouro IPCA+ 2029", key: "demo:tesouro-ipca-2029", type: "tesouro",
       bank: "b3", group: null, aplicado: 500000, taxaMes: 0.0075 },
     { name: "CDB Banco Exemplo 108% CDI", key: "demo:cdb-exemplo", type: "cdb",
-      bank: "banco exemplo", group: "Porquinho", aplicado: 300000, taxaMes: 0.0088 },
+      bank: "banco b", group: groupNameFor("cdb", "banco b"), aplicado: 300000, taxaMes: 0.0088 },
   ];
 
   const insPos = db.prepare(`

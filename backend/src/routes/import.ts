@@ -8,16 +8,21 @@ import { broadcast } from "../http/sse.ts";
 import { HttpError } from "../http/respond.ts";
 import { parseMultipart, fileParts, fieldValue } from "../http/multipart.ts";
 import { isIntId, isShortText, isPositiveAmount, isIsoDate } from "../http/validate.ts";
-import { parseInterFatura } from "../ingest/interFatura.ts";
+import { parseInvoiceItemized } from "../ingest/invoiceItemized.ts";
 import { insertOpenFatura, pruneEmptyOpenInvoices } from "../db/faturaImport.ts";
 import type { TxRecord } from "../ingest/types.ts";
-import { parseNubankExtrato } from "../ingest/nubankExtrato.ts";
-import { parseInterExtrato } from "../ingest/interExtrato.ts";
+import { parseStatementWithIds } from "../ingest/statementWithIds.ts";
+import { parseStatementWithBalance } from "../ingest/statementWithBalance.ts";
 import { parseB3, type B3Report } from "../ingest/b3.ts";
 import { pairSelfTransfers } from "../jobs/backfill/selfPairs.ts";
-import { rederiveCaixinha } from "../jobs/backfill/caixinha.ts";
+import { rederiveSavings } from "../jobs/backfill/derivedSavings.ts";
 import { reconcileOpenInvoices } from "../db/reconcile.ts";
 import { openCheckingIds } from "./accounts.ts";
+import {
+  groupNameFor, accountById, accountByStatementFormat, accountByInvoiceFormat,
+  ledgerVocabulary, primaryCard,
+} from "../config.ts";
+import type { StatementFormat, InvoiceFormat } from "../config.ts";
 
 interface StagingRow {
   id: number;
@@ -72,12 +77,28 @@ function divergenceReais(b: Batch): number {
   return toReais(cents);
 }
 
-export function detectAccount(csv: string): string | null {
+/**
+ * Qual FORMATO o arquivo tem, olhando só o cabeçalho.
+ *
+ * A detecção é sobre o arquivo, nunca sobre o banco: bastam as colunas pra
+ * saber qual parser lê aquilo. Quem transforma formato em conta é a config.
+ */
+export function detectFormat(csv: string): StatementFormat | InvoiceFormat | null {
   const head = csv.slice(0, 4096).toLowerCase();
-  if (head.includes("identificador") && head.includes("valor")) return "nu-db";
-  if (head.includes("data lançamento") || head.includes("data lancamento")) return "inter-db";
-  if (head.includes("categoria") && head.includes("tipo") && head.includes("valor")) return "inter-cc";
+  if (head.includes("identificador") && head.includes("valor")) return "ids";
+  if (head.includes("data lançamento") || head.includes("data lancamento")) return "running-balance";
+  if (head.includes("categoria") && head.includes("tipo") && head.includes("valor")) return "itemized";
   return null;
+}
+
+/** Conta sugerida para um arquivo — a que a config declara para aquele formato. */
+export function detectAccount(csv: string): string | null {
+  const fmt = detectFormat(csv);
+  if (!fmt) return null;
+  const acc = fmt === "itemized"
+    ? accountByInvoiceFormat(fmt)
+    : accountByStatementFormat(fmt);
+  return acc ? acc.id : null;
 }
 
 export function importRoutes(db: DatabaseSync): Route[] {
@@ -97,8 +118,8 @@ export function importRoutes(db: DatabaseSync): Route[] {
     return rule ? Number(rule.value) : null;
   };
 
-  const nubankDup = db.prepare("SELECT 1 FROM transactions WHERE external_id = ?");
-  const interCount = db.prepare(
+  const idDup = db.prepare("SELECT 1 FROM transactions WHERE external_id = ?");
+  const occurrenceCount = db.prepare(
     "SELECT COUNT(*) AS n FROM transactions WHERE date = ? AND flow = ? AND amount_cents = ? AND description = ?",
   );
 
@@ -124,19 +145,31 @@ export function importRoutes(db: DatabaseSync): Route[] {
     const files = fileParts(parts);
     if (!files.length) return error(res, "nenhum arquivo enviado");
 
+    // Formato declarado na config pra essa conta; sem declaração, cai no que o
+    // próprio arquivo diz. Conta sem formato conhecido não tem como ser lida.
+    const format = accountById(account)?.statementFormat
+      ?? detectFormat(files[0]!.data.toString("utf-8"));
+    if (format !== "ids" && format !== "running-balance") {
+      return error(res, "não reconheci o formato do extrato para esta conta");
+    }
+    const vocab = ledgerVocabulary(account);
+
     const rows: StagingRow[] = [];
     let skipped = 0;
     let rowId = 0;
 
-    const interSeen = new Map<string, number>();
+    const seenSoFar = new Map<string, number>();
 
     for (const f of files) {
       const text = f.data.toString("utf-8");
       let recs: TxRecord[];
       try {
-        const parsed = account === "nu-db"
-          ? parseNubankExtrato(text, f.filename ?? "upload.csv")
-          : parseInterExtrato(text, f.filename ?? "upload.csv");
+        // O parser sai do FORMATO declarado pra conta na config, não de um id
+        // de conta escrito à mão: conta nova só precisa dizer qual formato o
+        // banco dela exporta.
+        const parsed = format === "ids"
+          ? parseStatementWithIds(text, f.filename ?? "upload.csv", account, vocab)
+          : parseStatementWithBalance(text, f.filename ?? "upload.csv", account, vocab);
         recs = parsed.records;
         skipped += parsed.skipped.length;
       } catch (e) {
@@ -145,16 +178,17 @@ export function importRoutes(db: DatabaseSync): Route[] {
 
       for (const rec of recs) {
         let status: StagingRow["status"] = "new";
-        if (account === "nu-db") {
-          if (rec.externalId && nubankDup.get(rec.externalId)) status = "duplicate";
+        if (format === "ids") {
+          // Formato com id estável: dedup exata pelo external_id.
+          if (rec.externalId && idDup.get(rec.externalId)) status = "duplicate";
         } else {
           const key = `${rec.date}|${rec.flow}|${rec.amountCents}|${rec.description}`;
-          if (!interSeen.has(key)) {
-            const n = (interCount.get(rec.date, rec.flow, rec.amountCents, rec.description) as { n: number }).n;
-            interSeen.set(key, n);
+          if (!seenSoFar.has(key)) {
+            const n = (occurrenceCount.get(rec.date, rec.flow, rec.amountCents, rec.description) as { n: number }).n;
+            seenSoFar.set(key, n);
           }
-          const remaining = interSeen.get(key)!;
-          if (remaining > 0) { status = "duplicate"; interSeen.set(key, remaining - 1); }
+          const remaining = seenSoFar.get(key)!;
+          if (remaining > 0) { status = "duplicate"; seenSoFar.set(key, remaining - 1); }
         }
         const categorizable = rec.method !== "transfer" && !rec.isInvestmentLeg;
         rows.push({
@@ -226,7 +260,7 @@ export function importRoutes(db: DatabaseSync): Route[] {
       ? String(body.import_batch_id) : randomUUID();
 
     const toInsert = batch.rows.filter((r) => r.status === "new" && !exclude.has(r.id));
-    const caixinhaIds: number[] = [];
+    const savingsIds: number[] = [];
     let inserted = 0;
 
     const tx = db.prepare("BEGIN");
@@ -241,12 +275,14 @@ export function importRoutes(db: DatabaseSync): Route[] {
           importBatchId, r.rec.sourceFile,
         );
         inserted++;
-        if (r.rec.isCaixinhaLeg) caixinhaIds.push(Number(info.lastInsertRowid));
+        if (r.rec.isSavingsLeg) savingsIds.push(Number(info.lastInsertRowid));
       }
-      rederiveCaixinha(db, caixinhaIds);
+      rederiveSavings(db, savingsIds);
       pairSelfTransfers(db);
 
-      if (batch.accountId === "inter-db") reconcileOpenInvoices(db);
+      // Pagamento de fatura mora na conta que paga o cartão; só ela pode
+      // fechar uma fatura aberta.
+      if (batch.accountId === primaryCard()?.paidFrom.id) reconcileOpenInvoices(db);
       db.prepare("COMMIT").run();
     } catch (e) {
       db.prepare("ROLLBACK").run();
@@ -280,7 +316,7 @@ export function importRoutes(db: DatabaseSync): Route[] {
     try {
       for (const r of restore) db.prepare("DELETE FROM transactions WHERE id = ?").run(r.id);
       if (invoiceIds.length) pruneEmptyOpenInvoices(db, invoiceIds);
-      if (caixinhaTouched) rederiveCaixinha(db, []);
+      if (caixinhaTouched) rederiveSavings(db, []);
       db.prepare("COMMIT").run();
     } catch (e) {
       db.prepare("ROLLBACK").run();
@@ -339,7 +375,7 @@ export function importRoutes(db: DatabaseSync): Route[] {
       for (const p of rep.positions) {
         const exists = !!invExists.get(p.matchKey);
         exists ? updated++ : created++;
-        const group = p.type === "cdb" && p.bank === "inter" ? "Porquinho" : null;
+        const group = groupNameFor(p.type, p.bank);
         const row = upsertInv.get(
           p.name, p.matchKey, p.code, p.type, p.bank, p.indexer, p.maturityIso, group, rep.refDate,
         ) as { id: number };
@@ -359,7 +395,7 @@ export function importRoutes(db: DatabaseSync): Route[] {
     const files = fileParts(parts);
     if (!files.length) throw new HttpError(400, "nenhum arquivo enviado");
     const f = files[0];
-    const fat = parseInterFatura(f.data.toString("utf-8"), f.filename ?? "fatura.csv");
+    const fat = parseInvoiceItemized(f.data.toString("utf-8"), f.filename ?? "fatura.csv");
     return { fat, filename: f.filename ?? `fatura-inter-${fat.refMonth}.csv` };
   }
 
@@ -369,7 +405,7 @@ export function importRoutes(db: DatabaseSync): Route[] {
     catch (e) { return error(res, e instanceof Error ? e.message : "falha ao ler fatura"); }
     const { fat } = parsed;
     const existing = db.prepare(
-      "SELECT payment_tx_id FROM invoices WHERE account_id = 'inter-cc' AND ref_month = ?",
+      "SELECT payment_tx_id FROM invoices WHERE account_id = ? AND ref_month = ?",
     ).get(fat.refMonth) as { payment_tx_id: number | null } | undefined;
     json(res, {
       ref_month: fat.refMonth,

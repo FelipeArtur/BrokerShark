@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { parseB3, type B3Report } from "../../ingest/b3.ts";
+import { groupNameFor } from "../../config.ts";
 
 const kindOf = (sheet: string): string => {
   const s = sheet.toLowerCase();
@@ -39,7 +40,7 @@ export function syncB3(db: DatabaseSync, b3Files: { f: string; ref: string }[]):
       reportsByKind.set(k, [...(reportsByKind.get(k) ?? []), rep.refDate]);
     }
     for (const p of rep.positions) {
-      const group = p.type === "cdb" && p.bank === "inter" ? "Porquinho" : null;
+      const group = groupNameFor(p.type, p.bank);
       const row = upsertInv.get(
         p.name, p.matchKey, p.code, p.type, p.bank, p.indexer, p.maturityIso, group, rep.refDate,
       ) as { id: number };

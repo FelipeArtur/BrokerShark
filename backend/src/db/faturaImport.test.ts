@@ -4,9 +4,12 @@ import { DatabaseSync } from "node:sqlite";
 import { initSchema } from "./open.ts";
 import { runMigrations } from "./migrate.ts";
 import { seedAccounts } from "../jobs/backfill/seeds.ts";
-import type { FaturaItem } from "../ingest/interFatura.ts";
+import type { InvoiceItem } from "../ingest/invoiceItemized.ts";
 import { insertOpenFatura, pruneEmptyOpenInvoices } from "./faturaImport.ts";
 import { reconcileOpenInvoices } from "./reconcile.ts";
+import { useTestConfig } from "../testing/fixtures.ts";
+
+useTestConfig();
 
 function freshDb(): DatabaseSync {
   const db = new DatabaseSync(":memory:");
@@ -17,7 +20,7 @@ function freshDb(): DatabaseSync {
   return db;
 }
 
-function item(date: string, description: string, cents: number, extra: Partial<FaturaItem> = {}): FaturaItem {
+function item(date: string, description: string, cents: number, extra: Partial<InvoiceItem> = {}): InvoiceItem {
   return { date, description, bankCategory: "Lazer", amountCents: cents, ...extra };
 }
 
@@ -27,7 +30,7 @@ function consumptionCount(db: DatabaseSync): number {
       AND is_third_party=0 AND dest_account_id IS NULL`).get() as { n: number }).n;
 }
 
-test("insertOpenFatura: cria fatura aberta + itens como credit no inter-cc", () => {
+test("insertOpenFatura: cria fatura aberta + itens como credit no cartao-b", () => {
   const db = freshDb();
   const res = insertOpenFatura(db, {
     refMonth: "2026-06",
@@ -42,7 +45,7 @@ test("insertOpenFatura: cria fatura aberta + itens como credit no inter-cc", () 
 
   const inv = db.prepare("SELECT account_id, payment_tx_id, due_date, total_cents FROM invoices WHERE id=?")
     .get(res.invoiceId) as { account_id: string; payment_tx_id: number | null; due_date: string; total_cents: number };
-  assert.equal(inv.account_id, "inter-cc");
+  assert.equal(inv.account_id, "cartao-b");
   assert.equal(inv.payment_tx_id, null);
   assert.equal(inv.due_date, "2026-07-15");
   assert.equal(inv.total_cents, 11100);
@@ -51,7 +54,7 @@ test("insertOpenFatura: cria fatura aberta + itens como credit no inter-cc", () 
   assert.equal(rows.length, 2);
   for (const r of rows) {
     assert.equal(r.method, "credit");
-    assert.equal(r.account_id, "inter-cc");
+    assert.equal(r.account_id, "cartao-b");
     assert.equal(r.flow, "expense");
     assert.equal(r.is_revenue, 0);
     assert.equal(r.invoice_id, res.invoiceId);
@@ -149,7 +152,7 @@ test("INTEGRAÇÃO (C1+H2): fatura aberta + pagamento no extrato → sem double-
 
   db.prepare(`INSERT INTO transactions
     (date, flow, method, account_id, amount_cents, description, import_batch_id)
-    VALUES ('2026-05-12','expense','pix','inter-db', 11100, 'Pagamento de fatura', 'ext-1')`).run();
+    VALUES ('2026-05-12','expense','pix','conta-b', 11100, 'Pagamento de fatura', 'ext-1')`).run();
 
   assert.equal(consumptionCount(db), 3);
 

@@ -85,6 +85,33 @@ the audit says so and exits non-zero.
 |---|
 | ![Forward view](.github/assets/forward.png) |
 
+## Your banks are configuration, not code
+
+Nothing in this repository knows a real bank. Accounts, the file format each one
+exports, the archive filename patterns, the investment keywords and the derived savings
+position all live in `config/default.json` — generic by default. Copy it to
+`config/local.json` (git-ignored) and it wins.
+
+```jsonc
+{
+  "accounts": [
+    { "id": "conta-a", "bank": "Banco A", "type": "checking", "name": "Banco A Conta",
+      "statementFormat": "ids" },
+    { "id": "cartao-b", "bank": "Banco B", "type": "credit_card", "name": "Banco B Cartão",
+      "invoiceFormat": "itemized", "paidFrom": "conta-b" }
+  ]
+}
+```
+
+**Parsers are named after file formats, not institutions.** `statementWithIds` reads a
+CSV that carries a unique id per row — which is what makes deduplication exact.
+`statementWithBalance` reads a CSV with a running balance column and verifies it line by
+line, refusing to import numbers that do not add up. A bank you have never heard of that
+exports either shape needs no code, only an entry in `accounts`.
+
+This split is also why the invariants above are testable: the rules are about money, the
+config is about you.
+
 ## Running it
 
 Requires **Node ≥ 26** (native type-stripping — the project has no build step).
@@ -101,8 +128,9 @@ production modules the real importer uses (SELF pairing, savings derivation, ite
 invoice, payment reconciliation) and then runs the invariant audit against what it
 produced, failing if anything broke. That is also why it is a CI step.
 
-To use it with your own data, import statements through the UI (Nubank and Inter CSV,
-Inter card invoice CSV, B3 consolidated XLSX) or rebuild from a directory of exports:
+To use it with your own data, declare your accounts in `config/local.json` and import
+statements through the UI (CSV in either supported shape, card invoice CSV, broker report
+XLSX), or rebuild from a directory of exports:
 
 ```bash
 npm run backfill "<archive dir>"
@@ -111,7 +139,7 @@ npm run backfill "<archive dir>"
 ## Testing
 
 ```bash
-npm test     # 342 tests, node:test, backend + frontend
+npm test      # 349 tests, node:test, backend + frontend
 npm run audit # invariant checks against the live database, read-only
 ```
 

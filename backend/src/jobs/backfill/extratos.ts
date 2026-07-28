@@ -2,15 +2,20 @@ import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { fmtCents } from "../../domain/money.ts";
-import { parseNubankExtrato } from "../../ingest/nubankExtrato.ts";
-import { parseInterExtrato, type InterParsed } from "../../ingest/interExtrato.ts";
+import { parseStatementWithIds } from "../../ingest/statementWithIds.ts";
+import { parseStatementWithBalance, type BalanceParsed } from "../../ingest/statementWithBalance.ts";
 import type { InsertStats, TxInserter } from "./txInsert.ts";
 import { newStats } from "./txInsert.ts";
+import { ledgerVocabulary } from "../../config.ts";
 
-export function importNubank(ins: TxInserter, files: string[]): InsertStats {
+/** Extratos do formato com identificador único, para a conta dada. */
+export function importStatementsWithIds(
+  ins: TxInserter, files: string[], accountId: string,
+): InsertStats {
+  const vocab = ledgerVocabulary(accountId);
   const stats = newStats();
   for (const f of files) {
-    const parsed = parseNubankExtrato(readFileSync(f, "utf-8"), basename(f));
+    const parsed = parseStatementWithIds(readFileSync(f, "utf-8"), basename(f), accountId, vocab);
     stats.skipped += parsed.skipped.length;
     stats.signedSum += parsed.signedSumCents;
     for (const rec of parsed.records) ins.insert(rec, stats);
@@ -18,14 +23,18 @@ export function importNubank(ins: TxInserter, files: string[]): InsertStats {
   return stats;
 }
 
-export interface InterImport {
+export interface BalanceImport {
   stats: InsertStats;
   warnings: string[];
 
   closingCents?: number;
 }
 
-export function importInter(db: DatabaseSync, ins: TxInserter, files: string[]): InterImport {
+/** Extratos do formato com saldo corrente — o saldo é conferido linha a linha. */
+export function importStatementsWithBalance(
+  db: DatabaseSync, ins: TxInserter, files: string[], accountId: string,
+): BalanceImport {
+  const vocab = ledgerVocabulary(accountId);
   const stats = newStats();
   const warnings: string[] = [];
 
@@ -35,7 +44,8 @@ export function importInter(db: DatabaseSync, ins: TxInserter, files: string[]):
   let prevClosing: number | undefined;
 
   for (const f of files) {
-    const parsed: InterParsed = parseInterExtrato(readFileSync(f, "utf-8"), basename(f));
+    const parsed: BalanceParsed = parseStatementWithBalance(
+      readFileSync(f, "utf-8"), basename(f), accountId, vocab);
     stats.skipped += parsed.skipped.length;
     warnings.push(...parsed.warnings);
     if (opening === undefined) opening = parsed.openingBalanceCents;
@@ -60,7 +70,7 @@ export function importInter(db: DatabaseSync, ins: TxInserter, files: string[]):
     }
   }
   if (opening !== undefined) {
-    db.prepare("UPDATE accounts SET initial_balance_cents = ? WHERE id = 'inter-db'").run(opening);
+    db.prepare("UPDATE accounts SET initial_balance_cents = ? WHERE id = ?").run(opening, accountId);
   }
   return { stats, warnings, closingCents: closing };
 }

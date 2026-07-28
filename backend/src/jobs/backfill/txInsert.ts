@@ -11,7 +11,7 @@ export interface TxInserter {
 
   insert(rec: TxRecord, stats: InsertStats): void;
 
-  caixinhaTxIds: number[];
+  savingsTxIds: number[];
 }
 
 export function makeTxInserter(db: DatabaseSync): TxInserter {
@@ -22,7 +22,7 @@ export function makeTxInserter(db: DatabaseSync): TxInserter {
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
     ON CONFLICT (external_id) WHERE external_id IS NOT NULL DO NOTHING
   `);
-  const caixinhaTxIds: number[] = [];
+  const savingsTxIds: number[] = [];
 
   function insert(rec: TxRecord, stats: InsertStats): void {
     const r = stmt.run(
@@ -31,8 +31,8 @@ export function makeTxInserter(db: DatabaseSync): TxInserter {
     );
     if (r.changes === 0) { stats.dup++; return; }
     stats.inserted++;
-    if (rec.isCaixinhaLeg) caixinhaTxIds.push(Number(r.lastInsertRowid));
+    if (rec.isSavingsLeg) savingsTxIds.push(Number(r.lastInsertRowid));
   }
 
-  return { stmt, insert, caixinhaTxIds };
+  return { stmt, insert, savingsTxIds };
 }

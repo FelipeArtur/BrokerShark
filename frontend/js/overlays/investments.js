@@ -6,9 +6,9 @@ const { useState: _ivSt, useEffect: _ivEf } = React;
 // em drill-down") não existia — as linhas do widget eram div sem onClick e não
 // havia overlay nenhum. Clicar num investimento não fazia nada.
 //
-// Uma linha do widget pode representar MAIS DE UMA posição: o Porquinho Inter
-// vem agregado (×2). Por isso o painel recebe uma lista de ids e mostra um
-// seletor quando há mais de uma.
+// Uma linha do widget pode representar MAIS DE UMA posição: posições do mesmo
+// grupo vêm agregadas (×2). Por isso o painel recebe uma lista de ids e mostra
+// um seletor quando há mais de uma.
 
 function InvestmentPanel({ ids, title, onClose }) {
   const h = (tag, props, ...children) => React.createElement(tag, props, ...children);

@@ -15,10 +15,13 @@ export function reviewInvestments(db: DatabaseSync): InvestReview {
   const violations: string[] = [];
 
   for (const r of all<{ name: string }>(
-    "SELECT name FROM investments WHERE source='ledger' AND match_key != 'ledger:caixinha-nubank'",
-  )) violations.push(`posição ledger inesperada "${r.name}" — só a Caixinha deve ser derivada (Porquinho é B3)`);
+    "SELECT name FROM investments WHERE source='ledger' AND match_key != 'ledger:derived-savings'",
+  )) violations.push(
+    `posição ledger inesperada "${r.name}" — só a poupança configurada em ` +
+    `derivedSavings pode ser derivada do ledger. Posição custodiada em corretora ` +
+    `entra pelo relatório; derivá-la contaria o mesmo dinheiro duas vezes.`);
 
-  const cx = get<{ id: number }>("SELECT id FROM investments WHERE match_key='ledger:caixinha-nubank'");
+  const cx = get<{ id: number }>("SELECT id FROM investments WHERE match_key='ledger:derived-savings'");
   if (cx) {
     const legs = get<{ s: number }>(
       "SELECT COALESCE(SUM(CASE WHEN flow='expense' THEN amount_cents ELSE -amount_cents END),0) AS s FROM transactions WHERE investment_id=?",
@@ -29,7 +32,7 @@ export function reviewInvestments(db: DatabaseSync): InvestReview {
       cx.id,
     );
     if (snap && snap.net_cents !== legs)
-      violations.push(`Caixinha não reconcilia: snapshot ${snap.net_cents} ≠ Σ pernas ${legs}`);
+      violations.push(`poupança derivada não reconcilia: snapshot ${snap.net_cents} ≠ Σ pernas ${legs}`);
   }
 
   for (const r of all<{ name: string }>(

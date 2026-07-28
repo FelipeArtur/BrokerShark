@@ -1,13 +1,23 @@
+// Extrato em CSV com IDENTIFICADOR ÚNICO por lançamento.
+//
+// O nome descreve o formato, não o banco: o que este parser exige é uma coluna
+// de id estável (que vira `external_id` e faz a deduplicação ser exata) mais
+// data, valor e descrição. Qualquer instituição que exporte assim é atendida
+// aqui — qual conta recebe o arquivo é decisão da config.
+
 import { parseCsv } from "./csv.ts";
 import { parseMoneyCents, parseDateBR } from "../domain/money.ts";
 import * as classify from "../domain/classify.ts";
 import type { ParsedFile, TxRecord } from "./types.ts";
+import type { LedgerVocabulary } from "./types.ts";
 
-export function parseNubankExtrato(text: string, sourceFile: string): ParsedFile {
+export function parseStatementWithIds(
+  text: string, sourceFile: string, accountId: string, vocab: LedgerVocabulary,
+): ParsedFile {
   const rows = parseCsv(text);
   const header = rows[0]?.map((h) => h.trim().toLowerCase()) ?? [];
   if (!header.includes("identificador") || !header.includes("valor")) {
-    throw new Error(`${sourceFile}: não parece extrato Nubank`);
+    throw new Error(`${sourceFile}: não parece extrato com identificador (falta coluna de id ou de valor)`);
   }
   const col = (name: string) => header.indexOf(name);
   const iDate = col("data"), iVal = col("valor"), iId = col("identificador");
@@ -26,18 +36,18 @@ export function parseNubankExtrato(text: string, sourceFile: string): ParsedFile
       continue;
     }
     out.signedSumCents += cents;
-    const investment = classify.isInvestment(desc);
+    const investment = classify.isInvestment(desc, vocab.investmentKeywords);
     const rec: TxRecord = {
       date: iso,
       amountCents: Math.abs(cents),
       description: desc,
-      accountId: "nu-db",
+      accountId,
       externalId: ext,
       flow: cents >= 0 ? "income" : "expense",
       method: "ted",
       isRevenue: 0,
       isInvestmentLeg: investment,
-      isCaixinhaLeg: classify.isCaixinhaLeg(desc, "nubank"),
+      isSavingsLeg: classify.isDerivedSavingsLeg(desc, accountId, vocab.savings),
       sourceFile,
     };
     if (investment) {

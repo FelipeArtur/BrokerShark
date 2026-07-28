@@ -1,12 +1,15 @@
 import type { DatabaseSync } from "node:sqlite";
-import type { FaturaItem } from "../ingest/interFatura.ts";
+import type { InvoiceItem } from "../ingest/invoiceItemized.ts";
+import { primaryCard } from "../config.ts";
 
 export interface OpenFaturaParams {
   refMonth: string;
   dueDate: string | null;
-  items: FaturaItem[];
+  items: InvoiceItem[];
   sourceFile: string;
   importBatchId: string;
+  /** Cartão que recebe os itens. Omitido, vale o cartão da config. */
+  cardAccountId?: string;
 }
 
 export interface OpenFaturaResult {
@@ -17,11 +20,13 @@ export interface OpenFaturaResult {
 }
 
 export function insertOpenFatura(db: DatabaseSync, p: OpenFaturaParams): OpenFaturaResult {
+  const cardId = p.cardAccountId ?? primaryCard()?.card.id;
+  if (!cardId) throw new Error("nenhuma conta de cartão configurada — ver config/");
   const totalCents = p.items.reduce((s, it) => s + it.amountCents, 0);
 
   const existing = db.prepare(
-    "SELECT id, payment_tx_id FROM invoices WHERE account_id = 'inter-cc' AND ref_month = ?",
-  ).get(p.refMonth) as { id: number; payment_tx_id: number | null } | undefined;
+    "SELECT id, payment_tx_id FROM invoices WHERE account_id = ? AND ref_month = ?",
+  ).get(cardId, p.refMonth) as { id: number; payment_tx_id: number | null } | undefined;
 
   let invoiceId: number;
   if (existing) {
@@ -34,8 +39,8 @@ export function insertOpenFatura(db: DatabaseSync, p: OpenFaturaParams): OpenFat
   } else {
     invoiceId = Number(
       db.prepare(
-        "INSERT INTO invoices (account_id, ref_month, total_cents, source_file, due_date) VALUES ('inter-cc', ?, ?, ?, ?)",
-      ).run(p.refMonth, totalCents, p.sourceFile, p.dueDate).lastInsertRowid,
+        "INSERT INTO invoices (account_id, ref_month, total_cents, source_file, due_date) VALUES (?, ?, ?, ?, ?)",
+      ).run(cardId, p.refMonth, totalCents, p.sourceFile, p.dueDate).lastInsertRowid,
     );
   }
 
@@ -48,7 +53,7 @@ export function insertOpenFatura(db: DatabaseSync, p: OpenFaturaParams): OpenFat
     INSERT INTO transactions
       (date, flow, method, account_id, amount_cents, description, is_revenue,
        invoice_id, installment_seq, installment_total, bank_category, source_file, import_batch_id)
-    VALUES (?, ?, 'credit', 'inter-cc', ?, ?, 0, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, 'credit', ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)
   `);
 
   const seen = new Map<string, number>();
@@ -66,7 +71,7 @@ export function insertOpenFatura(db: DatabaseSync, p: OpenFaturaParams): OpenFat
     }
     const remaining = seen.get(key)!;
     if (remaining > 0) { duplicate++; seen.set(key, remaining - 1); continue; }
-    ins.run(it.date, flow, amt, it.description, invoiceId, seq, tot, it.bankCategory || null, p.sourceFile, p.importBatchId);
+    ins.run(it.date, flow, cardId, amt, it.description, invoiceId, seq, tot, it.bankCategory || null, p.sourceFile, p.importBatchId);
     inserted++;
   }
 

@@ -1,7 +1,13 @@
+// Fatura de cartão em CSV ITEMIZADO — um item por compra.
+//
+// O formato traz a categoria que o banco atribuiu e o número da parcela
+// ("Parcela 2/6"), que é o que permite projetar compromisso futuro. Os itens
+// são os gastos reais; o pagamento da fatura no extrato é liquidação.
+//
 import { parseCsv } from "./csv.ts";
 import { parseMoneyCents, parseDateBR } from "../domain/money.ts";
 
-export interface FaturaItem {
+export interface InvoiceItem {
   date: string;
   description: string;
   bankCategory: string;
@@ -12,12 +18,12 @@ export interface FaturaItem {
 
 export interface ParsedFatura {
   refMonth: string;
-  items: FaturaItem[];
+  items: InvoiceItem[];
   totalCents: number;
   skipped: { line: string; reason: string }[];
 }
 
-export function parseInterFatura(text: string, sourceFile: string): ParsedFatura {
+export function parseInvoiceItemized(text: string, sourceFile: string): ParsedFatura {
   const m = /fatura-inter-(\d{4})-(\d{2})/.exec(sourceFile);
   if (!m) throw new Error(`${sourceFile}: nome não bate fatura-inter-YYYY-MM`);
   const refMonth = `${m[1]}-${m[2]}`;

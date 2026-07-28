@@ -20,11 +20,34 @@ Desenvolvido com **Claude Code CLI**. `CLAUDE.md` = fonte única da verdade. **M
 
 ---
 
+## Configuração vs. código
+
+**O que é de quem usa mora em `config/`, nunca no código.** Conta (id, banco,
+tipo, nome), qual formato de arquivo cada uma exporta, o padrão de nome no
+acervo, as keywords de investimento, a poupança derivada e os rótulos de grupo de
+posição: tudo em `config/default.json` (genérico, versionado) ou
+`config/local.json` (o seu, ignorado pelo git; `BROKERSHARK_CONFIG` aponta pra
+outro caminho). `src/config.ts` carrega, valida e oferece os recortes prontos
+(`checkingAccounts()`, `primaryCard()`, `ledgerVocabulary()`, `groupNameFor()`).
+
+**Parser é sobre FORMATO, não sobre banco.** `statementWithIds` lê extrato com
+identificador único por linha; `statementWithBalance` lê extrato com saldo
+corrente conferível; `invoiceItemized` lê fatura item a item. Qual conta recebe
+qual arquivo é decisão da config. Instituição nova que exporte um formato
+conhecido não precisa de código — precisa de uma entrada em `accounts`.
+
+**Teste nunca lê a config do disco:** `useTestConfig()` (em `src/testing/`) fixa
+a config do processo. Sem isso, alguém criar um `config/local.json` quebraria
+metade da suíte por motivo nenhum.
+
 ## O repositório é PÚBLICO
 
 Desde 2026-07-27 o repo é vitrine de portfólio no GitHub. Duas consequências que valem
 mais que qualquer preferência de estilo:
 
+- **Nada de banco, conta ou produto financeiro real no código.** O default é
+  genérico ("Banco A", "conta-a", "Reserva"). O que é seu vive em
+  `config/local.json`, fora do repositório público.
 - **Nenhum dado real entra em arquivo versionado. Nunca.** Nem em teste, nem em fixture,
   nem em comentário, nem em mensagem de commit. Nome de pessoa, CPF (mesmo mascarado),
   agência, conta, CNPJ de empregador, comerciante real — tudo fictício, e obviamente
@@ -42,7 +65,7 @@ redistribuir exige permissão escrita.
 
 Ferramenta **pessoal** de análise de dinheiro, 100% local (Linux, 1 usuário). Pergunta central: **"quanto eu posso gastar agora?"** — depois, para onde o dinheiro vai.
 
-**v2 rewrite — TypeScript.** O backend Python/Flask foi removido (histórico preservado no git). O novo backend é TypeScript rodando sobre Node ≥ 26 (native type-stripping, sem build step). Ingestão (backfill) e servidor web (node:http + SSE, zero deps) prontos. **Import incremental via UI** (`/api/import/*`) implementado: extratos Nubank/Inter (CSV), fatura Inter (CSV) e relatório B3 (xlsx) com preview/dedup/staging editável/confirm/reverter-lote; pós-insert re-pareia SELF e rederiva a Caixinha. **Tudo entra pela UI — nada exige backfill.** O backfill existe pra reconstruir do acervo, não pra alimentar o dia a dia.
+**v2 rewrite — TypeScript.** O backend Python/Flask foi removido (histórico preservado no git). O novo backend é TypeScript rodando sobre Node ≥ 26 (native type-stripping, sem build step). Ingestão (backfill) e servidor web (node:http + SSE, zero deps) prontos. **Import incremental via UI** (`/api/import/*`) implementado: extratos (CSV, os dois formatos), fatura (CSV) e relatório de corretora (xlsx) com preview/dedup/staging editável/confirm/reverter-lote; pós-insert re-pareia SELF e rederiva a poupança. **Tudo entra pela UI — nada exige backfill.** O backfill existe pra reconstruir do acervo, não pra alimentar o dia a dia.
 
 **Entrega é dashboard web no navegador, e só.** Não há app desktop nem empacotamento — houve um wrapper WebKitGTK em `desktop/`, removido em 2026-07-26 por decisão do dono. Não reintroduzir: um segundo jeito de rodar é um segundo ciclo de vida de processo pra manter em pé, e o navegador já resolve.
 
@@ -52,7 +75,7 @@ Ferramenta **pessoal** de análise de dinheiro, 100% local (Linux, 1 usuário). 
 
 > **North star:** fácil de alimentar + extremamente confiável. Dinheiro em **centavos inteiros** — sem floats no ledger.
 
-**User profile:** 1 usuário, Nubank + Inter (conta corrente + cartão de crédito). Investimentos: Caixinha Nubank (RDB), Porquinho Inter (CDB via B3), Tesouro Direto, CDBs.
+**Perfil de uso:** 1 usuário, duas contas correntes e um cartão de crédito, declarados em `config/`. Investimentos: uma poupança derivada do ledger (sem custódia em corretora) mais posições de renda fixa e tesouro vindas do relatório da corretora. Quem são os bancos é config, não código.
 
 ---
 
@@ -78,9 +101,10 @@ backend/
       faturaImport.ts   # insert de fatura aberta (itens + due_date)
       ledgerSql.ts      # consumptionExpense()/realIncome()/investmentOut()/investmentIn() —
                         # as regras de total em SQL, numa fonte só (alias da tabela é parâmetro)
+    config.ts           # a config do ledger: contas, formatos, keywords, grupos
     domain/             # lógica PURA (sem DB/IO)
       money.ts          # parseMoneyCents (string→centavos inteiros), fmtCents, parseDateBR
-      classify.ts       # isInvestment, isCaixinhaLeg, checkingExpenseMethod
+      classify.ts       # isInvestment/isDerivedSavingsLeg (vocabulário vem por parâmetro)
       dates.ts          # currentMonth, monthRange, prevRefMonth, today
       budget.ts         # resolveBudget (override do mês → alvo fixo), isRefMonth
       positions.ts      # monthlyPortfolioSeries (carry-forward de snapshots)
@@ -91,10 +115,10 @@ backend/
     ingest/             # parsers dos exports (1 arquivo por formato)
       types.ts          # TxRecord, ParsedFile
       csv.ts            # parser CSV genérico
-      nubankExtrato.ts  # extrato Nubank CSV (UUID dedup)
-      interExtrato.ts   # extrato Inter CSV (running-balance check)
-      interFatura.ts    # fatura Inter CSV (itens itemizados)
-      b3.ts             # relatório consolidado B3 xlsx (posições + snapshots)
+      statementWithIds.ts     # extrato CSV com identificador único (dedup exata)
+      statementWithBalance.ts # extrato CSV com saldo corrente (conferido linha a linha)
+      invoiceItemized.ts      # fatura CSV item a item (categoria do banco + parcelas)
+      b3.ts                   # relatório consolidado de corretora xlsx (posições + snapshots)
     http/               # infraestrutura HTTP (1 preocupação por arquivo)
       respond.ts        # json/error, readBody (limite 1MB, HttpError), query-string
       router.ts         # compilePath + dispatch
@@ -124,7 +148,8 @@ backend/
                         # mesmos módulos do backfill e se audita no fim; é o que faz o
                         # projeto rodar sem acervo e a fonte dos prints do README
       backfill.ts       # orquestrador (1 tela): fases em jobs/backfill/ (aborta se DB tem overlay da UI; --force)
-      backfill/         # files, seeds (contas; NUNCA categorias), txInsert, extratos, faturas, selfPairs, caixinha,
+      backfill/         # files (padrões da config), seeds (contas; NUNCA categorias), txInsert,
+                        # extratos, faturas, selfPairs, derivedSavings,
                         # b3Sync, guard (userOverlay: 4 sondas do que a UI escreveu),
                         # investReview, verify — 1 fase por arquivo
       backup.ts         # backup mensal: snapshot VACUUM INTO datado (retém 12, 0600) + backupStatus + CLI
@@ -140,8 +165,8 @@ frontend/
                         # palette.js — cor estável por nome, quantizada a 8 matizes — testada
                         # bars.js — quais barras um mês desenha (fantasma do mês anterior) — testada
                         # month-nav.js — salto de 12 meses sobre série esparsa — testada
-                        # bank.js — cor e rótulo de banco (Nu/Inter têm identidade;
-                        # banco novo pega cor do palette) — testada
+                        # bank.js — cor e rótulo de banco (cor estável derivada do
+                        # nome; nenhum banco tem cor reservada) — testada
                         # bulk.js — suggestionPlan (decisão do "aplicar todas") — testada
                         # forward.js — merge duro+previsto, escala, rótulo do comerciante — testada
     core/               # api.js (fetch + contrato) · juice.js — engine feedback SILENCIOSO
@@ -192,16 +217,16 @@ server.ts (node:http, 127.0.0.1:8000) → React frontend (SSE /api/events)
 
 ### Invariantes financeiras (load-bearing — não quebrar)
 
-- **Fatura itemizada (v2):** itens da fatura Inter são os gastos reais (`credit` no `inter-cc`). O pagamento da fatura no extrato é uma **liquidação** (`is_settlement=1`) — excluída dos totais de consumo. Sem isso, consumo contaria em dobro (itens + pagamento).
+- **Fatura itemizada (v2):** os itens da fatura são os gastos reais (`credit`, na conta do cartão). O pagamento da fatura no extrato é uma **liquidação** (`is_settlement=1`) — excluída dos totais de consumo. Sem isso, consumo contaria em dobro (itens + pagamento).
 - **Reconciliação de fatura:** pagamento de valor EXATO do `total_cents` da fatura, janela −70/+35 dias do `ref_month`, casado por `invoice_id`. Pagamentos de fatura na cobertura das faturas importadas mas sem match exato são **liquidações parciais** (rotativo/débito automático).
 - **Self-transfers por pareamento de pernas (v2):** saída pix/ted numa conta + entrada de mesmo valor em conta diferente dentro de ±3 dias = `counterpart='SELF'`. Sem keyword allow-list (diferença do v1). Pernas SELF: `self_pair_tx_id` cruzado. Fora de despesas, receitas e investimento.
   - **SELF é DERIVADO, nunca declarado.** `selfPairs.ts` reescreve a perna de saída pra `method='transfer'` — é disso que a regra consumo-despesa depende pra excluí-la (a regra não olha `counterpart`). Por isso **não existe rota que crie lançamento avulso**: uma perna SELF declarada pelo cliente nasceria sem `self_pair_tx_id` e seria contada como gasto. Linha nova entra só por import (que passa pelo re-pareamento). Se um dia voltar um `POST /api/transactions`, ele **tem** que recusar `counterpart='SELF'`.
   - Verificado no ledger: 19 pernas de saída (`expense`/`transfer`) + 19 de entrada (`income`/`pix`, `is_revenue=0`). Os dois lados são excluídos por campos diferentes.
 - **Investimentos = posições + snapshots:** `position_snapshots` datados (quantity, applied/gross/net). Yield é computado, nunca chutado. Posições soft-close (`closed_at`) quando somem dos relatórios mais novos — nunca DELETE.
-- **B3 = tabela verdade (posições de corretora).** Full-sync por `match_key` (ISIN/código/ticker). Soft-close por tipo de aba: **Tesouro/Ações/BDR** — o consolidado sempre lista o que existe; posição ausente de qualquer relatório mais novo → fechada. **Renda Fixa (CDB Inter)** — a aba PISCA no consolidado (CDBs do Porquinho vivos no extrato somem em jan/fev/mar/mai-2026; registro em custódia atrasa); aba RF ausente = sem informação, só fecha quando um relatório mais novo COM aba RF deixa de listar a posição. CDBs Inter = Porquinho (`group_name='Porquinho'`).
-- **Caixinha Nubank = posição derivada do ledger.** RDB fora da B3. Saldo = `Σ(aplicações) − Σ(resgates)` das pernas `transfer` por keyword de poupança (`rdb`/`caixinha`/`dinheiro guardado`, banco Nubank). `source='ledger'`. Snapshots mensais derivados no backfill.
+- **B3 = tabela verdade (posições de corretora).** Full-sync por `match_key` (ISIN/código/ticker). Soft-close por tipo de aba: **Tesouro/Ações/BDR** — o consolidado sempre lista o que existe; posição ausente de qualquer relatório mais novo → fechada. **Renda Fixa** — a aba PISCA no consolidado (posições vivas somem de um mês e voltam no outro; o registro em custódia atrasa); aba RF ausente = sem informação, só fecha quando um relatório mais novo COM aba RF deixa de listar a posição. O rótulo de grupo (`group_name`) sai de `positionGroups` na config.
+- **Poupança derivada = posição que o ledger calcula.** É a reserva SEM custódia em corretora: nenhum relatório a lista, então o saldo é `Σ(aplicações) − Σ(resgates)` das pernas `transfer` que casam as keywords de `derivedSavings`, na conta que a config indicar. `source='ledger'`, `match_key='ledger:derived-savings'`. Snapshots mensais derivados no backfill.
 - **Comprometido é DERIVADO** — fatura aberta (`payment_tx_id IS NULL`) + parcelas projetadas virtuais; nunca vira row; `available_net = available − committed_this_month` (só fatura vencendo no mês-calendário via `due_date`).
-- **Porquinho Inter NÃO é derivado** — é CDB custodiado na B3 (derivá-lo contaria em dobro; a derivação ignora rendimento). Suas pernas continuam classificadas como investimento (`INVESTMENT_KEYWORDS` mantém `porquinho`/`cdb porq`).
+- **Posição custodiada NÃO é derivada** — ela entra pelo relatório da corretora, e derivá-la do extrato contaria o mesmo dinheiro duas vezes (além de ignorar o rendimento). É pra isso que serve `derivedSavings.excludeKeywords`: as pernas continuam classificadas como investimento, mas ficam fora da posição derivada.
 - **Consumption-expense rule:** totais de despesa de consumo = `flow='expense' AND method != 'transfer' AND is_settlement=0 AND is_third_party=0 AND dest_account_id IS NULL`. Transferência (leg de investimento) **nunca** é despesa de consumo. Receita real = `flow='income' AND is_revenue=1 AND is_third_party=0` — os dois lados excluem terceiros. **Em SQL as duas regras têm uma fonte só: `db/ledgerSql.ts` (`consumptionExpense()` / `realIncome()`, alias da tabela como parâmetro).** Consulta nova que some dinheiro importa de lá; reescrever a condição à mão faz totais divergirem entre widgets sem quebrar teste nenhum.
 - **Perna de investimento ≠ perna SELF.** Aplicação = `flow='expense' AND method='transfer' AND self_pair_tx_id IS NULL AND dest_account_id IS NULL AND is_settlement=0`; resgate = `flow='income' AND is_revenue=0 AND method='transfer' AND self_pair_tx_id IS NULL`. **A exclusão do `self_pair_tx_id` é load-bearing:** `selfPairs` reescreve a perna SELF de saída pra `method='transfer'` (a marca da aplicação) e zera o `is_revenue` da de entrada (a marca do resgate) — sem excluí-la, mandar dinheiro da conta A pra B vira "aplicou" e o *saldo livre do mês* encolhe sozinho. Fonte única em `db/ledgerSql.ts` (`investmentOut()` / `investmentIn()`), ao lado das outras duas regras.
 - **`is_revenue`** (Integer): `1` = receita real, `0` = self-transfer ou movimento de investimento. Controla totais de receita.
@@ -216,7 +241,7 @@ server.ts (node:http, 127.0.0.1:8000) → React frontend (SSE /api/events)
   - **Só encerra quem está quite** — a regra do banco vale aqui pelo mesmo motivo: encerrar zera o saldo da conta na posição, então dívida pendurada nesse instante vira dinheiro a pagar que sumiu do "disponível". `PATCH` recusa (409) **cartão com fatura em aberto** (`payment_tx_id IS NULL`) e **conta corrente com saldo negativo**. No cartão o saldo é sempre negativo por desenho (são os itens da fatura), então lá quem responde pela dívida é a fatura, nunca o saldo. Reabrir (`closed_at: null`) nunca esbarra nisso. Check espelho na auditoria: `conta-encerrada-com-divida`.
   - **`DELETE /api/accounts/:id` recusa (409) conta com qualquer lançamento** — é a garantia mecânica de que "tirar conta" nunca vira "perder histórico". Só serve pra desfazer conta criada por engano.
   - `PATCH` recusa `closed_at` anterior ao último lançamento; a auditoria tem o check espelho (`lancamento-pos-encerramento`).
-- **Banco não é um par fixo Nu/Inter.** Cor e rótulo saem de `frontend/js/domain/bank.js`; banco novo pega cor estável do palette e o próprio nome. `bankLabel` é a MESMA chave usada pela faceta do widget de fatura e pelo filtro da tabela — se divergirem, clicar na faceta de um banco novo não filtra nada.
+- **Nenhum banco tem identidade reservada.** Cor e rótulo saem de `frontend/js/domain/bank.js`: a cor é hash estável do nome, o rótulo é o nome. `month-transactions` devolve `bank` junto do lançamento — sem esse campo o chip cairia no id cru da conta. `bankLabel` é a MESMA chave usada pela faceta do widget de fatura e pelo filtro da tabela — se divergirem, clicar na faceta de um banco novo não filtra nada.
 
 ---
 
@@ -274,7 +299,7 @@ migration_log (name TEXT PK, ran_at)
 - `investment_id` em transactions → liga perna do extrato à posição.
 - `self_pair_tx_id` → pareamento bidirecional das pernas SELF.
 - `is_settlement` → marca liquidações de fatura (excluídas de consumo).
-- `bank_category` → categoria dada pelo banco (faturas Inter).
+- `bank_category` → categoria que o próprio banco atribuiu (vem na fatura).
 - `rules` → documenta a classificação aplicada; consultada para **sugestão de categoria** (month-transactions/import). As **aprendidas** (`action='category'`) são editáveis pela aba Regras (`/api/rules`); as semeadas pelo backfill (`investment_leg`/`settlement`) não — nada as lê em execução, então editá-las prometeria um efeito que não existe (as rotas dão 404).
 
 ---
@@ -283,10 +308,10 @@ migration_log (name TEXT PK, ran_at)
 
 | Source | Format | Parser |
 |--------|--------|--------|
-| Nubank statement | CSV (`Data,Valor,Identificador,Descrição`) | `nubankExtrato.ts` |
-| Inter statement | CSV (semicolon, 5-line preamble, running-balance checked) | `interExtrato.ts` |
-| Inter card invoice | CSV (bank category + installments) | `interFatura.ts` |
-| B3 consolidated report | xlsx (Tesouro, Renda Fixa, Ações, BDR) | `b3.ts` |
+| Extrato com identificador | CSV (`Data,Valor,Identificador,Descrição`) | `statementWithIds.ts` |
+| Extrato com saldo corrente | CSV (ponto-e-vírgula, preâmbulo, saldo conferido) | `statementWithBalance.ts` |
+| Fatura de cartão | CSV (categoria do banco + parcelas) | `invoiceItemized.ts` |
+| Relatório de corretora | xlsx (Tesouro, Renda Fixa, Ações, BDR) | `b3.ts` |
 
 ---
 
@@ -297,15 +322,15 @@ migration_log (name TEXT PK, ran_at)
 > Aborta se o DB existente tiver dados escritos pela UI (guarda anti-perda; ver Key principles). `--force` reconstrói mesmo assim.
 
 Pipeline sequencial:
-1. **Schema + seeds** → só as contas (`nu-db`, `inter-db`, `inter-cc`). **Categoria não é semeada** — ver a invariante abaixo
-2. **Nubank** → dedup por `external_id` (UUID)
-3. **Inter** → dedup por contagem de ocorrência em `(date, flow, amount, description)` + check de saldo corrente (running-balance)
-4. **Faturas Inter** → itens no `inter-cc` + reconciliação do pagamento (valor exato, janela −70/+35d) + liquidações parciais
+1. **Schema + seeds** → só as contas declaradas em `config/`. **Categoria não é semeada** — ver a invariante abaixo
+2. **Extratos com identificador** → dedup exata por `external_id`
+3. **Extratos com saldo corrente** → dedup por contagem de ocorrência em `(date, flow, amount, description)` + conferência do saldo declarado
+4. **Faturas** → itens na conta do cartão + reconciliação do pagamento na conta que o paga (valor exato, janela −70/+35d) + liquidações parciais
 5. **Pareamento SELF** → pernas opostas, mesmo valor, ±3 dias, contas diferentes
-6. **Caixinha** → posição ledger + snapshots mensais derivados
-7. **B3** → upsert por `match_key` + snapshots + soft-close
+6. **Poupança derivada** → posição ledger + snapshots mensais derivados
+7. **Relatório da corretora** → upsert por `match_key` + snapshots + soft-close
 8. **Rules seed** → documenta keywords de classificação
-9. **Verificação** → saldo por conta, reconciliação Inter, resumo de investimentos, **invariantes** (regra consumo-despesa / liquidação) + **review de investimentos** (`investReview.ts`: invariantes que abortam — Porquinho não-derivado, Caixinha reconcilia com Σ pernas, posição aberta sem snapshot, net negativo — + panorama de alocação)
+9. **Verificação** → saldo por conta, conferência contra o saldo declarado no extrato, resumo de investimentos, **invariantes** (regra consumo-despesa / liquidação) + **review de investimentos** (`investReview.ts`: invariantes que abortam — nenhuma posição de corretora derivada do ledger, poupança derivada reconcilia com Σ pernas, posição aberta sem snapshot, net negativo — + panorama de alocação)
 
 ---
 
@@ -313,9 +338,11 @@ Pipeline sequencial:
 
 | Account | Type | Bank |
 |---------|------|------|
-| `nu-db` | Checking | Nubank |
-| `inter-db` | Checking | Inter |
-| `inter-cc` | Credit Card | Inter |
+| `conta-a` | Checking | Banco A |
+| `conta-b` | Checking | Banco B |
+| `cartao-b` | Credit Card | Banco B |
+
+São as contas do `config/default.json` — exemplo genérico. O `config/local.json` de cada instalação declara as de verdade.
 
 ---
 

@@ -4,6 +4,9 @@ import { DatabaseSync } from "node:sqlite";
 import { initSchema } from "../../db/open.ts";
 import { runMigrations } from "../../db/migrate.ts";
 import { seedAccounts } from "./seeds.ts";
+import { useTestConfig } from "../../testing/fixtures.ts";
+
+useTestConfig();
 
 // Este arquivo travava a regra antiga: seed e migration inseriam as MESMAS 6
 // macro categorias, e as duas ordens de execução (backfill roda migration antes
@@ -47,9 +50,9 @@ test("as contas do acervo continuam sendo semeadas", () => {
   runMigrations(db);
   seedAccounts(db);
 
-  const ids = (db.prepare("SELECT id FROM accounts ORDER BY id").all() as { id: string }[])
-    .map(r => r.id);
-  assert.deepEqual(ids, ["inter-cc", "inter-db", "nu-db"]);
+  const ids = (db.prepare("SELECT id FROM accounts").all() as { id: string }[])
+    .map(r => r.id).sort();
+  assert.deepEqual(ids, ["cartao-b", "conta-a", "conta-b"]);
 });
 
 test("num ledger que JÁ tinha categorias, a migration ainda consolida", () => {

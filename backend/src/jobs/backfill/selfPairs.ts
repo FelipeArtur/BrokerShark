@@ -1,15 +1,21 @@
 import type { DatabaseSync } from "node:sqlite";
 import { fmtCents } from "../../domain/money.ts";
+import { checkingAccounts } from "../../config.ts";
 
 interface Leg { id: number; date: string; account_id: string; amount_cents: number; description: string }
 
 export function pairSelfTransfers(db: DatabaseSync): string[] {
+  // Só conta corrente entra no pareamento: transferência entre as SUAS contas é
+  // dinheiro andando, e cartão não recebe transferência — recebe compra.
+  const ids = checkingAccounts().map(a => a.id);
+  if (ids.length < 2) return [];
+  const ph = ids.map(() => "?").join(",");
   const candidates = (flow: string) => db.prepare(`
     SELECT id, date, account_id, amount_cents, description FROM transactions
     WHERE flow = ? AND counterpart IS NULL AND invoice_id IS NULL AND is_settlement = 0
-      AND method IN ('pix', 'ted') AND account_id IN ('nu-db', 'inter-db')
+      AND method IN ('pix', 'ted') AND account_id IN (${ph})
     ORDER BY date
-  `).all(flow) as unknown as Leg[];
+  `).all(flow, ...ids) as unknown as Leg[];
 
   const expenses = candidates("expense");
   const incomes = candidates("income");

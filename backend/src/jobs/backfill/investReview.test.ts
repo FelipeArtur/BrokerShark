@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import { initSchema } from "../../db/open.ts";
 import { reviewInvestments } from "./investReview.ts";
+import { useTestConfig } from "../../testing/fixtures.ts";
+
+useTestConfig();
 
 function db0(): DatabaseSync {
   const db = new DatabaseSync(":memory:");
@@ -21,7 +24,7 @@ test("reviewInvestments: carteira sã → sem violações + panorama", () => {
   const db = db0();
   const t = addInv(db, { name: "Tesouro X", match_key: "b3:tx", type: "tesouro", bank: "tesouro", source: "b3" });
   addSnap(db, t, "2026-03-31", 500000);
-  const c = addInv(db, { name: "Caixinha Nubank", match_key: "ledger:caixinha-nubank", type: "rdb", bank: "nubank", source: "ledger" });
+  const c = addInv(db, { name: "Caixinha Nubank", match_key: "ledger:derived-savings", type: "rdb", bank: "nubank", source: "ledger" });
   addSnap(db, c, "2026-03-31", 0, "derived");
   const r = reviewInvestments(db);
   assert.deepEqual(r.violations, []);
@@ -45,10 +48,10 @@ test("reviewInvestments: posição aberta sem snapshot viola", () => {
 test("reviewInvestments: Caixinha reconciliação mismatch → viola", () => {
   const db = db0();
   db.prepare("INSERT INTO accounts (id, bank, type, name) VALUES (?,?,?,?)")
-    .run("nu-db", "nubank", "checking", "Nubank Checking");
-  const cx = addInv(db, { name: "Caixinha Nubank", match_key: "ledger:caixinha-nubank", type: "rdb", bank: "nubank", source: "ledger" });
+    .run("conta-a", "nubank", "checking", "Nubank Checking");
+  const cx = addInv(db, { name: "Caixinha Nubank", match_key: "ledger:derived-savings", type: "rdb", bank: "nubank", source: "ledger" });
   db.prepare("INSERT INTO transactions (date,flow,method,account_id,amount_cents,description,investment_id) VALUES (?,?,?,?,?,?,?)")
-    .run("2026-03-02", "expense", "transfer", "nu-db", 20000, "Aplicacao RDB", cx);
+    .run("2026-03-02", "expense", "transfer", "conta-a", 20000, "Aplicacao RDB", cx);
   addSnap(db, cx, "2026-03-31", 99999, "derived");
   const r = reviewInvestments(db);
   assert.ok(r.violations.some((v) => /reconcilia/.test(v)));
@@ -57,10 +60,10 @@ test("reviewInvestments: Caixinha reconciliação mismatch → viola", () => {
 test("reviewInvestments: Caixinha reconciliação match → NÃO viola", () => {
   const db = db0();
   db.prepare("INSERT INTO accounts (id, bank, type, name) VALUES (?,?,?,?)")
-    .run("nu-db", "nubank", "checking", "Nubank Checking");
-  const cx = addInv(db, { name: "Caixinha Nubank", match_key: "ledger:caixinha-nubank", type: "rdb", bank: "nubank", source: "ledger" });
+    .run("conta-a", "nubank", "checking", "Nubank Checking");
+  const cx = addInv(db, { name: "Caixinha Nubank", match_key: "ledger:derived-savings", type: "rdb", bank: "nubank", source: "ledger" });
   db.prepare("INSERT INTO transactions (date,flow,method,account_id,amount_cents,description,investment_id) VALUES (?,?,?,?,?,?,?)")
-    .run("2026-03-02", "expense", "transfer", "nu-db", 20000, "Aplicacao RDB", cx);
+    .run("2026-03-02", "expense", "transfer", "conta-a", 20000, "Aplicacao RDB", cx);
   addSnap(db, cx, "2026-03-31", 20000, "derived");
   const r = reviewInvestments(db);
   assert.ok(!r.violations.some((v) => /reconcilia/.test(v)));

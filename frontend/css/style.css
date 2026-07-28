@@ -27,9 +27,6 @@
   --info-bg: rgba(92, 198, 255, 0.14);
   --reserve: #c58cff;
 
-  --nubank: #c58cff;
-  --inter:  #ffab5c;
-
   --ff-sans: "Silkscreen", system-ui, sans-serif;
   --ff-mono: "Departure Mono", ui-monospace, monospace;
 
@@ -96,8 +93,6 @@ select.select {
   display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; background: var(--bg-2); border: 1px solid var(--line-1);
   font-size: var(--fz-9); font-weight: 500; color: var(--fg-1); letter-spacing: 0.02em;
 }
-.chip.nubank { background: color-mix(in oklch, var(--nubank) 16%, transparent); border-color: color-mix(in oklch, var(--nubank) 30%, transparent); color: oklch(78% 0.16 305); }
-.chip.inter  { background: color-mix(in oklch, var(--inter) 18%, transparent);  border-color: color-mix(in oklch, var(--inter) 35%, transparent);  color: oklch(82% 0.14 60); }
 
 .data-tag {
   display: inline-flex; align-items: center; justify-content: center;

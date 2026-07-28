@@ -6,6 +6,9 @@ import { runMigrations } from "../db/migrate.ts";
 import { seedAccounts } from "../jobs/backfill/seeds.ts";
 import { commitmentRoutes } from "./commitments.ts";
 import { accountRoutes } from "./accounts.ts";
+import { useTestConfig } from "../testing/fixtures.ts";
+
+useTestConfig();
 
 function freshDb(): DatabaseSync {
   const db = new DatabaseSync(":memory:");
@@ -29,11 +32,11 @@ test("e2e: fatura aberta vencendo este mês + parcela → net abatido e projeç�
   const dd = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-15`;
   const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   const inv = Number(db.prepare(
-    "INSERT INTO invoices (account_id, ref_month, due_date, total_cents, source_file) VALUES ('inter-cc',?,?,20000,'ui')",
+    "INSERT INTO invoices (account_id, ref_month, due_date, total_cents, source_file) VALUES ('cartao-b',?,?,20000,'ui')",
   ).run(ym, dd).lastInsertRowid);
   db.prepare(`INSERT INTO transactions
     (date, flow, method, account_id, amount_cents, description, invoice_id, installment_seq, installment_total, import_batch_id)
-    VALUES ('2026-07-10','expense','credit','inter-cc',5000,'Steam',?,1,3,'sess-1')`).run(inv);
+    VALUES ('2026-07-10','expense','credit','cartao-b',5000,'Steam',?,1,3,'sess-1')`).run(inv);
 
   const avail = call(accountRoutes(db).filter(r => r.method === "GET")[1]);
   assert.equal(avail.committed_this_month, 200);

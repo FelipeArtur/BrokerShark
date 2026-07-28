@@ -407,7 +407,7 @@ function ImportModal({ onClose, onDone }) {
       ),
       g.err && h("div", { style: { padding: "var(--s-4) var(--s-6)", display: "flex", flexDirection: "column", gap: "var(--s-2)", background: "color-mix(in oklch, var(--neg) 10%, transparent)" } },
         h("div", { style: { fontSize: "var(--fz-7)", fontWeight: 700, color: "var(--neg)" } }, g.err),
-        h("div", { style: { fontSize: "var(--fz-8)", color: "var(--fg-2)" } }, "Confira se a conta atribuída (Nubank/Inter) corresponde ao arquivo, ou se é mesmo um extrato desse banco.")),
+        h("div", { style: { fontSize: "var(--fz-8)", color: "var(--fg-2)" } }, "Confira se a conta atribuída corresponde ao arquivo, ou se é mesmo um extrato dessa conta.")),
       Math.abs(div) >= 0.01 && h("div", { style: { padding: "var(--s-4) var(--s-6)", fontSize: "var(--fz-7)", fontWeight: 600, color: "var(--reserve)", background: "color-mix(in oklch, var(--reserve) 12%, transparent)", borderBottom: "2px solid var(--line-1)" } },
         `Ajuste de Saldo: ${div > 0 ? "+" : "−"}${fmtBRL(Math.abs(div))} vs extrato original`),
       !g.err && (allNew.length === 0

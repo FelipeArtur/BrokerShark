@@ -1,24 +1,34 @@
 import type { DatabaseSync } from "node:sqlite";
+import { config } from "../../config.ts";
 
-export interface CaixinhaResult { investmentId: number | null; balanceCents: number; legs: number }
+export interface SavingsResult { investmentId: number | null; balanceCents: number; legs: number }
 
-const MATCH_KEY = "ledger:caixinha-nubank";
+// A posição derivada é a poupança que NÃO tem custódia em corretora: nenhum
+// relatório a lista, então o saldo dela só existe como Σ(aplicações) −
+// Σ(resgates) das pernas do extrato. Nome, banco e tipo saem da config — o
+// produto se chama diferente em cada instituição.
+const MATCH_KEY = "ledger:derived-savings";
 
-const CREATE_POSITION = `
-  INSERT INTO investments (name, match_key, type, bank, source, group_name)
-  VALUES ('Caixinha Nubank', '${MATCH_KEY}', 'rdb', 'nubank', 'ledger', NULL)`;
+function createPosition(db: DatabaseSync): number {
+  const s = config().derivedSavings;
+  if (!s) throw new Error("derivedSavings não configurado — ver config/");
+  return Number(db.prepare(`
+    INSERT INTO investments (name, match_key, type, bank, source, group_name)
+    VALUES (?, ?, ?, ?, 'ledger', NULL)`,
+  ).run(s.name, MATCH_KEY, s.type, s.bank).lastInsertRowid);
+}
 
-export function deriveCaixinha(db: DatabaseSync, caixinhaTxIds: number[]): CaixinhaResult {
-  // Sem perna nenhuma não há Caixinha: criar a posição assim mesmo produziria
+export function deriveSavings(db: DatabaseSync, savingsTxIds: number[]): SavingsResult {
+  // Sem perna nenhuma não há poupança: criar a posição assim mesmo produziria
   // uma linha aberta e sem snapshot, que o painel mostra como "R$ 0,00" pra quem
-  // nunca usou a Caixinha — e quebra a invariante posição-aberta-tem-snapshot.
-  if (!caixinhaTxIds.length) return { investmentId: null, balanceCents: 0, legs: 0 };
+  // nunca usou — e quebra a invariante posição-aberta-tem-snapshot.
+  if (!savingsTxIds.length) return { investmentId: null, balanceCents: 0, legs: 0 };
 
-  const investmentId = Number(db.prepare(CREATE_POSITION).run().lastInsertRowid);
+  const investmentId = createPosition(db);
 
-  const ph = caixinhaTxIds.map(() => "?").join(",");
+  const ph = savingsTxIds.map(() => "?").join(",");
   db.prepare(`UPDATE transactions SET investment_id = ? WHERE id IN (${ph})`)
-    .run(investmentId, ...caixinhaTxIds);
+    .run(investmentId, ...savingsTxIds);
 
   const legs = db.prepare(`
     SELECT date, flow, amount_cents FROM transactions
@@ -41,10 +51,10 @@ export function deriveCaixinha(db: DatabaseSync, caixinhaTxIds: number[]): Caixi
     const last = new Date(y, mo, 0).getDate();
     insSnap.run(investmentId, `${month}-${String(last).padStart(2, "0")}`, bal);
   }
-  return { investmentId, balanceCents: running, legs: caixinhaTxIds.length };
+  return { investmentId, balanceCents: running, legs: savingsTxIds.length };
 }
 
-export function rederiveCaixinha(db: DatabaseSync, newLegIds: number[]): CaixinhaResult {
+export function rederiveSavings(db: DatabaseSync, newLegIds: number[]): SavingsResult {
   const found = db.prepare(
     "SELECT id FROM investments WHERE match_key = ?",
   ).get(MATCH_KEY) as { id: number } | undefined;
@@ -52,7 +62,7 @@ export function rederiveCaixinha(db: DatabaseSync, newLegIds: number[]): Caixinh
   // Nada pra ligar e nenhuma posição existente → não há o que derivar.
   if (!found && !newLegIds.length) return { investmentId: null, balanceCents: 0, legs: 0 };
 
-  const investmentId = found ? found.id : Number(db.prepare(CREATE_POSITION).run().lastInsertRowid);
+  const investmentId = found ? found.id : createPosition(db);
 
   if (newLegIds.length) {
     const ph = newLegIds.map(() => "?").join(",");

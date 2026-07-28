@@ -7,6 +7,9 @@ import { initSchema } from "../db/open.ts";
 import { runMigrations } from "../db/migrate.ts";
 import { seedAccounts } from "../jobs/backfill/seeds.ts";
 import { analyticsRoutes } from "./analytics.ts";
+import { useTestConfig } from "../testing/fixtures.ts";
+
+useTestConfig();
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = join(HERE, "../db/migrations");
@@ -30,7 +33,7 @@ function get(db: DatabaseSync, path: string): any {
 
 function tx(db: DatabaseSync, cols: Record<string, unknown>): void {
   const base: Record<string, unknown> = {
-    date: "2026-06-10", flow: "expense", method: "pix", account_id: "nu-db",
+    date: "2026-06-10", flow: "expense", method: "pix", account_id: "conta-a",
     amount_cents: 1000, description: "teste",
     is_revenue: 0, is_settlement: 0, is_third_party: 0,
   };
@@ -49,10 +52,10 @@ function june(db: DatabaseSync): void {
   tx(db, { date: "2026-06-09", amount_cents: 148547, description: "mercado" });
   tx(db, { date: "2026-06-21", flow: "income", method: "transfer", is_revenue: 0,
            amount_cents: 300000, description: "Resgate RDB" });
-  // Par SELF: nu-db → inter-db. A saída sai reescrita pra `transfer`.
+  // Par SELF: conta-a → conta-b. A saída sai reescrita pra `transfer`.
   tx(db, { date: "2026-06-21", method: "transfer", amount_cents: 200000,
            description: "self-saida", counterpart: "SELF" });
-  tx(db, { date: "2026-06-21", flow: "income", method: "pix", account_id: "inter-db",
+  tx(db, { date: "2026-06-21", flow: "income", method: "pix", account_id: "conta-b",
            is_revenue: 0, amount_cents: 200000, description: "self-entrada", counterpart: "SELF" });
   db.exec(`
     UPDATE transactions SET self_pair_tx_id=(SELECT id FROM transactions WHERE description='self-entrada')

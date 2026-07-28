@@ -3,7 +3,7 @@
 *[Read this in English](README.md)*
 
 Ferramenta **pessoal** de análise de dinheiro. 100% local, Linux, um usuário, contas
-Nubank + Inter. Responde primeiro **"quanto eu posso gastar agora?"** — e só depois
+declaradas em `config/`. Responde primeiro **"quanto eu posso gastar agora?"** — e só depois
 deixa cavar pra onde o dinheiro foi.
 
 Sem API de banco, sem nuvem, sem telemetria: a entrada são os arquivos que os bancos
@@ -76,8 +76,11 @@ node backend/src/jobs/backup.ts
   deixa corrigir, desligar sem apagar, ou apagar. Apagar a regra não descategoriza o
   que já passou.
 - **Backfill** — reconstrói o banco do zero a partir do acervo de exports.
-- **Import incremental via UI** — extratos Nubank/Inter (CSV), fatura Inter (CSV) e
-  relatório B3 (xlsx), com preview, dedup, staging editável, confirmação e
+- **Bancos são configuração, não código** — contas, formato de arquivo de cada uma,
+  padrão de nome no acervo e keywords vivem em `config/default.json` (genérico) ou
+  `config/local.json` (o seu, fora do git). Parser tem nome de formato, não de banco.
+- **Import incremental via UI** — extratos (CSV, nos dois formatos), fatura (CSV) e
+  relatório de corretora (xlsx), com preview, dedup, staging editável, confirmação e
   reverter-lote. Tudo entra por aqui: o backfill serve pra reconstruir do acervo,
   não pra alimentar o dia a dia.
 
@@ -88,13 +91,13 @@ O backfill descobre os arquivos **recursivamente e pelo nome**, então a árvore
 
 | Fonte | Padrão do arquivo | Formato |
 |---|---|---|
-| Extrato Nubank | `NU_<conta>_<DDMMMYYYY>_<DDMMMYYYY>.csv` | CSV (`Data,Valor,Identificador,Descrição`) |
-| Extrato Inter | `Extrato-DD-MM-YYYY-a-*.csv` | CSV (ponto-e-vírgula, preâmbulo de 5 linhas, saldo corrente conferido) |
-| Fatura Inter | `fatura-inter-YYYY-MM.csv` | CSV (categoria do banco + parcelas) |
-| Relatório B3 | `relatorio-consolidado-{anual-YYYY,mensal-YYYY-<mês>}.xlsx` | xlsx (Tesouro, Renda Fixa, Ações, BDR) |
+| Extrato com identificador | `filePattern` da conta na config | CSV (`Data,Valor,Identificador,Descrição`) |
+| Extrato com saldo corrente | `filePattern` da conta na config | CSV (ponto-e-vírgula, preâmbulo, saldo conferido) |
+| Fatura de cartão | `filePattern` do cartão na config | CSV (categoria do banco + parcelas) |
+| Relatório de corretora | `brokerReportPattern` na config | xlsx (Tesouro, Renda Fixa, Ações, BDR) |
 
-Arquivo que não casa com nenhum padrão é ignorado em silêncio — fatura do Nubank, por
-exemplo, não é suportada.
+Os padrões vêm da config: cada conta declara o `filePattern` do export dela. Arquivo que
+não casa com nenhum é ignorado em silêncio.
 
 ## Invariantes financeiras
 
@@ -115,8 +118,9 @@ O que não pode quebrar (detalhe e raciocínio em `CLAUDE.md` e nos comentários
   mandar dinheiro de uma conta pra outra vira "aplicou".
 - **Investimento = posições + snapshots datados** — rendimento é computado, nunca
   chutado. Posição some do relatório → soft-close (`closed_at`), nunca DELETE.
-- **Caixinha Nubank é derivada do ledger** (RDB fora da B3); **Porquinho Inter não é** —
-  é CDB custodiado na B3, e derivá-lo contaria em dobro.
+- **Poupança derivada é calculada do ledger** (reserva sem custódia em corretora);
+  **posição custodiada não é** — ela entra pelo relatório, e derivá-la contaria em dobro.
+  É pra isso que serve `derivedSavings.excludeKeywords`.
 - **`closed_at` de conta afeta posição, nunca histórico** — o disponível soma só contas
   abertas (e conta encerrada vale zero, não o último saldo conhecido); todo total mensal
   ignora o encerramento, porque o dinheiro se moveu de verdade na época. Encerrar com
@@ -148,7 +152,7 @@ versionado.**
 |---|---|
 | Linguagem | TypeScript (Node ≥ 26, type-stripping nativo — sem build step) |
 | Banco | SQLite via `node:sqlite` (builtin, WAL, `foreign_keys=ON`, modo 0600) |
-| Parsing | parsers CSV próprios; `xlsx` pros relatórios B3 (única dependência npm) |
+| Parsing | parsers CSV próprios, por formato; `xlsx` pros relatórios de corretora (única dependência npm) |
 | Frontend | React 18 + Chart.js, vendorizados, sem CDN e sem build step (hyperscript puro, nunca JSX) |
 | Servidor | `node:http` + micro-router próprio + SSE (`/api/events`) — zero dependências |
 

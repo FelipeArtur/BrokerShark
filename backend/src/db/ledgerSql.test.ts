@@ -9,6 +9,9 @@ import { seedAccounts } from "../jobs/backfill/seeds.ts";
 import {
   consumptionExpense, realIncome, investmentOut, investmentIn,
 } from "./ledgerSql.ts";
+import { useTestConfig } from "../testing/fixtures.ts";
+
+useTestConfig();
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = join(HERE, "migrations");
@@ -24,7 +27,7 @@ function freshDb(): DatabaseSync {
 
 function tx(db: DatabaseSync, cols: Record<string, unknown>): void {
   const base: Record<string, unknown> = {
-    date: "2026-06-10", flow: "expense", method: "pix", account_id: "nu-db",
+    date: "2026-06-10", flow: "expense", method: "pix", account_id: "conta-a",
     amount_cents: 1000, description: "teste",
     is_revenue: 0, is_settlement: 0, is_third_party: 0,
   };
@@ -40,7 +43,7 @@ function tx(db: DatabaseSync, cols: Record<string, unknown>): void {
 function selfPair(db: DatabaseSync, name: string): void {
   tx(db, { description: `${name}-saida`, method: "transfer" });
   tx(db, { description: `${name}-entrada`, flow: "income", method: "pix",
-           account_id: "inter-db", is_revenue: 0 });
+           account_id: "conta-b", is_revenue: 0 });
   db.exec(`
     UPDATE transactions SET counterpart='SELF',
       self_pair_tx_id=(SELECT id FROM transactions WHERE description='${name}-entrada')
@@ -64,7 +67,7 @@ function ledger(): DatabaseSync {
   selfPair(db, "perna-self");                                             // par SELF: saída + entrada
   tx(db, { description: "pagto-fatura", is_settlement: 1 });              // liquidação de fatura
   tx(db, { description: "gasto-de-terceiro", is_third_party: 1 });        // não é meu dinheiro
-  tx(db, { description: "entre-contas", dest_account_id: "inter-db" });   // destino interno declarado
+  tx(db, { description: "entre-contas", dest_account_id: "conta-b" });   // destino interno declarado
   tx(db, { description: "salario", flow: "income", method: "salary", is_revenue: 1 });
   tx(db, { description: "resgate", flow: "income", method: "transfer", is_revenue: 0 });
   tx(db, { description: "reembolso-de-terceiro", flow: "income", method: "pix", is_revenue: 1, is_third_party: 1 });

@@ -288,12 +288,18 @@ function Overlay({ open, onClose, children, width = 760 }) {
 }
 
 function BankChip({ bank, accountId }) {
-  const isNu = bank === "nubank" || (accountId && accountId.startsWith("nu"));
-  const isInter = bank === "inter" || (accountId && accountId.startsWith("inter"));
-
-  const label = isNu ? "Nubank" : (isInter ? "Inter" : (bank === "outro" ? "B3" : (bank || accountId)));
-  const cls = isNu ? "nubank" : (isInter ? "inter" : "");
-  return React.createElement("span", { className: `chip ${cls}` }, label);
+  // Rótulo e cor saem da MESMA função que o resto da tela usa (domain/bank.js);
+  // um chip com regra própria voltaria a criar banco de primeira classe.
+  const label = window.BS.bankLabel(bank, accountId);
+  const color = window.BS.bankColor(bank, accountId);
+  return React.createElement("span", {
+    className: "chip",
+    style: {
+      background: `color-mix(in oklch, ${color} 16%, transparent)`,
+      borderColor: `color-mix(in oklch, ${color} 32%, transparent)`,
+      color,
+    },
+  }, label);
 }
 
 // fill=true ocupa a largura toda em `columns` colunas; sem ele, fica inline.

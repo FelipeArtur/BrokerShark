@@ -2,20 +2,25 @@ import type { DatabaseSync } from "node:sqlite";
 import { fmtCents } from "../../domain/money.ts";
 import type { Acervo } from "./files.ts";
 import type { InsertStats } from "./txInsert.ts";
-import type { InterImport } from "./extratos.ts";
-import type { CaixinhaResult } from "./caixinha.ts";
+import type { BalanceImport } from "./extratos.ts";
+import type { AccountConfig } from "../../config.ts";
+import type { SavingsResult } from "./derivedSavings.ts";
 import { reviewInvestments } from "./investReview.ts";
 import { AUDIT_CHECK_COUNT, auditLedger } from "../../db/audit.ts";
 import { consumptionExpense, realIncome } from "../../db/ledgerSql.ts";
 
+/** O que uma conta rendeu no import, junto do formato que a produziu. */
+export type StatementOutcome =
+  | { kind: "ids"; stats: InsertStats }
+  | ({ kind: "balance" } & BalanceImport);
+
 export interface BackfillReport {
   dbPath: string;
   acervo: Acervo;
-  nuStats: InsertStats;
-  inter: InterImport;
+  statementStats: { account: AccountConfig; result: StatementOutcome }[];
   faturaReport: string[];
   selfPairs: string[];
-  caixinha: CaixinhaResult;
+  savings: SavingsResult;
   b3Log: string[];
 }
 
@@ -26,15 +31,22 @@ export function printReport(db: DatabaseSync, r: BackfillReport): void {
   console.log("═".repeat(70));
   console.log("BACKFILL v2 —", r.dbPath);
   console.log("═".repeat(70));
-  console.log(`\n■ Extratos Nubank: ${r.acervo.nubank.length} arquivos → ${r.nuStats.inserted} tx (${r.nuStats.dup} dup UUID, ${r.nuStats.skipped} ignoradas)`);
-  console.log(`■ Extratos Inter:  ${r.acervo.inter.length} arquivos → ${r.inter.stats.inserted} tx (${r.inter.stats.dup} dup, ${r.inter.stats.skipped} ignoradas)`);
-  console.log(`■ Faturas Inter:   ${r.acervo.faturas.length} arquivos`);
+  console.log();
+  for (const { account, result } of r.statementStats) {
+    const files = r.acervo.statements.find(s => s.account.id === account.id)?.files.length ?? 0;
+    const st = result.stats;
+    console.log(`■ Extratos ${account.name} (${account.statementFormat}): ${files} arquivos → ` +
+                `${st.inserted} tx (${st.dup} dup, ${st.skipped} ignoradas)`);
+  }
+  const invoiceFiles = r.acervo.invoices.reduce((n, x) => n + x.files.length, 0);
+  console.log(`■ Faturas: ${invoiceFiles} arquivos`);
   for (const l of r.faturaReport) console.log(l);
   console.log(`■ Pareamento SELF: ${r.selfPairs.length} pares`);
   for (const l of r.selfPairs) console.log(l);
-  if (r.inter.warnings.length) {
-    console.log(`\n⚠ Avisos Inter (${r.inter.warnings.length}):`);
-    for (const w of r.inter.warnings) console.log("  " + w);
+  for (const { account, result } of r.statementStats) {
+    if (result.kind !== "balance" || !result.warnings.length) continue;
+    console.log(`\n⚠ Avisos de ${account.name} (${result.warnings.length}):`);
+    for (const w of result.warnings) console.log("  " + w);
   }
 
   console.log("\n■ Saldo por conta (initial + receitas − despesas, ledger completo):");
@@ -52,9 +64,12 @@ export function printReport(db: DatabaseSync, r: BackfillReport): void {
     )[0]!.s as number);
     const bal = (a.init as number) + (a.inc as number) - (a.exp as number) - settle;
     console.log(`  ${a.id}: ${fmtCents(bal)}  (inicial ${fmtCents(a.init as number)}, liquidações de fatura ${fmtCents(settle)})`);
-    if (a.id === "inter-db" && r.inter.closingCents !== undefined) {
-      const ok = bal === r.inter.closingCents;
-      console.log(`    check vs saldo do banco no último extrato: ${fmtCents(r.inter.closingCents)} ${ok ? "✓ BATE" : "✗ NÃO BATE"}`);
+    // Só o formato com saldo corrente permite conferir contra o banco: é o
+    // único que traz o saldo declarado no próprio extrato.
+    const outcome = r.statementStats.find(s => s.account.id === a.id)?.result;
+    if (outcome?.kind === "balance" && outcome.closingCents !== undefined) {
+      const ok = bal === outcome.closingCents;
+      console.log(`    check vs saldo do banco no último extrato: ${fmtCents(outcome.closingCents)} ${ok ? "✓ BATE" : "✗ NÃO BATE"}`);
     }
   }
 
@@ -70,7 +85,7 @@ export function printReport(db: DatabaseSync, r: BackfillReport): void {
     const grp = inv.group_name ? ` [${inv.group_name}]` : "";
     console.log(`  #${inv.id} ${inv.name}${grp} (${inv.type}/${inv.bank}) — ${flag}, ${inv.snaps} snapshots, último ${inv.last_date}: ${fmtCents((inv.last_net as number) ?? 0)}`);
   }
-  console.log(`  Caixinha (derivada do ledger): ${fmtCents(r.caixinha.balanceCents)} em ${r.caixinha.legs} pernas`);
+  console.log(`  Poupança derivada do ledger: ${fmtCents(r.savings.balanceCents)} em ${r.savings.legs} pernas`);
   console.log("\n■ B3 processado:");
   for (const l of r.b3Log) console.log(l);
 

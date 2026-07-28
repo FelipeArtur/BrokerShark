@@ -4,9 +4,12 @@ import { DatabaseSync } from "node:sqlite";
 import { initSchema } from "../../db/open.ts";
 import { runMigrations } from "../../db/migrate.ts";
 import { seedAccounts } from "./seeds.ts";
-import { deriveCaixinha, rederiveCaixinha } from "./caixinha.ts";
+import { deriveSavings, rederiveSavings } from "./derivedSavings.ts";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { useTestConfig } from "../../testing/fixtures.ts";
+
+useTestConfig();
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = join(HERE, "../../db/migrations");
@@ -23,33 +26,33 @@ function freshDb(): DatabaseSync {
 function leg(db: DatabaseSync, date: string, flow: "expense" | "income", cents: number): number {
   return Number(db.prepare(`INSERT INTO transactions
     (date, flow, method, account_id, amount_cents, description, is_revenue, is_settlement, is_third_party)
-    VALUES (?, ?, 'transfer', 'nu-db', ?, 'Aplicação RDB', 0, 0, 0)`)
+    VALUES (?, ?, 'transfer', 'conta-a', ?, 'Aplicação RDB', 0, 0, 0)`)
     .run(date, flow, cents).lastInsertRowid);
 }
 
 const positions = (db: DatabaseSync) =>
-  db.prepare("SELECT * FROM investments WHERE match_key='ledger:caixinha-nubank'").all() as any[];
+  db.prepare("SELECT * FROM investments WHERE match_key='ledger:derived-savings'").all() as any[];
 
-test("sem perna nenhuma, a Caixinha não nasce", () => {
+test("sem perna nenhuma, a poupança derivada não nasce", () => {
   const db = freshDb();
-  const out = rederiveCaixinha(db, []);
+  const out = rederiveSavings(db, []);
   assert.equal(out.investmentId, null);
   assert.deepEqual(positions(db), [], "posição fantasma valendo zero não entra no patrimônio");
 });
 
-test("deriveCaixinha sem perna também não cria posição", () => {
+test("deriveSavings sem perna também não cria posição", () => {
   const db = freshDb();
-  const out = deriveCaixinha(db, []);
+  const out = deriveSavings(db, []);
   assert.equal(out.investmentId, null);
   assert.deepEqual(positions(db), []);
 });
 
-test("com pernas, a Caixinha nasce com snapshot mensal derivado", () => {
+test("com pernas, a poupança derivada nasce com snapshot mensal derivado", () => {
   const db = freshDb();
   const a = leg(db, "2026-04-10", "expense", 100000); // aplicação
   const b = leg(db, "2026-05-10", "income", 30000);   // resgate
 
-  const out = rederiveCaixinha(db, [a, b]);
+  const out = rederiveSavings(db, [a, b]);
   assert.ok(out.investmentId);
   assert.equal(out.balanceCents, 70000);
   assert.equal(out.legs, 2);
@@ -66,10 +69,10 @@ test("com pernas, a Caixinha nasce com snapshot mensal derivado", () => {
 test("rederivar com a posição já existente recalcula sem duplicar", () => {
   const db = freshDb();
   const a = leg(db, "2026-04-10", "expense", 100000);
-  const first = rederiveCaixinha(db, [a]);
+  const first = rederiveSavings(db, [a]);
 
   const b = leg(db, "2026-05-10", "expense", 50000);
-  const second = rederiveCaixinha(db, [b]);
+  const second = rederiveSavings(db, [b]);
 
   assert.equal(second.investmentId, first.investmentId);
   assert.equal(positions(db).length, 1);
@@ -79,9 +82,9 @@ test("rederivar com a posição já existente recalcula sem duplicar", () => {
 test("rederivar sem pernas novas mantém a posição que já existe", () => {
   const db = freshDb();
   const a = leg(db, "2026-04-10", "expense", 100000);
-  const first = rederiveCaixinha(db, [a]);
+  const first = rederiveSavings(db, [a]);
 
-  const again = rederiveCaixinha(db, []);
+  const again = rederiveSavings(db, []);
   assert.equal(again.investmentId, first.investmentId);
   assert.equal(again.balanceCents, 100000, "recalcula a partir das pernas já ligadas");
 });
@@ -89,10 +92,10 @@ test("rederivar sem pernas novas mantém a posição que já existe", () => {
 test("quando as pernas somem, a posição existente zera mas não é apagada", () => {
   const db = freshDb();
   const a = leg(db, "2026-04-10", "expense", 100000);
-  const id = rederiveCaixinha(db, [a]).investmentId;
+  const id = rederiveSavings(db, [a]).investmentId;
 
   db.prepare("DELETE FROM transactions WHERE id=?").run(a);
-  const out = rederiveCaixinha(db, []);
+  const out = rederiveSavings(db, []);
   assert.equal(out.investmentId, id, "soft-close é a regra: posição não some");
   assert.equal(out.balanceCents, 0);
 });

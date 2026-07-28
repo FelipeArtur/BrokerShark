@@ -6,10 +6,10 @@ import { userOverlay } from "./backfill/guard.ts";
 import { collectAcervo } from "./backfill/files.ts";
 import { seedAccounts, seedRules } from "./backfill/seeds.ts";
 import { makeTxInserter } from "./backfill/txInsert.ts";
-import { importNubank, importInter } from "./backfill/extratos.ts";
+import { importStatementsWithIds, importStatementsWithBalance } from "./backfill/extratos.ts";
 import { importFaturas } from "./backfill/faturas.ts";
 import { pairSelfTransfers } from "./backfill/selfPairs.ts";
-import { deriveCaixinha } from "./backfill/caixinha.ts";
+import { deriveSavings } from "./backfill/derivedSavings.ts";
 import { syncB3 } from "./backfill/b3Sync.ts";
 import { printReport } from "./backfill/verify.ts";
 
@@ -49,16 +49,21 @@ runMigrations(db);
 seedAccounts(db);
 const ins = makeTxInserter(db);
 
-const nuStats = importNubank(ins, acervo.nubank);
-const inter = importInter(db, ins, acervo.inter);
-const faturaReport = importFaturas(db, ins, acervo.faturas);
+// Uma passada por conta declarada na config, no formato que ela declarou.
+const statementStats = acervo.statements.map(({ account, files }) => ({
+  account,
+  result: account.statementFormat === "ids"
+    ? { kind: "ids" as const, stats: importStatementsWithIds(ins, files, account.id) }
+    : { kind: "balance" as const, ...importStatementsWithBalance(db, ins, files, account.id) },
+}));
+const faturaReport = importFaturas(db, ins, acervo.invoices.flatMap(x => x.files));
 const selfPairs = pairSelfTransfers(db);
-const caixinha = deriveCaixinha(db, ins.caixinhaTxIds);
-const b3Log = syncB3(db, acervo.b3);
+const savings = deriveSavings(db, ins.savingsTxIds);
+const b3Log = syncB3(db, acervo.brokerReports);
 seedRules(db);
 
 db.exec("INSERT INTO migration_log (name, ran_at) VALUES ('backfill-acervo-v2', datetime('now'))");
 restrictPermissions(dbPath);
 
-printReport(db, { dbPath, acervo, nuStats, inter, faturaReport, selfPairs, caixinha, b3Log });
+printReport(db, { dbPath, acervo, statementStats, faturaReport, selfPairs, savings, b3Log });
 db.close();

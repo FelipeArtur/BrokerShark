@@ -4,6 +4,9 @@ import { DatabaseSync } from "node:sqlite";
 import { initSchema } from "./open.ts";
 import { seedAccounts } from "../jobs/backfill/seeds.ts";
 import { reconcileInvoicePayment, reconcileOpenInvoices } from "./reconcile.ts";
+import { useTestConfig } from "../testing/fixtures.ts";
+
+useTestConfig();
 
 function freshDb(): DatabaseSync {
   const db = new DatabaseSync(":memory:");
@@ -16,7 +19,7 @@ function freshDb(): DatabaseSync {
 function openInvoice(db: DatabaseSync, refMonth: string, totalCents: number): number {
   return Number(
     db.prepare(
-      "INSERT INTO invoices (account_id, ref_month, total_cents, source_file) VALUES ('inter-cc', ?, ?, 'ui')",
+      "INSERT INTO invoices (account_id, ref_month, total_cents, source_file) VALUES ('cartao-b', ?, ?, 'ui')",
     ).run(refMonth, totalCents).lastInsertRowid,
   );
 }
@@ -25,7 +28,7 @@ function paymentLeg(db: DatabaseSync, date: string, amountCents: number): number
   return Number(
     db.prepare(`INSERT INTO transactions
       (date, flow, method, account_id, amount_cents, description, import_batch_id)
-      VALUES (?, 'expense', 'pix', 'inter-db', ?, 'Pagamento de fatura', 'sess-1')`)
+      VALUES (?, 'expense', 'pix', 'conta-b', ?, 'Pagamento de fatura', 'sess-1')`)
       .run(date, amountCents).lastInsertRowid,
   );
 }

@@ -60,11 +60,23 @@ function cellStr(v: unknown): string {
   return String(v ?? "").trim();
 }
 
+/**
+ * A instituição, como o relatório a escreve.
+ *
+ * O relatório traz a razão social inteira ("BANCO EXEMPLO S.A. - INSTITUIÇÃO
+ * DE PAGAMENTO"), que não serve de rótulo. Aqui o corte é mecânico: primeiro
+ * segmento antes do hífen, sem sufixo societário. Antes existia um mapa de
+ * apelidos com os bancos do autor dentro — o que fazia o parser conhecer os
+ * bancos DELE em vez de ler o que está no arquivo.
+ */
 function bankFrom(inst: string): string {
-  const s = inst.toLowerCase();
-  if (s.includes("inter")) return "inter";
-  if (s.includes("nu")) return "nubank";
-  return "outro";
+  const head = inst.split(/\s+-\s+/)[0] ?? inst;
+  const clean = head
+    .replace(/\b(s\.?\/?a\.?|ltda\.?|me|epp|dtvm|ciaa?|instituição de pagamento)\b/gi, "")
+    .replace(/[.,]/g, " ")
+    .split(/\s+/).filter(Boolean).join(" ")
+    .trim();
+  return (clean || "outro").toLowerCase();
 }
 
 function indexerFrom(raw: string): string | null {

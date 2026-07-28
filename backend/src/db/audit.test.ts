@@ -4,10 +4,12 @@ import { DatabaseSync } from "node:sqlite";
 import { initSchema } from "./open.ts";
 import { runMigrations } from "./migrate.ts";
 import { seedAccounts } from "../jobs/backfill/seeds.ts";
-import { seedTestCategories } from "../testing/fixtures.ts";
+import { seedTestCategories, useTestConfig } from "../testing/fixtures.ts";
 import { auditLedger } from "./audit.ts";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+
+useTestConfig();
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = join(HERE, "migrations");
@@ -28,7 +30,7 @@ function checks(db: DatabaseSync): string[] {
 
 function tx(db: DatabaseSync, cols: Record<string, unknown>): number {
   const base: Record<string, unknown> = {
-    date: "2026-06-10", flow: "expense", method: "pix", account_id: "nu-db",
+    date: "2026-06-10", flow: "expense", method: "pix", account_id: "conta-a",
     amount_cents: 1000, description: "teste", is_revenue: 0, is_settlement: 0, is_third_party: 0,
   };
   const all = { ...base, ...cols };
@@ -103,45 +105,45 @@ test("liquidação marcada como terceiro é violação", () => {
 test("pagamento de fatura em conta corrente NÃO é violação de conta", () => {
   const db = freshDb();
   const inv = Number(db.prepare(
-    "INSERT INTO invoices (account_id, ref_month, total_cents, source_file) VALUES ('inter-cc','2026-05',1000,'x')",
+    "INSERT INTO invoices (account_id, ref_month, total_cents, source_file) VALUES ('cartao-b','2026-05',1000,'x')",
   ).run().lastInsertRowid);
-  tx(db, { invoice_id: inv, account_id: "inter-cc", method: "credit", amount_cents: 1000 });
+  tx(db, { invoice_id: inv, account_id: "cartao-b", method: "credit", amount_cents: 1000 });
   // a liquidação mora na conta corrente e aponta pra fatura — por desenho
-  tx(db, { invoice_id: inv, account_id: "inter-db", method: "credit", amount_cents: 1000, is_settlement: 1 });
+  tx(db, { invoice_id: inv, account_id: "conta-b", method: "credit", amount_cents: 1000, is_settlement: 1 });
   assert.ok(!checks(db).includes("item-fatura-conta-errada"));
 });
 
 test("item de fatura em conta diferente da fatura é violação", () => {
   const db = freshDb();
   const inv = Number(db.prepare(
-    "INSERT INTO invoices (account_id, ref_month, total_cents, source_file) VALUES ('inter-cc','2026-05',1000,'x')",
+    "INSERT INTO invoices (account_id, ref_month, total_cents, source_file) VALUES ('cartao-b','2026-05',1000,'x')",
   ).run().lastInsertRowid);
-  tx(db, { invoice_id: inv, account_id: "nu-db", method: "credit", amount_cents: 1000 });
+  tx(db, { invoice_id: inv, account_id: "conta-a", method: "credit", amount_cents: 1000 });
   assert.ok(checks(db).includes("item-fatura-conta-errada"));
 });
 
 test("estorno na fatura abate o total — não é divergência", () => {
   const db = freshDb();
   const inv = Number(db.prepare(
-    "INSERT INTO invoices (account_id, ref_month, total_cents, source_file) VALUES ('inter-cc','2026-05',700,'x')",
+    "INSERT INTO invoices (account_id, ref_month, total_cents, source_file) VALUES ('cartao-b','2026-05',700,'x')",
   ).run().lastInsertRowid);
-  tx(db, { invoice_id: inv, account_id: "inter-cc", method: "credit", amount_cents: 1000 });
-  tx(db, { invoice_id: inv, account_id: "inter-cc", method: "credit", amount_cents: 300, flow: "income", is_revenue: 0 });
+  tx(db, { invoice_id: inv, account_id: "cartao-b", method: "credit", amount_cents: 1000 });
+  tx(db, { invoice_id: inv, account_id: "cartao-b", method: "credit", amount_cents: 300, flow: "income", is_revenue: 0 });
   assert.ok(!checks(db).includes("fatura-total-diverge"));
 });
 
 test("total da fatura que não bate com os itens é violação", () => {
   const db = freshDb();
   const inv = Number(db.prepare(
-    "INSERT INTO invoices (account_id, ref_month, total_cents, source_file) VALUES ('inter-cc','2026-05',5000,'x')",
+    "INSERT INTO invoices (account_id, ref_month, total_cents, source_file) VALUES ('cartao-b','2026-05',5000,'x')",
   ).run().lastInsertRowid);
-  tx(db, { invoice_id: inv, account_id: "inter-cc", method: "credit", amount_cents: 1000 });
+  tx(db, { invoice_id: inv, account_id: "cartao-b", method: "credit", amount_cents: 1000 });
   assert.ok(checks(db).includes("fatura-total-diverge"));
 });
 
 test("fatura sem itens não dispara divergência de total", () => {
   const db = freshDb();
-  db.prepare("INSERT INTO invoices (account_id, ref_month, total_cents, source_file) VALUES ('inter-cc','2026-05',5000,'x')").run();
+  db.prepare("INSERT INTO invoices (account_id, ref_month, total_cents, source_file) VALUES ('cartao-b','2026-05',5000,'x')").run();
   assert.ok(!checks(db).includes("fatura-total-diverge"), "fatura aberta ainda sem itens é estado válido");
 });
 
@@ -159,7 +161,7 @@ test("external_id duplicado é barrado pelo schema, não pela auditoria", () => 
 
 test("transferência com destino igual à origem é violação", () => {
   const db = freshDb();
-  tx(db, { method: "transfer", dest_account_id: "nu-db" });
+  tx(db, { method: "transfer", dest_account_id: "conta-a" });
   assert.ok(checks(db).includes("destino-igual-origem"));
 });
 

@@ -8,11 +8,13 @@ import { Readable } from "node:stream";
 import { initSchema } from "../db/open.ts";
 import { runMigrations } from "../db/migrate.ts";
 import { seedAccounts } from "../jobs/backfill/seeds.ts";
-import { seedTestCategories } from "../testing/fixtures.ts";
+import { seedTestCategories, useTestConfig } from "../testing/fixtures.ts";
 import { importRoutes } from "./import.ts";
 import { auditLedger } from "../db/audit.ts";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+
+useTestConfig();
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = join(HERE, "../db/migrations");
@@ -93,7 +95,7 @@ const NUBANK_CSV = [
 
 async function previewNubank(db: DatabaseSync, csv = NUBANK_CSV): Promise<Captured> {
   return call(db, "POST", "/api/import/preview",
-    multipartReq("/api/import/preview", { account_id: "nu-db" }, [{ name: "nu.csv", content: csv }]));
+    multipartReq("/api/import/preview", { account_id: "conta-a" }, [{ name: "nu.csv", content: csv }]));
 }
 
 test("preview lê o extrato e marca tudo como novo", async () => {
@@ -208,16 +210,18 @@ test("batch expirado devolve 404 em vez de escrever", async () => {
 test("account_id fora da allowlist é recusado", async () => {
   const db = freshDb();
   const out = await call(db, "POST", "/api/import/preview",
-    multipartReq("/api/import/preview", { account_id: "inter-cc" }, [{ name: "x.csv", content: NUBANK_CSV }]));
+    multipartReq("/api/import/preview", { account_id: "cartao-b" }, [{ name: "x.csv", content: NUBANK_CSV }]));
   assert.equal(out.status, 400);
 });
 
 test("arquivo que não é extrato devolve erro legível, não 500", async () => {
   const db = freshDb();
   const out = await call(db, "POST", "/api/import/preview",
-    multipartReq("/api/import/preview", { account_id: "nu-db" }, [{ name: "x.csv", content: "a,b\n1,2" }]));
+    multipartReq("/api/import/preview", { account_id: "conta-a" }, [{ name: "x.csv", content: "a,b\n1,2" }]));
   assert.equal(out.status, 400);
-  assert.match(String(out.body.error), /Nubank/);
+  // A mensagem fala do FORMATO que faltou, não do banco: é o que a pessoa pode
+  // conferir olhando o arquivo.
+  assert.match(String(out.body.error), /identificador|formato/i);
 });
 
 test("reverter o lote apaga exatamente o que ele inseriu", async () => {

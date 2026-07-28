@@ -7,10 +7,12 @@ import { fileURLToPath } from "node:url";
 import { initSchema } from "../db/open.ts";
 import { runMigrations } from "../db/migrate.ts";
 import { seedAccounts, seedRules } from "../jobs/backfill/seeds.ts";
-import { seedTestCategories } from "../testing/fixtures.ts";
+import { seedTestCategories, useTestConfig } from "../testing/fixtures.ts";
 import { dispatch } from "../http/router.ts";
 import { ruleRoutes } from "./rules.ts";
 import { learnCategoryRule } from "./transactions.ts";
+
+useTestConfig();
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = join(HERE, "../db/migrations");
@@ -49,7 +51,7 @@ const catId = (db: DatabaseSync, name: string): number =>
 
 const tx = (db: DatabaseSync, desc: string) =>
   db.prepare(`INSERT INTO transactions (date, flow, method, account_id, amount_cents, description)
-              VALUES ('2026-06-10','expense','pix','nu-db',1000,?)`).run(desc);
+              VALUES ('2026-06-10','expense','pix','conta-a',1000,?)`).run(desc);
 
 // ── listagem ────────────────────────────────────────────────────────────────
 
@@ -146,7 +148,7 @@ test("apagar a regra NÃO descategoriza o que já foi categorizado", async () =>
   const alim = catId(db, "Alimentação");
   learnCategoryRule(db, "PADARIA", alim);
   db.prepare(`INSERT INTO transactions (date, flow, method, account_id, amount_cents, description, category_id)
-              VALUES ('2026-06-10','expense','pix','nu-db',1000,'PADARIA DO ZE',?)`).run(alim);
+              VALUES ('2026-06-10','expense','pix','conta-a',1000,'PADARIA DO ZE',?)`).run(alim);
 
   const [r] = (await call(db, "GET", "/api/rules")).payload;
   assert.equal((await call(db, "DELETE", `/api/rules/${r.id}`)).status, 200);

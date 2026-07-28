@@ -1,0 +1,61 @@
+{
+  "$comment": [
+    "Configuração PADRÃO — genérica de propósito. Nenhum banco real, nenhuma conta real.",
+    "Para usar com as suas contas, copie este arquivo para config/local.json e edite.",
+    "config/local.json tem precedência e não é versionado.",
+    "",
+    "statementFormat descreve o FORMATO do arquivo que o banco exporta, não o banco:",
+    "  'ids'              CSV com uma coluna de identificador único por lançamento",
+    "  'running-balance'  CSV com coluna de saldo corrente, conferida linha a linha",
+    "invoiceFormat, para cartão:",
+    "  'itemized'         CSV com um item por compra, categoria do banco e parcelas"
+  ],
+
+  "accounts": [
+    {
+      "id": "conta-a",
+      "bank": "Banco A",
+      "type": "checking",
+      "name": "Banco A Conta",
+      "statementFormat": "ids",
+      "filePattern": "^EXTRATO_A_.*\\.csv$"
+    },
+    {
+      "id": "conta-b",
+      "bank": "Banco B",
+      "type": "checking",
+      "name": "Banco B Conta",
+      "statementFormat": "running-balance",
+      "filePattern": "^Extrato-\\d{2}-\\d{2}-\\d{4}-a-.*\\.csv$"
+    },
+    {
+      "id": "cartao-b",
+      "bank": "Banco B",
+      "type": "credit_card",
+      "name": "Banco B Cartão",
+      "invoiceFormat": "itemized",
+      "paidFrom": "conta-b",
+      "filePattern": "^fatura-\\d{4}-\\d{2}\\.csv$"
+    }
+  ],
+
+  "investmentKeywords": [
+    "aplicação", "aplicacao", "resgate", "tesouro", "cdb", "reserva",
+    "corretora", "irrf", "cobrança de investimentos"
+  ],
+
+  "derivedSavings": {
+    "name": "Reserva",
+    "bank": "Banco A",
+    "type": "reserva",
+    "accountId": "conta-a",
+    "keywords": ["reserva", "dinheiro guardado"],
+    "excludeKeywords": ["corretora", "tesouro"]
+  },
+
+  "positionGroups": [
+    { "type": "cdb", "bank": "Banco B", "name": "Renda fixa do Banco B" }
+  ],
+
+  "brokerReportPattern": "relatorio-consolidado-.*\\.xlsx$"
+}

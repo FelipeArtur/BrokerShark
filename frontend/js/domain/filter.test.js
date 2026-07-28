@@ -2,7 +2,7 @@ const { test } = require("node:test");
 const assert = require("node:assert");
 const F = require("./filter.js");
 
-const tx = (o) => Object.assign({ flow: "expense", method: "pix", category: "Mercado", bank: "Nubank", label: "zaffari supermercado" }, o);
+const tx = (o) => Object.assign({ flow: "expense", method: "pix", category: "Mercado", bank: "Banco A", label: "zaffari supermercado" }, o);
 
 test("emptyFilter matches everything", () => {
   const f = F.emptyFilter();
@@ -24,10 +24,10 @@ test("OR within a kind, AND across kinds", () => {
   let f = F.emptyFilter();
   f = F.toggleFacet(f, "categories", "Mercado");
   f = F.toggleFacet(f, "categories", "Transporte");
-  f = F.toggleFacet(f, "banks", "Nubank");
-  assert.equal(F.matchesFilter(tx({ category: "Transporte", bank: "Nubank" }), f), true);
-  assert.equal(F.matchesFilter(tx({ category: "Mercado", bank: "Inter" }), f), false);
-  assert.equal(F.matchesFilter(tx({ category: "Lazer", bank: "Nubank" }), f), false);
+  f = F.toggleFacet(f, "banks", "Banco A");
+  assert.equal(F.matchesFilter(tx({ category: "Transporte", bank: "Banco A" }), f), true);
+  assert.equal(F.matchesFilter(tx({ category: "Mercado", bank: "Banco B" }), f), false);
+  assert.equal(F.matchesFilter(tx({ category: "Lazer", bank: "Banco A" }), f), false);
 });
 
 test("flow and method narrow", () => {
@@ -38,7 +38,7 @@ test("flow and method narrow", () => {
 
 test("searchMatch is case-insensitive substring; empty ⇒ true", () => {
   assert.equal(F.searchMatch("Zaffari Supermercado", "zaffari"), true);
-  assert.equal(F.searchMatch("Zaffari", "nubank"), false);
+  assert.equal(F.searchMatch("Zaffari", "banco a"), false);
   assert.equal(F.searchMatch("anything", ""), true);
 });
 

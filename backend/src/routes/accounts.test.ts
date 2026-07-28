@@ -10,6 +10,9 @@ import { seedAccounts } from "../jobs/backfill/seeds.ts";
 import { dispatch } from "../http/router.ts";
 import { accountRoutes } from "./accounts.ts";
 import { auditLedger } from "../db/audit.ts";
+import { useTestConfig } from "../testing/fixtures.ts";
+
+useTestConfig();
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = join(HERE, "../db/migrations");
@@ -64,7 +67,7 @@ test("available: fatura aberta vencendo este mês abate no net", async () => {
   const now = new Date();
   const dd = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-15`;
   db.prepare(
-    "INSERT INTO invoices (account_id, ref_month, due_date, total_cents, source_file) VALUES ('inter-cc','2026-07',?,10000,'ui')",
+    "INSERT INTO invoices (account_id, ref_month, due_date, total_cents, source_file) VALUES ('cartao-b','2026-07',?,10000,'ui')",
   ).run(dd);
   const out = (await call(db, "GET", "/api/available")).payload;
   assert.equal(out.committed_this_month, 100);
@@ -74,7 +77,7 @@ test("available: fatura aberta vencendo este mês abate no net", async () => {
 test("available: fatura sem due_date não abate", async () => {
   const db = freshDb();
   db.prepare(
-    "INSERT INTO invoices (account_id, ref_month, due_date, total_cents, source_file) VALUES ('inter-cc','2026-07',NULL,10000,'ui')",
+    "INSERT INTO invoices (account_id, ref_month, due_date, total_cents, source_file) VALUES ('cartao-b','2026-07',NULL,10000,'ui')",
   ).run();
   const out = (await call(db, "GET", "/api/available")).payload;
   assert.equal(out.committed_this_month, 0);
@@ -83,57 +86,57 @@ test("available: fatura sem due_date não abate", async () => {
 
 test("encerrar conta tira o saldo dela do disponível", async () => {
   const db = freshDb();
-  tx(db, "nu-db", "2026-01-10", 30000, "income");
-  tx(db, "inter-db", "2026-01-10", 50000, "income");
+  tx(db, "conta-a", "2026-01-10", 30000, "income");
+  tx(db, "conta-b", "2026-01-10", 50000, "income");
   assert.equal((await call(db, "GET", "/api/available")).payload.available, 800);
 
-  await call(db, "PATCH", "/api/accounts/inter-db", { closed_at: "2026-02-01" });
+  await call(db, "PATCH", "/api/accounts/conta-b", { closed_at: "2026-02-01" });
   assert.equal((await call(db, "GET", "/api/available")).payload.available, 300);
 });
 
 test("encerrar conta NÃO apaga o histórico dela", async () => {
   const db = freshDb();
-  tx(db, "inter-db", "2026-01-10", 50000, "income");
-  tx(db, "inter-db", "2026-01-20", 1200);
-  await call(db, "PATCH", "/api/accounts/inter-db", { closed_at: "2026-02-01" });
+  tx(db, "conta-b", "2026-01-10", 50000, "income");
+  tx(db, "conta-b", "2026-01-20", 1200);
+  await call(db, "PATCH", "/api/accounts/conta-b", { closed_at: "2026-02-01" });
 
-  const n = (db.prepare("SELECT COUNT(*) AS n FROM transactions WHERE account_id='inter-db'")
+  const n = (db.prepare("SELECT COUNT(*) AS n FROM transactions WHERE account_id='conta-b'")
     .get() as { n: number }).n;
   assert.equal(n, 2, "os lançamentos continuam no ledger");
-  const acc = db.prepare("SELECT closed_at FROM accounts WHERE id='inter-db'").get() as any;
+  const acc = db.prepare("SELECT closed_at FROM accounts WHERE id='conta-b'").get() as any;
   assert.equal(acc.closed_at, "2026-02-01", "a conta continua existindo, só que encerrada");
 });
 
 test("conta encerrada some da listagem, mas volta com ?closed=1 valendo zero", async () => {
   const db = freshDb();
-  tx(db, "inter-db", "2026-01-10", 50000, "income");
-  await call(db, "PATCH", "/api/accounts/inter-db", { closed_at: "2026-02-01" });
+  tx(db, "conta-b", "2026-01-10", 50000, "income");
+  await call(db, "PATCH", "/api/accounts/conta-b", { closed_at: "2026-02-01" });
 
   const abertas = (await call(db, "GET", "/api/accounts")).payload;
-  assert.equal(abertas.find((a: any) => a.id === "inter-db"), undefined);
+  assert.equal(abertas.find((a: any) => a.id === "conta-b"), undefined);
 
   const todas = (await call(db, "GET", "/api/accounts?closed=1")).payload;
-  const inter = todas.find((a: any) => a.id === "inter-db");
+  const inter = todas.find((a: any) => a.id === "conta-b");
   assert.equal(inter.closed_at, "2026-02-01");
   assert.equal(inter.balance, 0, "conta encerrada não guarda dinheiro");
 });
 
 test("reabrir devolve a conta ao disponível", async () => {
   const db = freshDb();
-  tx(db, "inter-db", "2026-01-10", 50000, "income");
-  await call(db, "PATCH", "/api/accounts/inter-db", { closed_at: "2026-02-01" });
+  tx(db, "conta-b", "2026-01-10", 50000, "income");
+  await call(db, "PATCH", "/api/accounts/conta-b", { closed_at: "2026-02-01" });
   assert.equal((await call(db, "GET", "/api/available")).payload.available, 0);
 
-  await call(db, "PATCH", "/api/accounts/inter-db", { closed_at: null });
+  await call(db, "PATCH", "/api/accounts/conta-b", { closed_at: null });
   assert.equal((await call(db, "GET", "/api/available")).payload.available, 500);
 });
 
 test("liquidez: a conta encerrada conta no passado e some no mês do fim", async () => {
   const db = freshDb();
-  tx(db, "nu-db", "2026-01-10", 10000, "income");
-  tx(db, "inter-db", "2026-01-15", 40000, "income");
-  tx(db, "nu-db", "2026-03-10", 0, "income");
-  await call(db, "PATCH", "/api/accounts/inter-db", { closed_at: "2026-03-01" });
+  tx(db, "conta-a", "2026-01-10", 10000, "income");
+  tx(db, "conta-b", "2026-01-15", 40000, "income");
+  tx(db, "conta-a", "2026-03-10", 0, "income");
+  await call(db, "PATCH", "/api/accounts/conta-b", { closed_at: "2026-03-01" });
 
   const serie = (await call(db, "GET", "/api/liquidity-history")).payload;
   assert.deepEqual(serie.map((p: any) => p.label), ["01/2026", "02/2026", "03/2026"]);
@@ -144,8 +147,8 @@ test("liquidez: a conta encerrada conta no passado e some no mês do fim", async
 
 test("encerrar antes do último lançamento é recusado", async () => {
   const db = freshDb();
-  tx(db, "inter-db", "2026-05-20", 1000);
-  const r = await call(db, "PATCH", "/api/accounts/inter-db", { closed_at: "2026-03-01" });
+  tx(db, "conta-b", "2026-05-20", 1000);
+  const r = await call(db, "PATCH", "/api/accounts/conta-b", { closed_at: "2026-03-01" });
   assert.equal(r.status, 409);
   assert.match(r.payload.error, /2026-05-20/);
   assert.deepEqual(auditLedger(db), [], "e o ledger nunca chega a violar a invariante");
@@ -153,9 +156,9 @@ test("encerrar antes do último lançamento é recusado", async () => {
 
 test("a auditoria acusa lançamento posterior ao encerramento", async () => {
   const db = freshDb();
-  await call(db, "PATCH", "/api/accounts/inter-db", { closed_at: "2026-03-01" });
+  await call(db, "PATCH", "/api/accounts/conta-b", { closed_at: "2026-03-01" });
   // Entra por baixo da rota, como um backfill mal datado entraria.
-  tx(db, "inter-db", "2026-05-20", 1000);
+  tx(db, "conta-b", "2026-05-20", 1000);
   assert.ok(auditLedger(db).some(v => v.check === "lancamento-pos-encerramento"));
 });
 
@@ -164,76 +167,76 @@ test("a auditoria acusa lançamento posterior ao encerramento", async () => {
 const openInvoice = (db: DatabaseSync, refMonth: string, cents: number) =>
   db.prepare(
     `INSERT INTO invoices (account_id, ref_month, total_cents, source_file)
-     VALUES ('inter-cc', ?, ?, 'ui')`,
+     VALUES ('cartao-b', ?, ?, 'ui')`,
   ).run(refMonth, cents);
 
 test("encerrar cartão com fatura em aberto é recusado", async () => {
   const db = freshDb();
   openInvoice(db, "2026-06", 45000);
-  const r = await call(db, "PATCH", "/api/accounts/inter-cc", { closed_at: "2026-07-01" });
+  const r = await call(db, "PATCH", "/api/accounts/cartao-b", { closed_at: "2026-07-01" });
   assert.equal(r.status, 409);
   assert.match(r.payload.error, /fatura em aberto/);
   assert.match(r.payload.error, /2026-06/);
   assert.equal(
-    (db.prepare("SELECT closed_at FROM accounts WHERE id='inter-cc'").get() as any).closed_at, null,
+    (db.prepare("SELECT closed_at FROM accounts WHERE id='cartao-b'").get() as any).closed_at, null,
   );
 });
 
 test("cartão com a fatura já paga encerra normalmente", async () => {
   const db = freshDb();
   openInvoice(db, "2026-06", 45000);
-  const pay = tx(db, "inter-db", "2026-06-10", 45000);
+  const pay = tx(db, "conta-b", "2026-06-10", 45000);
   db.prepare("UPDATE invoices SET payment_tx_id = ? WHERE ref_month = '2026-06'")
     .run(pay.lastInsertRowid as number);
-  const r = await call(db, "PATCH", "/api/accounts/inter-cc", { closed_at: "2026-07-01" });
+  const r = await call(db, "PATCH", "/api/accounts/cartao-b", { closed_at: "2026-07-01" });
   assert.equal(r.status, 200);
 });
 
 test("encerrar conta corrente no vermelho é recusado", async () => {
   const db = freshDb();
-  tx(db, "inter-db", "2026-05-20", 30000);          // sem entrada: saldo −300,00
-  const r = await call(db, "PATCH", "/api/accounts/inter-db", { closed_at: "2026-06-01" });
+  tx(db, "conta-b", "2026-05-20", 30000);          // sem entrada: saldo −300,00
+  const r = await call(db, "PATCH", "/api/accounts/conta-b", { closed_at: "2026-06-01" });
   assert.equal(r.status, 409);
   assert.match(r.payload.error, /saldo devedor/);
 });
 
 test("conta corrente zerada encerra — sacar tudo em espécie é encerramento válido", async () => {
   const db = freshDb();
-  tx(db, "inter-db", "2026-05-01", 30000, "income");
-  tx(db, "inter-db", "2026-05-20", 30000);
-  const r = await call(db, "PATCH", "/api/accounts/inter-db", { closed_at: "2026-06-01" });
+  tx(db, "conta-b", "2026-05-01", 30000, "income");
+  tx(db, "conta-b", "2026-05-20", 30000);
+  const r = await call(db, "PATCH", "/api/accounts/conta-b", { closed_at: "2026-06-01" });
   assert.equal(r.status, 200);
 });
 
 test("reabrir conta nunca esbarra na dívida", async () => {
   const db = freshDb();
-  tx(db, "inter-db", "2026-05-01", 30000, "income");
-  await call(db, "PATCH", "/api/accounts/inter-db", { closed_at: "2026-06-01" });
-  tx(db, "inter-db", "2026-05-02", 90000);          // entra por baixo e deixa o saldo negativo
-  const r = await call(db, "PATCH", "/api/accounts/inter-db", { closed_at: null });
+  tx(db, "conta-b", "2026-05-01", 30000, "income");
+  await call(db, "PATCH", "/api/accounts/conta-b", { closed_at: "2026-06-01" });
+  tx(db, "conta-b", "2026-05-02", 90000);          // entra por baixo e deixa o saldo negativo
+  const r = await call(db, "PATCH", "/api/accounts/conta-b", { closed_at: null });
   assert.equal(r.status, 200);
 });
 
 test("a auditoria acusa conta encerrada com dívida que entrou por baixo da rota", async () => {
   const db = freshDb();
-  await call(db, "PATCH", "/api/accounts/inter-cc", { closed_at: "2026-07-01" });
+  await call(db, "PATCH", "/api/accounts/cartao-b", { closed_at: "2026-07-01" });
   openInvoice(db, "2026-06", 45000);
   assert.ok(auditLedger(db).some(v => v.check === "conta-encerrada-com-divida"));
 });
 
 test("cartão encerrado e quitado não acusa na auditoria", async () => {
   const db = freshDb();
-  await call(db, "PATCH", "/api/accounts/inter-cc", { closed_at: "2026-07-01" });
+  await call(db, "PATCH", "/api/accounts/cartao-b", { closed_at: "2026-07-01" });
   // Itens de fatura deixam o saldo do cartão negativo por desenho — e isso não
   // pode virar violação, senão todo cartão encerrado acusaria.
-  tx(db, "inter-cc", "2026-06-05", 45000);
+  tx(db, "cartao-b", "2026-06-05", 45000);
   assert.deepEqual(auditLedger(db).filter(v => v.check === "conta-encerrada-com-divida"), []);
 });
 
 test("apagar conta com histórico é recusado — encerre em vez de apagar", async () => {
   const db = freshDb();
-  tx(db, "inter-db", "2026-01-10", 1000);
-  const r = await call(db, "DELETE", "/api/accounts/inter-db");
+  tx(db, "conta-b", "2026-01-10", 1000);
+  const r = await call(db, "DELETE", "/api/accounts/conta-b");
   assert.equal(r.status, 409);
   assert.match(r.payload.error, /encerre em vez de apagar/);
   assert.equal(
@@ -275,11 +278,11 @@ test("cartão de crédito novo não entra no disponível", async () => {
 test("id duplicado é recusado com 409, não sobrescreve", async () => {
   const db = freshDb();
   const r = await call(db, "POST", "/api/accounts", {
-    id: "nu-db", bank: "outro", type: "checking", name: "Sequestro",
+    id: "conta-a", bank: "outro", type: "checking", name: "Sequestro",
   });
   assert.equal(r.status, 409);
-  const acc = db.prepare("SELECT bank FROM accounts WHERE id='nu-db'").get() as any;
-  assert.equal(acc.bank, "nubank");
+  const acc = db.prepare("SELECT bank FROM accounts WHERE id='conta-a'").get() as any;
+  assert.equal(acc.bank, "Banco A");
 });
 
 test("id, type e name são validados", async () => {
@@ -301,11 +304,11 @@ test("id, type e name são validados", async () => {
 
 test("renomear não mexe em saldo nem em histórico", async () => {
   const db = freshDb();
-  tx(db, "nu-db", "2026-01-10", 30000, "income");
+  tx(db, "conta-a", "2026-01-10", 30000, "income");
   const antes = (await call(db, "GET", "/api/available")).payload.available;
-  await call(db, "PATCH", "/api/accounts/nu-db", { name: "Nubank Principal" });
+  await call(db, "PATCH", "/api/accounts/conta-a", { name: "Nubank Principal" });
   const lista = (await call(db, "GET", "/api/accounts")).payload;
-  assert.equal(lista.find((a: any) => a.id === "nu-db").name, "Nubank Principal");
+  assert.equal(lista.find((a: any) => a.id === "conta-a").name, "Nubank Principal");
   assert.equal((await call(db, "GET", "/api/available")).payload.available, antes);
 });
 

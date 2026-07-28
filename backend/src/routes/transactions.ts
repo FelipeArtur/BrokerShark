@@ -22,10 +22,14 @@ export function learnCategoryRule(db: DatabaseSync, description: string, categor
   }
 }
 
+// O banco da conta viaja junto do lançamento: a tela rotula e colore por banco,
+// e sem esse campo o chip cai no id cru ("conta-a"). Antes o frontend adivinhava
+// pelo prefixo do id, o que só funcionava para as contas do autor.
 const TX_SELECT = `
-  SELECT t.*, c.name AS category_name
+  SELECT t.*, c.name AS category_name, a.bank AS bank
   FROM transactions t
   LEFT JOIN categories c ON c.id = t.category_id
+  LEFT JOIN accounts a ON a.id = t.account_id
 `;
 
 function txToJson(r: any): Record<string, unknown> {
@@ -35,6 +39,7 @@ function txToJson(r: any): Record<string, unknown> {
     flow: r.flow,
     method: r.method,
     account_id: r.account_id,
+    bank: r.bank ?? null,
     amount: r.amount_cents / 100,
     description: r.description,
     category_id: r.category_id,

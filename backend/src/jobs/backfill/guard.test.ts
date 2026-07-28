@@ -6,8 +6,10 @@ import { fileURLToPath } from "node:url";
 import { initSchema } from "../../db/open.ts";
 import { runMigrations } from "../../db/migrate.ts";
 import { seedAccounts, seedRules } from "./seeds.ts";
-import { seedTestCategories } from "../../testing/fixtures.ts";
+import { seedTestCategories, useTestConfig } from "../../testing/fixtures.ts";
 import { hasUserOverlay, userOverlay } from "./guard.ts";
+
+useTestConfig();
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = join(HERE, "../../db/migrations");
@@ -46,7 +48,7 @@ test("transação importada pela UI é dado da UI", () => {
   const db = freshDb();
   db.prepare(`INSERT INTO transactions
     (date, flow, method, account_id, amount_cents, description, import_batch_id)
-    VALUES ('2026-03-01','expense','pix','nu-db',1000,'x','sess-1')`).run();
+    VALUES ('2026-03-01','expense','pix','conta-a',1000,'x','sess-1')`).run();
   assert.ok(hasUserOverlay(db));
 });
 
@@ -54,7 +56,7 @@ test("apelido editado pela UI é dado da UI", () => {
   const db = freshDb();
   db.prepare(`INSERT INTO transactions
     (date, flow, method, account_id, amount_cents, description, display_name)
-    VALUES ('2026-03-01','expense','pix','nu-db',1000,'x','Almoço')`).run();
+    VALUES ('2026-03-01','expense','pix','conta-a',1000,'x','Almoço')`).run();
   assert.ok(hasUserOverlay(db));
 });
 
@@ -72,7 +74,7 @@ test("conta encerrada pela UI é dado da UI", () => {
   // Encerrar é a informação mais cara de perder: sem closed_at, a conta morta
   // volta a somar no disponível e o herói mente pra cima.
   const db = freshDb();
-  db.prepare("UPDATE accounts SET closed_at='2026-07-01' WHERE id='inter-db'").run();
+  db.prepare("UPDATE accounts SET closed_at='2026-07-01' WHERE id='conta-b'").run();
   assert.ok(hasUserOverlay(db), "encerramento passaria batido");
 });
 
@@ -114,7 +116,7 @@ test("sonda pulada por falta de coluna não vira falso positivo", () => {
   seedAccounts(db);
   db.prepare(`INSERT INTO transactions
     (date, flow, method, account_id, amount_cents, description, import_batch_id)
-    VALUES ('2026-03-01','expense','pix','nu-db',1000,'x','sess-1')`).run();
+    VALUES ('2026-03-01','expense','pix','conta-a',1000,'x','sess-1')`).run();
   // A sonda de contas some (sem closed_at no baseline), mas a de lançamentos
   // continua valendo — pular uma sonda não pode cegar as outras.
   assert.deepEqual(labels(db), ["lançamentos importados ou editados pela UI"]);
@@ -130,7 +132,7 @@ test("cada tipo de dado vira um achado próprio, com contagem", () => {
     VALUES ('padaria', 'category', '3', 50, 1)`).run();
   db.prepare(`INSERT INTO transactions
     (date, flow, method, account_id, amount_cents, description, import_batch_id)
-    VALUES ('2026-03-01','expense','pix','nu-db',1000,'x','sess-1')`).run();
+    VALUES ('2026-03-01','expense','pix','conta-a',1000,'x','sess-1')`).run();
 
   const found = userOverlay(db);
   assert.equal(found.length, 3, `esperava 3 achados, veio ${JSON.stringify(labels(db))}`);
