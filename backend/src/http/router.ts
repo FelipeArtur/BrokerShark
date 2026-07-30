@@ -3,27 +3,29 @@ import { error } from "./respond.ts";
 
 export type Handler = (req: Req, res: Res) => void | Promise<void>;
 
-export type Route = { method: string; pattern: RegExp; keys: string[]; handler: Handler };
+export type Route = { method: string; pattern: URLPattern; handler: Handler };
 
-export function compilePath(path: string): { pattern: RegExp; keys: string[] } {
-  const keys: string[] = [];
-  const re = path.replace(/:([a-zA-Z_]+)/g, (_m, k) => {
-    keys.push(k);
-    return "([^/]+)";
-  });
-  return { pattern: new RegExp(`^${re}$`), keys };
+/**
+ * Padrão de rota a partir do caminho — `URLPattern`, não regex montada à mão.
+ *
+ * `:id` é sintaxe nativa do `URLPattern` (global no Node ≥ 23.8), com a mesma
+ * semântica que a substituição manual tinha: casa um segmento, sem atravessar
+ * `/`. O decode continua sendo nosso, porque `exec` devolve o grupo cru.
+ */
+export function compilePath(path: string): { pattern: URLPattern } {
+  return { pattern: new URLPattern({ pathname: path }) };
 }
 
 export async function dispatch(routes: Route[], req: Req, res: Res, pathname: string): Promise<boolean> {
   const method = req.method ?? "GET";
   for (const route of routes) {
     if (route.method !== method) continue;
-    const m = route.pattern.exec(pathname);
+    const m = route.pattern.exec({ pathname });
     if (!m) continue;
     req.params = {};
-    for (let i = 0; i < route.keys.length; i++) {
+    for (const [key, raw] of Object.entries(m.pathname.groups)) {
       try {
-        req.params[route.keys[i]] = decodeURIComponent(m[i + 1]);
+        req.params[key] = decodeURIComponent(raw ?? "");
       } catch {
         error(res, "parâmetro malformado", 400);
         return true;

@@ -57,10 +57,3 @@ export function seedTestCategories(db: DatabaseSync): TestCategories {
   for (const n of INCOME) out.income[n] = Number(ins.run(n, "income").lastInsertRowid);
   return out;
 }
-
-/** Id da primeira categoria de despesa — quando o teste só precisa de "uma". */
-export function anyExpenseCategory(db: DatabaseSync): number {
-  const row = db.prepare("SELECT id FROM categories WHERE flow='expense' ORDER BY id LIMIT 1")
-    .get() as { id: number } | undefined;
-  return row ? row.id : seedTestCategories(db).expense["Alimentação"]!;
-}

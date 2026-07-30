@@ -1,5 +1,5 @@
 import { createReadStream, existsSync, statSync } from "node:fs";
-import { extname, join, resolve, sep } from "node:path";
+import { extname, resolve, sep } from "node:path";
 import type { Res } from "./respond.ts";
 import { error } from "./respond.ts";
 
@@ -20,13 +20,16 @@ export function makeStatic(rootDir: string) {
   const root = resolve(rootDir);
 
   return function serveStatic(pathname: string, res: Res): void {
+    // Um asset, uma URL. Antes `/css/x.css` e `/static/css/x.css` serviam o
+    // mesmo arquivo — o prefixo era opcional, então cada asset existia em dois
+    // endereços. Agora `/static/` é obrigatório e `/` é a única exceção.
+    const rel = pathname === "/" ? "index.html"
+      : pathname.startsWith("/static/") ? pathname.slice("/static/".length)
+      : null;
+    if (rel == null) return error(res, "not found", 404);
 
-    const path = pathname.startsWith("/static/") ? pathname.slice("/static".length) : pathname;
-    const rel = path === "/" ? "index.html" : path.slice(1);
     const file = resolve(root, rel);
-    if (file !== join(root, "index.html") && !file.startsWith(root + sep)) {
-      return error(res, "not found", 404);
-    }
+    if (!file.startsWith(root + sep)) return error(res, "not found", 404);
     if (!existsSync(file) || !statSync(file).isFile()) {
       return error(res, "not found", 404);
     }

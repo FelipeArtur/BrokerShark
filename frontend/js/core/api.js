@@ -1,42 +1,70 @@
+// Contrato com o backend. Um verbo, um jeito de errar.
+//
+// Antes havia `_post`, `_patch` e `_put` idênticos a menos do método, e mais dez
+// handlers repetindo à mão o mesmo `if (!r.ok) { ... throw }`. Uma cópia que não
+// acompanhasse as outras dava erro mudo numa rota e mensagem boa na vizinha.
+// Agora todo request passa por `_send`, inclusive DELETE e upload multipart.
+
 function _params(obj) {
   const entries = Object.entries(obj).filter(([, v]) => v != null && v !== "");
   if (!entries.length) return "";
   return "?" + entries.map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
 }
 
-function _qs(bank) { return _params({ bank }); }
-
-async function _get(url)  { return fetch(url).then(r => r.json()); }
-
-async function _post(url, body) {
-  const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || "request failed"); }
+/**
+ * @param body  objeto → JSON; FormData → multipart; undefined → sem corpo.
+ * @param msg   mensagem de fallback quando o servidor não mandou `error`.
+ */
+async function _send(method, url, body, msg = "request failed") {
+  const opts = { method };
+  if (body instanceof FormData) {
+    opts.body = body;
+  } else if (body !== undefined) {
+    opts.headers = { "Content-Type": "application/json" };
+    opts.body = JSON.stringify(body);
+  }
+  const r = await fetch(url, opts);
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}));
+    throw new Error(e.error || msg);
+  }
   return r.json();
 }
 
-async function _patch(url, body) {
-  const r = await fetch(url, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || "request failed"); }
-  return r.json();
+/**
+ * Leitura. NÃO rejeita em status de erro — devolve o corpo como veio.
+ *
+ * Parece descuido e é deliberado: as telas consomem leitura em `.then()` sem
+ * `.catch()`, então transformar um 500 em rejeição trocaria "widget com dado
+ * estranho" por "widget que nunca preenche e não diz por quê". Enquanto o
+ * caminho de leitura não tiver tratamento de erro de verdade, o comportamento
+ * fica o que sempre foi. Quem PRECISA falhar alto usa `_send("GET", …)` —
+ * é o caso de `fetchAvailable` e `fetchInvestment`.
+ */
+const _get   = (url)            => fetch(url).then(r => r.json());
+const _post  = (url, body, msg) => _send("POST", url, body, msg);
+const _patch = (url, body, msg) => _send("PATCH", url, body, msg);
+const _put   = (url, body, msg) => _send("PUT", url, body, msg);
+const _del   = (url, body, msg) => _send("DELETE", url, body, msg);
+
+/** Um arquivo (ou vários) + campos avulsos, no formato que o import espera. */
+function _form(files, fields = {}) {
+  const form = new FormData();
+  for (const f of (Array.isArray(files) ? files : [files])) form.append("file", f);
+  for (const [k, v] of Object.entries(fields)) if (v) form.append(k, v);
+  return form;
 }
 
-async function _put(url, body) {
-  const r = await fetch(url, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || "request failed"); }
-  return r.json();
-}
-
-
-async function fetchInvestments(bank)      { return _get(`/api/investments${_qs(bank)}`); }
+async function fetchInvestments(bank)      { return _get(`/api/investments${_params({ bank })}`); }
 
 // Ficha da posição + snapshots datados (rendimento computado no servidor).
+// Falha alto (`_send`) porque abre num overlay dedicado: sem posição não há o
+// que desenhar, e o overlay tem onde mostrar o erro.
 async function fetchInvestment(id) {
-  const r = await fetch(`/api/investments/${encodeURIComponent(id)}`);
-  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || "posição não encontrada"); }
-  return r.json();
+  return _send("GET", `/api/investments/${encodeURIComponent(id)}`, undefined, "posição não encontrada");
 }
 
-async function fetchAccounts(bank)         { return _get(`/api/accounts${_qs(bank)}`); }
+async function fetchAccounts(bank)         { return _get(`/api/accounts${_params({ bank })}`); }
 
 // closed=1 traz as encerradas junto — o painel de contas precisa vê-las pra
 // poder reabrir; os widgets, não.
@@ -46,11 +74,7 @@ async function postAccount(account)        { return _post("/api/accounts", accou
 
 async function patchAccount(id, fields)    { return _patch(`/api/accounts/${encodeURIComponent(id)}`, fields); }
 
-async function deleteAccount(id) {
-  const r = await fetch(`/api/accounts/${encodeURIComponent(id)}`, { method: "DELETE" });
-  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || "request failed"); }
-  return r.json();
-}
+async function deleteAccount(id)           { return _del(`/api/accounts/${encodeURIComponent(id)}`); }
 
 // Regras APRENDIDAS ao categorizar. Aprender sem poder desaprender é o
 // problema: regra errada gravada uma vez sugere errado pra sempre.
@@ -58,11 +82,7 @@ async function fetchRules()                { return _get("/api/rules"); }
 
 async function patchRule(id, fields)       { return _patch(`/api/rules/${id}`, fields); }
 
-async function deleteRule(id) {
-  const r = await fetch(`/api/rules/${id}`, { method: "DELETE" });
-  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || "request failed"); }
-  return r.json();
-}
+async function deleteRule(id)              { return _del(`/api/rules/${id}`); }
 
 async function fetchExpenseCategories()         { return _get("/api/expense-categories"); }
 
@@ -84,11 +104,7 @@ async function categorizeBulk(ids, categoryId) { return _post("/api/transactions
 
 async function fetchCashflowStatement({ month, year } = {}) { return _get(`/api/cashflow-statement${_params({ month, year })}`); }
 
-async function fetchAvailable() {
-  const r = await fetch("/api/available");
-  if (!r.ok) throw new Error("falha ao calcular disponível");
-  return r.json();
-}
+async function fetchAvailable()            { return _send("GET", "/api/available", undefined, "falha ao calcular disponível"); }
 
 async function patchTransactionCategory(txId, categoryId) {
   return _patch(`/api/transactions/${txId}`, { category_id: categoryId });
@@ -107,41 +123,22 @@ async function putCategoryBudget(categoryId, amountCents, refMonth) {
 }
 
 async function deleteCategory(id, reassignToId) {
-  const r = await fetch(`/api/categories/${id}`, {
-    method: "DELETE",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ reassign_to_id: reassignToId }),
-  });
-  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || "request failed"); }
-  return r.json();
+  return _del(`/api/categories/${id}`, { reassign_to_id: reassignToId });
 }
 
-async function deleteTransaction(id) {
-  const r = await fetch(`/api/transactions/${id}`, { method: "DELETE" });
-  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || "request failed"); }
-  return r.json();
-}
+async function deleteTransaction(id)        { return _del(`/api/transactions/${id}`); }
 
 async function restoreTransactions(restore) { return _post("/api/transactions/restore", { restore }); }
 
 async function importPreview(files, accountId) {
-
-  const form = new FormData();
-  (Array.isArray(files) ? files : [files]).forEach(f => form.append("file", f));
-  form.append("account_id", accountId);
-  const r = await fetch("/api/import/preview", { method: "POST", body: form });
-  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || "falha ao analisar arquivo"); }
-  return r.json();
+  return _post("/api/import/preview", _form(files, { account_id: accountId }), "falha ao analisar arquivo");
 }
 
+// Sugestão de destino; falhar aqui é normal (arquivo de formato desconhecido),
+// então devolve null em vez de estourar na cara de quem só escolheu um arquivo.
 async function importDetect(file) {
-
   try {
-    const form = new FormData();
-    form.append("file", file);
-    const r = await fetch("/api/import/detect", { method: "POST", body: form });
-    if (!r.ok) return null;
-    const out = await r.json().catch(() => []);
+    const out = await _post("/api/import/detect", _form(file));
     const hit = out[0];
     if (!hit || !hit.account_id) return null;
     // O servidor diz se é fatura pelo FORMATO do arquivo. O cliente não deve
@@ -151,48 +148,34 @@ async function importDetect(file) {
 }
 
 async function patchStagingRow(batchId, rowId, fields) {
-
   return _patch(`/api/import/staging/${batchId}/${rowId}`, fields);
 }
 
 async function importConfirm(batchId, excludeIds = [], importBatchId = null) {
   const body = { batch_id: batchId, exclude_ids: excludeIds };
-
   if (importBatchId) body.import_batch_id = importBatchId;
   return _post("/api/import/confirm", body);
 }
 
 async function deleteImportBatch(importBatchId) {
-  const r = await fetch(`/api/import/batch/${encodeURIComponent(importBatchId)}`, { method: "DELETE" });
-  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || "falha ao reverter importação"); }
-  return r.json();
+  return _del(`/api/import/batch/${encodeURIComponent(importBatchId)}`, undefined, "falha ao reverter importação");
 }
 
 async function importB3(file, { confirm = false } = {}) {
-  const form = new FormData();
-  form.append("file", file);
   const url = confirm ? "/api/import/b3" : "/api/import/b3/preview";
-  const r = await fetch(url, { method: "POST", body: form });
-  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || "falha ao ler relatório B3"); }
-  return r.json();
+  return _post(url, _form(file), "falha ao ler relatório B3");
 }
 
 async function importFaturaPreview(file) {
-  const form = new FormData();
-  form.append("file", file);
-  const r = await fetch("/api/import/fatura/preview", { method: "POST", body: form });
-  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || "falha ao ler fatura"); }
-  return r.json();
+  return _post("/api/import/fatura/preview", _form(file), "falha ao ler fatura");
 }
 
 async function importFaturaConfirm(file, dueDate = null, importBatchId = null) {
-  const form = new FormData();
-  form.append("file", file);
-  if (dueDate) form.append("due_date", dueDate);
-  if (importBatchId) form.append("import_batch_id", importBatchId);
-  const r = await fetch("/api/import/fatura", { method: "POST", body: form });
-  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || "falha ao importar fatura"); }
-  return r.json();
+  return _post(
+    "/api/import/fatura",
+    _form(file, { due_date: dueDate, import_batch_id: importBatchId }),
+    "falha ao importar fatura",
+  );
 }
 
 async function fetchInvestmentEvolution()    { return _get("/api/investment-evolution"); }

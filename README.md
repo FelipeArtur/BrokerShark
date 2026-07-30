@@ -122,10 +122,12 @@ config is about you.
 
 Requires **Node ≥ 26** (native type-stripping — the project has no build step).
 
+Try it with no data of your own — a synthetic 24-month ledger ships with the project:
+
 ```bash
 cd backend
 npm install                 # one dependency: xlsx
-npm run demo                # builds a synthetic 24-month ledger at data/demo.db
+npm run demo                # builds the synthetic ledger at data/demo.db
 npm start -- data/demo.db   # http://127.0.0.1:8000
 ```
 
@@ -134,13 +136,28 @@ production modules the real importer uses (SELF pairing, savings derivation, ite
 invoice, payment reconciliation) and then runs the invariant audit against what it
 produced, failing if anything broke. That is also why it is a CI step.
 
-To use it with your own data, declare your accounts in `config/local.json` and import
-statements through the UI (CSV in either supported shape, card invoice CSV, broker report
-XLSX), or rebuild from a directory of exports:
+For your own ledger, declare your accounts in `config/local.json` and run:
+
+```bash
+npm start                   # serves data/brokershark-v2.db, the default
+```
+
+**The dashboard is the way in.** Statements, card invoices and broker reports are all
+imported through the UI, with preview and dedup before anything is written. Rebuilding
+from a directory of exports is optional — it recovers a whole history, it is not how you
+feed the thing day to day:
 
 ```bash
 npm run backfill "<archive dir>"
 ```
+
+The server binds `127.0.0.1:8000` (`PORT` in the env, or `--port N`).
+
+`BROKERSHARK_IDLE_EXIT=<seconds>` makes the process exit on its own after that
+long with no dashboard open — the server knows because every open dashboard holds
+an SSE connection on `/api/events`. It is what lets the thing run as an on-demand
+service that gives its memory back when you close the tab. Opt-in: without the
+variable the server stays up, which is what you want while debugging.
 
 ## Testing
 
@@ -166,7 +183,7 @@ parsers + backfill  →  SQLite (WAL, foreign_keys=ON, chmod 0600)
 |---|---|
 | Language | TypeScript on Node ≥ 26, native type-stripping, no bundler |
 | Database | SQLite via the builtin `node:sqlite` |
-| Server | `node:http` plus a small router and SSE — zero dependencies |
+| Server | `node:http` plus a `URLPattern`-based router and SSE — zero dependencies |
 | Frontend | React 18, vendored, plain hyperscript (never JSX), no CDN |
 | Dependencies | One: `xlsx`, to read broker reports |
 

@@ -18,17 +18,49 @@ Requer **Node ≥ 26** (type-stripping nativo — o projeto não tem build step)
 
 ```bash
 cd backend
-npm install                                    # instala xlsx (única dependência)
-node src/jobs/backfill.ts "<dir do acervo>"    # → backend/data/brokershark-v2.db
-npm start                                      # http://127.0.0.1:8000
-npm test                                       # node:test (backend + frontend)
-npm run audit                                  # confere as invariantes no DB VIVO (read-only)
+npm install     # instala xlsx (única dependência)
+npm start       # http://127.0.0.1:8000 — sobe sobre data/brokershark-v2.db
 ```
 
-`npm run audit` é read-only e sai com código 1 se alguma invariante quebrou — é o
-jeito de conferir o ledger do dia a dia sem reconstruir nada.
+São esses dois comandos. **O painel é o ponto de entrada:** extrato, fatura e
+relatório da corretora entram pela UI, com preview e dedup antes de gravar.
+
+Pra experimentar sem acervo nenhum, existe um ledger sintético de 24 meses:
+
+```bash
+npm run demo                # gera data/demo.db (determinístico, se audita)
+npm start -- data/demo.db   # sobe o painel sobre ele
+```
+
+O gerador da demo não é dump de fixture: passa os lançamentos pelos MESMOS módulos
+que o import usa (pareamento SELF, poupança derivada, fatura itemizada,
+reconciliação de pagamento) e roda a auditoria de invariantes contra o que
+produziu, falhando se algo quebrou. Por isso ele também é passo de CI.
+
+Reconstruir do zero a partir de um diretório de exports é opcional — serve pra
+recuperar o histórico inteiro, não pra alimentar o dia a dia:
+
+```bash
+node src/jobs/backfill.ts "<dir do acervo>"    # → data/brokershark-v2.db
+```
+
+Manutenção:
+
+```bash
+npm test        # node:test (backend + frontend)
+npm run audit   # confere as invariantes no DB VIVO (read-only)
+```
+
+`npm run audit` sai com código 1 se alguma invariante quebrou — é o jeito de
+conferir o ledger do dia a dia sem reconstruir nada.
 
 O servidor sobe em `127.0.0.1:8000` (`PORT` no env ou `--port N` pra mudar).
+
+`BROKERSHARK_IDLE_EXIT=<segundos>` faz o processo sair sozinho depois desse tempo
+sem nenhum painel aberto — o servidor sabe disso pelo SSE, já que cada aba do
+painel segura uma conexão em `/api/events`. Serve pra rodar como serviço que
+sobe sob demanda e não fica ocupando memória depois. É opt-in: sem a variável o
+servidor fica de pé, que é o que se quer ao depurar.
 
 **É um dashboard web, e só isso.** Não há app desktop nem empacotamento: abra
 `http://127.0.0.1:8000` no navegador. Houve um wrapper WebKitGTK
@@ -48,8 +80,23 @@ systemctl --user start brokershark-backup.service   # dispara já, uma vez
 systemctl --user enable --now brokershark-backup.timer
 ```
 
-Backups em `~/brokershark-backups/` (0600). `BROKERSHARK_BACKUP_DIR` muda o destino
-lido pelo endpoint `backup-status`. Rodar avulso, sem timer:
+Cada disparo grava um **par datado**: o snapshot do ledger (`.db`) e a config que
+o descreve (`.config.json`). O ledger sozinho não reconstrói a instalação, ele
+guarda os lançamentos; quais contas existem e qual banco é qual está na config,
+que não é versionada. A retenção conta **datas**, não arquivos, e a poda leva o
+par inteiro.
+
+O destino é `backupDir` na config; sem declarar, cai em `~/brokershark-backups/`.
+Arquivos ficam 0600. **Declare numa fonte só**: o job que escreve e o endpoint
+`backup-status` que o painel lê seguem a mesma ordem (argumento/env → config →
+padrão), e apontar um pro disco novo esquecendo o outro faz o painel anunciar
+"sem backup" com backups existindo.
+
+```json
+"backupDir": "/mnt/backup/brokershark"
+```
+
+Rodar avulso, sem timer:
 
 ```bash
 node backend/src/jobs/backup.ts
@@ -158,7 +205,7 @@ versionado.**
 | Banco | SQLite via `node:sqlite` (builtin, WAL, `foreign_keys=ON`, modo 0600) |
 | Parsing | parsers CSV próprios, por formato; `xlsx` pros relatórios de corretora (única dependência npm) |
 | Frontend | React 18 vendorizado, sem CDN e sem build step (hyperscript puro, nunca JSX) |
-| Servidor | `node:http` + micro-router próprio + SSE (`/api/events`) — zero dependências |
+| Servidor | `node:http` + roteador sobre `URLPattern` + SSE (`/api/events`) — zero dependências |
 
 ## Documentação
 

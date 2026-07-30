@@ -1,6 +1,14 @@
 import type { Req } from "./respond.ts";
 import { HttpError } from "./respond.ts";
 
+// Quem parseia multipart é o runtime, não este arquivo.
+//
+// `Request.formData()` (undici, builtin) já lê boundary, `Content-Disposition`,
+// nome de campo e nome de arquivo — antes isso eram ~40 linhas de varredura de
+// buffer e quatro regexes aqui dentro. O que sobra é só o que o runtime NÃO
+// faz: ler o corpo com teto de bytes antes de materializar qualquer coisa, e
+// recusar quantidade absurda de partes.
+
 const MAX_UPLOAD_BYTES = 20_000_000;
 const MAX_PARTS = 64;
 
@@ -22,50 +30,39 @@ async function readRaw(req: Req): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
-function boundaryOf(req: Req): string {
-  const ct = req.headers["content-type"] ?? "";
-  const m = /boundary=(?:"([^"]+)"|([^;]+))/i.exec(ct);
-  const b = (m?.[1] ?? m?.[2] ?? "").trim();
-  if (!b) throw new HttpError(400, "multipart sem boundary");
-  return b;
-}
-
-export function splitMultipart(body: Buffer, boundary: string, maxParts = MAX_PARTS): Part[] {
-  const delim = Buffer.from(`--${boundary}`);
-  const parts: Part[] = [];
-
-  let idx = body.indexOf(delim);
-  while (idx >= 0) {
-    const start = idx + delim.length;
-    if (body[start] === 0x2d && body[start + 1] === 0x2d) break;
-    const next = body.indexOf(delim, start);
-    if (next < 0) break;
-    const seg = body.subarray(start, next - 2);
-    const headEnd = seg.indexOf("\r\n\r\n");
-    if (headEnd >= 0) {
-      const rawHead = seg.subarray(0, headEnd).toString("utf-8");
-      const data = seg.subarray(headEnd + 4);
-      const cd = /content-disposition:[^\r\n]*/i.exec(rawHead)?.[0] ?? "";
-      const name = /\bname="([^"]*)"/i.exec(cd)?.[1];
-      const filename = /\bfilename="([^"]*)"/i.exec(cd)?.[1];
-      const contentType = /content-type:\s*([^\r\n]+)/i.exec(rawHead)?.[1]?.trim();
-      if (name != null) {
-        if (parts.length >= maxParts) throw new HttpError(413, "arquivos demais");
-        parts.push({ name, filename, contentType, data });
-      }
-    }
-    idx = next;
-  }
-  return parts;
-}
-
-export async function parseMultipart(req: Req): Promise<Part[]> {
+export async function parseMultipart(req: Req, maxParts = MAX_PARTS): Promise<Part[]> {
   const ct = req.headers["content-type"] ?? "";
   if (!ct.toLowerCase().includes("multipart/form-data")) {
     throw new HttpError(400, "esperado multipart/form-data");
   }
   const body = await readRaw(req);
-  return splitMultipart(body, boundaryOf(req));
+
+  let form: FormData;
+  try {
+    form = await new Request("http://localhost", {
+      method: "POST",
+      headers: { "content-type": ct },
+      body,
+    }).formData();
+  } catch {
+    throw new HttpError(400, "multipart malformado");
+  }
+
+  const parts: Part[] = [];
+  for (const [name, value] of form) {
+    if (parts.length >= maxParts) throw new HttpError(413, "arquivos demais");
+    if (typeof value === "string") {
+      parts.push({ name, data: Buffer.from(value, "utf-8") });
+    } else {
+      parts.push({
+        name,
+        filename: value.name,
+        contentType: value.type || undefined,
+        data: Buffer.from(await value.arrayBuffer()),
+      });
+    }
+  }
+  return parts;
 }
 
 export function fileParts(parts: Part[]): Part[] {

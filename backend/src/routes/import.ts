@@ -19,7 +19,7 @@ import { rederiveSavings } from "../jobs/backfill/derivedSavings.ts";
 import { reconcileOpenInvoices } from "../db/reconcile.ts";
 import { openCheckingIds } from "./accounts.ts";
 import {
-  groupNameFor, accountById, accountByStatementFormat, accountByInvoiceFormat,
+  groupNameFor, accountById, accountByFormat,
   ledgerVocabulary, primaryCard,
 } from "../config.ts";
 import type { StatementFormat, InvoiceFormat } from "../config.ts";
@@ -95,10 +95,7 @@ export function detectFormat(csv: string): StatementFormat | InvoiceFormat | nul
 export function detectAccount(csv: string): string | null {
   const fmt = detectFormat(csv);
   if (!fmt) return null;
-  const acc = fmt === "itemized"
-    ? accountByInvoiceFormat(fmt)
-    : accountByStatementFormat(fmt);
-  return acc ? acc.id : null;
+  return accountByFormat(fmt)?.id ?? null;
 }
 
 /**

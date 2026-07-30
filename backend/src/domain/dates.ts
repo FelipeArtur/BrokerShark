@@ -14,6 +14,12 @@ export function monthRange(month: number, year: number): { start: string; end: s
  *
  * `toISOString()` seria UTC — em UTC-3, das 21h em diante ele já devolve a data
  * de amanhã, e uma conta aberta à noite nasceria datada no dia seguinte.
+ *
+ * Nem `toLocaleDateString("sv-SE")`, que é uma linha e dá o mesmo YYYY-MM-DD
+ * local: ele depende dos dados de ICU. Num Node compilado com `small-icu` o
+ * locale desconhecido cai calado no en-US e a data vira `7/30/2026` — sem
+ * exceção, sem teste vermelho, e o `opened_at` de toda conta nasce ilegível.
+ * Três linhas de `padStart` não dependem de nada.
  */
 export function today(d: Date = new Date()): string {
   const mm = String(d.getMonth() + 1).padStart(2, "0");

@@ -18,5 +18,8 @@
     return `oklch(75% 0.14 ${HUES[quantizeHue(str)]})`;
   }
 
+  // `quantizeHue` e `HUES` saem daqui só pro teste: é o que deixa a suíte
+  // afirmar que a quantização cobre a paleta inteira e não vaza dela. A tela usa
+  // `swatchColor` e nada mais.
   return { quantizeHue, swatchColor, HUES };
 });
