@@ -37,12 +37,19 @@ function Money({ t, value, kind, size, emphasis = false, strike = false, title }
   );
 }
 
-function fmtBRLCompact(v) {
+// Número compacto, SEM símbolo de moeda.
+//
+// Não é `Intl` com `notation: "compact"`: em pt-BR o CLDR abrevia como "12,3 mil"
+// e "1,2 mi", quatro caracteres a mais que "12,3k" / "1,2M". Este formato existe
+// justamente onde não cabe o número inteiro, então o sufixo curto é o requisito.
+function fmtCompact(v) {
   const n = Math.abs(v ?? 0);
-  if (n >= 1_000_000) return "R$ " + (n / 1_000_000).toFixed(1).replace(".", ",") + "M";
-  if (n >= 1_000)     return "R$ " + (n / 1_000).toFixed(1).replace(".", ",") + "k";
-  return "R$ " + n.toFixed(0);
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(".", ",") + "M";
+  if (n >= 1_000)     return (n / 1_000).toFixed(1).replace(".", ",") + "k";
+  return n.toFixed(0);
 }
+
+const fmtBRLCompact = (v) => "R$ " + fmtCompact(v);
 
 function fmtDateBR(iso) {
   if (!iso) return "—";
@@ -110,29 +117,75 @@ function prettifyDesc(raw) {
   }).join(" ");
 }
 
+// Camadas modais abertas, da mais funda pra do topo. `Modal` e `Overlay` são
+// camadas diferentes na tela, mas a regra de teclado é a mesma, e ela precisa
+// saber QUEM está por cima.
+//
+// Sem essa pilha, um Esc fechava as duas de uma vez: cada camada registrava seu
+// próprio `keydown` no `document`, e `stopPropagation()` não impede um listener
+// irmão no MESMO elemento (isso é `stopImmediatePropagation`, que aqui seria
+// pior — listener dispara por ordem de registro, e a camada de baixo registrou
+// primeiro, então ela é que ganharia). Quem responde é o topo da pilha.
+const _modalLayers = [];
+
+// Foco preso dentro da camada do topo: Tab circula, Esc fecha, e ao fechar o
+// foco volta pra onde estava.
+//
+// Não é `<dialog open>`: a top layer do `<dialog>` fica ACIMA de qualquer
+// z-index, e os toasts (`--z-toast`) precisam aparecer por cima de um modal
+// aberto — é onde o import reporta erro. Trocar por `<dialog>` esconderia o
+// aviso justamente na tela que mais avisa.
+function _useModalLayer(open, ref, onClose) {
+  _useEffect(() => {
+    if (!open || !ref.current) return;
+    const me = {};
+    _modalLayers.push(me);
+
+    const prev = document.activeElement;
+    const sel  = 'button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])';
+    // Só o que REALMENTE recebe foco: botão desligado e nó escondido entram no
+    // querySelectorAll mas o Tab do navegador pula os dois. Contá-los fazia o
+    // "último" da lista ser um elemento que nunca fica ativo — e o ciclo então
+    // nunca fechava.
+    const get = () => Array.from(ref.current.querySelectorAll(sel))
+      .filter(n => !n.disabled && n.offsetParent !== null);
+    get()[0]?.focus();
+
+    function trap(e) {
+      // Camada enterrada não escuta teclado: nem fecha no Esc, nem disputa o
+      // Tab com a de cima.
+      if (_modalLayers[_modalLayers.length - 1] !== me) return;
+      if (e.key === "Escape") { onClose && onClose(); return; }
+      if (e.key !== "Tab") return;
+      const nodes = get();
+      if (!nodes.length) { e.preventDefault(); return; }
+      // O Tab é SEMPRE nosso, não só na borda. Antes só a borda era tratada
+      // (`activeElement === último` → volta pro primeiro), então bastava o foco
+      // escapar uma vez pra nunca mais voltar: fora da lista, nenhuma borda
+      // casa e o Tab seguia a ordem do documento pra trás do modal. Índice −1
+      // (foco fora) reentra pela ponta certa.
+      e.preventDefault();
+      const i = nodes.indexOf(document.activeElement);
+      const next = e.shiftKey
+        ? nodes[(i <= 0 ? nodes.length : i) - 1]
+        : nodes[(i + 1) % nodes.length];
+      next?.focus();
+    }
+    document.addEventListener("keydown", trap);
+    return () => {
+      document.removeEventListener("keydown", trap);
+      const i = _modalLayers.indexOf(me);
+      if (i >= 0) _modalLayers.splice(i, 1);
+      prev?.focus();
+    };
+  }, [open]);
+}
+
 function Modal({ open, onClose, title, children, width = 480 }) {
   const dialogRef = _useRef(null);
   const titleId   = _useRef("modal-title-" + Math.random().toString(36).slice(2)).current;
 
-  _useEffect(() => {
-    if (!open || !dialogRef.current) return;
-    const prev = document.activeElement;
-    const sel  = 'button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])';
-    const get  = () => Array.from(dialogRef.current.querySelectorAll(sel));
-    get()[0]?.focus();
-
-    function trap(e) {
-      if (e.key === "Escape") { e.stopPropagation(); onClose && onClose(); return; }
-      if (e.key !== "Tab") return;
-      const nodes = get();
-      if (!nodes.length) { e.preventDefault(); return; }
-      const fi = nodes[0], la = nodes[nodes.length - 1];
-      if (e.shiftKey) { if (document.activeElement === fi) { e.preventDefault(); la?.focus(); } }
-      else            { if (document.activeElement === la) { e.preventDefault(); fi?.focus(); } }
-    }
-    document.addEventListener("keydown", trap);
-    return () => { document.removeEventListener("keydown", trap); prev?.focus(); };
-  }, [open]);
+  _useModalLayer(open, dialogRef, onClose);
 
   if (!open) return null;
   return React.createElement("div", {
@@ -253,25 +306,7 @@ function Overlay({ open, onClose, children, width = 760 }) {
     return () => { document.body.style.overflow = ""; };
   }, [open]);
 
-  _useEffect(() => {
-    if (!open || !ref.current) return;
-    const prev = document.activeElement;
-    const sel  = 'button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])';
-    const get  = () => Array.from(ref.current.querySelectorAll(sel));
-    get()[0]?.focus();
-
-    function trap(e) {
-      if (e.key === "Escape") { e.stopPropagation(); onClose && onClose(); return; }
-      if (e.key !== "Tab") return;
-      const nodes = get();
-      if (!nodes.length) { e.preventDefault(); return; }
-      const fi = nodes[0], la = nodes[nodes.length - 1];
-      if (e.shiftKey) { if (document.activeElement === fi) { e.preventDefault(); la?.focus(); } }
-      else            { if (document.activeElement === la) { e.preventDefault(); fi?.focus(); } }
-    }
-    document.addEventListener("keydown", trap);
-    return () => { document.removeEventListener("keydown", trap); prev?.focus(); };
-  }, [open]);
+  _useModalLayer(open, ref, onClose);
 
   if (!open) return null;
   return React.createElement("div", {
@@ -480,7 +515,7 @@ function FilterBar({ filter, onRemove, onClear }) {
 
 window.BS = window.BS || {};
 Object.assign(window.BS, {
-  fmtBRL, fmtBRLCompact, fmtDateBR, fullDateBR, prettifyDesc,
+  fmtBRL, fmtBRLCompact, fmtCompact, fmtDateBR, fullDateBR, prettifyDesc,
   PT_MONTHS, PT_SHORT,
   Modal, Overlay, useToasts, BankChip, SegmentControl,
   BrokerSharkLogo, TxRow, FilterBar, Money,
