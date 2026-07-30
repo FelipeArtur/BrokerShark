@@ -1,8 +1,12 @@
 [Unit]
-Description=BrokerShark — dispara o backup mensal
+Description=BrokerShark — dispara o backup mensal do ledger
 
 [Timer]
 OnCalendar=monthly
+
+# Máquina desligada na virada do mês não perde o backup: roda no próximo boot.
+# É por causa disto que `runBackup` sobrescreve o snapshot do dia em vez de
+# falhar — o catch-up pode cair num dia que já tem backup.
 Persistent=true
 
 [Install]

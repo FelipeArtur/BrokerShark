@@ -1,6 +1,5 @@
 import { createServer } from "node:http";
 import { existsSync } from "node:fs";
-import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { openDb, initSchema, restrictPermissions } from "./db/open.ts";
@@ -20,7 +19,7 @@ import { investmentRoutes } from "./routes/investments.ts";
 import { importRoutes } from "./routes/import.ts";
 import { commitmentRoutes } from "./routes/commitments.ts";
 import { ruleRoutes } from "./routes/rules.ts";
-import { backupStatus } from "./jobs/backup.ts";
+import { backupStatus, backupDir } from "./jobs/backup.ts";
 
 const args = process.argv.slice(2);
 const portIdx = args.indexOf("--port");
@@ -28,7 +27,9 @@ const PORT = portIdx >= 0 ? Number(args[portIdx + 1]) : Number(process.env.PORT 
 const dbPath = args.find((a, i) => !a.startsWith("--") && i !== portIdx + 1)
   ?? join(import.meta.dirname, "../data/brokershark-v2.db");
 const serveStatic = makeStatic(resolve(import.meta.dirname, "../../frontend"));
-const BACKUP_DIR = process.env.BROKERSHARK_BACKUP_DIR ?? join(homedir(), "brokershark-backups");
+// Mesma ordem do job que ESCREVE (jobs/backup.ts): env → config → padrão. Se os
+// dois divergirem, este painel anuncia "sem backup" com backups existindo.
+const BACKUP_DIR = backupDir(process.env.BROKERSHARK_BACKUP_DIR);
 
 if (!existsSync(dbPath)) {
   console.error(`DB não encontrado: ${dbPath}\nRode o backfill primeiro: node src/jobs/backfill.ts "<dir do acervo>"`);

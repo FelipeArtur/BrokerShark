@@ -3,5 +3,13 @@ Description=BrokerShark — backup mensal do ledger
 
 [Service]
 Type=oneshot
-# Ajuste o caminho do node se necessário (which node). %h = seu $HOME.
-ExecStart=/usr/bin/node %h/Projects/BrokerShark/backend/src/jobs/backup.ts
+
+# Ajuste para o caminho onde você clonou (%h = seu $HOME) e confira o do node
+# com `which node`.
+WorkingDirectory=%h/Projects/BrokerShark/backend
+ExecStart=/usr/bin/node src/jobs/backup.ts
+
+# Sem argumento de propósito: o destino sai de `backupDir` na config, o MESMO
+# lugar que o servidor lê pra responder /api/backup-status. Passar um caminho
+# aqui criaria uma segunda verdade, e o painel passaria a anunciar "sem backup"
+# enquanto este job grava feliz noutro diretório.
