@@ -1,7 +1,7 @@
 (function () {
 
 const { useState: _dSt, useEffect: _dEf, useMemo: _dMemo, useCallback: _dCb } = React;
-const { fmtBRL, fmtBRLCompact, fmtDateBR, PT_MONTHS, PT_SHORT,
+const { fmtBRL, fmtBRLCompact, fmtCompact, fmtDateBR, PT_MONTHS, PT_SHORT,
         isConsumptionExpense, bankColor, bankLabel, bankShortLabel, fullDateBR } = window.BS;
 
 const INV_TYPE_LABEL = {
@@ -234,7 +234,7 @@ const TimelineWidget = React.memo(function TimelineWidget({ monthly, monthSel, o
             h("span", { className: "tl-mon", style: isCur && !isPicked ? { color: "var(--fg-1)", fontWeight: 700 } : null },
               PT_SHORT[slot.month]),
             h("span", { className: "tl-net", style: { color: !d ? "transparent" : net >= 0 ? "var(--pos)" : "var(--neg)" } },
-              d ? (net >= 0 ? "+" : "−") + fmtBRLCompact(net) : "·")
+              d ? (net >= 0 ? "+" : "−") + fmtCompact(net) : "·")
           );
         })
       ),

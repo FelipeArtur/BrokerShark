@@ -81,6 +81,12 @@ function App() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [monthly, setMonthly] = useState([]);
   const [monthSel, setMonthSel] = useState(null);
+  // As cores de banco vivem num mapa de módulo (domain/bank.js), fora do
+  // React — então preenchê-lo não repinta nada sozinho. Este contador existe
+  // só pra dar o empurrão, uma vez, quando as cores chegam: sem ele a primeira
+  // pintura sai com a cor derivada do nome e só troca pra da config no próximo
+  // evento qualquer da tela.
+  const [, setColorTick] = useState(0);
   const { push, Toaster } = useToasts();
 
   useEffect(() => {
@@ -97,6 +103,13 @@ function App() {
   useEffect(() => {
     fetchAccounts().then(accs => {
       window.BS.accountNames = Object.fromEntries(accs.map(a => [a.id, a.name]));
+      // As cores declaradas na config chegam de carona nas contas — é a única
+      // busca que o boot já fazia, então não custa uma rota nova.
+      const colors = Object.fromEntries(
+        accs.filter(a => a.bank_color).map(a => [a.bank, a.bank_color])
+      );
+      window.BS.setBankColors(colors);
+      if (Object.keys(colors).length) setColorTick(t => t + 1);
     }).catch(() => {});
   }, [refreshKey]);
 

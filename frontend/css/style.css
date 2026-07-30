@@ -311,7 +311,15 @@ th.sortable:hover { color: var(--fg-0); }
   color: var(--fg-3); font-weight: 500; letter-spacing: 0.02em;
 }
 .tl-slot.picked .tl-mon { color: var(--accent); font-weight: 700; }
-.tl-net { font-size: var(--fz-8); font-family: var(--ff-mono); font-weight: 600; }
+/* `nowrap` é estrutural: são 12 fatias dividindo a largura do widget, então o
+   saldo do mês SEMPRE cabe apertado. Quebrando, a segunda linha empurrava o
+   slot pra baixo e encostava no vizinho — era o "+R$ / 2,6k" em duas linhas.
+   O rótulo perdeu o "R$" pelo mesmo motivo: doze repetições da mesma moeda
+   numa fileira só custam a largura que o número precisa. */
+.tl-net {
+  font-size: var(--fz-8); font-family: var(--ff-mono); font-weight: 600;
+  white-space: nowrap;
+}
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

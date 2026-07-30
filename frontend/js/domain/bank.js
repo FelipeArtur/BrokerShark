@@ -15,9 +15,31 @@
   // outro. (Antes existia um par fixo com os dois bancos do autor, e uma conta
   // nova aparecia rotulada com o nome de um deles e pintada com a cor dele.)
 
-  /** Cor estável do banco, derivada do nome. */
+  // Cores DECLARADAS, vindas de `bankColors` na config (o backend manda em
+  // `bank_color` no /api/accounts, e o boot chama `setBankColors`). Fica num
+  // mapa de módulo porque `bankColor` é chamada de dentro de render, síncrona,
+  // em lugares que só têm o nome do banco na mão — não dá pra buscar ali.
+  let declared = {};
+
+  /** Registra as cores da config. Chave é o nome do banco, sem caixa. */
+  function setBankColors(map) {
+    declared = {};
+    for (const [k, v] of Object.entries(map || {})) {
+      if (v) declared[String(k).trim().toLowerCase()] = v;
+    }
+  }
+
+  /**
+   * Cor do banco: a declarada na config, senão derivada do nome.
+   *
+   * O fallback é o que mantém a regra de que nenhum banco tem identidade
+   * reservada NO CÓDIGO — instituição que ninguém previu entra com cor própria
+   * e estável, sem herdar a de outra. Declarar cor é escolha de quem usa, no
+   * `config/local.json` dele.
+   */
   function bankColor(bank, id) {
-    return P.swatchColor(String(bank || id || ""));
+    const key = String(bank || "").trim().toLowerCase();
+    return declared[key] || P.swatchColor(String(bank || id || ""));
   }
 
   /**
@@ -43,5 +65,5 @@
     return full.length <= 8 ? full : full.slice(0, 8);
   }
 
-  return { bankColor, bankLabel, bankShortLabel };
+  return { bankColor, bankLabel, bankShortLabel, setBankColors };
 });

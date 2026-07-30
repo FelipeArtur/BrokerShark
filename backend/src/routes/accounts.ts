@@ -8,6 +8,7 @@ import { isIsoDate, isShortText } from "../http/validate.ts";
 import { monthlyPortfolioSeries } from "../domain/positions.ts";
 import { monthlyCheckingSeries } from "../domain/accountBalances.ts";
 import { currentMonth, today } from "../domain/dates.ts";
+import { bankColorFor } from "../config.ts";
 import { fmtCents } from "../domain/money.ts";
 
 const ACCOUNT_TYPES = new Set(["checking", "credit_card"]);
@@ -98,6 +99,10 @@ export function accountRoutes(db: DatabaseSync): Route[] {
     json(res, rows.map(r => ({
       id: r.id,
       bank: r.bank,
+      // Cor declarada na config, ou null — a tela deriva do nome quando falta.
+      // Vem por conta porque é aqui que a UI já carrega no boot; a chave real
+      // é o banco, e duas contas do mesmo banco trazem a mesma cor.
+      bank_color: bankColorFor(r.bank),
       type: r.type,
       name: r.name,
       opened_at: r.opened_at,
