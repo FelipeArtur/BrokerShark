@@ -1,22 +1,10 @@
-// Gerador de ledger SINTÉTICO — o modo demo do projeto.
-//
-// Existe por duas razões. A primeira é que o BrokerShark é inútil vazio: sem
-// acervo não há tela, e quem clona o repositório não tem o meu acervo (nem
-// deveria). A segunda é que screenshot de dashboard financeiro com dado real é
-// vazamento — as imagens do README saem daqui.
-//
-// Duas regras de desenho:
-//
-// 1. **Passa pelos mesmos módulos do backfill.** Pareamento SELF, derivação da
-//    poupança derivada, fatura itemizada e reconciliação são os de produção.
-//    Um gerador que inserisse linhas prontas produziria um banco bonito e
-//    mentiroso, que não prova nada sobre o código.
-// 2. **É determinístico.** PRNG com semente fixa: a mesma demo hoje e daqui a um
-//    ano, então screenshot não envelhece sozinho e bug de demo é reproduzível.
-//
-// No fim, roda a auditoria de invariantes contra o que acabou de gerar e ABORTA
-// se alguma quebrou. Se o gerador não consegue produzir um ledger válido, o
-// problema é do gerador ou da invariante — nos dois casos eu quero saber.
+/**
+ * @file    Gerador de ledger SINTÉTICO — o modo demo, e a fonte dos prints do README.
+ * @details Passa pelos MESMOS módulos do backfill: um gerador que inserisse linhas
+ *          prontas daria um banco bonito e mentiroso. PRNG com semente fixa, então a
+ *          demo não envelhece.
+ * @note    Audita as invariantes no fim e aborta se alguma quebrou.
+ */
 
 import { rmSync } from "node:fs";
 import { join } from "node:path";
@@ -113,8 +101,6 @@ export function seedDemo(dbPath: string): DemoReport {
   seedAccounts(db);
   seedRules(db);
 
-  // As contas da demo são as da config — genéricas por padrão. A demonstração
-  // ilustra o produto configurado, não um par de bancos escolhido a dedo.
   const [contaSalario, contaCartao] = checkingAccounts();
   if (!contaSalario || !contaCartao) {
     throw new Error("a demo precisa de duas contas correntes na config");
@@ -137,36 +123,27 @@ export function seedDemo(dbPath: string): DemoReport {
     } as TxRecord, stats);
   };
 
-  // ── extrato: um mês de vida financeira, 24 vezes ──────────────────────────
+  //> ── extrato: um mês de vida financeira, 24 vezes ──────────────────────────
   for (const [i, m] of months.entries()) {
     const isCurrent = i === months.length - 1;
     const cap = (d: number) => (isCurrent ? Math.min(d, lastDay) : d);
 
-    // Salário: a âncora do mês. É o que faz "receita real" existir.
     tx({ date: iso(m.year, m.month, cap(5)), amountCents: 650000, flow: "income",
          method: "ted", isRevenue: 1, description: "Transferência recebida - Empresa Exemplo Ltda" });
 
-    // Freela em alguns meses — receita que não é recorrente, de propósito.
     if (rand() < 0.35) {
       tx({ date: iso(m.year, m.month, cap(between(12, 24))), amountCents: between(80000, 250000),
            flow: "income", method: "pix", isRevenue: 1,
            description: "Pix recebido: Consultoria Exemplo ME" });
     }
 
-    // Aluguel: mesmo valor, todo mês, dia 10. É o que a detecção de recorrência
-    // precisa enxergar pra projetar a visão de futuro.
     if (cap(10) >= 10) {
       tx({ date: iso(m.year, m.month, 10), amountCents: 185000,
            description: "Pix enviado: Imobiliária Exemplo - aluguel" });
     }
 
-    // Transferência entre contas do próprio dono. Vira par SELF no pareamento —
-    // e é justamente o caso que não pode ser contado como gasto nem aplicação.
-    //
-    // O valor não é decorativo: o salário cai numa conta, mas a fatura do
-    // cartão e parte dos gastos saem da outra. Transferir de menos faz a conta
-    // que paga afundar mês a mês e a demo termina com saldo negativo de dezenas
-    // de milhares — cenário que existe, mas não é o que a tela deve ilustrar.
+    //> Vira par SELF: o caso que não conta como gasto nem aplicação. O valor não é
+    //> decorativo — transferir de menos afunda a conta que paga a fatura.
     if (cap(7) >= 7) {
       tx({ date: iso(m.year, m.month, 7), amountCents: 320000, method: "ted",
            description: "Transferência enviada pelo Pix - Titular da conta" });
@@ -174,9 +151,6 @@ export function seedDemo(dbPath: string): DemoReport {
            accountId: contaCartao.id, isRevenue: 1, description: "Pix recebido: Titular da conta" });
     }
 
-    // Poupança derivada: aplica todo mês, resgata de vez em quando. A descrição
-    // usa a primeira keyword configurada — é o que o parser reconheceria num
-    // extrato de verdade.
     const savingsWord = savingsCfg?.keywords[0] ?? "reserva";
     if (savingsCfg && cap(15) >= 15) {
       tx({ date: iso(m.year, m.month, 15), amountCents: 80000, method: "transfer",
@@ -189,9 +163,7 @@ export function seedDemo(dbPath: string): DemoReport {
            description: `Resgate ${savingsWord}`, isInvestmentLeg: true, isSavingsLeg: true });
     }
 
-    // Gastos avulsos na conta corrente (pix e débito). O volume é calibrado pra
-    // que o mês FECHE perto do salário: uma demo que sobra R$ 3 mil todo mês
-    // acumula patrimônio de fantasia e não parece a vida de ninguém.
+    //> Volume calibrado pro mês FECHAR perto do salário: sobrar sempre daria patrimônio de fantasia.
     for (let k = 0; k < between(7, 11); k++) {
       const kind = pick(["mercado", "restaurante", "farmacia", "transporte"] as const) as Kind;
       const day = cap(between(2, 27));
@@ -201,7 +173,7 @@ export function seedDemo(dbPath: string): DemoReport {
            description: `Pix enviado: ${pick(MERCHANTS[kind])}` });
     }
 
-    // ── fatura do cartão: itens itemizados, como o CSV do banco entrega ──────
+    //> ── fatura do cartão: itens itemizados, como o CSV do banco entrega ──────
     const items: InvoiceItem[] = [];
     for (let k = 0; k < between(9, 15); k++) {
       const kind = pick(["mercado", "restaurante", "lazer", "assinatura"] as const) as Kind;
@@ -214,7 +186,6 @@ export function seedDemo(dbPath: string): DemoReport {
         amountCents: between(2500, 38000),
       });
     }
-    // Uma compra parcelada em 6x, pra existir compromisso futuro de verdade.
     if (i === months.length - 3) {
       for (let p = 1; p <= 6; p++) {
         const d = new Date(m.year, m.month - 1 + (p - 1), 12);
@@ -229,10 +200,8 @@ export function seedDemo(dbPath: string): DemoReport {
     }
     if (!items.length) continue;
 
-    // Vencimento no dia 20 do PRÓPRIO mês de referência. Não é decoração: a
-    // reconciliação casa o pagamento numa janela de −70/+35 dias a partir do
-    // primeiro dia do ref_month, então fatura vencendo no mês seguinte cairia
-    // fora da janela e nasceria eternamente "em aberto".
+    //> Dia 20 do PRÓPRIO ref_month: a janela de reconciliação é −70/+35 dias dali.
+    //> Vencer no mês seguinte cairia fora e a fatura nasceria eternamente aberta.
     const dueDay = isCurrent && lastDay >= 20 ? Math.min(28, lastDay + 1) : 20;
     const fatura = insertOpenFatura(db, {
       refMonth: m.ym,
@@ -242,9 +211,7 @@ export function seedDemo(dbPath: string): DemoReport {
       importBatchId: `demo-fatura-${m.ym}`,
     });
 
-    // O pagamento sai da conta corrente no vencimento e vira LIQUIDAÇÃO (fora
-    // dos totais de consumo — os gastos reais são os itens). A última fatura
-    // fica aberta de propósito: é ela que alimenta o "Comprometido".
+    //> A última fatura fica ABERTA de propósito: é ela que alimenta o "Comprometido".
     if (!isCurrent) {
       tx({ date: iso(m.year, m.month, dueDay), amountCents: fatura.totalCents,
            accountId: card ? card.paidFrom.id : contaCartao.id, method: "credit",
@@ -252,7 +219,7 @@ export function seedDemo(dbPath: string): DemoReport {
     }
   }
 
-  // ── as derivações de produção, na ordem do backfill ───────────────────────
+  //> ── as derivações de produção, na ordem do backfill ───────────────────────
   pairSelfTransfers(db);
   deriveSavings(db, ins.savingsTxIds);
   reconcileOpenInvoices(db);
@@ -263,7 +230,7 @@ export function seedDemo(dbPath: string): DemoReport {
 
   restrictPermissions(dbPath);
 
-  // ── o gerador se audita ───────────────────────────────────────────────────
+  //> ── o gerador se audita ───────────────────────────────────────────────────
   const violations = auditLedger(db);
   const invest = reviewInvestments(db);
   if (violations.length || invest.violations.length) {
@@ -292,13 +259,9 @@ export function seedDemo(dbPath: string): DemoReport {
 }
 
 /**
- * Cria as categorias DA DEMO e categoriza por comerciante, deixando a regra
- * aprendida no banco — é assim que a UI aprende quando o dono categoriza, e a
- * aba Regras nasce com conteúdo.
- *
- * As categorias nascem aqui, e não no seed, porque um ledger de verdade nasce
- * sem nenhuma: taxonomia de gasto é escolha de quem usa. Estas são as escolhas
- * da personagem fictícia da demonstração.
+ * @brief   Categorias DA DEMO, com a regra aprendida junto.
+ * @warning Nascem aqui e não no seed: ledger de verdade nasce sem nenhuma, porque
+ *          taxonomia de gasto é escolha de quem usa.
  */
 function categorize(db: DatabaseSync): void {
   const ins = db.prepare("INSERT INTO categories (name, flow) VALUES (?, ?)");
@@ -332,9 +295,8 @@ function categorize(db: DatabaseSync): void {
 }
 
 /**
- * Posições de renda fixa com medição mensal — o que na vida real vem do
- * relatório da B3. Rendimento não é chutado: o snapshot cresce e a tela COMPUTA
- * a diferença, que é a invariante do módulo de investimentos.
+ * @brief   Posições de renda fixa com medição mensal, como o relatório da corretora.
+ * @details Rendimento não é chutado: o snapshot cresce e a tela computa a diferença.
  */
 function seedPositions(db: DatabaseSync, months: { year: number; month: number; ym: string }[]): void {
   const posicoes = [

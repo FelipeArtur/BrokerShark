@@ -96,8 +96,7 @@ test("rendimento negativo aparece como negativo, não some", async () => {
 });
 
 test("sem aplicado o rendimento é null, nunca zero", async () => {
-  // Zero afirmaria "rendeu nada"; null diz "não dá pra saber". A poupança derivada
-  // derivada do ledger cai nesse caso — não há aplicado por snapshot.
+  //> Zero afirmaria "rendeu nada"; null diz "não dá pra saber".
   const db = freshDb();
   const id = position(db, { match_key: "ledger:derived-savings", source: "ledger" });
   db.prepare(`INSERT INTO position_snapshots

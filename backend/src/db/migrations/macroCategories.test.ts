@@ -61,7 +61,6 @@ test("migration 0002 maps user-created categories (Saúde, Pagamentos) explicitl
   const catOfTx = (i: number) => (db.prepare("SELECT name FROM categories WHERE id=(SELECT category_id FROM transactions WHERE id=?)").get(i) as any).name;
   assert.equal(catOfTx(1), "Saúde e Bem-Estar");
   assert.equal(catOfTx(2), "Compromissos e Transferências");
-  // 'Saúdea' (empty, no txns) is dropped by the catch-all delete
   const names = (db.prepare("SELECT name FROM categories WHERE flow='expense' ORDER BY name").all() as any[]).map(r => r.name);
   assert.deepEqual(names, ["Alimentação", "Compras e Lazer", "Compromissos e Transferências", "Igreja/Dízimo", "Saúde e Bem-Estar", "Transporte"]);
 });

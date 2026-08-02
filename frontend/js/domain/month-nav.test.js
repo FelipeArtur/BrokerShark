@@ -37,7 +37,7 @@ test("dois saltos cobrem dois anos — o ponto do atalho", () => {
 });
 
 test("série esparsa: aterrissa no mês existente mais próximo, não pula buraco", () => {
-  // Só existe dado nesses meses. Índice ± 12 cairia fora da série inteira.
+  //> Só existe dado nesses meses. Índice ± 12 cairia fora da série inteira.
   const monthly = [
     { year: 2024, month: 2 }, { year: 2024, month: 9 },
     { year: 2025, month: 6 }, { year: 2026, month: 7 },

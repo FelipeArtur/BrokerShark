@@ -60,9 +60,7 @@ test("lista vazia quando nada foi categorizado ainda", async () => {
 });
 
 test("as regras semeadas pelo backfill NÃO aparecem", async () => {
-  // investment_leg/settlement documentam a classificação que já aconteceu;
-  // nada as lê em tempo de execução, então editá-las não mudaria nada e a tela
-  // prometeria um efeito que não existe.
+  //> Nada lê as semeadas em execução: editá-las prometeria efeito que não existe.
   const db = freshDb();
   seedRules(db);
   assert.deepEqual((await call(db, "GET", "/api/rules")).payload, []);
@@ -81,8 +79,7 @@ test("categorizar um lançamento faz a regra aparecer, com a categoria resolvida
 });
 
 test("a lista conta quantos lançamentos SEM categoria a regra ainda pegaria", async () => {
-  // É o número que deixa julgar se a regra é boa: uma regra larga demais
-  // aparece prestes a marcar meio ledger.
+  //> Regra larga demais aparece prestes a marcar meio ledger.
   const db = freshDb();
   learnCategoryRule(db, "PADARIA DO ZE", catId(db, "Alimentação"));
   tx(db, "PADARIA DO ZE - COMPRA");
@@ -142,8 +139,7 @@ test("religar volta a sugerir", async () => {
 });
 
 test("apagar a regra NÃO descategoriza o que já foi categorizado", async () => {
-  // O que já foi categorizado é decisão tomada; desfazer em massa seria uma
-  // surpresa cara. Some só a sugestão daqui pra frente.
+  //> Some só a sugestão daqui pra frente.
   const db = freshDb();
   const alim = catId(db, "Alimentação");
   learnCategoryRule(db, "PADARIA", alim);

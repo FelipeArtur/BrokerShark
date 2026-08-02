@@ -1,9 +1,7 @@
-// Contrato com o backend. Um verbo, um jeito de errar.
-//
-// Antes havia `_post`, `_patch` e `_put` idênticos a menos do método, e mais dez
-// handlers repetindo à mão o mesmo `if (!r.ok) { ... throw }`. Uma cópia que não
-// acompanhasse as outras dava erro mudo numa rota e mensagem boa na vizinha.
-// Agora todo request passa por `_send`, inclusive DELETE e upload multipart.
+/**
+ * @file    Contrato com o backend. Um verbo, um jeito de errar.
+ * @details Todo request passa por `_send`, inclusive DELETE e upload multipart.
+ */
 
 function _params(obj) {
   const entries = Object.entries(obj).filter(([, v]) => v != null && v !== "");
@@ -32,14 +30,10 @@ async function _send(method, url, body, msg = "request failed") {
 }
 
 /**
- * Leitura. NÃO rejeita em status de erro — devolve o corpo como veio.
- *
- * Parece descuido e é deliberado: as telas consomem leitura em `.then()` sem
- * `.catch()`, então transformar um 500 em rejeição trocaria "widget com dado
- * estranho" por "widget que nunca preenche e não diz por quê". Enquanto o
- * caminho de leitura não tiver tratamento de erro de verdade, o comportamento
- * fica o que sempre foi. Quem PRECISA falhar alto usa `_send("GET", …)` —
- * é o caso de `fetchAvailable` e `fetchInvestment`.
+ * @brief   Leitura. NÃO rejeita em status de erro — devolve o corpo como veio.
+ * @details Deliberado: as telas consomem leitura sem `.catch()`, e rejeitar trocaria
+ *          "dado estranho" por "widget que nunca preenche".
+ * @note    Quem precisa falhar alto usa `_send("GET", …)`.
  */
 const _get   = (url)            => fetch(url).then(r => r.json());
 const _post  = (url, body, msg) => _send("POST", url, body, msg);
@@ -140,8 +134,7 @@ async function importDetect(file) {
     const out = await _post("/api/import/detect", _form(file));
     const hit = out[0];
     if (!hit || !hit.account_id) return null;
-    // O servidor diz se é fatura pelo FORMATO do arquivo. O cliente não deve
-    // deduzir isso de um id de conta — id de conta é configuração de quem usa.
+    //> Fatura vem do FORMATO que o servidor leu, nunca deduzida de um id de conta.
     return { accountId: hit.account_id, invoice: !!hit.invoice };
   } catch { return null; }
 }

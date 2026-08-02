@@ -241,9 +241,7 @@ function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkC
       )
     ),
 
-    // Ordem: investido, entradas, saídas, saldo. O investido vem primeiro
-    // porque é o único que NÃO entra na conta do saldo — deixá-lo entre as
-    // saídas e o resultado sugeria que ele fosse abatido ali.
+    //> Investido primeiro: é o único que NÃO entra na conta do saldo.
     h("div", { className: "table-totals" },
       h("span", { title: "Aplicações menos resgates. Fora do saldo: investir não é gastar nem ganhar." },
         "Investido ", h(window.BS.Money, { value: Math.abs(filtInv), kind: "invest", emphasis: true, t: { flow: filtInv >= 0 ? "expense" : "income" } })),

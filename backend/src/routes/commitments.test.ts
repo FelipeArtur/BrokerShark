@@ -92,8 +92,7 @@ test("última parcela não deixa resto", () => {
 
 test("nada é recorrente sem você declarar", () => {
   const db = freshDb();
-  // Três meses do mesmo comerciante, valor idêntico: o detector antigo chamaria
-  // de recorrência. Sem marca, o card não afirma nada.
+  //> Três meses idênticos: o detector antigo chamaria de recorrência. Sem marca, não.
   for (const d of ["2026-02-10", "2026-03-10", "2026-04-10"]) lancamento(db, d, 120000, "Aluguel");
   assert.equal(getCommitments(db, "2026-05").recurring.length, 0);
 });
@@ -181,7 +180,7 @@ test("mês vazio devolve listas vazias e total zero", () => {
 
 test("o total não acumula erro de float", () => {
   const db = freshDb();
-  // 31,27 + 31,25 somados como reais dão 62,519999999999996.
+  //> 31,27 + 31,25 somados como reais dão 62,519999999999996.
   parcela(db, "2026-02-05", 3127, 1, 3);
   parcela(db, "2026-02-05", 3125, 2, 3);
   assert.equal(getCommitments(db, "2026-02").total_out, 62.52);

@@ -7,11 +7,9 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = join(HERE, "migrations");
 
 /**
- * Migrations que existem no disco e ainda não rodaram neste DB.
- *
- * Quem só LÊ o banco (a CLI de auditoria abre readOnly) não pode aplicá-las, e
- * consultar uma coluna que a migration pendente ainda vai criar estoura com um
- * "SQL logic error" que não explica nada. Melhor perguntar antes.
+ * @brief   Migrations no disco que ainda não rodaram neste DB.
+ * @details Quem abre readOnly não pode aplicá-las, e consultar coluna que a pendente
+ *          criaria estoura com "SQL logic error" sem explicação.
  */
 export function pendingMigrations(db: DatabaseSync, dir: string = MIGRATIONS_DIR): string[] {
   const applied = new Set(

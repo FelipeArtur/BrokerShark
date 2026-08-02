@@ -31,12 +31,9 @@ function walk(dir: string): string[] {
 }
 
 /**
- * Ordena pela data que estiver no nome do arquivo, quando houver.
- *
- * Extrato com saldo corrente PRECISA entrar em ordem cronológica: a conferência
- * do saldo compara o fecho de um arquivo com a abertura do próximo, e fora de
- * ordem ela acusa descontinuidade que não existe. Sem data no nome, ordem
- * alfabética — que costuma ser a mesma coisa quando o nome começa com a data.
+ * @brief   Ordena pela data do nome do arquivo; sem data, alfabética.
+ * @warning Extrato com saldo corrente PRECISA de ordem cronológica: fora de ordem, a
+ *          conferência acusa descontinuidade que não existe.
  */
 function byDateInName(a: string, b: string): number {
   const key = (f: string) => {

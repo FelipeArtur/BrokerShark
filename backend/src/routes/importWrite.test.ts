@@ -219,8 +219,7 @@ test("arquivo que não é extrato devolve erro legível, não 500", async () => 
   const out = await call(db, "POST", "/api/import/preview",
     multipartReq("/api/import/preview", { account_id: "conta-a" }, [{ name: "x.csv", content: "a,b\n1,2" }]));
   assert.equal(out.status, 400);
-  // A mensagem fala do FORMATO que faltou, não do banco: é o que a pessoa pode
-  // conferir olhando o arquivo.
+  //> A mensagem fala do FORMATO, não do banco: é o que dá pra conferir no arquivo.
   assert.match(String(out.body.error), /identificador|formato/i);
 });
 

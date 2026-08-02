@@ -26,9 +26,6 @@ function CategoryEditor({ tx, onClose, onSave }) {
 
   useEffect(() => {
     if (!tx) return;
-    // Receita também tem categoria — o painel antigo só carregava as de despesa
-    // e escondia o seletor no resto, então salário e reembolso ficavam sem como
-    // ser classificados.
     fetchCategoriesFull(tx.flow === "income" ? "income" : "expense").then(setCats).catch(() => setCats([]));
     setSelected(tx.category_id);
     setDisplayName(tx.display_name || "");
@@ -73,17 +70,13 @@ function CategoryEditor({ tx, onClose, onSave }) {
     style: { fontSize: 10, color: "var(--fg-3)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em" },
   }, text);
 
-  // Só o que existe nesta linha vira campo. Um "Parcela: —" para toda compra à
-  // vista enche a ficha de vazio e esconde o que importa.
   const ficha = tx ? [
     ["Método", METHOD_LABELS[tx.method] || tx.method || null],
     ["Parcela", tx.installment_total ? `${tx.installment_seq} de ${tx.installment_total}` : null],
     ["Categoria no banco", tx.bank_category],
     ["Valor original", tx.original_amount != null && tx.original_amount !== tx.amount ? fmtBRL(tx.original_amount) : null],
     ["Veio do arquivo", tx.source_file],
-    // `external_id` fica de fora: é um UUID que só serve pra deduplicar no
-    // import. Ocupava a largura de três campos pra não responder pergunta
-    // nenhuma que se faça olhando um lançamento.
+    //> `external_id` fora: UUID de dedup do import, não responde pergunta nenhuma.
   ].filter(([, v]) => v != null && v !== "") : [];
 
   return h(Modal, { open: !!tx, onClose, title: "Lançamento", width: 620 },
@@ -148,10 +141,8 @@ function CategoryEditor({ tx, onClose, onSave }) {
             )
       ),
 
-      // Marcar como de terceiros NÃO escolhe categoria por você. A versão
-      // anterior selecionava uma categoria de nome fixo, herdada da vida do
-      // dono — quem instalasse o projeto ficava com um clique que não fazia
-      // nada. Qual categoria rotula o dinheiro dos outros é decisão de quem usa.
+      //> Não escolhe categoria por você: qual rotula o dinheiro dos outros é decisão
+      //> de quem usa, e nome fixo aqui era um clique que não fazia nada.
       h("button", {
         type: "button",
         onClick: () => setIsThirdParty(v => !v),
@@ -174,9 +165,6 @@ function CategoryEditor({ tx, onClose, onSave }) {
         h(window.BS.IconLock, { size: 16, open: !isThirdParty })
       ),
 
-      // A recorrência do app é DECLARADA aqui, e só aqui. O painel de
-      // compromissos antes deduzia sozinho do histórico quem ia se repetir —
-      // e chamava de recorrente até transferência para uma pessoa.
       h("button", {
         type: "button",
         onClick: () => setRecorrente(v => !v),

@@ -4,18 +4,14 @@ const h = (tag, props, ...children) => React.createElement(tag, props, ...childr
 
 const { useState: _ovSt, useEffect: _ovEf } = React;
 
-// Regras aprendidas: categorizar grava `comerciante → categoria`, e daí em
-// diante essa regra sugere sozinha. Sem tela, uma regra errada gravada uma vez
-// sugeria errado pra sempre — o único conserto era recategorizar por acaso o
-// mesmo comerciante. Mora aqui, e não num overlay próprio, porque regra é
-// justamente "categoria vista pelo lado do comerciante": mesma cabeça, mesma
-// entrada, um ponto de acesso a menos.
+/**
+ * @brief   Regras aprendidas ao categorizar, com o caminho de volta.
+ * @details Mora aqui e não num overlay próprio: regra é categoria vista pelo lado do
+ *          comerciante — mesma cabeça, um ponto de acesso a menos.
+ */
 function RulesTab({ onRefresh }) {
   const [rules, setRules] = _ovSt(null);
-  // As DUAS listas: uma regra pode apontar pra categoria de receita (estorno,
-  // reembolso) enquanto a aba de categorias está em despesa. Com a lista
-  // filtrada, o select não conteria o valor atual e a tela mostraria a regra
-  // apontando pra categoria errada.
+  //> As DUAS listas: sem isso, regra de receita com a aba em despesa some do select.
   const [cats, setCats] = _ovSt([]);
   const [err, setErr] = _ovSt("");
   const [busy, setBusy] = _ovSt(false);
@@ -118,12 +114,7 @@ function CategoriesPanel({ refreshKey, onRefresh, onClose }) {
     setEditingId(null);
   }
 
-  // `reassignTo` vazio significa "deixar sem categoria", que é uma escolha
-  // válida — não um formulário pela metade. Antes, categoria sem lançamento
-  // nenhum abria com `"0"` e o cliente mandava `reassign_to_id: 0`, que o
-  // servidor recusa (id tem que ser > 0): excluir uma categoria vazia era
-  // impossível, e a mensagem falava de "categoria de destino" numa tela onde
-  // nem havia destino a escolher.
+  //> Vazio é escolha válida ("deixar sem categoria"); `reassign_to_id: 0` o servidor recusa.
   async function handleDelete() {
     if (!deleteModal) return;
     setDeleting(true); setErr("");
@@ -139,9 +130,6 @@ function CategoriesPanel({ refreshKey, onRefresh, onClose }) {
 
   const swatch = flow === 'expense' ? "var(--neg)" : "var(--pos)";
 
-  // Categoria é o corpo; regra é consequência dela. Antes as duas eram abas
-  // irmãs, o que escondia a função central atrás de um clique e dava a "Regras"
-  // um peso que ela não tem — ninguém abre este painel pra mexer em regra.
   return h(window.BS.Modal, { open: true, onClose, title: "Categorias", width: 620 },
     h("div", { style: { display: "flex", flexDirection: "column", gap: 14 } },
 
@@ -199,9 +187,6 @@ function CategoriesPanel({ refreshKey, onRefresh, onClose }) {
             ))
           ),
 
-      // A pergunta que o painel antigo deixava sem resposta era "de onde
-      // surgiram essas regras?". A resposta está aqui, na primeira linha, e não
-      // numa aba com nome de jargão.
       h("details", { className: "px-details" },
         h("summary", null, "O que o BrokerShark aprendeu sozinho"),
         h("p", { style: { margin: "0 0 10px", fontSize: 11, color: "var(--fg-3)", lineHeight: 1.6 } },
@@ -232,10 +217,8 @@ function CategoriesPanel({ refreshKey, onRefresh, onClose }) {
                 className: "px-field", value: reassignTo, onChange: e => setReassignTo(e.target.value),
                 "aria-label": "Para onde vão os lançamentos", style: { width: "100%" }
               },
-                // "Deixar sem categoria" é a única opção que sempre existe, e é
-                // o que o servidor já fazia quando o cliente não mandava
-                // destino. Sem ela, a última categoria de um fluxo não tinha
-                // para onde reatribuir e o botão ficava desligado para sempre.
+                //> Única opção que sempre existe. Sem ela, a última categoria de um
+                //> fluxo não tinha destino e o botão ficava desligado pra sempre.
                 h("option", { value: "" }, "Deixar sem categoria"),
                 otherCats.map(c => h("option", { key: c.id, value: c.id }, c.name))
               )

@@ -6,18 +6,11 @@ import { compilePath } from "../http/router.ts";
 import { currentMonth, monthRange } from "../domain/dates.ts";
 import { normalizeMerchant } from "../domain/merchant.ts";
 
-// O que está comprometido no mês — e SÓ o que o ledger sabe de verdade.
-//
-// A versão anterior projetava doze meses à frente somando recorrência detectada
-// sozinha do histórico. Num ledger sem fatura em aberto, o card inteiro era
-// palpite: as parcelas reais não apareciam (a projeção só olhava fatura aberta)
-// e o total vinha de um comerciante que o detector achou que ia se repetir.
-// Mostrava o inventado e escondia o medido.
-//
-// Aqui há duas fontes, as duas ancoradas em dado:
-//   PARCELA     — o banco escreveu "2 de 3" na fatura. É contrato, não previsão.
-//   RECORRENTE  — você apontou um lançamento e disse que se repete. É declaração,
-//                 não dedução.
+/**
+ * @file    O comprometido do mês — e SÓ o que o ledger sabe de verdade.
+ * @details PARCELA: o banco escreveu "2 de 3", é contrato. RECORRENTE: você apontou
+ *          um lançamento, é declaração. Nada é deduzido do histórico.
+ */
 
 const SQL_INSTALLMENTS = `
   SELECT t.id, t.date, t.description, t.display_name, t.amount_cents, t.flow,
@@ -62,14 +55,10 @@ export function commitmentRoutes(db: DatabaseSync): Route[] {
       bank: r.bank ?? null,
       seq: r.installment_seq,
       total: r.installment_total,
-      // Quantas ainda vêm depois desta. O banco declarou o total, então isto é
-      // leitura do contrato — não uma aposta sobre o que você vai gastar.
       remaining: Math.max(0, (r.installment_total ?? 0) - (r.installment_seq ?? 0)),
     }));
 
-    // Índice do mês por núcleo de comerciante, pra saber se a recorrência
-    // declarada JÁ caiu. Sem ele o card mostraria "previsto" ao lado de um
-    // lançamento que está logo abaixo, na tabela, já cobrado.
+    //> Pra saber se a declarada JÁ caiu: senão diz "previsto" sobre linha já cobrada.
     const doMes = new Map<string, any>();
     for (const t of db.prepare(SQL_MONTH_TX).all(start, end) as any[]) {
       const chave = normalizeMerchant(rotulo(t));
@@ -78,8 +67,7 @@ export function commitmentRoutes(db: DatabaseSync): Route[] {
     const jaContado = new Set(installments.map(i => i.transaction_id));
 
     const recurring = (db.prepare(SQL_MARKS).all() as any[])
-      // Recorrência declarada não vale para trás: o mês anterior ao lançamento
-      // que a originou não a teve, e afirmar o contrário inventaria passado.
+      //> Não vale para trás: afirmar o contrário inventaria passado.
       .filter(r => String(r.date).slice(0, 7) <= ym)
       .map(r => {
         const real = doMes.get(normalizeMerchant(rotulo(r)));
@@ -88,8 +76,6 @@ export function commitmentRoutes(db: DatabaseSync): Route[] {
           label: rotulo(r),
           flow: r.flow,
           bank: r.bank ?? null,
-          // Já caiu: valor e dia são os do lançamento de verdade. Ainda não:
-          // repete o que você declarou, que é a única coisa que se pode afirmar.
           confirmed: !!real,
           date: real ? real.date : null,
           day: Number(String(r.date).slice(8, 10)),
@@ -99,9 +85,7 @@ export function commitmentRoutes(db: DatabaseSync): Route[] {
         };
       });
 
-    // Soma em CENTAVOS e divide uma vez só. Somando os reais já divididos,
-    // 31,27 + 31,25 devolvia 62,519999999999996 — float no total de dinheiro é
-    // exatamente o que o ledger inteiro existe pra não fazer.
+    //> Soma em CENTAVOS: somando reais, 31,27 + 31,25 dava 62,519999999999996.
     const saidaCents = (v: { flow: string; amount: number }) =>
       (v.flow === "expense" ? Math.round(v.amount * 100) : 0);
     const total_out = (

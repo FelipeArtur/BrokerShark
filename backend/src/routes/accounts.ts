@@ -21,8 +21,7 @@ const BALANCE_SUMS = `
 `;
 
 /**
- * Contas correntes ABERTAS — o recorte de "quanto eu tenho agora" e a allowlist
- * de destino do import. Conta encerrada não guarda dinheiro nem recebe extrato.
+ * @brief Contas correntes ABERTAS: o recorte de "quanto eu tenho agora" e a allowlist do import.
  */
 export function openCheckingIds(db: DatabaseSync): Set<string> {
   return new Set(
@@ -43,17 +42,9 @@ export function accountRoutes(db: DatabaseSync): Route[] {
     (db.prepare("SELECT COUNT(*) AS n FROM transactions WHERE account_id = ?").get(id) as { n: number }).n;
 
   /**
-   * Dívida em aberto da conta, em texto — `null` quando está quite.
-   *
-   * Banco não encerra conta com saldo devedor, e a razão vale igual aqui:
-   * encerrar tira a conta da posição e o saldo dela passa a ser zero por
-   * definição. Fazer isso com dívida pendurada some com dinheiro que ainda
-   * precisa sair — o herói subiria sozinho, que é exatamente o erro que o
-   * encerramento existe pra evitar.
-   *
-   * Cartão: fatura sem pagamento casado. Conta corrente: saldo negativo.
-   * (No cartão o saldo é a soma dos itens da fatura, sempre negativo, então lá
-   * quem responde pela dívida é a fatura em aberto, não o saldo.)
+   * @brief   Dívida em aberto, em texto. `null` quando está quite.
+   * @details Cartão: fatura sem pagamento casado. Conta: saldo negativo.
+   * @warning Encerrar zera o saldo na posição — com dívida pendurada, o herói sobe sozinho.
    */
   function outstandingDebt(acc: any): string | null {
     if (acc.type === "credit_card") {
@@ -75,14 +66,9 @@ export function accountRoutes(db: DatabaseSync): Route[] {
   }
 
   /**
-   * Fatura em aberto por cartão — o que ainda falta pagar e quando vence.
-   *
-   * Viaja junto da conta porque cartão não é conta irmã: é a fatura de uma
-   * conta. Enquanto os dois eram linhas independentes na tela, o painel pedia
-   * pra quem lê somar de cabeça o saldo de um com a dívida do outro.
-   *
-   * Um cartão pode ter mais de uma fatura em aberto (mês corrente e um atraso).
-   * O total soma todas; a data é a mais próxima, que é a que cobra primeiro.
+   * @brief   Fatura em aberto por cartão: o que falta pagar e o vencimento mais próximo.
+   * @details Viaja junto da conta porque cartão não é conta irmã, é a fatura de uma conta.
+   *          Mais de uma fatura aberta soma; a data é a que cobra primeiro.
    */
   function openInvoicesByAccount(): Map<string, { total: number; due_date: string | null }> {
     const rows = db.prepare(
@@ -94,8 +80,6 @@ export function accountRoutes(db: DatabaseSync): Route[] {
 
   function getAccounts(req: Req, res: Res) {
     const bank = qsStr(req, "bank");
-    // Por padrão a lista é o que existe hoje; ?closed=1 traz as encerradas junto,
-    // pro drill-down poder mostrar o histórico sem poluir os widgets.
     const withClosed = qsStr(req, "closed") === "1";
 
     const conditions: string[] = [];
@@ -120,17 +104,13 @@ export function accountRoutes(db: DatabaseSync): Route[] {
       id: r.id,
       bank: r.bank,
       open_invoice: openInvoices.get(r.id) ?? null,
-      // Cor declarada na config, ou null — a tela deriva do nome quando falta.
-      // Vem por conta porque é aqui que a UI já carrega no boot; a chave real
-      // é o banco, e duas contas do mesmo banco trazem a mesma cor.
       bank_color: bankColorFor(r.bank),
       type: r.type,
       name: r.name,
       opened_at: r.opened_at,
       closed_at: r.closed_at,
-      // Conta encerrada não guarda dinheiro. O saldo que o extrato deixou pode
-      // já não existir no mundo (saque em espécie, parada de import), então a
-      // posição dela é zero por definição — nunca o último saldo conhecido.
+      //> Conta encerrada vale ZERO, nunca o último saldo do extrato: o dinheiro pode
+      //> já não existir (saque em espécie, import parado).
       balance: r.closed_at
         ? 0
         : (r.initial_balance_cents + r.total_income - r.total_expense) / 100,
@@ -168,8 +148,7 @@ export function accountRoutes(db: DatabaseSync): Route[] {
   }
 
   function getLiquidityHistory(_req: Req, res: Res) {
-    // Contas encerradas entram na consulta: o histórico delas é real e conta até
-    // o mês do encerramento. Quem corta é `monthlyCheckingSeries`.
+    //> Encerradas entram: o histórico é real. Quem corta é `monthlyCheckingSeries`.
     const accs = (db.prepare(`
       SELECT id, initial_balance_cents, strftime('%Y-%m', closed_at) AS closed_ym
       FROM accounts WHERE type='checking'
@@ -264,14 +243,14 @@ export function accountRoutes(db: DatabaseSync): Route[] {
     }
     if ("closed_at" in body) {
       const v = body.closed_at;
-      // null reabre a conta — encerrar por engano tem que ser reversível.
+      //> null reabre a conta — encerrar por engano tem que ser reversível.
       if (v !== null && !isIsoDate(v)) return error(res, "closed_at inválido");
       if (v !== null) {
         const last = db.prepare(
           "SELECT MAX(date) AS d FROM transactions WHERE account_id = ?",
         ).get(acc.id) as { d: string | null };
-        // Encerrar antes do último lançamento deixaria movimento datado depois
-        // do fim da conta — a auditoria acusaria na hora, então recusamos aqui.
+        //> Encerrar antes do último lançamento deixaria movimento datado depois
+        //> do fim da conta — a auditoria acusaria na hora, então recusamos aqui.
         if (last.d && last.d > (v as string)) {
           return error(res, `a conta tem lançamento em ${last.d}, posterior ao encerramento`, 409);
         }
@@ -292,8 +271,7 @@ export function accountRoutes(db: DatabaseSync): Route[] {
     const acc = findAccount(req.params!.id);
     if (!acc) return error(res, "conta não encontrada", 404);
     const n = txCount(acc.id);
-    // A garantia mecânica de que "tirar conta" nunca vira "perder histórico".
-    // DELETE só serve pra desfazer uma conta criada por engano, antes do import.
+    //> Garantia de que "tirar conta" nunca vira "perder histórico".
     if (n > 0) {
       return error(
         res,

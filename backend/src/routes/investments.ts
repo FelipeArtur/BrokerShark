@@ -66,9 +66,11 @@ export function investmentRoutes(db: DatabaseSync): Route[] {
     }));
   }
 
-  // Drill-down de uma posição: a ficha dela + todos os snapshots datados.
-  // Rendimento é COMPUTADO aqui (net − applied), nunca guardado — snapshot
-  // guardado ficaria velho no instante seguinte e passaria a mentir.
+  /**
+   * @brief   Ficha da posição + todos os snapshots datados.
+   * @warning Rendimento é COMPUTADO (net − applied), nunca guardado: guardado ficaria
+   *          velho no instante seguinte e passaria a mentir.
+   */
   function getInvestmentDetail(req: Req, res: Res) {
     const id = Number(req.params!.id);
     if (!isIntId(id)) return error(res, "id inválido");
@@ -109,8 +111,7 @@ export function investmentRoutes(db: DatabaseSync): Route[] {
           applied: applied / 100,
           gross: s.gross_cents != null ? s.gross_cents / 100 : null,
           net: net / 100,
-          // Sem aplicado não há rendimento a calcular — null diz "não sei",
-          // e zero diria "rendeu nada", que é uma afirmação diferente.
+          //> Sem aplicado é null ("não sei"), nunca zero ("rendeu nada").
           yield: applied > 0 ? (net - applied) / 100 : null,
           yield_pct: applied > 0 ? ((net - applied) / applied) * 100 : null,
           source: s.source,

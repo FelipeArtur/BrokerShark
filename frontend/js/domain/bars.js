@@ -5,14 +5,11 @@
   Object.assign(root.BS, api);
 })(typeof self !== "undefined" ? self : globalThis, function () {
 
-  // Quais barras um mês desenha no widget "Fluxo mês a mês".
-  //
-  // O modo comparar mostrava só a receita do mês anterior — metade da
-  // comparação. Num app cuja pergunta é "quanto posso gastar", a metade que
-  // faltava era a que mais importa: gastei mais ou menos que no mês passado.
-  //
-  // A ordem é load-bearing: cada fantasma vem LOGO DEPOIS da barra real que ele
-  // compara. Fantasma solto no fim encosta na barra errada e a leitura inverte.
+  /**
+   * @file    Quais barras um mês desenha no "Fluxo mês a mês".
+   * @warning A ordem é load-bearing: cada fantasma vem LOGO DEPOIS da barra que compara.
+   *          Solto no fim, encosta na barra errada e a leitura inverte.
+   */
 
   const BAR_MAX_PX = 52;
   const BAR_MIN_PX = 2;
@@ -26,13 +23,9 @@
   }
 
   /**
-   * `measured` separa duas coisas que a altura zero não distingue: o mês que
-   * FOI medido e deu zero (nenhuma receita entrou, e isso é um fato) do mês que
-   * não tem medição nenhuma. É a mesma regra que vale no alvo de categoria
-   * (null, nunca zero) e no rendimento de posição (sem aplicado é null, porque
-   * zero diria "rendeu nada", que é outra afirmação). Sem esse campo, a tela
-   * desenha o mesmo nada para os dois casos.
-   *
+   * @brief   Quais barras um mês desenha, com a escala da série.
+   * @warning `measured` separa zero MEDIDO de mês sem medição — a altura é 0 nos dois,
+   *          e sem o campo a tela desenha o mesmo nada pra afirmações diferentes.
    * @param slot    { data: {income, expenses}|null, prev: {income, expenses}|null }
    * @param maxV    maior valor da série, pra escala comum entre os meses
    * @param compare toggle "vs ant." ligado

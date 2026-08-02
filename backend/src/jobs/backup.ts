@@ -16,15 +16,8 @@ export function runBackup(dbPath: string, destDir: string, now: Date = new Date(
   const stem = join(destDir, `brokershark-${now.toISOString().slice(0, 10)}`);
   const dest = `${stem}.db`;
 
-  // `VACUUM INTO` RECUSA arquivo que já existe ("output file already exists"),
-  // e o nome carrega a data — então rodar duas vezes no mesmo dia estourava. O
-  // timer faz isso sozinho: com `Persistent=true`, uma máquina que estava
-  // desligada na virada roda no boot, e se já houver backup daquele dia o job
-  // falha inteiro. Grava em temporário e renomeia por cima.
-  //
-  // O rename é atômico dentro do mesmo filesystem: ou o snapshot antigo está
-  // lá inteiro, ou o novo está — nunca meio arquivo. Queda no meio do VACUUM
-  // deixa um `.tmp` órfão, não um `.db` corrompido com cara de backup bom.
+  //> `VACUUM INTO` recusa arquivo existente e o nome carrega a data: grava em `.tmp`
+  //> e renomeia (atômico), senão o catch-up do timer estoura no mesmo dia.
   const tmp = `${dest}.tmp`;
   rmSync(tmp, { force: true });
 
@@ -43,17 +36,9 @@ export function runBackup(dbPath: string, destDir: string, now: Date = new Date(
 }
 
 /**
- * A config ao lado do snapshot, com a MESMA data no nome.
- *
- * O ledger sozinho não reconstrói a instalação: ele guarda os lançamentos, e a
- * config guarda quais contas existem, qual banco é qual, e as keywords que
- * classificam investimento. Enquanto `config/local.json` estava versionado, o
- * git era o backup dela sem ninguém perceber; desde que saiu, perder a máquina
- * significava restaurar um ledger que ninguém sabe ler.
- *
- * Falha aqui não derruba o backup do ledger — o snapshot já está gravado, e
- * perder a config é recuperável (dá pra redeclarar as contas na mão), perder o
- * ledger não é. Mas avisa alto, senão o backup passa a mentir por omissão.
+ * @brief   A config ao lado do snapshot, com a MESMA data no nome.
+ * @details Sem ela o ledger restaura mas ninguém sabe que conta é qual.
+ * @note    Falhar aqui não derruba o backup do ledger, mas avisa alto.
  */
 function copyConfig(stem: string): void {
   const dest = `${stem}${CONFIG_SUFFIX}`;
@@ -71,11 +56,8 @@ function copyConfig(stem: string): void {
 }
 
 /**
- * Mantém as `KEEP` datas mais recentes, e apaga o PAR inteiro das demais.
- *
- * Poda por data, não por arquivo: as datas saem dos `.db`, que são a âncora, e
- * a config de cada uma vai junto. Contar arquivo daria 12 entradas mesmo quando
- * são 6 pares, e a retenção real cairia pela metade sem ninguém notar.
+ * @brief   Mantém as `KEEP` DATAS mais recentes; apaga o par `.db` + config das demais.
+ * @warning Poda por data, não por arquivo: contar arquivo cortaria a retenção pela metade.
  */
 function prune(destDir: string): void {
   const dias = readdirSync(destDir).filter((f) => RE.test(f)).sort();
@@ -100,11 +82,8 @@ export function backupStatus(
 }
 
 /**
- * Destino dos snapshots: argumento → config → `~/brokershark-backups`.
- *
- * A MESMA ordem vale no servidor (`/api/backup-status`). Se os dois lados
- * divergirem, o painel jura que não há backup enquanto o timer grava feliz
- * noutro diretório.
+ * @brief   Destino dos snapshots: argumento → config → `~/brokershark-backups`.
+ * @warning O servidor usa a MESMA função. Divergir faz o painel jurar que não há backup.
  */
 export function backupDir(explicit?: string): string {
   return explicit ?? config().backupDir ?? join(homedir(), "brokershark-backups");

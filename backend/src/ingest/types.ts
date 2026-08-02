@@ -1,11 +1,8 @@
 import type { SavingsRule } from "../domain/classify.ts";
 
 /**
- * As palavras que o ledger usa pra reconhecer movimento de investimento.
- *
- * Passa como parâmetro em vez de ser lida da config lá dentro: parser continua
- * função pura de (texto, vocabulário) → registros, testável sem arquivo de
- * configuração no disco.
+ * @brief As palavras que reconhecem movimento de investimento.
+ * @note  Vem por parâmetro, não da config: mantém o parser puro e testável sem disco.
  */
 export interface LedgerVocabulary {
   investmentKeywords: readonly string[];

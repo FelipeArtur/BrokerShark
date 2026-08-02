@@ -7,21 +7,19 @@
   Object.assign(root.BS, api);
 })(typeof self !== "undefined" ? self : globalThis, function (P) {
 
-  // Identidade visual de banco, num lugar só.
-  //
-  // A cor sai do nome do banco pelo palette — hash estável, oito matizes. Não há
-  // lista de bancos conhecidos aqui de propósito: o mesmo nome sempre recebe a
-  // mesma cor, e um banco que ninguém previu entra sem herdar a identidade de
-  // outro. (Antes existia um par fixo com os dois bancos do autor, e uma conta
-  // nova aparecia rotulada com o nome de um deles e pintada com a cor dele.)
+  /**
+   * @file    Identidade visual de banco, num lugar só.
+   * @details Cor sai do nome por hash estável (palette). Nenhum banco tem identidade
+   *          reservada no código: instituição nova entra sem herdar a de outra.
+   */
 
-  // Cores DECLARADAS, vindas de `bankColors` na config (o backend manda em
-  // `bank_color` no /api/accounts, e o boot chama `setBankColors`). Fica num
-  // mapa de módulo porque `bankColor` é chamada de dentro de render, síncrona,
-  // em lugares que só têm o nome do banco na mão — não dá pra buscar ali.
+  /** Cores declaradas em `bankColors` na config. Mapa de módulo porque `bankColor` roda dentro de render. */
   let declared = {};
 
-  /** Registra as cores da config. Chave é o nome do banco, sem caixa. */
+  /**
+   * @brief Registra as cores da config.
+   * @param map Chave é o nome do banco, sem caixa.
+   */
   function setBankColors(map) {
     declared = {};
     for (const [k, v] of Object.entries(map || {})) {
@@ -30,12 +28,8 @@
   }
 
   /**
-   * Cor do banco: a declarada na config, senão derivada do nome.
-   *
-   * O fallback é o que mantém a regra de que nenhum banco tem identidade
-   * reservada NO CÓDIGO — instituição que ninguém previu entra com cor própria
-   * e estável, sem herdar a de outra. Declarar cor é escolha de quem usa, no
-   * `config/local.json` dele.
+   * @brief   Cor do banco: a declarada na config, senão derivada do nome.
+   * @details Declarar cor é escolha de quem usa, no `config/local.json` dele.
    */
   function bankColor(bank, id) {
     const key = String(bank || "").trim().toLowerCase();
@@ -43,11 +37,9 @@
   }
 
   /**
-   * Rótulo humano do banco.
-   *
-   * Tem que ser o MESMO em todo lugar: o widget da fatura usa isso como chave de
-   * faceta e a tabela de lançamentos usa pra casar a filtragem. Se um disser
-   * "Outros" e o outro "Banco B", clicar na faceta não filtra nada.
+   * @brief   Rótulo humano do banco.
+   * @warning Tem que ser o MESMO em todo lugar: é chave de faceta e de filtro. Se
+   *          divergirem, clicar na faceta não filtra nada.
    */
   function bankLabel(bank, id) {
     if (bank) return String(bank).replace(/^./, c => c.toUpperCase());
@@ -55,10 +47,7 @@
   }
 
   /**
-   * Rótulo curto pra faixa de KPI, onde não cabe o nome inteiro.
-   *
-   * Corta na primeira palavra quando ela já distingue ("Banco A" → "Banco"
-   * não distingue nada, então cai no corte por tamanho).
+   * @brief Rótulo curto pra faixa de KPI, onde não cabe o nome inteiro.
    */
   function bankShortLabel(bank, id) {
     const full = bankLabel(bank, id);
@@ -66,18 +55,10 @@
   }
 
   /**
-   * Contas agrupadas por banco, cartão aninhado sob a conta que paga a fatura.
-   *
-   * Cartão não é conta irmã: é a fatura de uma conta. Quem decide o parentesco
-   * é o banco em comum, não um campo de vínculo — a configuração já expressa
-   * isso, e uma coluna a mais só pagaria por si num cartão pago por conta de
-   * outra instituição.
-   *
-   * Mora aqui porque duas telas precisam da mesma árvore (o widget e o painel),
-   * e duas cópias divergiriam no primeiro ajuste de ordenação.
-   *
-   * @param ordenarPorSaldo maior saldo primeiro (widget); sem isso, por nome
-   *                        do banco, que é a ordem estável do painel.
+   * @brief   Contas por banco, cartão aninhado sob a conta que paga a fatura.
+   * @details Cartão não é conta irmã: é a fatura de uma conta. O parentesco vem do
+   *          banco em comum. Duas telas usam a mesma árvore, daí morar aqui.
+   * @param   ordenarPorSaldo maior saldo primeiro (widget); senão por nome (painel).
    */
   function groupByBank(accounts, ordenarPorSaldo = false) {
     const grupos = new Map();

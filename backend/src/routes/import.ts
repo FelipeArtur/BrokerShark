@@ -147,17 +147,15 @@ export function importRoutes(db: DatabaseSync): Route[] {
     gcStaging();
     const parts = await parseMultipart(req);
     const account = fieldValue(parts, "account_id");
-    // Allowlist derivada do DB, não literal: conta nova vira destino válido no
-    // minuto em que é criada, e conta encerrada some das opções — extrato não
-    // chega mais dela, e aceitar um deixaria movimento datado depois do fim.
+    //> Allowlist do DB, não literal: conta encerrada some e não recebe movimento
+    //> datado depois do fim.
     if (!account || !openCheckingIds(db).has(account)) {
       return error(res, "account_id inválido — precisa ser conta corrente aberta");
     }
     const files = fileParts(parts);
     if (!files.length) return error(res, "nenhum arquivo enviado");
 
-    // Formato declarado na config pra essa conta; sem declaração, cai no que o
-    // próprio arquivo diz. Conta sem formato conhecido não tem como ser lida.
+    //> Formato da config; sem declaração, o que o próprio arquivo disser.
     const format = accountById(account)?.statementFormat
       ?? detectFormat(files[0]!.data.toString("utf-8"));
     if (format !== "ids" && format !== "running-balance") {
@@ -175,9 +173,7 @@ export function importRoutes(db: DatabaseSync): Route[] {
       const text = f.data.toString("utf-8");
       let recs: TxRecord[];
       try {
-        // O parser sai do FORMATO declarado pra conta na config, não de um id
-        // de conta escrito à mão: conta nova só precisa dizer qual formato o
-        // banco dela exporta.
+        //> Parser vem do FORMATO, nunca de um id de conta escrito à mão.
         const parsed = format === "ids"
           ? parseStatementWithIds(text, f.filename ?? "upload.csv", account, vocab)
           : parseStatementWithBalance(text, f.filename ?? "upload.csv", account, vocab);
@@ -190,7 +186,6 @@ export function importRoutes(db: DatabaseSync): Route[] {
       for (const rec of recs) {
         let status: StagingRow["status"] = "new";
         if (format === "ids") {
-          // Formato com id estável: dedup exata pelo external_id.
           if (rec.externalId && idDup.get(rec.externalId)) status = "duplicate";
         } else {
           const key = `${rec.date}|${rec.flow}|${rec.amountCents}|${rec.description}`;
@@ -291,8 +286,7 @@ export function importRoutes(db: DatabaseSync): Route[] {
       rederiveSavings(db, savingsIds);
       pairSelfTransfers(db);
 
-      // Pagamento de fatura mora na conta que paga o cartão; só ela pode
-      // fechar uma fatura aberta.
+      //> Só a conta que paga o cartão fecha uma fatura aberta.
       if (batch.accountId === primaryCard()?.paidFrom.id) reconcileOpenInvoices(db);
       db.prepare("COMMIT").run();
     } catch (e) {

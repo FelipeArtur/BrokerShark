@@ -26,8 +26,7 @@ test("poupança derivada: só na conta configurada", () => {
 });
 
 test("poupança derivada: keyword de exclusão vence a de inclusão", () => {
-  // Sem isso, o resgate de um título custodiado entraria na posição derivada E
-  // na posição real da corretora — o mesmo dinheiro contado duas vezes.
+  //> Sem isso, o resgate custodiado entraria na posição derivada E na real.
   assert.equal(isDerivedSavingsLeg("Resgate Tesouro reserva", "conta-a", SAVINGS), false);
   assert.equal(isDerivedSavingsLeg("Reserva via corretora", "conta-a", SAVINGS), false);
 });

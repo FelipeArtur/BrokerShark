@@ -56,7 +56,6 @@ test("conta encerrada sai da soma no mês do encerramento — inclusive", () => 
       d("conta-a", "2026-04", 0),
     ],
   );
-  // jan/fev: 1000 + 500 · mar em diante: só a conta-a
   assert.deepEqual(values(s), [1500, 1500, 1000, 1000]);
 });
 
@@ -69,8 +68,7 @@ test("o histórico ANTES do encerramento continua contando a conta morta", () =>
 });
 
 test("encerrar sem transferência de saída não deixa saldo fantasma", () => {
-  // O jeito certo: o dinheiro sai pra outra conta antes de fechar. Depois
-  // do encerramento os R$ 5 continuam sendo seus — na conta-a.
+  //> Jeito certo: o dinheiro sai antes de fechar e continua seu, na conta-a.
   const comTransferencia = monthlyCheckingSeries(
     [open("conta-a"), shut("conta-b", "2026-03")],
     [
@@ -81,9 +79,8 @@ test("encerrar sem transferência de saída não deixa saldo fantasma", () => {
   );
   assert.deepEqual(values(comTransferencia), [500, 500, 500]);
 
-  // O jeito torto: saca em espécie e para de importar. O dinheiro não é mais
-  // seu, e é exatamente esse saldo fantasma que o corte existe pra matar — sem
-  // ele, o acumulado carregaria os R$ 5 da conta morta pra sempre.
+  //> Jeito torto: saca em espécie e para de importar. É esse saldo fantasma que o
+  //> corte mata.
   const semTransferencia = monthlyCheckingSeries(
     [open("conta-a"), shut("conta-b", "2026-03")],
     [d("conta-b", "2026-01", 500), d("conta-a", "2026-03", 0)],

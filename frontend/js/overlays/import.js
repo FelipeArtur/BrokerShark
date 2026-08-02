@@ -76,20 +76,16 @@ function _parseAmountInput(raw) {
 
 function ImportModal({ onClose, onDone }) {
   const { Modal, BankChip, isSelf, isInvest, fmtDateBR, fmtBRL, fmtBRLCompact, IconImport } = window.BS;
-  // Os destinos vêm do servidor, não de uma lista literal: conta nova aparece
-  // aqui no minuto em que é criada, e conta encerrada some (o backend recusaria
-  // de qualquer jeito — extrato não chega mais dela).
+  //> Destinos do servidor, não literais: conta encerrada some sozinha.
   const [ACCOUNTS, setAccounts] = useState([]);
   useEffect(() => {
     fetchAccounts().then(setAccounts).catch(() => setAccounts([]));
   }, []);
-  // Só conta corrente recebe extrato; o cartão entra pelo fluxo de fatura.
   const BANKS = ACCOUNTS.filter(a => a.type === "checking").map(a => ({ id: a.id, label: a.name }));
 
   const names = (window.BS && window.BS.accountNames) || {};
   const accLabel = id => (ACCOUNTS.find(a => a.id === id) || {}).name || names[id] || id;
-  // Rótulo da fatura: o nome que a config deu ao cartão. Sem conta declarada,
-  // "Fatura de cartão" — nunca o nome de um banco escrito no código.
+  //> Nome que a config deu ao cartão — nunca um banco escrito no código.
   const faturaLabel = (id) => {
     const acc = ACCOUNTS.find(a => a.id === id);
     return acc ? `Fatura ${acc.name}` : "Fatura de cartão";

@@ -6,11 +6,8 @@ export type Handler = (req: Req, res: Res) => void | Promise<void>;
 export type Route = { method: string; pattern: URLPattern; handler: Handler };
 
 /**
- * Padrão de rota a partir do caminho — `URLPattern`, não regex montada à mão.
- *
- * `:id` é sintaxe nativa do `URLPattern` (global no Node ≥ 23.8), com a mesma
- * semântica que a substituição manual tinha: casa um segmento, sem atravessar
- * `/`. O decode continua sendo nosso, porque `exec` devolve o grupo cru.
+ * @brief Padrão de rota via `URLPattern` nativo (Node ≥ 23.8), não regex à mão.
+ * @note  `:id` casa um segmento sem atravessar `/`. O decode é nosso: `exec` devolve cru.
  */
 export function compilePath(path: string): { pattern: URLPattern } {
   return { pattern: new URLPattern({ pathname: path }) };

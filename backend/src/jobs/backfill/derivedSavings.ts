@@ -19,9 +19,7 @@ function createPosition(db: DatabaseSync): number {
 }
 
 export function deriveSavings(db: DatabaseSync, savingsTxIds: number[]): SavingsResult {
-  // Sem perna nenhuma não há poupança: criar a posição assim mesmo produziria
-  // uma linha aberta e sem snapshot, que o painel mostra como "R$ 0,00" pra quem
-  // nunca usou — e quebra a invariante posição-aberta-tem-snapshot.
+  //> Sem perna não há poupança: criar assim quebraria posição-aberta-tem-snapshot.
   if (!savingsTxIds.length) return { investmentId: null, balanceCents: 0, legs: 0 };
 
   const investmentId = createPosition(db);
@@ -59,7 +57,6 @@ export function rederiveSavings(db: DatabaseSync, newLegIds: number[]): SavingsR
     "SELECT id FROM investments WHERE match_key = ?",
   ).get(MATCH_KEY) as { id: number } | undefined;
 
-  // Nada pra ligar e nenhuma posição existente → não há o que derivar.
   if (!found && !newLegIds.length) return { investmentId: null, balanceCents: 0, legs: 0 };
 
   const investmentId = found ? found.id : createPosition(db);

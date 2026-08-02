@@ -42,9 +42,7 @@ const KpiStrip = React.memo(function KpiStrip({ available, availErr, accounts, c
   const invNet = cashflow ? cashflow.investment_net : 0;
   const livre = inc - exp - invNet;
 
-  // Ordem estável e independente de quem são os bancos: maior saldo primeiro,
-  // desempate por nome. A ordenação anterior casava um prefixo de id de conta
-  // de um banco específico — no-op pra qualquer outra config.
+  //> Desempate por nome: ordenar por prefixo de id só funcionaria pra uma config.
   const checking = (accounts || []).filter(a => a.type === "checking")
     .sort((a, b) => (b.balance || 0) - (a.balance || 0) || String(a.name || "").localeCompare(String(b.name || "")));
 
@@ -159,15 +157,11 @@ const GeneralWidget = React.memo(function GeneralWidget({ cashflow, liquidityHis
   );
 });
 
-// Balão do mês sob o ponteiro — o que o `title=` do navegador dizia, na
-// linguagem da tela.
-//
-// Mora DENTRO da coluna, e é isso que o mantém inteiro sem ninguém medir
-// largura: o balão cresce pro lado onde há espaço (da metade esquerda pra
-// direita, da direita pra esquerda), então nunca sai pela borda da fileira; o
-// rabicho fica a 50% da coluna, que é o centro exato dela. Balão centrado na
-// fileira com rabicho móvel foi a primeira tentativa e desanexou os dois nas
-// pontas — rabicho apontando janeiro com a caixa parada no meio da tela.
+/**
+ * @brief   Balão do mês sob o ponteiro, no lugar do `title=` do navegador.
+ * @warning Mora DENTRO da coluna e cresce pro lado com espaço — é o que o mantém
+ *          inteiro sem medir largura. Centrado na fileira, desanexa do rabicho nas pontas.
+ */
 function TimelineTip({ slot, year, alinhaDireita }) {
   const d = slot.data;
 
@@ -233,9 +227,8 @@ const TimelineWidget = React.memo(function TimelineWidget({ monthly, monthSel, o
           const isPicked = d && monthSel && d.year === monthSel.year && d.month === monthSel.month;
           const isCur = activeYear === now.getFullYear() && slot.month === now.getMonth() + 1;
           const net = d ? d.income - d.expenses : 0;
-          // `aria-disabled` no lugar de `disabled`: botão desligado não dispara
-          // evento de mouse nenhum no Chrome, então o balão do mês anterior
-          // ficava preso na tela ao passar por cima de um mês vazio.
+          //> `aria-disabled`, não `disabled`: botão desligado não dispara mouseenter,
+          //> e o balão do mês anterior ficava preso na tela.
           return h("button", {
             key: slot.month,
             className: `tl-slot${isPicked ? " picked" : ""}${d ? "" : " tl-slot--empty"}`,
@@ -277,10 +270,6 @@ const AccountsWidget = React.memo(function AccountsWidget({ accounts, available,
                                                            filter, onToggleFacet, onManageAccounts }) {
   const grupos = window.BS.groupByBank(accounts, true);
 
-  // Gasto no crédito do mês selecionado, por cartão. Era o único número que o
-  // widget de fatura mostrava — e é o que sempre existe: fatura em aberto só
-  // aparece enquanto não foi paga, então sem isto um ledger em dia deixaria o
-  // cartão mudo.
   const gastoNoMes = _dMemo(() => {
     const m = new Map();
     (monthTx || []).forEach(t => {
@@ -293,10 +282,8 @@ const AccountsWidget = React.memo(function AccountsWidget({ accounts, available,
   const total = available ? available.checking_total : checking.reduce((s, a) => s + (a.balance || 0), 0);
   const colorOf = a => bankColor(a.bank, a.id);
 
-  // A fatia é sobre o dinheiro que EXISTE, não sobre o líquido: uma conta no
-  // vermelho encolhe o total e faria as outras passarem de 100% ("315%" e
-  // "−215%" lado a lado). Conta negativa não tem fatia — é dívida, não parcela
-  // do que você tem — e aparece sem percentual, com o valor em vermelho.
+  //> Fatia sobre o dinheiro que EXISTE, não sobre o líquido: conta negativa encolheria
+  //> o total e as outras passariam de 100%. Dívida não é parcela do que você tem.
   const positiveTotal = checking.reduce((s, a) => s + Math.max(0, a.balance || 0), 0);
   const shareOf = a => ((a.balance || 0) > 0 && positiveTotal > 0
     ? ((a.balance || 0) / positiveTotal) * 100
@@ -319,9 +306,7 @@ const AccountsWidget = React.memo(function AccountsWidget({ accounts, available,
     h("span", { className: "mono", style: { fontSize: 14, fontWeight: 700, paddingLeft: 16, color: (a.balance || 0) < 0 ? "var(--neg)" : "var(--fg-0)" } }, fmtBRL(a.balance || 0))
   );
 
-  // Fatura em aberto manda: é dinheiro com data pra sair. Sem ela em aberto, o
-  // cartão reporta o que rodou nele no mês — informação, não compromisso, e por
-  // isso em tom neutro.
+  //> Fatura aberta manda (tem data pra sair); sem ela, o gasto do mês em tom neutro.
   const linhaCartao = (a) => {
     const fat = a.open_invoice;
     const gasto = gastoNoMes.get(a.id) || 0;
@@ -495,10 +480,8 @@ const InvestmentsWidget = React.memo(function InvestmentsWidget({ investments, e
   const invDelta = (evolution && evolution.length > 1)
     ? evolution[evolution.length - 1].cumulative - evolution[evolution.length - 2].cumulative : null;
 
-  // Posição avulsa vira uma linha; posição com `group_name` entra numa linha
-  // agregada por grupo. Quais são os grupos é decisão da config
-  // (`positionGroups`) — o rótulo vem do dado, nunca de um literal aqui: com um
-  // nome cravado, quem usasse outra config não veria agrupamento nenhum.
+  //> `group_name` agrega numa linha só. Quais são os grupos é decisão da config: nome
+  //> cravado aqui deixaria quem usa outra config sem agrupamento nenhum.
   const rows = _dMemo(() => {
     const out = [];
     const grouped = new Map();
@@ -568,8 +551,6 @@ const ForwardWidget = React.memo(function ForwardWidget({ commitments, monthSel,
   const mesNome = monthSel ? `${PT_MONTHS[monthSel.month].toLowerCase()}` : "";
   const vazio = parcelas.length === 0 && recorrentes.length === 0;
 
-  // Clicar abre a ficha do lançamento — é de lá que a recorrência se declara e
-  // se desfaz, então a linha leva de volta à sua própria origem.
   const abrir = (id) => {
     const tx = (monthTx || []).find(t => t.id === id);
     if (tx && onEditCategory) onEditCategory(tx);

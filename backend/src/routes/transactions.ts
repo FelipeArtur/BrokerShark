@@ -126,9 +126,7 @@ export function transactionRoutes(db: DatabaseSync): Route[] {
       updates.push("is_third_party = ?"); params.push(v);
     }
 
-    // `recurring` mora noutra tabela, então sai do UPDATE e vira insert/delete.
-    // Pode vir sozinho no corpo — marcar recorrente sem mexer em mais nada é o
-    // caso comum —, por isso é contado junto com os updates lá embaixo.
+    //> Mora noutra tabela: sai do UPDATE, e vir sozinho no corpo é o caso comum.
     const marcaRecorrente = "recurring" in body;
     if (marcaRecorrente) {
       const v = (body as any).recurring;

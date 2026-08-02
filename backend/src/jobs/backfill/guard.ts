@@ -1,23 +1,19 @@
 import type { DatabaseSync } from "node:sqlite";
 
-// Guarda anti-perda: o backfill reconstrói o DB do zero, então antes de apagar
-// ele pergunta o que existe ali que NENHUM rebuild consegue recriar.
-//
-// A guarda antiga só olhava `transactions`, e isso deixava passar tudo que a UI
-// escreve FORA da tabela de lançamentos — conta criada, conta encerrada, alvo de
-// gasto, regra aprendida. Um rebuild levava embora em silêncio. O caso mais caro
-// é o encerramento de conta: sem `closed_at` a conta morta volta a somar no
-// disponível, e o número que o produto inteiro existe pra responder mente pra
-// cima sem avisar.
+/**
+ * @file    Guarda anti-perda: o backfill recria o DB do zero.
+ * @details Antes de apagar, pergunta o que existe ali que nenhum rebuild recria.
+ * @warning Sonda que falta = perda silenciosa. Sem `closed_at`, conta morta volta a
+ *          somar no disponível e o herói mente pra cima.
+ */
 
 export type OverlayFinding = { label: string; count: number };
 
-// `needs` são as colunas que a consulta exige. A guarda roda ANTES das
-// migrations — é o primeiro passo do backfill, sobre o DB que já estava lá —
-// então pode encontrar um schema mais velho que ela. Consultar uma coluna que
-// ainda não existe estoura com "SQL logic error" e troca a guarda por um stack
-// trace. Sonda cuja coluna não existe é PULADA, e isso é correto e não
-// paliativo: sem a coluna, o dado que ela procura não pode existir.
+/**
+ * @brief   `needs` são as colunas que a consulta exige.
+ * @details A guarda roda ANTES das migrations, então pode ver schema mais velho que ela.
+ *          Sonda cuja coluna não existe é pulada: sem a coluna, o dado não pode existir.
+ */
 type Probe = { label: string; table: string; needs?: string[]; sql: string };
 
 const PROBES: Probe[] = [
@@ -31,8 +27,7 @@ const PROBES: Probe[] = [
              OR is_third_party = 1`,
   },
   {
-    // O seed cria as contas sem data nenhuma; POST /api/accounts sempre grava
-    // `opened_at`, e encerrar grava `closed_at`. Uma das duas preenchidas = UI.
+    //> O seed não grava data nenhuma: qualquer uma das duas preenchida = UI.
     label: "contas criadas ou encerradas pela UI",
     table: "accounts",
     needs: ["opened_at", "closed_at"],
@@ -45,19 +40,13 @@ const PROBES: Probe[] = [
     sql: `SELECT COUNT(*) AS n FROM category_budgets`,
   },
   {
-    // Categorizar um lançamento vindo do backfill não deixa marca no próprio
-    // lançamento — a marca é a regra aprendida. O seed só grava
-    // `investment_leg` e `settlement`, então `category` é sempre da UI.
-    // (Categoria criada pela UI e nunca usada ainda escapa: não há coluna que a
-    // distinga do seed, e comparar com a lista semeada duplicaria o seed aqui.
-    // Na prática toda categoria criada acaba usada, e o uso cai nesta sonda.)
+    //> O seed só grava `investment_leg`/`settlement`: `category` é sempre da UI.
     label: "regras de categoria aprendidas ao categorizar",
     table: "rules",
     sql: `SELECT COUNT(*) AS n FROM rules WHERE action = 'category'`,
   },
   {
-    // Recorrência declarada na ficha do lançamento. Nenhum acervo a contém: é
-    // afirmação de quem usa sobre o futuro, e o extrato só fala do passado.
+    //> Nenhum acervo contém: é afirmação sua sobre o futuro, e o extrato só fala do passado.
     label: "recorrências declaradas por você",
     table: "recurring_marks",
     sql: `SELECT COUNT(*) AS n FROM recurring_marks`,

@@ -97,18 +97,16 @@ test("equivale à regra consumo-despesa do CLAUDE.md em toda linha alcançável"
 
 test("equivale às regras de perna de investimento em toda linha alcançável", () => {
 
-  // Espelho de investmentOut()/investmentIn() em backend/src/db/ledgerSql.ts.
-  // Sem `self_pair_tx_id` aqui: a perna SELF chega pelo `counterpart`, que é o
-  // que o cliente recebe.
+  //> Espelho de investmentOut()/investmentIn(); ao cliente a perna SELF chega
+  //> pelo `counterpart`, não pelo `self_pair_tx_id`.
   const isSelf = (t) => t.counterpart === "SELF" || t.dest_account_id != null;
   const out = (t) => t.flow === "expense" && t.method === "transfer" && !isSelf(t)
     && !t.is_settlement && !t.is_third_party;
   const inn = (t) => t.flow === "income" && !t.is_revenue && t.method === "transfer"
     && !isSelf(t) && !t.is_settlement && !t.is_third_party;
 
-  // `is_revenue` só é zerado por quem também marca a linha: `selfPairs` põe
-  // counterpart SELF, e a classificação de investimento reescreve o método pra
-  // 'transfer'. Entrada com is_revenue=0 fora dos dois não é produzível.
+  //> `is_revenue=0` só é gravado por quem também marca a linha: fora disso, não
+  //> é produzível.
   const reachable = (t) =>
     !(t.counterpart === "SELF" && t.method !== "transfer" && t.flow === "expense") &&
     !(t.flow === "income" && !t.is_revenue && t.method !== "transfer" && t.counterpart !== "SELF");

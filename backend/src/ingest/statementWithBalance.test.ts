@@ -19,6 +19,6 @@ test("formato com saldo corrente: preâmbulo, ponto-e-vírgula, abertura derivad
   assert.equal(r.flow, "expense");
   assert.equal(r.accountId, "conta-b");
 
-  // O saldo de abertura é DERIVADO: saldo declarado menos o valor da linha.
+  //> O saldo de abertura é DERIVADO: saldo declarado menos o valor da linha.
   assert.equal(p.openingBalanceCents, 100000);
 });

@@ -12,11 +12,8 @@ import { setConfig, type BrokerSharkConfig } from "../config.ts";
 // são as categorias DESTE teste.
 
 /**
- * A config que os testes usam — fixa, não a do disco.
- *
- * Ler `config/default.json` faria a suíte depender do arquivo que estiver lá:
- * bastava alguém criar `config/local.json` com as próprias contas pra metade dos
- * testes começar a falhar por motivo nenhum.
+ * @brief   A config que os testes usam — fixa, nunca a do disco.
+ * @warning Ler do disco faria um `config/local.json` qualquer quebrar metade da suíte.
  */
 export const TEST_CONFIG: BrokerSharkConfig = {
   accounts: [

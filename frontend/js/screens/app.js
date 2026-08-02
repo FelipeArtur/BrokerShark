@@ -53,8 +53,6 @@ function MonthNav({ monthly, monthSel, onPick }) {
   const isCalCurrent = monthSel.year === now.getFullYear() && monthSel.month === now.getMonth() + 1;
   const isLatest = idx === monthly.length - 1;
   const pick = i => { const m = monthly[i]; if (m) onPick({ year: m.year, month: m.month }); };
-  // Salto de 12 meses nas pontas: sem ele, ir de jul/2026 a 2024 custava ~30
-  // cliques, e o único atalho de ano vivia na segunda dobra da tela.
   const jump = d => pick(window.BS.jumpYearIndex(monthly, monthSel, d));
   const canJump = d => window.BS.canJumpYear(monthly, monthSel, d);
 
@@ -107,11 +105,7 @@ function App() {
   const [monthly, setMonthly] = useState([]);
   const [monthSel, setMonthSel] = useState(null);
   const [ledgerStatus, setLedgerStatus] = useState(null);
-  // As cores de banco vivem num mapa de módulo (domain/bank.js), fora do
-  // React — então preenchê-lo não repinta nada sozinho. Este contador existe
-  // só pra dar o empurrão, uma vez, quando as cores chegam: sem ele a primeira
-  // pintura sai com a cor derivada do nome e só troca pra da config no próximo
-  // evento qualquer da tela.
+  //> As cores vivem fora do React (domain/bank.js): este tick repinta quando chegam.
   const [, setColorTick] = useState(0);
   const { push, Toaster } = useToasts();
 
@@ -129,8 +123,6 @@ function App() {
   useEffect(() => {
     fetchAccounts().then(accs => {
       window.BS.accountNames = Object.fromEntries(accs.map(a => [a.id, a.name]));
-      // As cores declaradas na config chegam de carona nas contas — é a única
-      // busca que o boot já fazia, então não custa uma rota nova.
       const colors = Object.fromEntries(
         accs.filter(a => a.bank_color).map(a => [a.bank, a.bank_color])
       );
@@ -160,8 +152,7 @@ function App() {
     fetchBackupStatus().then(setLedgerStatus).catch(() => {});
   }, [refreshKey]);
 
-  // O aviso de backup vencido é a única coisa aqui que merece interromper: o
-  // chip âmbar informa quem olha, o toast alcança quem não olhou.
+  //> O chip informa quem olha; o toast alcança quem não olhou.
   const backupWarned = useRef(false);
   useEffect(() => {
     if (!ledgerStatus || backupWarned.current) return;
@@ -250,8 +241,6 @@ function App() {
       refreshKey, onRefresh: () => setRefreshKey(k => k + 1), onClose: () => setCategoriesOpen(false),
     }),
 
-    // Overlay de tela cheia, e largo: aqui há ficha, medições e histórico —
-    // é análise, não um cartãozinho de identidade.
     position && h(window.BS.Overlay, {
       open: true, onClose: () => setPosition(null), width: 1080
     }, h(window.BS.InvestmentPanel, { ids: position.ids, title: position.name, onClose: () => setPosition(null) })),

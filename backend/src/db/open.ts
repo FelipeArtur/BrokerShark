@@ -25,18 +25,10 @@ export function restrictPermissions(path: string): void {
 }
 
 /**
- * O caminho do DB nos argumentos de linha de comando, ou `undefined` pra cair
- * no padrão de quem chama.
- *
- * Existe separada e testada porque o modo de falha é o pior que este projeto
- * tem: escolher errado aqui serve o ledger de PRODUÇÃO em silêncio, com a tela
- * inteira parecendo normal — quem pede a demo escreve no ledger de verdade sem
- * nunca ver um aviso.
- *
- * A guarda pula o NÚMERO que vem depois de `--port`. Escrita como
- * `i !== portIdx + 1`, ela virava `i !== 0` quando `--port` estava ausente
- * (`indexOf` devolve −1), e o índice 0 é justamente onde o caminho aparece em
- * `npm start -- data/demo.db`. A demo documentada nunca subiu.
+ * @brief   O caminho do DB nos argumentos, ou `undefined` pro padrão de quem chama.
+ * @details A guarda pula o NÚMERO depois de `--port`; sem a flag, `indexOf` dá −1 e
+ *          ela descartava o índice 0, que é onde o caminho vem.
+ * @warning Errar aqui serve o ledger de PRODUÇÃO em silêncio, com a tela normal.
  */
 export function pickDbPath(args: string[]): string | undefined {
   const portIdx = args.indexOf("--port");

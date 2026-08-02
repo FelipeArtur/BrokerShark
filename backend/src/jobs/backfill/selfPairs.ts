@@ -5,8 +5,7 @@ import { checkingAccounts } from "../../config.ts";
 interface Leg { id: number; date: string; account_id: string; amount_cents: number; description: string }
 
 export function pairSelfTransfers(db: DatabaseSync): string[] {
-  // Só conta corrente entra no pareamento: transferência entre as SUAS contas é
-  // dinheiro andando, e cartão não recebe transferência — recebe compra.
+  //> Só conta corrente: cartão não recebe transferência, recebe compra.
   const ids = checkingAccounts().map(a => a.id);
   if (ids.length < 2) return [];
   const ph = ids.map(() => "?").join(",");

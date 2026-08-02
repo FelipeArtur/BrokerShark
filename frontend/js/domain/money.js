@@ -14,20 +14,18 @@
     EXPENSE:     "expense",
   };
 
-  // A ordem é load-bearing. Liquidação antes de despesa senão o consumo dobra;
-  // SELF antes de investimento senão transferência entre contas vira aplicação;
-  // e terceiro antes de investimento porque dinheiro que não é seu não vira
-  // patrimônio seu ao ser aplicado — o tesoureiro que aplica a arrecadação de
-  // uma vaquinha não ficou mais rico.
+  /**
+   * @brief   A espécie de uma linha de dinheiro — exatamente uma das seis.
+   * @warning A ORDEM é load-bearing: liquidação antes de despesa (senão o consumo
+   *          dobra), SELF antes de investimento, terceiro antes de investimento.
+   */
   function moneyKind(t) {
     if (!t) return null;
     if (t.is_settlement) return KIND.SETTLEMENT;
     if (t.counterpart === "SELF" || t.dest_account_id != null) return KIND.TRANSFER;
     if (t.is_third_party) return KIND.THIRD_PARTY;
-    // Entrada só é resgate quando `is_revenue` diz que não é renda nova. O
-    // método sozinho não basta: `method='transfer'` com `is_revenue=1` é
-    // receita real pro backend (`realIncome`), e chamá-la de investimento aqui
-    // tirava dinheiro de "Entradas" sem tirar do total do servidor.
+    //> `transfer` + `is_revenue=1` é receita real pro backend: divergir tirava
+    //> dinheiro de "Entradas" sem tirar do total.
     if (t.flow === "expense" ? t.method === "transfer" : (!t.is_revenue && t.method === "transfer")) {
       return KIND.INVEST;
     }

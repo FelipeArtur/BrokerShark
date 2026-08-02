@@ -112,15 +112,10 @@ export function categoryRoutes(db: DatabaseSync): Route[] {
   }
 
   /**
-   * Excluir categoria. Sem `reassign_to_id`, os lançamentos dela ficam sem
-   * categoria — que é uma escolha legítima, não um pedido incompleto: é a única
-   * saída quando se apaga a última categoria de um fluxo.
-   *
-   * O destino precisa ser do MESMO fluxo. Sem essa guarda, uma receita podia
-   * cair numa categoria de despesa e passar a aparecer no widget de categorias
-   * (que separa por fluxo) e a poder receber alvo de gasto, que só existe pra
-   * despesa. O cliente já oferece só as irmãs do fluxo; aqui é onde a regra
-   * vale de verdade.
+   * @brief   Excluir categoria. Sem destino, os lançamentos ficam sem categoria.
+   * @details Ficar sem é escolha legítima: é a única saída ao apagar a última de um fluxo.
+   * @warning O destino tem que ser do MESMO fluxo, senão receita cai em categoria de
+   *          despesa e passa a poder receber alvo de gasto.
    */
   async function deleteCategory(req: Req, res: Res) {
     const id = Number(req.params!.id);

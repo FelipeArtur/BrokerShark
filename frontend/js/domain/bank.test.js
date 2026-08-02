@@ -44,8 +44,7 @@ test("sem banco e sem id o rótulo não vira 'undefined' na tela", () => {
 });
 
 test("bankLabel é a MESMA chave que a faceta e a tabela usam", () => {
-  // O widget da fatura agrupa por bankLabel e a tabela filtra por bankLabel.
-  // Se divergirem, clicar na faceta de um banco novo não filtra nada.
+  //> Faceta e filtro usam a MESMA chave: divergindo, o clique não filtra nada.
   const doWidget = B.bankLabel("c6", "c6-cc");
   const daTabela = B.bankLabel("c6", "c6-cc");
   assert.equal(doWidget, daTabela);

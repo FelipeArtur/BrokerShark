@@ -64,8 +64,7 @@ export function printReport(db: DatabaseSync, r: BackfillReport): void {
     )[0]!.s as number);
     const bal = (a.init as number) + (a.inc as number) - (a.exp as number) - settle;
     console.log(`  ${a.id}: ${fmtCents(bal)}  (inicial ${fmtCents(a.init as number)}, liquidações de fatura ${fmtCents(settle)})`);
-    // Só o formato com saldo corrente permite conferir contra o banco: é o
-    // único que traz o saldo declarado no próprio extrato.
+    //> Só o formato com saldo corrente traz o saldo declarado pra conferir.
     const outcome = r.statementStats.find(s => s.account.id === a.id)?.result;
     if (outcome?.kind === "balance" && outcome.closingCents !== undefined) {
       const ok = bal === outcome.closingCents;

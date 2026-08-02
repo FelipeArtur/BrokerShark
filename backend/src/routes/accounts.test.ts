@@ -157,7 +157,7 @@ test("encerrar antes do último lançamento é recusado", async () => {
 test("a auditoria acusa lançamento posterior ao encerramento", async () => {
   const db = freshDb();
   await call(db, "PATCH", "/api/accounts/conta-b", { closed_at: "2026-03-01" });
-  // Entra por baixo da rota, como um backfill mal datado entraria.
+  //> Entra por baixo da rota, como um backfill mal datado entraria.
   tx(db, "conta-b", "2026-05-20", 1000);
   assert.ok(auditLedger(db).some(v => v.check === "lancamento-pos-encerramento"));
 });
@@ -227,8 +227,7 @@ test("a auditoria acusa conta encerrada com dívida que entrou por baixo da rota
 test("cartão encerrado e quitado não acusa na auditoria", async () => {
   const db = freshDb();
   await call(db, "PATCH", "/api/accounts/cartao-b", { closed_at: "2026-07-01" });
-  // Itens de fatura deixam o saldo do cartão negativo por desenho — e isso não
-  // pode virar violação, senão todo cartão encerrado acusaria.
+  //> Saldo de cartão é negativo por desenho: virar violação acusaria todo cartão.
   tx(db, "cartao-b", "2026-06-05", 45000);
   assert.deepEqual(auditLedger(db).filter(v => v.check === "conta-encerrada-com-divida"), []);
 });

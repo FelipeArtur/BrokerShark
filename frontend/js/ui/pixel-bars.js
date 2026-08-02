@@ -2,20 +2,17 @@
 
 const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
 
-  // Fantasma é neutro nas duas espécies: verde é receita e só receita, então
-  // o comparativo não pode reusar a cor — quem diz o que é o fantasma é a
-  // barra real ao lado dele (ver domain/bars.js, a ordem é load-bearing).
+  //> Neutro: verde é receita e só receita, então o comparativo não reusa a cor.
   const GHOST = { width: 3, background: "var(--fg-3)", opacity: 0.5 };
 
+  /**
+   * @brief   As barras de um mês no fluxo mês a mês.
+   * @warning Altura zero tem duas causas: sem medição não desenha nada; zero MEDIDO
+   *          ganha marca neutra, senão finge um valor pequeno que não existiu.
+   */
   function PixelBars({ slot, maxV, isPicked, compare }) {
     const specs = window.BS.barSpecs(slot, maxV, compare);
     return h("div", { className: "tl-bars" }, specs.map(s => {
-      // Altura zero tem duas causas, e elas não podem desenhar a mesma coisa.
-      // Mês sem medição: nada. Mês medido em que nada entrou (ou nada saiu):
-      // marca neutra no piso — diz "mediu, e deu zero" sem fingir um valor
-      // pequeno, que é o que o tracinho de 2px colorido fazia. Fantasma zerado
-      // fica de fora: é comparação secundária, e a marca teria a largura da
-      // barra cheia em vez da do fantasma.
       if (s.height <= 0) {
         const marca = s.measured && !s.ghost;
         return h("div", {

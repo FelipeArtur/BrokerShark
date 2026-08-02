@@ -40,9 +40,7 @@ const CHECKS: Check[] = [
   },
   {
     check: "self-como-investimento",
-    // Uma perna SELF é dinheiro andando entre contas do próprio dono; ligá-la a
-    // uma posição a faria contar como aplicação ou resgate na carteira, e a
-    // mesma quantia apareceria em dois lugares.
+    //> Perna SELF ligada a posição contaria a mesma quantia em dois lugares.
     message: "perna SELF ligada a uma posição de investimento — transferência viraria aplicação",
     sql: `SELECT COUNT(*) AS n FROM transactions
           WHERE self_pair_tx_id IS NOT NULL AND investment_id IS NOT NULL`,
@@ -55,16 +53,13 @@ const CHECKS: Check[] = [
   },
   {
     check: "item-fatura-conta-errada",
-    // A liquidação mora na conta corrente e aponta pra fatura do cartão — isso é
-    // por desenho e fica de fora do check.
     message: "item de fatura lançado em conta diferente da fatura",
     sql: `SELECT COUNT(*) AS n FROM transactions t JOIN invoices i ON i.id = t.invoice_id
           WHERE t.is_settlement = 0 AND t.account_id != i.account_id`,
   },
   {
     check: "fatura-total-diverge",
-    // Estorno entra como income na fatura e ABATE o total, então o confronto é
-    // com o líquido (despesas − estornos), não com a soma bruta.
+    //> Estorno abate o total: o confronto é com o líquido, não com a soma bruta.
     message: "total da fatura não bate com o líquido dos seus itens",
     sql: `SELECT COUNT(*) AS n FROM invoices i
           WHERE EXISTS (SELECT 1 FROM transactions t WHERE t.invoice_id = i.id AND t.is_settlement = 0)
@@ -86,8 +81,7 @@ const CHECKS: Check[] = [
           WHERE installment_seq IS NOT NULL AND installment_total IS NOT NULL
             AND installment_seq > installment_total`,
   },
-  // external_id duplicado não entra aqui: o schema já tem UNIQUE na coluna, então
-  // o INSERT falha antes de virar dado — checar seria teatro.
+  //> `external_id` duplicado não entra: o UNIQUE do schema barra antes de virar dado.
   {
     check: "destino-igual-origem",
     message: "transferência com conta de destino igual à de origem",
@@ -112,20 +106,15 @@ const CHECKS: Check[] = [
   },
   {
     check: "lancamento-pos-encerramento",
-    // Conta encerrada sai da posição mas continua carregando o histórico dela.
-    // Movimento datado DEPOIS do fim é uma das duas coisas, as duas ruins: a
-    // data do encerramento está errada, ou a linha entrou na conta errada.
+    //> Movimento DEPOIS do fim: ou a data do encerramento está errada, ou a linha
+    //> entrou na conta errada.
     message: "lançamento com data posterior ao encerramento da conta",
     sql: `SELECT COUNT(*) AS n FROM transactions t JOIN accounts a ON a.id = t.account_id
           WHERE a.closed_at IS NOT NULL AND t.date > a.closed_at`,
   },
   {
     check: "conta-encerrada-com-divida",
-    // Espelho da recusa do PATCH: encerrar zera o saldo da conta na posição, e
-    // dívida pendurada nesse momento vira dinheiro que some do "disponível" sem
-    // ter sido pago. No cartão a dívida é a fatura em aberto; na conta corrente,
-    // o saldo negativo (no cartão o saldo é sempre negativo por desenho — são os
-    // itens da fatura — então lá só a fatura responde).
+    //> Espelho da recusa do PATCH. Cartão: fatura aberta. Conta: saldo negativo.
     message: "conta encerrada com dívida em aberto — o valor a pagar sumiu da posição",
     sql: `SELECT COUNT(*) AS n FROM accounts a WHERE a.closed_at IS NOT NULL AND (
             EXISTS (SELECT 1 FROM invoices i

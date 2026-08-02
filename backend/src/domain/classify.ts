@@ -21,12 +21,9 @@ export function isInvestment(desc: string, keywords: readonly string[]): boolean
 }
 
 /**
- * Perna da posição de poupança DERIVADA do ledger (a que não é custodiada em
- * corretora e por isso não aparece em relatório nenhum).
- *
- * O `excludeKeywords` é o que evita contar em dobro: um resgate de título
- * custodiado também carrega "resgate", mas ele já entra pela posição real da
- * corretora — derivá-lo aqui somaria o mesmo dinheiro duas vezes.
+ * @brief   Perna da poupança DERIVADA do ledger, a que não tem custódia em corretora.
+ * @warning `excludeKeywords` evita contar em dobro: resgate custodiado também carrega
+ *          "resgate", mas já entra pela posição real.
  */
 export function isDerivedSavingsLeg(
   desc: string, accountId: string, rule: SavingsRule | undefined,

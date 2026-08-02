@@ -20,9 +20,6 @@ export function makeStatic(rootDir: string) {
   const root = resolve(rootDir);
 
   return function serveStatic(pathname: string, res: Res): void {
-    // Um asset, uma URL. Antes `/css/x.css` e `/static/css/x.css` serviam o
-    // mesmo arquivo — o prefixo era opcional, então cada asset existia em dois
-    // endereços. Agora `/static/` é obrigatório e `/` é a única exceção.
     const rel = pathname === "/" ? "index.html"
       : pathname.startsWith("/static/") ? pathname.slice("/static/".length)
       : null;

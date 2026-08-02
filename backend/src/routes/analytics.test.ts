@@ -52,7 +52,7 @@ function june(db: DatabaseSync): void {
   tx(db, { date: "2026-06-09", amount_cents: 148547, description: "mercado" });
   tx(db, { date: "2026-06-21", flow: "income", method: "transfer", is_revenue: 0,
            amount_cents: 300000, description: "Resgate RDB" });
-  // Par SELF: conta-a → conta-b. A saída sai reescrita pra `transfer`.
+  //> Par SELF: conta-a → conta-b. A saída sai reescrita pra `transfer`.
   tx(db, { date: "2026-06-21", method: "transfer", amount_cents: 200000,
            description: "self-saida", counterpart: "SELF" });
   tx(db, { date: "2026-06-21", flow: "income", method: "pix", account_id: "conta-b",
@@ -71,7 +71,7 @@ test("cashflow: transferência entre contas próprias não vira aplicação", ()
   const out = get(db, "/api/cashflow-statement?month=6&year=2026");
   assert.equal(out.income_total, 4200);
   assert.equal(out.expense_total, 1485.47);
-  // Só o resgate move a linha de investimento: −3000, não −1000.
+  //> Só o resgate move a linha de investimento: −3000, não −1000.
   assert.equal(out.investment_net, -3000);
 });
 

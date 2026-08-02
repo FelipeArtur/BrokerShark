@@ -27,8 +27,6 @@ if (existsSync(dbPath) && !force) {
   const found = userOverlay(existing);
   existing.close();
   if (found.length) {
-    // Lista o que se perde, item a item: "dados da UI" não dá pra avaliar, e
-    // um aviso que não dá pra avaliar é um aviso que se aprende a ignorar.
     console.error("Abortado: o DB tem dados que um rebuild apagaria e nenhum acervo recria:\n");
     for (const f of found) console.error(`  · ${f.count} ${f.label}`);
     console.error(

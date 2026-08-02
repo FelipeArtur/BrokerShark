@@ -29,8 +29,7 @@ test("a posição derivada de um ledger antigo ganha a chave nova", () => {
 });
 
 test("a posição continua UMA — a migration renomeia, não duplica", () => {
-  // É o ponto todo: sem a renomeação, o próximo import criaria uma segunda
-  // posição derivada e as mesmas aplicações contariam duas vezes.
+  //> Sem a renomeação, o próximo import contaria as mesmas aplicações duas vezes.
   const db = dbWith("ledger:caixinha-nubank");
   db.exec(MIGRATION);
   assert.equal(keys(db).length, 1);

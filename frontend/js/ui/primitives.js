@@ -4,15 +4,20 @@ const h = (tag, props, ...children) => React.createElement(tag, props, ...childr
 
 const { useState: _useState, useEffect: _useEffect, useCallback: _useCallback, useRef: _useRef } = React;
 
-// Sinal só quando negativo. Quem precisa do "+" o escreve na chamada, que é o
-// que todo chamador já fazia — as opções de sinal e de casas decimais existiam
-// sem ninguém nunca tê-las passado.
+/**
+ * @brief Dinheiro em BRL. Sinal só quando negativo; quem precisa do "+" escreve na chamada.
+ */
 function fmtBRL(v) {
   const n = v ?? 0;
   return (n < 0 ? "−" : "")
     + "R$ " + Math.abs(n).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+/**
+ * @brief   Valor com a cor da espécie (`moneyKind`), centavos menores.
+ * @warning O número INTEIRO carrega a cor, não só o sinal — a coluna de valor é onde
+ *          o olho pousa. Hierarquia por peso, nunca por cor trocada.
+ */
 function Money({ t, value, kind, size, emphasis = false, title }) {
   const k = kind || (t ? window.BS.moneyKind(t) : null);
   const v = value != null ? value : (t ? t.amount : 0);
@@ -31,21 +36,16 @@ function Money({ t, value, kind, size, emphasis = false, title }) {
       fontVariantNumeric: "tabular-nums",
     },
   },
-    // O número inteiro carrega a cor da espécie, não só o sinal: a coluna de
-    // valor é onde o olho pousa, e um "−" vermelho sobre um número cinza fazia
-    // a operação ser lida depois do valor. Os centavos ficam na mesma matiz,
-    // menores e mais fracos — hierarquia por peso, nunca por cor trocada.
     h("span", { style: { color, fontWeight: 700 } }, sign),
     h("span", { style: { color, fontWeight: emphasis ? 700 : 600 } }, "R$ ", int),
     cents && h("span", { style: { color, opacity: 0.62, fontSize: "0.78em", fontWeight: 500 } }, cents)
   );
 }
 
-// Número compacto, SEM símbolo de moeda.
-//
-// Não é `Intl` com `notation: "compact"`: em pt-BR o CLDR abrevia como "12,3 mil"
-// e "1,2 mi", quatro caracteres a mais que "12,3k" / "1,2M". Este formato existe
-// justamente onde não cabe o número inteiro, então o sufixo curto é o requisito.
+/**
+ * @brief Número compacto, sem moeda.
+ * @note  Não é `Intl` com `notation: "compact"`: em pt-BR o CLDR dá "12,3 mil", longo demais.
+ */
 function fmtCompact(v) {
   const n = Math.abs(v ?? 0);
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(".", ",") + "M";
@@ -55,16 +55,20 @@ function fmtCompact(v) {
 
 const fmtBRLCompact = (v) => "R$ " + fmtCompact(v);
 
+/**
+ * @brief Data DD/MM, para dentro do mês selecionado, onde o ano é óbvio.
+ */
 function fmtDateBR(iso) {
   if (!iso) return "—";
   const [, m, d] = iso.split("-");
   return `${d}/${m}`;
 }
 
-// Data COM ano. `fmtDateBR` corta em DD/MM porque no mês selecionado o ano é
-// óbvio — mas fora dele o corte mente: um vencimento "15/05" de 2029 lido como
-// deste ano vira "semana que vem", e três medições de 31/12 de anos diferentes
-// viram três linhas idênticas. Onde a data atravessa anos, use esta.
+/**
+ * @brief   Data COM ano, para onde a data atravessa anos.
+ * @warning `fmtDateBR` mente aí: "15/05" de 2029 vira "semana que vem", e três 31/12
+ *          de anos diferentes viram três linhas idênticas.
+ */
 function fullDateBR(iso) {
   const [y, m, d] = String(iso || "").split("-");
   return y && m && d ? `${d}/${m}/${y}` : (iso ? String(iso) : "—");
@@ -121,24 +125,14 @@ function prettifyDesc(raw) {
   }).join(" ");
 }
 
-// Camadas modais abertas, da mais funda pra do topo. `Modal` e `Overlay` são
-// camadas diferentes na tela, mas a regra de teclado é a mesma, e ela precisa
-// saber QUEM está por cima.
-//
-// Sem essa pilha, um Esc fechava as duas de uma vez: cada camada registrava seu
-// próprio `keydown` no `document`, e `stopPropagation()` não impede um listener
-// irmão no MESMO elemento (isso é `stopImmediatePropagation`, que aqui seria
-// pior — listener dispara por ordem de registro, e a camada de baixo registrou
-// primeiro, então ela é que ganharia). Quem responde é o topo da pilha.
+/** Camadas abertas, da mais funda pro topo. Sem a pilha, um Esc fechava as duas de uma vez. */
 const _modalLayers = [];
 
-// Foco preso dentro da camada do topo: Tab circula, Esc fecha, e ao fechar o
-// foco volta pra onde estava.
-//
-// Não é `<dialog open>`: a top layer do `<dialog>` fica ACIMA de qualquer
-// z-index, e os toasts (`--z-toast`) precisam aparecer por cima de um modal
-// aberto — é onde o import reporta erro. Trocar por `<dialog>` esconderia o
-// aviso justamente na tela que mais avisa.
+/**
+ * @brief   Foco preso na camada do topo: Tab circula, Esc fecha, foco volta ao sair.
+ * @warning Não trocar por `<dialog open>`: a top layer dele fica acima de qualquer
+ *          z-index e esconderia os toasts, que é onde o import reporta erro.
+ */
 function _useModalLayer(open, ref, onClose) {
   _useEffect(() => {
     if (!open || !ref.current) return;
@@ -147,27 +141,20 @@ function _useModalLayer(open, ref, onClose) {
 
     const prev = document.activeElement;
     const sel  = 'button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])';
-    // Só o que REALMENTE recebe foco: botão desligado e nó escondido entram no
-    // querySelectorAll mas o Tab do navegador pula os dois. Contá-los fazia o
-    // "último" da lista ser um elemento que nunca fica ativo — e o ciclo então
-    // nunca fechava.
+    //> Só o que REALMENTE recebe foco: botão desligado entra no querySelectorAll mas
+    //> o Tab pula, e o ciclo nunca fechava.
     const get = () => Array.from(ref.current.querySelectorAll(sel))
       .filter(n => !n.disabled && n.offsetParent !== null);
     get()[0]?.focus();
 
     function trap(e) {
-      // Camada enterrada não escuta teclado: nem fecha no Esc, nem disputa o
-      // Tab com a de cima.
+      //> Camada enterrada não escuta teclado.
       if (_modalLayers[_modalLayers.length - 1] !== me) return;
       if (e.key === "Escape") { onClose && onClose(); return; }
       if (e.key !== "Tab") return;
       const nodes = get();
       if (!nodes.length) { e.preventDefault(); return; }
-      // O Tab é SEMPRE nosso, não só na borda. Antes só a borda era tratada
-      // (`activeElement === último` → volta pro primeiro), então bastava o foco
-      // escapar uma vez pra nunca mais voltar: fora da lista, nenhuma borda
-      // casa e o Tab seguia a ordem do documento pra trás do modal. Índice −1
-      // (foco fora) reentra pela ponta certa.
+      //> O Tab é SEMPRE nosso, não só na borda: escapando uma vez, nunca mais volta.
       e.preventDefault();
       const i = nodes.indexOf(document.activeElement);
       const next = e.shiftKey
@@ -298,9 +285,10 @@ function useToasts() {
   return { push, Toaster };
 }
 
-// Overlay — camada de drill-down tela cheia sobre o dashboard (estado preservado
-// atrás). Difere do Modal: coluna full-height, não caixa centrada. Conteúdo é dono
-// do próprio header. Esc fecha, foco preso, corpo rola por dentro.
+/**
+ * @brief   Drill-down de tela cheia; o dashboard fica montado atrás.
+ * @details Coluna full-height, não caixa centrada. O conteúdo é dono do próprio header.
+ */
 function Overlay({ open, onClose, children, width = 760 }) {
   const ref = _useRef(null);
 
@@ -327,8 +315,7 @@ function Overlay({ open, onClose, children, width = 760 }) {
 }
 
 function BankChip({ bank, accountId }) {
-  // Rótulo e cor saem da MESMA função que o resto da tela usa (domain/bank.js);
-  // um chip com regra própria voltaria a criar banco de primeira classe.
+  //> Rótulo e cor da MESMA função do resto da tela: regra própria recriaria banco privilegiado.
   const label = window.BS.bankLabel(bank, accountId);
   const color = window.BS.bankColor(bank, accountId);
   return React.createElement("span", {
@@ -341,7 +328,9 @@ function BankChip({ bank, accountId }) {
   }, label);
 }
 
-// fill=true ocupa a largura toda em `columns` colunas; sem ele, fica inline.
+/**
+ * @brief Escolher um entre N. `fill` ocupa a largura toda em `columns` colunas.
+ */
 function SegmentControl({ options, value, onChange, columns = 3, fill = true }) {
   return React.createElement("div", {
     className: `px-seg${fill ? " px-seg--fill" : ""}`, role: "radiogroup",
@@ -375,9 +364,7 @@ const TxRow = React.memo(({ t, cols, onEditCategory, onApplySuggestion, catsByFl
                            amountSize, runningBalance }) => {
   const K = window.BS.KIND;
   const kind = window.BS.moneyKind(t);
-  // Lido do campo, não da espécie: um gasto de terceiro pago no crédito é
-  // liquidação, e uma aplicação com dinheiro de terceiro é transferência — nos
-  // dois casos a espécie some, mas a linha continua não sendo sua.
+  //> Do campo, não da espécie: no crédito vira liquidação e some, mas não é seu.
   const isThirdParty = !!t.is_third_party;
   const _self   = kind === K.TRANSFER;
   const _invest = kind === K.INVEST;
@@ -405,10 +392,8 @@ const TxRow = React.memo(({ t, cols, onEditCategory, onApplySuggestion, catsByFl
           h("span", { style: { fontSize: 10, color: "var(--fg-3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, t.description)
         )
       ),
-      // Terceiros saiu desta lista de propósito: é justamente onde a categoria
-      // faz mais falta. Sem ela, quem foi tesoureiro de uma vaquinha via a
-      // linha marcada como "de terceiros" e nada mais — sem como separar o que
-      // era daquela arrecadação do que era de outra.
+      //> Terceiros fica FORA desta lista: é onde a categoria faz mais falta, porque
+      //> é ela que separa uma arrecadação da outra.
       cols.includes("cat") && h("td", null,
         (_settle || _self || _invest)
 
@@ -505,8 +490,7 @@ function FilterBar({ filter, onRemove, onClear }) {
   const chips = [];
   filter.categories.forEach(v => chips.push(["categories", v, v]));
   filter.banks.forEach(v => chips.push(["banks", v, v]));
-  // Conta entra na faceta pelo id (é o que a linha do lançamento carrega), mas
-  // quem lê o chip espera o nome. `accountNames` é preenchido no boot do app.
+  //> A faceta guarda o id; o chip mostra o nome. `accountNames` vem do boot.
   filter.accounts.forEach(v => chips.push(["accounts", v, (window.BS.accountNames || {})[v] || v]));
   if (filter.flow !== "all") chips.push(["flow", filter.flow, filter.flow === "expense" ? "Despesas" : "Receitas"]);
   if (filter.method !== "all") chips.push(["method", filter.method, filter.method.toUpperCase()]);

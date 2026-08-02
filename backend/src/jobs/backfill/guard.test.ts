@@ -35,8 +35,7 @@ test("DB recém-semeado não tem nada da UI", () => {
 });
 
 test("as regras semeadas pelo backfill não contam como dado da UI", () => {
-  // seedRules grava investment_leg/settlement. Se elas tropeçassem a guarda,
-  // todo rebuild abortaria e a guarda viraria ruído que se aprende a ignorar.
+  //> Se as semeadas tropeçassem a guarda, todo rebuild abortaria.
   const db = freshDb();
   seedRules(db);
   assert.equal(hasUserOverlay(db), false);
@@ -61,8 +60,8 @@ test("apelido editado pela UI é dado da UI", () => {
 });
 
 test("conta criada pela UI é dado da UI", () => {
-  // Conta nova não deixa NENHUMA transação. A guarda antiga só olhava
-  // transactions, então um rebuild apagava a conta em silêncio.
+  //> Conta nova não deixa NENHUMA transação. A guarda antiga só olhava
+  //> transactions, então um rebuild apagava a conta em silêncio.
   const db = freshDb();
   db.prepare(`INSERT INTO accounts (id, bank, type, name, opened_at)
     VALUES ('c6-db','c6','checking','C6 Conta','2026-07-26')`).run();
@@ -71,8 +70,8 @@ test("conta criada pela UI é dado da UI", () => {
 });
 
 test("conta encerrada pela UI é dado da UI", () => {
-  // Encerrar é a informação mais cara de perder: sem closed_at, a conta morta
-  // volta a somar no disponível e o herói mente pra cima.
+  //> Encerrar é a informação mais cara de perder: sem closed_at, a conta morta
+  //> volta a somar no disponível e o herói mente pra cima.
   const db = freshDb();
   db.prepare("UPDATE accounts SET closed_at='2026-07-01' WHERE id='conta-b'").run();
   assert.ok(hasUserOverlay(db), "encerramento passaria batido");
@@ -86,8 +85,7 @@ test("alvo de orçamento é dado da UI", () => {
 });
 
 test("regra de categoria aprendida é dado da UI", () => {
-  // Categorizar um lançamento do backfill não deixa marca NELE (nada de
-  // import_batch_id nem display_name) — a marca é a regra aprendida.
+  //> Categorizar não deixa marca no lançamento: a marca é a regra aprendida.
   const db = freshDb();
   db.prepare(`INSERT INTO rules (matcher, action, value, priority, enabled)
     VALUES ('padaria', 'category', '3', 50, 1)`).run();
@@ -97,10 +95,8 @@ test("regra de categoria aprendida é dado da UI", () => {
 // ── schema mais velho que a guarda ──────────────────────────────────────────
 
 test("DB anterior à migration não estoura a guarda — a sonda é pulada", () => {
-  // A guarda roda ANTES das migrations (é o primeiro passo do backfill, sobre o
-  // DB que já estava lá), então pode encontrar um schema mais velho que ela.
-  // Estourar aqui trocaria a guarda por um stack trace e o rebuild seguiria
-  // sem proteção nenhuma.
+  //> A guarda roda ANTES das migrations: estourar num schema velho trocaria a
+  //> proteção por um stack trace.
   const db = new DatabaseSync(":memory:");
   db.exec("PRAGMA foreign_keys=ON");
   initSchema(db);            // baseline, SEM as migrations
@@ -117,8 +113,8 @@ test("sonda pulada por falta de coluna não vira falso positivo", () => {
   db.prepare(`INSERT INTO transactions
     (date, flow, method, account_id, amount_cents, description, import_batch_id)
     VALUES ('2026-03-01','expense','pix','conta-a',1000,'x','sess-1')`).run();
-  // A sonda de contas some (sem closed_at no baseline), mas a de lançamentos
-  // continua valendo — pular uma sonda não pode cegar as outras.
+  //> A sonda de contas some (sem closed_at no baseline), mas a de lançamentos
+  //> continua valendo — pular uma sonda não pode cegar as outras.
   assert.deepEqual(labels(db), ["lançamentos importados ou editados pela UI"]);
 });
 

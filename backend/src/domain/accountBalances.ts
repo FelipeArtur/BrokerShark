@@ -21,15 +21,11 @@ function nextYm(ym: string): string {
 }
 
 /**
- * Série mensal do saldo somado das contas correntes.
- *
- * A conta contribui 0 a partir do mês do `closedYm` — **inclusive**. O que a
- * série plota é saldo de fim de mês, e conta encerrada não tem nenhum. (É de
- * propósito diferente de `monthlyPortfolioSeries`, que corta em `ym > closed`:
- * lá o snapshot do mês do fechamento é uma medição real e vale.)
- *
- * Se o encerramento entrou no ledger como transferência de saída, o saldo da
- * conta já era ~0 e zerar não muda nada; se não entrou, corta o fantasma.
+ * @brief   Série mensal do saldo somado das contas correntes.
+ * @warning A conta contribui 0 a partir do mês do `closedYm`, INCLUSIVE: a série plota
+ *          saldo de fim de mês, e conta encerrada não tem nenhum.
+ * @note    Diferente de `monthlyPortfolioSeries`, que corta em `ym > closed` — lá o
+ *          snapshot do mês do fechamento é medição real.
  */
 export function monthlyCheckingSeries(
   accounts: AccountSeed[],
@@ -50,8 +46,7 @@ export function monthlyCheckingSeries(
   const out: { ym: string; total_cents: number }[] = [];
 
   for (let ym = yms[0]; ym <= yms[yms.length - 1]; ym = nextYm(ym)) {
-    // O delta do mês entra no acumulado mesmo se a conta já fechou: o extrato
-    // pode ter movimento até o dia do encerramento. O corte é na leitura.
+    //> O delta entra mesmo com a conta fechada; o corte é na leitura.
     for (const d of byYm.get(ym) ?? []) {
       running.set(d.account_id, (running.get(d.account_id) ?? 0) + d.deltaCents);
     }

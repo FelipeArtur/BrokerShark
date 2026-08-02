@@ -61,13 +61,9 @@ function cellStr(v: unknown): string {
 }
 
 /**
- * A instituição, como o relatório a escreve.
- *
- * O relatório traz a razão social inteira ("BANCO EXEMPLO S.A. - INSTITUIÇÃO
- * DE PAGAMENTO"), que não serve de rótulo. Aqui o corte é mecânico: primeiro
- * segmento antes do hífen, sem sufixo societário. Antes existia um mapa de
- * apelidos com os bancos do autor dentro — o que fazia o parser conhecer os
- * bancos DELE em vez de ler o que está no arquivo.
+ * @brief   A instituição como o relatório a escreve: primeiro segmento, sem sufixo societário.
+ * @warning Corte mecânico de propósito — mapa de apelidos faria o parser conhecer
+ *          bancos em vez de ler o arquivo.
  */
 function bankFrom(inst: string): string {
   const head = inst.split(/\s+-\s+/)[0] ?? inst;

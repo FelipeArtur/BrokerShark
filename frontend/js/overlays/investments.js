@@ -13,7 +13,7 @@ const { useState: _ivSt, useEffect: _ivEf } = React;
 // um seletor quando há mais de uma.
 
 function InvestmentPanel({ ids, title, onClose }) {
-  // Toda data aqui atravessa anos (medição e vencimento), então nunca fmtDateBR.
+  //> Toda data aqui atravessa anos (medição e vencimento), então nunca fmtDateBR.
   const { fmtBRL, fullDateBR } = window.BS;
 
   const [sel, setSel] = _ivSt(ids && ids.length ? ids[0] : null);
@@ -29,7 +29,6 @@ function InvestmentPanel({ ids, title, onClose }) {
       .catch(e => setErr(e.message || "Falha ao carregar a posição."));
   }, [sel]);
 
-  // Carrega os nomes das irmãs pro seletor não mostrar id cru.
   _ivEf(() => {
     (ids || []).filter(id => id !== sel).forEach(id => {
       fetchInvestment(id).then(p => setNames(n => ({ ...n, [p.id]: p.name }))).catch(() => {});
@@ -40,8 +39,7 @@ function InvestmentPanel({ ids, title, onClose }) {
   const last = snaps.length ? snaps[snaps.length - 1] : null;
   const first = snaps.length ? snaps[0] : null;
 
-  // Escala comum entre as barras: o maior líquido da série. Sem isso, um mês
-  // ruim desenharia igual a um bom.
+  //> Escala comum: sem ela, um mês ruim desenharia igual a um bom.
   const maxNet = snaps.reduce((m, s) => Math.max(m, s.net || 0), 0);
 
   const ficha = [
@@ -104,8 +102,6 @@ function InvestmentPanel({ ids, title, onClose }) {
         h("div", { style: { padding: "14px 0 8px", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--fg-3)", fontFamily: "var(--ff-sans)" } },
           "Histórico de medições"),
 
-        // A pergunta "de onde vem esse número, sem API de mercado?" tem uma
-        // resposta honesta, e ela precisa estar na tela do número.
         h("p", { style: { margin: "0 0 10px", fontSize: 11, color: "var(--fg-3)", lineHeight: 1.6, maxWidth: 720 } },
           pos.source === "ledger"
             ? ["Esta posição não tem custódia em corretora: o saldo é o que entrou menos o que saiu, ",
@@ -129,7 +125,6 @@ function InvestmentPanel({ ids, title, onClose }) {
             h("td", { className: "mono", style: { padding: "7px 8px", textAlign: "right", color: "var(--fg-0)", fontWeight: 700, borderBottom: "1px solid var(--line-1)" } }, fmtBRL(s.net)),
             h("td", { className: "mono", style: { padding: "7px 8px", textAlign: "right", borderBottom: "1px solid var(--line-1)", color: s.yield == null ? "var(--fg-3)" : (s.yield >= 0 ? "var(--pos)" : "var(--neg)") } },
               s.yield == null ? "—" : (s.yield >= 0 ? "+" : "−") + fmtBRL(Math.abs(s.yield))),
-            // Barra dithered do líquido: a mesma linguagem do fluxo mês a mês.
             h("td", { style: { padding: "7px 8px", width: "34%", borderBottom: "1px solid var(--line-1)" } },
               h("div", { className: "dither-pos", style: { height: 8, width: maxNet > 0 ? `${Math.max((s.net / maxNet) * 100, 1)}%` : 0, opacity: 0.85 } })),
           ))),

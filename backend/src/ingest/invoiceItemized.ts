@@ -24,10 +24,7 @@ export interface ParsedFatura {
 }
 
 export function parseInvoiceItemized(text: string, sourceFile: string): ParsedFatura {
-  // O mês de referência vem do NOME do arquivo, e a única coisa exigida dele é
-  // um `YYYY-MM`. Amarrar o padrão ao nome que um banco específico exporta
-  // quebra qualquer conta cujo `filePattern` na config diga outra coisa —
-  // inclusive o `fatura-YYYY-MM.csv` que o próprio default declara.
+  //> Do NOME do arquivo: amarrar ao padrão de um banco quebraria outras contas.
   const m = /(\d{4})-(0[1-9]|1[0-2])(?!\d)/.exec(sourceFile);
   if (!m) throw new Error(`${sourceFile}: nome do arquivo precisa conter o mês de referência (YYYY-MM)`);
   const refMonth = `${m[1]}-${m[2]}`;

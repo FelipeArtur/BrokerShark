@@ -94,7 +94,7 @@ function AccountsPanel({ onRefresh, onClose }) {
             title: "Clique para renomear",
           },
             acc.name,
-            // Aninhado já é cartão pela posição; repetir o rótulo é ruído.
+            //> Aninhado já é cartão pela posição; repetir o rótulo é ruído.
             !aninhada && h("span", { style: { marginLeft: 8, fontSize: 10, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.05em" } },
               acc.type === "checking" ? "conta" : "cartão"),
           ),
@@ -128,9 +128,6 @@ function AccountsPanel({ onRefresh, onClose }) {
     );
   }
 
-  // Caixa que se ajusta ao conteúdo, não coluna de tela cheia: são três linhas.
-  // O painel anterior reservava 720px de altura pra elas e o vazio embaixo era
-  // o que mais chamava atenção na tela.
   return h(window.BS.Modal, { open: true, onClose, title: "Contas e cartões", width: 560 },
     h("div", { style: { display: "flex", flexDirection: "column", gap: 14 } },
 
@@ -198,8 +195,7 @@ function AccountsPanel({ onRefresh, onClose }) {
       closeTarget && h("div", { style: { display: "flex", flexDirection: "column", gap: 18 } },
         h("p", { style: { fontSize: 14, color: "var(--fg-0)", margin: 0, lineHeight: 1.5 } },
           closeTarget.type === "credit_card"
-            // O saldo do cartão é a soma dos itens de fatura e nunca entrou no
-            // disponível — prometer que ele "sai" seria mentira.
+            //> O saldo do cartão nunca entrou no disponível: dizer que "sai" seria mentira.
             ? ["Encerrar ", h("strong", { key: "n" }, closeTarget.name),
                "? O cartão sai das opções de import e some dos widgets. Só encerra com a fatura quitada."]
             : ["Encerrar ", h("strong", { key: "n" }, closeTarget.name), "? O saldo de ",

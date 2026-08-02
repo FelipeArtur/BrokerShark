@@ -55,7 +55,6 @@ test("par SELF não recíproco é violação", () => {
   const a = tx(db, { method: "transfer" });
   const b = tx(db, { flow: "income", method: "pix" });
   db.prepare("UPDATE transactions SET self_pair_tx_id=? WHERE id=?").run(b, a);
-  // b não aponta de volta
   assert.ok(checks(db).includes("self-par-nao-reciproco"));
 });
 
@@ -108,7 +107,7 @@ test("pagamento de fatura em conta corrente NÃO é violação de conta", () => 
     "INSERT INTO invoices (account_id, ref_month, total_cents, source_file) VALUES ('cartao-b','2026-05',1000,'x')",
   ).run().lastInsertRowid);
   tx(db, { invoice_id: inv, account_id: "cartao-b", method: "credit", amount_cents: 1000 });
-  // a liquidação mora na conta corrente e aponta pra fatura — por desenho
+  //> a liquidação mora na conta corrente e aponta pra fatura — por desenho
   tx(db, { invoice_id: inv, account_id: "conta-b", method: "credit", amount_cents: 1000, is_settlement: 1 });
   assert.ok(!checks(db).includes("item-fatura-conta-errada"));
 });

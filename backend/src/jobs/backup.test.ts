@@ -64,8 +64,7 @@ test("rodar duas vezes no mesmo dia sobrescreve em vez de estourar", (t) => {
   const dia = new Date("2026-07-30T12:00:00Z");
   const um = runBackup(src, join(dir, "dest"), dia);
 
-  // O ledger muda entre um disparo e outro; o segundo backup do dia tem que
-  // refletir isso, não falhar com "output file already exists".
+  //> O segundo backup do dia reflete a mudança, não falha com "already exists".
   const db2 = new DatabaseSync(src);
   db2.exec("INSERT INTO t VALUES (2)");
   db2.close();
@@ -85,8 +84,7 @@ test("a config vai junto do snapshot, com a mesma data e 0600", (t) => {
   const dir = mkdtempSync(join(tmpdir(), "bs-cfg-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
 
-  // O backup copia a config REAL em uso, e é `BROKERSHARK_CONFIG` quem manda —
-  // usar um caminho adivinhado salvaria a config errada sem avisar.
+  //> Copia a config REAL em uso: caminho adivinhado salvaria a errada sem avisar.
   const cfg = join(dir, "minha.json");
   writeFileSync(cfg, JSON.stringify({
     accounts: [{ id: "c1", bank: "Banco X", type: "checking", name: "Conta X" }],
@@ -120,8 +118,7 @@ test("a poda leva o PAR inteiro, e conta datas em vez de arquivos", (t) => {
   const dest = join(dir, "dest");
   mkdirSync(dest, { recursive: true });
 
-  // 14 pares antigos. Contando ARQUIVO seriam 28 entradas e a poda deixaria 12
-  // arquivos, ou seja 6 dias — metade da retenção, sem ninguém notar.
+  //> Contando ARQUIVO seriam 28 entradas e a retenção cairia pela metade.
   for (let d = 1; d <= 14; d++) {
     const dia = `2025-01-${String(d).padStart(2, "0")}`;
     writeFileSync(join(dest, `brokershark-${dia}.db`), "x");

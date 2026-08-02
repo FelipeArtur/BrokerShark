@@ -20,8 +20,7 @@ test("comparar acrescenta fantasma de receita E de despesa", () => {
 });
 
 test("cada fantasma vem logo depois da barra que ele compara", () => {
-  // Ordem é load-bearing: fantasma solto no fim encosta na barra errada e a
-  // leitura inverte (o gasto do mês passado parecendo receita).
+  //> Ordem é load-bearing: fantasma solto no fim inverte a leitura.
   const specs = B.barSpecs(slot(100, 50, [80, 40]), 100, true);
   for (let i = 0; i < specs.length; i++) {
     if (!specs[i].ghost) continue;
@@ -62,7 +61,7 @@ test("mês sem medição não é medido em nenhum dos lados", () => {
 });
 
 test("mês medido cujo lado deu zero continua medido", () => {
-  // Existe no ledger: mês com gasto e nenhuma entrada.
+  //> Existe no ledger: mês com gasto e nenhuma entrada.
   const specs = B.barSpecs(slot(0, 14.09, null), 100, false);
   const receita = specs.find(s => s.key === "i");
   assert.equal(receita.height, 0, "nada entrou, então nada a desenhar como barra");
@@ -94,8 +93,7 @@ test("o maior valor da série ocupa a altura cheia", () => {
 });
 
 test("maxV zero não vira NaN nem Infinity", () => {
-  // Mês em que nada entrou nem saiu: a divisão por zero apareceria na tela
-  // como barra de altura NaN, que o browser desenha como colapsada.
+  //> Divisão por zero viraria barra de altura NaN, que o browser colapsa.
   const h = B.scaleBar(10, 0);
   assert.ok(Number.isFinite(h), `altura ${h} não é finita`);
   assert.equal(h, B.BAR_MIN_PX);

@@ -59,8 +59,7 @@ test("num ledger que JÁ tinha categorias, a migration ainda consolida", () => {
   const db = new DatabaseSync(":memory:");
   db.exec("PRAGMA foreign_keys=ON");
   initSchema(db);
-  // Uma categoria antiga qualquer basta pra caracterizar "ledger existente":
-  // é o gatilho que faz a 0002 materializar as macro e reatribuir o que havia.
+  //> Uma categoria antiga é o gatilho que faz a 0002 materializar as macro.
   db.prepare("INSERT INTO categories (name, flow) VALUES ('Carro', 'expense')").run();
   runMigrations(db);
 

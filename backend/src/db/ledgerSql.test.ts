@@ -91,9 +91,8 @@ test("resgate pega só a entrada de investimento, nunca a perna SELF de entrada"
 });
 
 test("perna SELF de entrada com método reescrito continua fora do resgate", () => {
-  // Blindagem: hoje a entrada SELF guarda pix/ted, e a regra sobreviveria só
-  // por isso. Se um extrato entregar a entrada já como transferência, é o
-  // `self_pair_tx_id` que precisa segurar.
+  //> Se um extrato entregar a entrada SELF já como `transfer`, quem segura é o
+  //> `self_pair_tx_id` — não o método.
   const db = ledger();
   db.exec("UPDATE transactions SET method='transfer' WHERE description='perna-self-entrada'");
   assert.deepEqual(descs(db, investmentIn()), ["resgate"]);
