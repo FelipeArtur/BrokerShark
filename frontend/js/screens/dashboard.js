@@ -59,8 +59,14 @@ const KpiStrip = React.memo(function KpiStrip({ available, availErr, accounts, c
           h("span", { style: { color: bankColor(a.bank, a.id), fontWeight: 700 } }, bankShortLabel(a.bank, a.id)),
           h("span", { className: "mono", style: { color: "var(--fg-1)", fontSize: 11 } }, fmtBRL(a.balance || 0))
         )),
-        committed > 0 && h("span", { className: "mono", style: { color: "var(--warn)", fontSize: 11, marginTop: 2, display: "block" } },
-          "− Comprometido este mês " + fmtBRL(committed))
+        committed > 0 && h("span", {
+          className: "mono",
+          style: { color: "var(--warn)", fontSize: 11, marginTop: 2, display: "block" },
+          title: [
+            available.committed_invoices > 0 && `fatura ${fmtBRL(available.committed_invoices)}`,
+            available.committed_recurring > 0 && `recorrente ${fmtBRL(available.committed_recurring)}`,
+          ].filter(Boolean).join(" · "),
+        }, "− Comprometido este mês " + fmtBRL(committed))
       ),
     ),
 

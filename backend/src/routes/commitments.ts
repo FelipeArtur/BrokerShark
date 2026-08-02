@@ -5,6 +5,7 @@ import type { Route } from "../http/router.ts";
 import { compilePath } from "../http/router.ts";
 import { currentMonth, monthRange } from "../domain/dates.ts";
 import { normalizeMerchant } from "../domain/merchant.ts";
+import { comprometidoDoMesCents } from "../db/committed.ts";
 
 /**
  * @file    O comprometido do mês — e SÓ o que o ledger sabe de verdade.
@@ -85,15 +86,20 @@ export function commitmentRoutes(db: DatabaseSync): Route[] {
         };
       });
 
-    //> Soma em CENTAVOS: somando reais, 31,27 + 31,25 dava 62,519999999999996.
-    const saidaCents = (v: { flow: string; amount: number }) =>
-      (v.flow === "expense" ? Math.round(v.amount * 100) : 0);
-    const total_out = (
-      installments.reduce((s, i) => s + saidaCents(i), 0) +
-      recurring.filter(r => !r.duplicate_of_installment).reduce((s, r) => s + saidaCents(r), 0)
-    ) / 100;
+    //> O total sai da MESMA fonte que o herói (`db/committed.ts`): a lista abaixo
+    //> explica o número grande, e explicar com uma conta própria era o jeito garantido
+    //> de os dois discordarem. Parcela aparece na lista mas não soma: é item de fatura,
+    //> e a fatura já responde por ela.
+    const cmt = comprometidoDoMesCents(db, ym, start, end);
 
-    json(res, { month: ym, installments, recurring, total_out });
+    json(res, {
+      month: ym,
+      installments,
+      recurring,
+      total_out: cmt.totalCents / 100,
+      total_invoices: cmt.faturasCents / 100,
+      total_recurring: cmt.recorrentesCents / 100,
+    });
   }
 
   return [{ method: "GET", ...compilePath("/api/commitments"), handler: getCommitments }];

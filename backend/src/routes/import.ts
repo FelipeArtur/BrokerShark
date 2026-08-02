@@ -10,6 +10,7 @@ import { parseMultipart, fileParts, fieldValue } from "../http/multipart.ts";
 import { isIntId, isShortText, isPositiveAmount, isIsoDate } from "../http/validate.ts";
 import { parseInvoiceItemized } from "../ingest/invoiceItemized.ts";
 import { insertOpenFatura, pruneEmptyOpenInvoices } from "../db/faturaImport.ts";
+import { fmtCents } from "../domain/money.ts";
 import type { TxRecord } from "../ingest/types.ts";
 import { parseStatementWithIds } from "../ingest/statementWithIds.ts";
 import { parseStatementWithBalance } from "../ingest/statementWithBalance.ts";
@@ -306,12 +307,28 @@ export function importRoutes(db: DatabaseSync): Route[] {
     if (!rows.length) return error(res, "lote não encontrado", 404);
 
     const byId = new Map<number, any>(rows.map((r) => [r.id, r]));
-    for (const r of rows) {
-      if (r.self_pair_tx_id && !byId.has(r.self_pair_tx_id)) {
-        const pair = db.prepare("SELECT * FROM transactions WHERE id = ?").get(r.self_pair_tx_id) as any;
-        if (pair) byId.set(pair.id, pair);
-      }
+
+    //> Perna pareada FORA do lote não é do import que se está revertendo, e apagá-la
+    //> junto tirava lançamento de outra importação sem avisar. Desparear seria pior:
+    //> a órfã deixaria de ser transferência e passaria a contar como despesa real,
+    //> inflando um mês passado. Então recusa e diz qual é.
+    const forasteiras = rows
+      .filter(r => r.self_pair_tx_id && !byId.has(r.self_pair_tx_id))
+      .map(r => db.prepare("SELECT id, date, description, amount_cents FROM transactions WHERE id = ?")
+        .get(r.self_pair_tx_id) as any)
+      .filter(Boolean);
+
+    if (forasteiras.length) {
+      const lista = forasteiras
+        .map(p => `${p.date} ${fmtCents(p.amount_cents)} (${p.description})`).join("; ");
+      return error(
+        res,
+        `este import pareou com ${forasteiras.length} lançamento(s) de outra importação: ${lista}. ` +
+        `Reverta o outro lote antes, ou apague a linha na mão.`,
+        409,
+      );
     }
+
     const restore = [...byId.values()];
     const savingsTouched = restore.some((r) => r.investment_id != null);
 

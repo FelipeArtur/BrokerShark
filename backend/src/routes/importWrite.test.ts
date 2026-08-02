@@ -264,3 +264,52 @@ test("import completo deixa o ledger sem violação de invariante", async () => 
   await call(db, "POST", "/api/import/confirm", jsonReq("/api/import/confirm", { batch_id: prev.body.batch_id }));
   assert.deepEqual(auditLedger(db), []);
 });
+
+test("reverter recusa quando o lote pareou com lançamento de OUTRO lote", async () => {
+  const db = freshDb();
+  const a = await previewExtrato(db);
+  await call(db, "POST", "/api/import/confirm",
+    jsonReq("/api/import/confirm", { batch_id: a.body.batch_id, import_batch_id: "lote-a" }));
+
+  //> Par SELF cruzando a fronteira do lote: a perna de fora veio noutra importação.
+  const fora = Number(db.prepare(
+    `INSERT INTO transactions (date, flow, method, account_id, amount_cents, description,
+       counterpart, import_batch_id)
+     VALUES ('2026-06-11','income','transfer','conta-b',150000,'Transferência','SELF','lote-antigo')`,
+  ).run().lastInsertRowid);
+  const dentro = Number((db.prepare(
+    "SELECT id FROM transactions WHERE import_batch_id = 'lote-a' LIMIT 1").get() as any).id);
+  db.prepare("UPDATE transactions SET self_pair_tx_id=?, counterpart='SELF' WHERE id=?").run(fora, dentro);
+  db.prepare("UPDATE transactions SET self_pair_tx_id=? WHERE id=?").run(dentro, fora);
+
+  const out = await call(db, "DELETE", "/api/import/batch/lote-a",
+    emptyReq("/api/import/batch/lote-a", { id: "lote-a" }));
+
+  assert.equal(out.status, 409);
+  assert.match(String(out.body.error), /outra importação/);
+  assert.ok(
+    db.prepare("SELECT 1 FROM transactions WHERE id = ?").get(fora),
+    "a perna do outro lote continua lá",
+  );
+  assert.ok(
+    db.prepare("SELECT 1 FROM transactions WHERE id = ?").get(dentro),
+    "e o lote não foi revertido pela metade",
+  );
+});
+
+test("reverter segue funcionando quando o par inteiro está no lote", async () => {
+  const db = freshDb();
+  const a = await previewExtrato(db);
+  await call(db, "POST", "/api/import/confirm",
+    jsonReq("/api/import/confirm", { batch_id: a.body.batch_id, import_batch_id: "lote-a" }));
+
+  const ids = (db.prepare("SELECT id FROM transactions WHERE import_batch_id='lote-a' ORDER BY id")
+    .all() as any[]).map(r => r.id);
+  db.prepare("UPDATE transactions SET self_pair_tx_id=?, counterpart='SELF' WHERE id=?").run(ids[1], ids[0]);
+  db.prepare("UPDATE transactions SET self_pair_tx_id=?, counterpart='SELF' WHERE id=?").run(ids[0], ids[1]);
+
+  const out = await call(db, "DELETE", "/api/import/batch/lote-a",
+    emptyReq("/api/import/batch/lote-a", { id: "lote-a" }));
+  assert.equal(out.status, 200);
+  assert.equal((db.prepare("SELECT COUNT(*) AS n FROM transactions").get() as any).n, 0);
+});

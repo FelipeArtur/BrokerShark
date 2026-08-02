@@ -149,25 +149,54 @@ test("apagar o lançamento leva a marca junto", () => {
 
 // ── total ───────────────────────────────────────────────────────────────────
 
-test("o total soma só o que sai", () => {
+test("o total é o que ainda VAI sair, não o que já saiu", () => {
   const db = freshDb();
-  parcela(db, "2026-04-11", 14000, 2, 3);
+  //> O aluguel já caiu em abril: o saldo da conta já o reflete, então somá-lo
+  //> descontaria duas vezes. Salário é entrada, nunca compromisso.
   marcarRecorrente(db, lancamento(db, "2026-04-10", 120000, "Aluguel"));
   marcarRecorrente(db, lancamento(db, "2026-04-05", 400000, "Salário", "income"));
 
   const out = getCommitments(db, "2026-04");
-  assert.equal(out.total_out, 1340, "140 da parcela + 1200 do aluguel; salário não é compromisso");
-  assert.equal(out.recurring.length, 2, "mas a entrada continua visível na lista");
+  assert.equal(out.total_out, 0);
+  assert.equal(out.recurring.length, 2, "mas as duas continuam visíveis na lista");
 });
 
-test("recorrente que também é parcela não conta duas vezes", () => {
+test("recorrente que ainda não caiu no mês entra no total", () => {
   const db = freshDb();
-  const id = parcela(db, "2026-04-11", 14000, 2, 3, "Academia");
-  marcarRecorrente(db, id);
+  marcarRecorrente(db, lancamento(db, "2026-04-10", 120000, "Aluguel"));
+  const out = getCommitments(db, "2026-06");
+  assert.equal(out.total_out, 1200);
+  assert.equal(out.total_recurring, 1200);
+  assert.equal(out.total_invoices, 0);
+});
 
+test("parcela aparece na lista mas NÃO soma — é item de fatura", () => {
+  const db = freshDb();
+  //> Toda parcela tem `invoice_id`. Quem responde pelo cartão é a fatura em aberto;
+  //> somar a parcela em separado contaria o mesmo dinheiro duas vezes.
+  parcela(db, "2026-04-11", 14000, 2, 3);
   const out = getCommitments(db, "2026-04");
-  assert.equal(out.recurring[0].duplicate_of_installment, true);
-  assert.equal(out.total_out, 140, "a mesma linha entra uma vez só");
+  assert.equal(out.installments.length, 1, "visível");
+  assert.equal(out.total_out, 0, "mas não somada");
+});
+
+test("fatura aberta vencendo no mês é o que responde pelo cartão", () => {
+  const db = freshDb();
+  db.prepare(
+    "INSERT INTO invoices (account_id, ref_month, due_date, total_cents, source_file) VALUES ('cartao-b','2026-04','2026-04-20',18000,'ui')",
+  ).run();
+  const out = getCommitments(db, "2026-04");
+  assert.equal(out.total_invoices, 180);
+  assert.equal(out.total_out, 180);
+});
+
+test("fatura já paga não compromete nada", () => {
+  const db = freshDb();
+  const pag = lancamento(db, "2026-04-20", 18000, "Pagamento fatura");
+  db.prepare(
+    "INSERT INTO invoices (account_id, ref_month, due_date, total_cents, source_file, payment_tx_id) VALUES ('cartao-b','2026-04','2026-04-20',18000,'ui',?)",
+  ).run(pag);
+  assert.equal(getCommitments(db, "2026-04").total_out, 0);
 });
 
 test("mês vazio devolve listas vazias e total zero", () => {
@@ -180,8 +209,8 @@ test("mês vazio devolve listas vazias e total zero", () => {
 
 test("o total não acumula erro de float", () => {
   const db = freshDb();
-  //> 31,27 + 31,25 somados como reais dão 62,519999999999996.
-  parcela(db, "2026-02-05", 3127, 1, 3);
-  parcela(db, "2026-02-05", 3125, 2, 3);
+  //> 31,27 + 31,25 somados como reais dão 62,519999999999996. A soma roda em centavos.
+  marcarRecorrente(db, lancamento(db, "2026-01-05", 3127, "Steam"));
+  marcarRecorrente(db, lancamento(db, "2026-01-06", 3125, "Spotify"));
   assert.equal(getCommitments(db, "2026-02").total_out, 62.52);
 });

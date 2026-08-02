@@ -7,7 +7,8 @@ import { broadcast } from "../http/sse.ts";
 import { isIsoDate, isShortText } from "../http/validate.ts";
 import { portfolioSeriesFromDb } from "../domain/positions.ts";
 import { monthlyCheckingSeries } from "../domain/accountBalances.ts";
-import { currentMonth, today } from "../domain/dates.ts";
+import { currentMonth, monthRange, today } from "../domain/dates.ts";
+import { comprometidoDoMesCents } from "../db/committed.ts";
 import { bankColorFor } from "../config.ts";
 import { fmtCents } from "../domain/money.ts";
 
@@ -133,20 +134,17 @@ export function accountRoutes(db: DatabaseSync): Route[] {
 
     const { month, year } = currentMonth();
     const curYm = `${year}-${String(month).padStart(2, "0")}`;
-    const committedCents = (db.prepare(
-      `SELECT COALESCE(SUM(total_cents), 0) AS c FROM invoices
-       WHERE payment_tx_id IS NULL AND due_date IS NOT NULL
-         AND strftime('%Y-%m', due_date) = ?`,
-    ).get(curYm) as { c: number }).c;
+    const { start, end } = monthRange(month, year);
+    const cmt = comprometidoDoMesCents(db, curYm, start, end);
 
     //> Dois nomes, dois sentidos, sem sinônimo no meio: `checking_total` é o caixa
     //> BRUTO das contas abertas; `available_net` é o que sobra depois do comprometido.
-    //> Havia um `available` idêntico ao bruto, e o nome ambíguo convidava a tela a
-    //> escolher o campo errado ao mexer na regra de gasto.
     json(res, {
       checking_total: totalCents / 100,
-      committed_this_month: committedCents / 100,
-      available_net: (totalCents - committedCents) / 100,
+      committed_this_month: cmt.totalCents / 100,
+      committed_invoices: cmt.faturasCents / 100,
+      committed_recurring: cmt.recorrentesCents / 100,
+      available_net: (totalCents - cmt.totalCents) / 100,
     });
   }
 

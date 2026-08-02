@@ -52,5 +52,7 @@ test("e2e: fatura aberta abate o disponível; a parcela do mês aparece no card"
   assert.equal(commit.installments.length, 1);
   assert.equal(commit.installments[0].amount, 50);
   assert.equal(commit.installments[0].remaining, 2, "1 de 3 lançada, faltam 2");
-  assert.equal(commit.total_out, 50);
+  //> A parcela é ITEM desta fatura: quem compromete é a fatura (R$ 200), não os R$ 50.
+  assert.equal(commit.total_out, 200);
+  assert.equal(commit.total_out, avail.committed_this_month, "o card explica o herói");
 });
