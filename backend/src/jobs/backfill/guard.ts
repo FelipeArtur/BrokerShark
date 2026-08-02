@@ -75,7 +75,3 @@ export function userOverlay(db: DatabaseSync): OverlayFinding[] {
   }
   return out;
 }
-
-export function hasUserOverlay(db: DatabaseSync): boolean {
-  return userOverlay(db).length > 0;
-}

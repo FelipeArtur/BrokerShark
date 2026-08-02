@@ -15,7 +15,7 @@ import { setConfig, type BrokerSharkConfig } from "../config.ts";
  * @brief   A config que os testes usam — fixa, nunca a do disco.
  * @warning Ler do disco faria um `config/local.json` qualquer quebrar metade da suíte.
  */
-export const TEST_CONFIG: BrokerSharkConfig = {
+const TEST_CONFIG: BrokerSharkConfig = {
   accounts: [
     { id: "conta-a", bank: "Banco A", type: "checking", name: "Banco A Conta",
       statementFormat: "ids" },

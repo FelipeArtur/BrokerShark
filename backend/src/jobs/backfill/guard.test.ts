@@ -7,7 +7,7 @@ import { initSchema } from "../../db/open.ts";
 import { runMigrations } from "../../db/migrate.ts";
 import { seedAccounts, seedRules } from "./seeds.ts";
 import { seedTestCategories, useTestConfig } from "../../testing/fixtures.ts";
-import { hasUserOverlay, userOverlay } from "./guard.ts";
+import { userOverlay } from "./guard.ts";
 
 useTestConfig();
 
@@ -30,7 +30,7 @@ const labels = (db: DatabaseSync) => userOverlay(db).map(f => f.label);
 
 test("DB recém-semeado não tem nada da UI", () => {
   const db = freshDb();
-  assert.equal(hasUserOverlay(db), false);
+  assert.equal(userOverlay(db).length, 0);
   assert.deepEqual(userOverlay(db), []);
 });
 
@@ -38,7 +38,7 @@ test("as regras semeadas pelo backfill não contam como dado da UI", () => {
   //> Se as semeadas tropeçassem a guarda, todo rebuild abortaria.
   const db = freshDb();
   seedRules(db);
-  assert.equal(hasUserOverlay(db), false);
+  assert.equal(userOverlay(db).length, 0);
 });
 
 // ── o que o backfill NÃO pode apagar ────────────────────────────────────────
@@ -48,7 +48,7 @@ test("transação importada pela UI é dado da UI", () => {
   db.prepare(`INSERT INTO transactions
     (date, flow, method, account_id, amount_cents, description, import_batch_id)
     VALUES ('2026-03-01','expense','pix','conta-a',1000,'x','sess-1')`).run();
-  assert.ok(hasUserOverlay(db));
+  assert.ok(userOverlay(db).length > 0);
 });
 
 test("apelido editado pela UI é dado da UI", () => {
@@ -56,7 +56,7 @@ test("apelido editado pela UI é dado da UI", () => {
   db.prepare(`INSERT INTO transactions
     (date, flow, method, account_id, amount_cents, description, display_name)
     VALUES ('2026-03-01','expense','pix','conta-a',1000,'x','Almoço')`).run();
-  assert.ok(hasUserOverlay(db));
+  assert.ok(userOverlay(db).length > 0);
 });
 
 test("conta criada pela UI é dado da UI", () => {
@@ -65,7 +65,7 @@ test("conta criada pela UI é dado da UI", () => {
   const db = freshDb();
   db.prepare(`INSERT INTO accounts (id, bank, type, name, opened_at)
     VALUES ('c6-db','c6','checking','C6 Conta','2026-07-26')`).run();
-  assert.ok(hasUserOverlay(db), "conta criada pela UI passaria batido");
+  assert.ok(userOverlay(db).length > 0, "conta criada pela UI passaria batido");
   assert.ok(labels(db).some(l => /conta/i.test(l)));
 });
 
@@ -74,14 +74,14 @@ test("conta encerrada pela UI é dado da UI", () => {
   //> volta a somar no disponível e o herói mente pra cima.
   const db = freshDb();
   db.prepare("UPDATE accounts SET closed_at='2026-07-01' WHERE id='conta-b'").run();
-  assert.ok(hasUserOverlay(db), "encerramento passaria batido");
+  assert.ok(userOverlay(db).length > 0, "encerramento passaria batido");
 });
 
 test("alvo de orçamento é dado da UI", () => {
   const db = freshDb();
   const cat = db.prepare("SELECT id FROM categories WHERE flow='expense' LIMIT 1").get() as { id: number };
   db.prepare("INSERT INTO category_budgets (category_id, ref_month, amount_cents) VALUES (?, '', 50000)").run(cat.id);
-  assert.ok(hasUserOverlay(db), "alvo de gasto passaria batido");
+  assert.ok(userOverlay(db).length > 0, "alvo de gasto passaria batido");
 });
 
 test("regra de categoria aprendida é dado da UI", () => {
@@ -89,7 +89,7 @@ test("regra de categoria aprendida é dado da UI", () => {
   const db = freshDb();
   db.prepare(`INSERT INTO rules (matcher, action, value, priority, enabled)
     VALUES ('padaria', 'category', '3', 50, 1)`).run();
-  assert.ok(hasUserOverlay(db), "categorização manual passaria batido");
+  assert.ok(userOverlay(db).length > 0, "categorização manual passaria batido");
 });
 
 // ── schema mais velho que a guarda ──────────────────────────────────────────
@@ -102,7 +102,7 @@ test("DB anterior à migration não estoura a guarda — a sonda é pulada", () 
   initSchema(db);            // baseline, SEM as migrations
   seedAccounts(db);
   assert.doesNotThrow(() => userOverlay(db));
-  assert.equal(hasUserOverlay(db), false);
+  assert.equal(userOverlay(db).length, 0);
 });
 
 test("sonda pulada por falta de coluna não vira falso positivo", () => {

@@ -84,7 +84,7 @@ function divergenceReais(b: Batch): number {
  * A detecção é sobre o arquivo, nunca sobre o banco: bastam as colunas pra
  * saber qual parser lê aquilo. Quem transforma formato em conta é a config.
  */
-export function detectFormat(csv: string): StatementFormat | InvoiceFormat | null {
+function detectFormat(csv: string): StatementFormat | InvoiceFormat | null {
   const head = csv.slice(0, 4096).toLowerCase();
   if (head.includes("identificador") && head.includes("valor")) return "ids";
   if (head.includes("data lançamento") || head.includes("data lancamento")) return "running-balance";
@@ -105,7 +105,7 @@ export function detectAccount(csv: string): string | null {
  * Cravar um id aqui (ou no cliente) traria de volta pro código a decisão que
  * mora na config.
  */
-export function detectIsInvoice(csv: string): boolean {
+function detectIsInvoice(csv: string): boolean {
   return detectFormat(csv) === "itemized";
 }
 

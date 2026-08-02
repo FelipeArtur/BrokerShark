@@ -12,12 +12,12 @@
     return hasDOM && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   }
 
-  function coinDrop(x, y) {
+  function coinDrop() {
     if (!hasDOM || reduced()) return;
     const el = document.createElement("div");
     el.className = "bs-coin"; el.textContent = "+";
-    el.style.left = (x || window.innerWidth / 2) + "px";
-    el.style.top = (y || 80) + "px";
+    el.style.left = (window.innerWidth / 2) + "px";
+    el.style.top = "80px";
     document.body.appendChild(el);
     setTimeout(() => el.remove(), 650);
   }
