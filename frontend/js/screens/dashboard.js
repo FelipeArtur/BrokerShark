@@ -1,8 +1,10 @@
 (function () {
 
+const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
+
 const { useState: _dSt, useEffect: _dEf, useMemo: _dMemo, useCallback: _dCb } = React;
 const { fmtBRL, fmtBRLCompact, fmtCompact, fmtDateBR, PT_MONTHS, PT_SHORT,
-        isConsumptionExpense, bankColor, bankLabel, bankShortLabel, fullDateBR } = window.BS;
+        isConsumptionExpense, bankColor, bankShortLabel, fullDateBR } = window.BS;
 
 const INV_TYPE_LABEL = {
   rdb: "Reserva (RDB)", cdb: "CDB / Renda fixa", tesouro: "Tesouro Direto",
@@ -10,7 +12,6 @@ const INV_TYPE_LABEL = {
 };
 
 function Delta({ value, suffix = "vs mês anterior", invert = false }) {
-  const h = React.createElement;
   if (value == null) return null;
   const good = invert ? value <= 0 : value >= 0;
   return h(React.Fragment, null,
@@ -22,7 +23,6 @@ function Delta({ value, suffix = "vs mês anterior", invert = false }) {
 
 const KpiStrip = React.memo(function KpiStrip({ available, availErr, accounts, cashflow, investTotal,
                     liquidityHistory, evolution, monthLabel, monthly }) {
-  const h = (t, p, ...c) => React.createElement(t, p, ...c);
 
   const checkingTotal = available ? available.checking_total : 0;
   const patrimonio = checkingTotal + investTotal;
@@ -93,9 +93,8 @@ const KpiStrip = React.memo(function KpiStrip({ available, availErr, accounts, c
   );
 });
 
-const GeneralWidget = React.memo(function GeneralWidget({ cashflow, liquidityHistory, monthly, monthSel,
-                         monthTx, uncatCount, backup }) {
-  const h = (t, p, ...c) => React.createElement(t, p, ...c);
+const GeneralWidget = React.memo(function GeneralWidget({ cashflow, liquidityHistory, monthSel,
+                         monthTx, uncatCount, onOpenBulk }) {
 
   const inc = cashflow ? cashflow.income_total : 0;
   const exp = cashflow ? cashflow.expense_total : 0;
@@ -128,21 +127,6 @@ const GeneralWidget = React.memo(function GeneralWidget({ cashflow, liquidityHis
   const patDelta = liquidityHistory.length > 1
     ? liquidityHistory[liquidityHistory.length - 1].value - liquidityHistory[liquidityHistory.length - 2].value : null;
 
-  const first = monthly[0], last = monthly[monthly.length - 1];
-  const cobertura = first && last
-    ? `${PT_SHORT[first.month]}/${first.year} → ${PT_SHORT[last.month]}/${last.year} (${monthly.length} meses)` : "—";
-  const lastTxDate = monthTx.length
-    ? monthTx.reduce((m, t) => (t.date > m ? t.date : m), monthTx[0].date) : null;
-  let backupTxt = "—", backupStale = false;
-  if (backup) {
-    if (!backup.exists) { backupTxt = "Sem backup"; backupStale = true; }
-    else {
-      const d = Math.floor((backup.age_seconds || 0) / 86400);
-      backupTxt = d <= 0 ? "Realizado hoje" : d === 1 ? "Realizado há 1 dia" : `Há ${d} dias`;
-      backupStale = d > 40;
-    }
-  }
-
   return h("div", { className: "widget wg-4" },
     h("div", { className: "widget-h" },
       h("span", { className: "widget-title" }, "Visão Geral do Mês"),
@@ -159,27 +143,52 @@ const GeneralWidget = React.memo(function GeneralWidget({ cashflow, liquidityHis
       ),
 
       h("div", { style: { marginTop: "auto", display: "flex", flexDirection: "column" } },
-        h("div", { className: "stat-row" }, h("span", { className: "k" }, "Período analisado"), h("span", { className: "v mono" }, cobertura)),
         h("div", { className: "stat-row" },
-          h("span", { className: "k" }, "Total de transações"),
-          h("span", { className: "v mono" }, `${monthTx.length}`,
-            uncatCount > 0 && h("span", { style: { color: "var(--warn)", marginLeft: 6 } }, `· ${uncatCount} pendentes`))),
-        h("div", { className: "stat-row" },
-          h("span", { className: "k" }, "Última movimentação"),
-          h("span", { className: "v mono" }, lastTxDate ? fmtDateBR(lastTxDate) : "—")),
-        h("div", { className: "stat-row" },
-          h("span", { className: "k" }, "Status do Backup"),
-          h("span", { className: "v mono", style: backupStale ? { color: "var(--warn)" } : null, title: backup && backup.exists ? backup.name : "Unidade externa não detectada" }, backupTxt))
+          h("span", { className: "k" }, "Lançamentos no mês"),
+          h("span", { className: "v mono" }, `${monthTx.length}`)),
+        uncatCount > 0 && h("button", {
+          className: "stat-row",
+          onClick: onOpenBulk,
+          title: "Abrir a categorização em lote",
+          style: { width: "100%", textAlign: "left", cursor: "pointer", color: "var(--warn)" },
+        },
+          h("span", { className: "k", style: { color: "var(--warn)" } }, "Esperando categoria"),
+          h("span", { className: "v mono", style: { color: "var(--warn)" } }, `${uncatCount} →`)),
       )
     )
   );
 });
 
+// Balão do mês sob o ponteiro — o que o `title=` do navegador dizia, na
+// linguagem da tela.
+//
+// Mora DENTRO da coluna, e é isso que o mantém inteiro sem ninguém medir
+// largura: o balão cresce pro lado onde há espaço (da metade esquerda pra
+// direita, da direita pra esquerda), então nunca sai pela borda da fileira; o
+// rabicho fica a 50% da coluna, que é o centro exato dela. Balão centrado na
+// fileira com rabicho móvel foi a primeira tentativa e desanexou os dois nas
+// pontas — rabicho apontando janeiro com a caixa parada no meio da tela.
+function TimelineTip({ slot, year, alinhaDireita }) {
+  const d = slot.data;
+
+  return h(React.Fragment, null,
+    h("div", { className: "tl-tip", style: alinhaDireita ? { right: 0 } : { left: 0 } },
+      h("span", { className: "tl-tip-h" }, `${PT_MONTHS[slot.month]} ${year}`),
+      d
+        ? h("span", { style: { display: "inline-flex", gap: 10, marginLeft: 12 } },
+            h("span", { style: { color: "var(--pos)" } }, "+" + fmtBRL(d.income)),
+            h("span", { style: { color: "var(--neg)" } }, "−" + fmtBRL(d.expenses)))
+        : h("span", { style: { color: "var(--fg-3)", marginLeft: 12 } }, "sem lançamentos"),
+    ),
+    h("div", { className: "tl-tip-tail" }),
+  );
+}
+
 const TimelineWidget = React.memo(function TimelineWidget({ monthly, monthSel, onPickMonth }) {
-  const h = (t, p, ...c) => React.createElement(t, p, ...c);
   const now = new Date();
   const [browsingYear, setBrowsingYear] = _dSt(null);
   const [compare, setCompare] = _dSt(false);
+  const [hover, setHover] = _dSt(null);
   const activeYear = browsingYear || (monthSel ? monthSel.year : now.getFullYear());
   const years = [...new Set(monthly.map(m => m.year))].sort((a, b) => a - b);
 
@@ -215,21 +224,27 @@ const TimelineWidget = React.memo(function TimelineWidget({ monthly, monthSel, o
           }
         }, y))
       ),
-      h("div", { style: { display: "flex", gap: 2, alignItems: "stretch", flex: 1, minHeight: 0 } },
-        slots.map(slot => {
+      h("div", {
+        style: { display: "flex", gap: 2, alignItems: "stretch", flex: 1, minHeight: 0 },
+        onMouseLeave: () => setHover(null),
+      },
+        slots.map((slot, i) => {
           const d = slot.data;
           const isPicked = d && monthSel && d.year === monthSel.year && d.month === monthSel.month;
           const isCur = activeYear === now.getFullYear() && slot.month === now.getMonth() + 1;
           const net = d ? d.income - d.expenses : 0;
+          // `aria-disabled` no lugar de `disabled`: botão desligado não dispara
+          // evento de mouse nenhum no Chrome, então o balão do mês anterior
+          // ficava preso na tela ao passar por cima de um mês vazio.
           return h("button", {
             key: slot.month,
-            className: `tl-slot${isPicked ? " picked" : ""}`,
-            disabled: !d,
+            className: `tl-slot${isPicked ? " picked" : ""}${d ? "" : " tl-slot--empty"}`,
+            "aria-disabled": d ? undefined : "true",
             onClick: () => d && onPickMonth({ year: d.year, month: d.month }),
-            title: d
-              ? `${PT_MONTHS[slot.month]} ${activeYear} — receitas ${fmtBRL(d.income)} · despesas ${fmtBRL(d.expenses)} · saldo ${net >= 0 ? "+" : "−"}${fmtBRL(Math.abs(net))}`
-              : `${PT_MONTHS[slot.month]} ${activeYear} (sem dados)`,
+            onMouseEnter: () => setHover(i),
+            onFocus: () => setHover(i),
           },
+            hover === i && h(TimelineTip, { slot, year: activeYear, alinhaDireita: i >= slots.length / 2 }),
             h(window.BS.PixelBars, { slot, maxV, isPicked, compare }),
             h("span", { className: "tl-mon", style: isCur && !isPicked ? { color: "var(--fg-1)", fontWeight: 700 } : null },
               PT_SHORT[slot.month]),
@@ -258,13 +273,23 @@ const TimelineWidget = React.memo(function TimelineWidget({ monthly, monthSel, o
   );
 });
 
-const AccountsWidget = React.memo(function AccountsWidget({ accounts, available, filter, onToggleFacet, onManageAccounts }) {
-  const h = (t, p, ...c) => React.createElement(t, p, ...c);
-  // Ordem estável e independente de quem são os bancos: maior saldo primeiro,
-  // desempate por nome. A ordenação anterior casava um prefixo de id de conta
-  // de um banco específico — no-op pra qualquer outra config.
-  const checking = (accounts || []).filter(a => a.type === "checking")
-    .sort((a, b) => (b.balance || 0) - (a.balance || 0) || String(a.name || "").localeCompare(String(b.name || "")));
+const AccountsWidget = React.memo(function AccountsWidget({ accounts, available, monthTx, monthSel,
+                                                           filter, onToggleFacet, onManageAccounts }) {
+  const grupos = window.BS.groupByBank(accounts, true);
+
+  // Gasto no crédito do mês selecionado, por cartão. Era o único número que o
+  // widget de fatura mostrava — e é o que sempre existe: fatura em aberto só
+  // aparece enquanto não foi paga, então sem isto um ledger em dia deixaria o
+  // cartão mudo.
+  const gastoNoMes = _dMemo(() => {
+    const m = new Map();
+    (monthTx || []).forEach(t => {
+      if (t.method !== "credit" || t.is_settlement) return;
+      m.set(t.account_id, (m.get(t.account_id) || 0) + (t.flow === "expense" ? t.amount : -t.amount));
+    });
+    return m;
+  }, [monthTx]);
+  const checking = (accounts || []).filter(a => a.type === "checking");
   const total = available ? available.checking_total : checking.reduce((s, a) => s + (a.balance || 0), 0);
   const colorOf = a => bankColor(a.bank, a.id);
 
@@ -277,11 +302,58 @@ const AccountsWidget = React.memo(function AccountsWidget({ accounts, available,
     ? ((a.balance || 0) / positiveTotal) * 100
     : null);
 
+  const emAberto = (accounts || []).reduce((s, a) => s + (a.open_invoice ? a.open_invoice.total : 0), 0);
+
+  const linhaConta = (a) => h("button", {
+    key: a.id, onClick: () => onToggleFacet && onToggleFacet("accounts", a.id),
+    className: (filter && filter.accounts.has(a.id)) ? "facet-row facet-active" : "facet-row",
+    title: "Filtrar os lançamentos desta conta",
+    style: { display: "flex", flexDirection: "column", gap: 1, padding: "5px 6px", textAlign: "left",
+      cursor: "pointer", background: "none", border: "none", width: "100%" },
+  },
+    h("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
+      h("span", { style: { width: 8, height: 8, background: colorOf(a), flexShrink: 0 } }),
+      h("span", { style: { fontSize: 11, fontWeight: 600, color: "var(--fg-1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, a.name),
+      shareOf(a) != null && h("span", { className: "mono", style: { fontSize: 11, color: "var(--fg-3)", marginLeft: "auto" } }, `${shareOf(a).toFixed(0)}%`)
+    ),
+    h("span", { className: "mono", style: { fontSize: 14, fontWeight: 700, paddingLeft: 16, color: (a.balance || 0) < 0 ? "var(--neg)" : "var(--fg-0)" } }, fmtBRL(a.balance || 0))
+  );
+
+  // Fatura em aberto manda: é dinheiro com data pra sair. Sem ela em aberto, o
+  // cartão reporta o que rodou nele no mês — informação, não compromisso, e por
+  // isso em tom neutro.
+  const linhaCartao = (a) => {
+    const fat = a.open_invoice;
+    const gasto = gastoNoMes.get(a.id) || 0;
+    return h("button", {
+      key: a.id, onClick: () => onToggleFacet && onToggleFacet("accounts", a.id),
+      className: (filter && filter.accounts.has(a.id)) ? "acct-card facet-active" : "acct-card",
+      title: fat
+        ? "Fatura ainda não paga — filtrar os lançamentos deste cartão"
+        : "Filtrar os lançamentos deste cartão",
+    },
+      h("span", { className: "acct-card-tree" }, "└"),
+      h("span", { style: { fontSize: 11, color: "var(--fg-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, a.name),
+      fat
+        ? h(React.Fragment, null,
+            h("span", { className: "mono", style: { marginLeft: "auto", fontSize: 12, fontWeight: 700, color: "var(--warn)" } },
+              "−" + fmtBRL(Math.abs(fat.total))),
+            h("span", { style: { fontSize: 10, color: "var(--fg-3)", flexShrink: 0 } },
+              fat.due_date ? "a pagar · vence " + fmtDateBR(fat.due_date) : "a pagar"))
+        : gasto !== 0
+          ? h(React.Fragment, null,
+              h("span", { className: "mono", style: { marginLeft: "auto", fontSize: 12, fontWeight: 700, color: "var(--fg-1)" } },
+                (gasto >= 0 ? "−" : "+") + fmtBRL(Math.abs(gasto))),
+              h("span", { style: { fontSize: 10, color: "var(--fg-3)", flexShrink: 0 } }, "no mês"))
+          : h("span", { style: { marginLeft: "auto", fontSize: 10, color: "var(--fg-3)" } }, "sem uso no mês"),
+    );
+  };
+
   return h("div", { className: "widget wg-4" },
     h("div", { className: "widget-h" },
       h("span", { className: "widget-title" }, "Contas"),
       h("span", { className: "mono", style: { marginLeft: "auto", fontSize: 12, fontWeight: 700, color: "var(--fg-0)" } }, fmtBRL(total)),
-      h("button", { className: "px-btn px-btn--ghost px-btn--sm", title: "Gerenciar contas", onClick: onManageAccounts }, "⚙")
+      h("button", { className: "px-btn px-btn--ghost px-btn--sm", title: "Gerenciar contas e cartões", onClick: onManageAccounts }, "⚙")
     ),
     h("div", { className: "widget-body", style: { gap: 10 } },
       positiveTotal > 0 && checking.length > 1 && h("div", { style: { display: "flex", gap: 3, height: 5, flexShrink: 0 } },
@@ -291,31 +363,24 @@ const AccountsWidget = React.memo(function AccountsWidget({ accounts, available,
         })
       ),
       h("div", { style: { display: "flex", flexDirection: "column" } },
-        checking.map((a, i, arr) => {
-          const active = filter && filter.accounts.has(a.id);
-          return h("button", {
-            key: a.id, onClick: () => onToggleFacet && onToggleFacet("accounts", a.id),
-            className: active ? "facet-row facet-active" : "facet-row",
-            style: { display: "flex", flexDirection: "column", gap: 2, padding: "9px 6px", textAlign: "left", cursor: "pointer", background: "none",
-              border: "none", borderBottom: i < arr.length - 1 ? "1px dashed var(--line-1)" : "none" }
-          },
-            h("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
-              h("span", { style: { width: 8, height: 8, background: colorOf(a), flexShrink: 0 } }),
-              h("span", { style: { fontSize: 11, fontWeight: 600, color: "var(--fg-1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, a.name),
-              shareOf(a) != null && h("span", { className: "mono", style: { fontSize: 11, color: "var(--fg-3)", marginLeft: "auto" } }, `${shareOf(a).toFixed(0)}%`)
-            ),
-            h("span", { className: "mono", style: { fontSize: 15, fontWeight: 700, paddingLeft: 16, color: (a.balance || 0) < 0 ? "var(--neg)" : "var(--fg-0)" } }, fmtBRL(a.balance || 0))
-          );
-        })
-      )
+        grupos.map((g, i) => h("div", {
+          key: g.bank,
+          style: { borderBottom: i < grupos.length - 1 ? "1px dashed var(--line-1)" : "none", paddingBottom: 3, marginBottom: 3 },
+        },
+          g.contas.map(linhaConta),
+          g.cartoes.map(linhaCartao),
+        ))
+      ),
+      emAberto > 0 && h("div", { style: { marginTop: "auto", paddingTop: 8, display: "flex", justifyContent: "space-between", alignItems: "baseline", flexShrink: 0, fontSize: 11 } },
+        h("span", { style: { color: "var(--fg-3)" } }, "Faturas a pagar"),
+        h("span", { className: "mono", style: { fontWeight: 700, color: "var(--warn)" } }, "−" + fmtBRL(emAberto))),
     )
   );
 });
 
 const CategoriesWidget = React.memo(function CategoriesWidget({ monthTx, uncatCount, onOpenBulk, filter,
                                                                onToggleFacet, catsIndex, monthSel, onBudgetSaved,
-                                                               onManageCategories, onCreateCategory }) {
-  const h = (t, p, ...c) => React.createElement(t, p, ...c);
+                                                               onManageCategories }) {
   const expenses = monthTx.filter(isConsumptionExpense);
   const totalExp = expenses.reduce((s, t) => s + t.amount, 0);
   const [editing, setEditing] = _dSt(null);
@@ -334,8 +399,7 @@ const CategoriesWidget = React.memo(function CategoriesWidget({ monthTx, uncatCo
     h("div", { className: "widget-h" },
       h("span", { className: "widget-title" }, "Categorias"),
       h("span", { className: "mono", style: { marginLeft: "auto", fontSize: 12, fontWeight: 700, color: "var(--neg)" } }, "−" + fmtBRL(totalExp)),
-      h("button", { className: "px-btn px-btn--ghost px-btn--sm", style: { marginLeft: 8 }, title: "Nova categoria", onClick: onCreateCategory }, "+ Nova"),
-      h("button", { className: "px-btn px-btn--ghost px-btn--sm", title: "Gerenciar categorias", onClick: onManageCategories }, "⚙")
+      h("button", { className: "px-btn px-btn--ghost px-btn--sm", title: "Criar, renomear e apagar categorias", onClick: onManageCategories }, "⚙")
     ),
     h("div", { className: "widget-body", style: { gap: 8 } },
       byCat.length === 0
@@ -358,7 +422,6 @@ const CategoriesWidget = React.memo(function CategoriesWidget({ monthTx, uncatCo
 });
 
 function CategoryRow({ c, meta, active, onFacet, editing, onEdit, onEditDone, monthSel, onBudgetSaved }) {
-  const h = (t, p, ...cc) => React.createElement(t, p, ...cc);
   const budget = meta && meta.budget_cents != null ? meta.budget_cents / 100 : null;
   const st = window.BS.budgetState(c.total, budget);
   const [draft, setDraft] = _dSt("");
@@ -425,62 +488,7 @@ function CategoryRow({ c, meta, active, onFacet, editing, onEdit, onEditDone, mo
   );
 }
 
-const FaturaWidget = React.memo(function FaturaWidget({ monthTx, filter, onToggleFacet }) {
-  const h = (t, p, ...c) => React.createElement(t, p, ...c);
-
-  const { faturaItems, totalFatura, byBank } = _dMemo(() => {
-    const items = monthTx.filter(t => t.method === "credit" && !t.is_settlement);
-    const total = items.reduce((s, t) => s + (t.flow === "expense" ? t.amount : -t.amount), 0);
-    const banks = {};
-    items.forEach(t => {
-      const bank = bankLabel(t.bank, t.account_id);
-      banks[bank] = (banks[bank] || 0) + (t.flow === "expense" ? t.amount : -t.amount);
-    });
-    return { faturaItems: items, totalFatura: total, byBank: banks };
-  }, [monthTx]);
-
-  return h("div", { className: "widget wg-7" },
-    h("div", { className: "widget-h" },
-      h("span", { className: "widget-title" }, "Fatura do Cartão"),
-      h("span", { className: "mono", style: { marginLeft: "auto", fontSize: 12, fontWeight: 700, color: totalFatura > 0 ? "var(--neg)" : "var(--fg-0)" } }, (totalFatura >= 0 ? "−" : "+") + fmtBRL(Math.abs(totalFatura)))
-    ),
-    h("div", { className: "widget-body", style: { gap: 10 } },
-      faturaItems.length === 0
-        ? h("div", { className: "px-empty" }, "Nenhuma despesa no crédito neste mês.")
-        : h(React.Fragment, null,
-            h("div", { style: { display: "flex", gap: 3, height: 5, flexShrink: 0 } },
-              Object.entries(byBank).map(([bank, amt]) => {
-                const pct = ((amt) / totalFatura) * 100;
-                const color = bankColor(bank, null);
-                return pct > 0.5 && h("div", { key: bank, title: `${bank}: ${pct.toFixed(0)}%`, style: { width: pct + "%", background: color, opacity: 0.85 } });
-              })
-            ),
-            h("div", { style: { display: "flex", flexDirection: "column" } },
-              Object.entries(byBank).map(([bank, amt], i, arr) => {
-                const color = bankColor(bank, null);
-                const active = filter && filter.banks.has(bank);
-                return h("button", {
-                  key: bank, onClick: () => onToggleFacet && onToggleFacet("banks", bank),
-                  className: active ? "facet-row facet-active" : "facet-row",
-                  style: { display: "flex", flexDirection: "column", gap: 2, padding: "9px 6px", textAlign: "left", cursor: "pointer", background: "none",
-                    border: "none", borderBottom: i < arr.length - 1 ? "1px dashed var(--line-1)" : "none" }
-                },
-                  h("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
-                    h("span", { style: { width: 8, height: 8, background: color, flexShrink: 0 } }),
-                    h("span", { style: { fontSize: 11, fontWeight: 600, color: "var(--fg-1)" } }, `Fatura ${bank}`),
-                    totalFatura > 0 && h("span", { className: "mono", style: { fontSize: 11, color: "var(--fg-3)", marginLeft: "auto" } }, `${((amt / totalFatura) * 100).toFixed(0)}%`)
-                  ),
-                  h("span", { className: "mono", style: { fontSize: 15, fontWeight: 700, paddingLeft: 16, color: "var(--neg)" } }, (amt >= 0 ? "−" : "+") + fmtBRL(Math.abs(amt)))
-                );
-              })
-            )
-          )
-    )
-  );
-});
-
 const InvestmentsWidget = React.memo(function InvestmentsWidget({ investments, evolution, onOpenPosition }) {
-  const h = (t, p, ...c) => React.createElement(t, p, ...c);
 
   const typeLabel = t => INV_TYPE_LABEL[t] || (t ? t[0].toUpperCase() + t.slice(1) : "Investimento");
   const total = investments.reduce((s, i) => s + (i.balance || 0), 0);
@@ -549,119 +557,90 @@ const InvestmentsWidget = React.memo(function InvestmentsWidget({ investments, e
 const CADENCE_LABEL = { 1: "todo mês", 2: "a cada 2 meses", 3: "a cada 3 meses" };
 const cadenceLabel = (n) => CADENCE_LABEL[n] || `a cada ${n} meses`;
 
-// Coluna de um mês: comprometido DURO sólido embaixo, previsto recorrente
-// dithered por cima. O dither é o vocabulário de "não é certo" do sistema.
-function ForwardColumn({ slot, scale }) {
-  const h = (t, p, ...c) => React.createElement(t, p, ...c);
-  const px = (v, max) => (v > 0 ? Math.max((v / max) * 52, 2) : 0);
+// O que está comprometido no mês selecionado. Duas fontes, as duas ancoradas em
+// dado real: parcela que o banco declarou na fatura ("2 de 3") e recorrência que
+// VOCÊ apontou na ficha de um lançamento. Nada é deduzido do histórico.
+const ForwardWidget = React.memo(function ForwardWidget({ commitments, monthSel, onEditCategory, monthTx }) {
 
-  return h("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 4, width: 24 } },
-    h("div", { style: { height: 52, width: 12, display: "flex", flexDirection: "column", justifyContent: "flex-end" } },
-      slot.recurringExpense > 0 && h("div", {
-        className: "dither-warn",
-        title: `previsto ${fmtBRL(slot.recurringExpense)}`,
-        style: { width: "100%", minHeight: 2, height: px(slot.recurringExpense, scale.outflow) },
-      }),
-      slot.committed > 0 && h("div", {
-        title: `comprometido ${fmtBRL(slot.committed)}`,
-        style: { width: "100%", minHeight: 2, height: px(slot.committed, scale.outflow), background: "var(--warn)" },
-      }),
-    ),
-    h("span", { className: "mono", style: { fontSize: 10, color: "var(--fg-2)" } }, slot.label.slice(0, 2)),
-  );
-}
+  const parcelas = (commitments && commitments.installments) || [];
+  const recorrentes = (commitments && commitments.recurring) || [];
+  const totalSaida = (commitments && commitments.total_out) || 0;
+  const mesNome = monthSel ? `${PT_MONTHS[monthSel.month].toLowerCase()}` : "";
+  const vazio = parcelas.length === 0 && recorrentes.length === 0;
 
-const ForwardWidget = React.memo(function ForwardWidget({ commitments }) {
-  const h = (t, p, ...c) => React.createElement(t, p, ...c);
-  const [detailOpen, setDetailOpen] = _dSt(false);
+  // Clicar abre a ficha do lançamento — é de lá que a recorrência se declara e
+  // se desfaz, então a linha leva de volta à sua própria origem.
+  const abrir = (id) => {
+    const tx = (monthTx || []).find(t => t.id === id);
+    if (tx && onEditCategory) onEditCategory(tx);
+  };
 
-  const recurring = (commitments && commitments.recurring) ||
-    { items: [], series: [], expense_monthly: 0, income_monthly: 0 };
-  const maturities = (commitments && commitments.maturities) || [];
-  const merged = window.BS.mergeForwardSeries((commitments && commitments.series) || [], recurring.series);
-  const scale = window.BS.forwardScale(merged);
-  const hasAny = merged.length > 0;
-  const hasDetail = recurring.items.length > 0 || maturities.length > 0;
+  const linha = ({ key, id, quando, titulo, selo, seloCor, valor, flow, esmaecido }) =>
+    h("button", {
+      key,
+      className: "cmt-row",
+      onClick: id ? () => abrir(id) : undefined,
+      disabled: !id,
+      style: esmaecido ? { opacity: 0.65 } : null,
+    },
+      h("span", { className: "mono cmt-quando" }, quando),
+      h("span", { className: "cmt-titulo", title: titulo }, titulo),
+      selo && h("span", { className: "cmt-selo", style: { color: seloCor, borderColor: seloCor } }, selo),
+      h("span", { className: "mono cmt-valor", style: { color: flow === "income" ? "var(--pos)" : "var(--warn)" } },
+        (flow === "income" ? "+" : "−") + fmtBRL(Math.abs(valor))),
+    );
 
-  const detail = h(window.BS.Overlay, { open: detailOpen, onClose: () => setDetailOpen(false) },
-    h("div", { className: "widget-h", style: { flexShrink: 0 } },
-      h("span", { className: "widget-title" }, "O que vem pela frente"),
-      h("button", { className: "px-btn", onClick: () => setDetailOpen(false) }, "‹ VOLTAR"),
-    ),
-    h("div", { style: { padding: 12, overflowY: "auto", display: "flex", flexDirection: "column", gap: 10 } },
-      h("span", { className: "widget-title", style: { fontSize: 11 } }, "Recorrências detectadas"),
-      h("p", { style: { fontSize: 11, color: "var(--fg-3)", margin: 0, lineHeight: 1.5 } },
-        "Derivado do extrato — nada aqui foi digitado. Um lançamento vira recorrência quando o mesmo ",
-        "destino se repete por 3 meses ou mais com valor estável e cadência regular."),
-      recurring.items.length === 0
-        ? h("div", { className: "px-empty" }, "Nenhuma recorrência detectada no histórico recente.")
-        : recurring.items.map(it => h("div", {
-            key: it.flow + "|" + it.merchant,
-            className: "px-row",
-            style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 },
-          },
-          h("div", { style: { minWidth: 0 } },
-            h("div", {
-              title: it.merchant,
-              style: { fontSize: 12, color: "var(--fg-1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
-            }, window.BS.merchantLabel(it.merchant)),
-            h("div", { style: { fontSize: 11, color: "var(--fg-3)", marginTop: 2 } },
-              cadenceLabel(it.cadence_months), " · ", it.occurrences, " ocorrências · última em ", it.last_month,
-              it.stale_months > 0 ? ` · ${it.stale_months} ${it.stale_months === 1 ? "mês" : "meses"} sem repetir` : ""),
-          ),
-          h("span", { className: "mono", style: { flexShrink: 0, color: it.flow === "income" ? "var(--pos)" : "var(--warn)" } },
-            (it.flow === "income" ? "+" : "−") + fmtBRL(it.monthly)),
-        )),
-
-      h("span", { className: "widget-title", style: { fontSize: 11, marginTop: 8 } }, "Vencimentos"),
-      h("p", { style: { fontSize: 11, color: "var(--fg-3)", margin: 0, lineHeight: 1.5 } },
-        "Posições em aberto com data de vencimento. O valor é o do último extrato — ",
-        "rendimento até lá se computa, não se estima."),
-      maturities.length === 0
-        ? h("div", { className: "px-empty" }, "Nenhuma posição com vencimento à frente.")
-        : maturities.map(m => h("div", {
-            key: m.name,
-            className: "px-row",
-            style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 },
-          },
-          h("div", { style: { minWidth: 0 } },
-            h("div", { style: { fontSize: 12, color: "var(--fg-1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } },
-              m.name),
-            h("div", { style: { fontSize: 11, color: "var(--fg-3)", marginTop: 2 } },
-              "vence em ", fullDateBR(m.maturity_date), m.group_name ? ` · ${m.group_name}` : ""),
-          ),
-          h("span", { className: "mono", style: { flexShrink: 0, color: "var(--reserve)" } }, fmtBRL(m.value)),
-        )),
-    ),
-  );
-
-  return h("div", { className: "widget wg-7" },
+  return h("div", { className: "widget wg-14" },
     h("div", { className: "widget-h" },
-      h("span", { className: "widget-title" }, "Visão de Futuro"),
-      hasDetail && h("button", {
-        className: "px-btn", onClick: () => setDetailOpen(true),
-      }, "DETALHAR"),
+      h("span", { className: "widget-title" }, "Comprometido"),
+      h("span", { style: { fontSize: 11, color: "var(--fg-3)", textTransform: "capitalize" } }, mesNome),
+      totalSaida > 0 && h("span", { className: "mono", style: { marginLeft: "auto", fontSize: 12, fontWeight: 700, color: "var(--warn)" } },
+        "−" + fmtBRL(totalSaida)),
     ),
-    h("div", { className: "widget-body", style: { gap: 8, overflow: "hidden" } },
-      !hasAny
-        ? h("div", { className: "px-empty" }, "Nada comprometido nem recorrente à frente.")
-        : h("div", { style: { display: "flex", alignItems: "flex-end", gap: 6, overflowX: "auto" } },
-            merged.map(s => h(ForwardColumn, { key: s.month, slot: s, scale }))),
+    h("div", { className: "widget-body", style: { gap: 4 } },
+      vazio
+        ? h("div", { className: "px-empty", style: { lineHeight: 1.6 } },
+            "Nenhuma parcela nem recorrente neste mês.",
+            h("br"),
+            h("span", { style: { fontSize: 11 } },
+              "Parcela aparece sozinha quando a fatura traz uma. Recorrente você marca na ficha do lançamento."))
+        : h(React.Fragment, null,
 
-      hasAny && h("div", { style: { marginTop: 8, display: "flex", flexDirection: "column", gap: 2 } },
-        merged.slice(0, 6).map(s => h("div", { key: s.month, style: { display: "flex", justifyContent: "space-between", gap: 8, fontSize: 11 } },
-          h("span", { style: { color: "var(--fg-2)" } }, s.label),
-          h("span", { style: { display: "flex", gap: 8 } },
-            s.outflow > 0 && h("span", { className: "mono", style: { color: "var(--warn)" } }, "− " + fmtBRL(s.outflow)),
-            s.inflow > 0 && h("span", { className: "mono", style: { color: "var(--pos)" } }, "+ " + fmtBRL(s.inflow)),
+            parcelas.length > 0 && h(React.Fragment, null,
+              h("div", { className: "cmt-secao" }, "Parcelas"),
+              parcelas.map(p => linha({
+                key: "p" + p.transaction_id,
+                id: p.transaction_id,
+                quando: fmtDateBR(p.date),
+                titulo: window.BS.prettifyDesc(p.label),
+                selo: `${p.seq}/${p.total}`,
+                seloCor: "var(--fg-3)",
+                valor: p.amount,
+                flow: p.flow,
+              })),
+              parcelas.some(p => p.remaining > 0) && h("div", { className: "cmt-nota" },
+                (() => {
+                  const n = parcelas.reduce((s, p) => s + p.remaining, 0);
+                  return `${n} ${n === 1 ? "parcela ainda vem" : "parcelas ainda vêm"} depois deste mês.`;
+                })()),
+            ),
+
+            recorrentes.length > 0 && h(React.Fragment, null,
+              h("div", { className: "cmt-secao" }, "Recorrentes"),
+              recorrentes.map(r => linha({
+                key: "r" + r.transaction_id,
+                id: r.transaction_id,
+                quando: r.confirmed ? fmtDateBR(r.date) : `dia ${String(r.day).padStart(2, "0")}`,
+                titulo: window.BS.prettifyDesc(r.label),
+                selo: r.confirmed ? "já caiu" : "previsto",
+                seloCor: r.confirmed ? "var(--fg-3)" : "var(--warn)",
+                valor: r.amount,
+                flow: r.flow,
+                esmaecido: r.duplicate_of_installment,
+              })),
+            ),
           ),
-        ))
-      ),
-
-      hasAny && h("div", { style: { marginTop: 6, fontSize: 10, color: "var(--fg-3)", lineHeight: 1.5 } },
-        "Sólido = comprometido · dithered = previsto pela recorrência"),
     ),
-    detail,
   );
 });
 
@@ -669,7 +648,6 @@ const refMonthOf = (monthSel) =>
   monthSel ? `${monthSel.year}-${String(monthSel.month).padStart(2, "0")}` : undefined;
 
 function DashboardView({ monthSel, monthly, onPickMonth, refreshKey, onEditCategory, onImport, onManageCategories, onManageAccounts, onOpenPosition }) {
-  const h = (t, p, ...c) => React.createElement(t, p, ...c);
   const [available, setAvailable] = _dSt(null);
   const [commitments, setCommitments] = _dSt(null);
   const [availErr, setAvailErr] = _dSt(false);
@@ -679,7 +657,6 @@ function DashboardView({ monthSel, monthly, onPickMonth, refreshKey, onEditCateg
   const [investments, setInvestments] = _dSt([]);
   const [liquidityHistory, setLiquidityHistory] = _dSt([]);
   const [evolution, setEvolution] = _dSt([]);
-  const [backup, setBackup] = _dSt(null);
   const [cashflow, setCashflow] = _dSt(null);
   const [monthTx, setMonthTx] = _dSt([]);
   const [uncatCount, setUncatCount] = _dSt(0);
@@ -699,8 +676,6 @@ function DashboardView({ monthSel, monthly, onPickMonth, refreshKey, onEditCateg
   _dEf(() => {
     setAvailErr(false); setLoadErr(false);
     fetchAvailable().then(setAvailable).catch(() => setAvailErr(true));
-    fetchCommitments().then(setCommitments).catch(() => {});
-    fetchBackupStatus().then(setBackup).catch(() => {});
     Promise.all([fetchAccounts(), fetchInvestments(), fetchLiquidityHistory(), fetchInvestmentEvolution()])
       .then(([ac, invs, lh, ev]) => {
         setAccounts(ac); setInvestments(invs);
@@ -711,6 +686,7 @@ function DashboardView({ monthSel, monthly, onPickMonth, refreshKey, onEditCateg
   _dEf(() => {
     if (!monthSel) return;
     const { month, year } = monthSel;
+    fetchCommitments({ month, year }).then(setCommitments).catch(() => {});
     fetchCashflowStatement({ month, year }).then(setCashflow).catch(() => {});
     fetchMonthTransactions({ month, year }).then(setMonthTx).catch(() => {});
     fetchUncategorizedMerchants({ year, month })
@@ -776,17 +752,16 @@ function DashboardView({ monthSel, monthly, onPickMonth, refreshKey, onEditCateg
     h("div", { className: "dash-main fade-in" },
       h("div", { className: "widget-band" },
         h("div", { className: "widget-row" },
-          h(GeneralWidget, { cashflow, liquidityHistory, monthly, monthSel, monthTx, uncatCount, backup }),
+          h(GeneralWidget, { cashflow, liquidityHistory, monthSel, monthTx, uncatCount,
+            onOpenBulk: () => setBulkOpen(true) }),
           h(TimelineWidget, { monthly, monthSel, onPickMonth }),
-          h(AccountsWidget, { accounts, available, filter, onToggleFacet, onManageAccounts }),
+          h(AccountsWidget, { accounts, available, monthTx, monthSel, filter, onToggleFacet, onManageAccounts }),
           h(CategoriesWidget, { monthTx, uncatCount, onOpenBulk: () => setBulkOpen(true), filter, onToggleFacet,
-            catsIndex, monthSel, onBudgetSaved: reloadBudgets,
-            onManageCategories, onCreateCategory: onManageCategories }),
+            catsIndex, monthSel, onBudgetSaved: reloadBudgets, onManageCategories }),
           h(InvestmentsWidget, { investments, evolution, onOpenPosition }),
         ),
         h("div", { className: "widget-row widget-row--soft" },
-          h(FaturaWidget, { monthTx, filter, onToggleFacet }),
-          h(ForwardWidget, { commitments }),
+          h(ForwardWidget, { commitments, monthSel, monthTx, onEditCategory }),
         ),
       ),
       h(window.BS.FilterBar, { filter, onRemove: (kind, value) => {

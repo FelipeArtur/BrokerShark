@@ -65,5 +65,31 @@
     return full.length <= 8 ? full : full.slice(0, 8);
   }
 
-  return { bankColor, bankLabel, bankShortLabel, setBankColors };
+  /**
+   * Contas agrupadas por banco, cartão aninhado sob a conta que paga a fatura.
+   *
+   * Cartão não é conta irmã: é a fatura de uma conta. Quem decide o parentesco
+   * é o banco em comum, não um campo de vínculo — a configuração já expressa
+   * isso, e uma coluna a mais só pagaria por si num cartão pago por conta de
+   * outra instituição.
+   *
+   * Mora aqui porque duas telas precisam da mesma árvore (o widget e o painel),
+   * e duas cópias divergiriam no primeiro ajuste de ordenação.
+   *
+   * @param ordenarPorSaldo maior saldo primeiro (widget); sem isso, por nome
+   *                        do banco, que é a ordem estável do painel.
+   */
+  function groupByBank(accounts, ordenarPorSaldo = false) {
+    const grupos = new Map();
+    for (const a of accounts || []) {
+      const g = grupos.get(a.bank) || { bank: a.bank, contas: [], cartoes: [] };
+      (a.type === "credit_card" ? g.cartoes : g.contas).push(a);
+      grupos.set(a.bank, g);
+    }
+    const saldo = g => g.contas.reduce((s, a) => s + (a.balance || 0), 0);
+    return [...grupos.values()].sort((x, y) =>
+      (ordenarPorSaldo ? saldo(y) - saldo(x) : 0) || String(x.bank).localeCompare(String(y.bank)));
+  }
+
+  return { bankColor, bankLabel, bankShortLabel, setBankColors, groupByBank };
 });

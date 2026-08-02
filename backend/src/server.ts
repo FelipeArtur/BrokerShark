@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import { openDb, initSchema, restrictPermissions } from "./db/open.ts";
+import { openDb, initSchema, restrictPermissions, pickDbPath } from "./db/open.ts";
 import { runMigrations } from "./db/migrate.ts";
 import type { Req, Res } from "./http/respond.ts";
 import { error, json, HttpError } from "./http/respond.ts";
@@ -24,8 +24,7 @@ import { backupStatus, backupDir } from "./jobs/backup.ts";
 const args = process.argv.slice(2);
 const portIdx = args.indexOf("--port");
 const PORT = portIdx >= 0 ? Number(args[portIdx + 1]) : Number(process.env.PORT ?? 8000);
-const dbPath = args.find((a, i) => !a.startsWith("--") && i !== portIdx + 1)
-  ?? join(import.meta.dirname, "../data/brokershark-v2.db");
+const dbPath = pickDbPath(args) ?? join(import.meta.dirname, "../data/brokershark-v2.db");
 const serveStatic = makeStatic(resolve(import.meta.dirname, "../../frontend"));
 // Mesma ordem do job que ESCREVE (jobs/backup.ts): env → config → padrão. Se os
 // dois divergirem, este painel anuncia "sem backup" com backups existindo.
@@ -53,8 +52,13 @@ const routes: Route[] = [
   ...ruleRoutes(db),
 ];
 
+// O que alimenta o HUD da barra superior: até onde os dados vão e quando foi o
+// último snapshot. As duas respondem à mesma pergunta ("o ledger está em dia?"),
+// então viajam juntas — o painel não precisa de duas idas ao servidor pra pintar
+// dois chips de 10px.
 function handleBackupStatus(_req: Req, res: Res): void {
-  json(res, backupStatus(BACKUP_DIR));
+  const last = db.prepare("SELECT MAX(date) AS d FROM transactions").get() as { d: string | null };
+  json(res, { ...backupStatus(BACKUP_DIR), last_tx_date: last.d });
 }
 
 const server = createServer(async (req: Req, res: Res) => {

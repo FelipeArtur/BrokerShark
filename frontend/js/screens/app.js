@@ -1,5 +1,7 @@
 (function () {
 
+const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
+
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
 const {
   fmtBRL, fmtDateBR, Modal, useToasts, BankChip, BrokerSharkLogo,
@@ -11,7 +13,6 @@ const {
 } = window.BS;
 
 function ConfirmDeleteModal({ tx, onCancel, onConfirm }) {
-  const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   const desc = tx.display_name || window.BS.prettifyDesc(tx.description) || "";
   const _self = isSelf(tx);
 
@@ -46,7 +47,6 @@ function ConfirmDeleteModal({ tx, onCancel, onConfirm }) {
 }
 
 function MonthNav({ monthly, monthSel, onPick }) {
-  const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   if (!monthly.length || !monthSel) return null;
   const idx = monthly.findIndex(m => m.year === monthSel.year && m.month === monthSel.month);
   const now = new Date();
@@ -70,8 +70,33 @@ function MonthNav({ monthly, monthSel, onPick }) {
   );
 }
 
+// Estado do ledger na barra superior: até onde os dados vão e quando foi o
+// último backup. Moravam no widget do mês, que é sobre dinheiro — e ali
+// competiam com os números por atenção sem nunca mudar de mês pra mês. Aqui são
+// dois chips de canto: verde some da consciência, âmbar chama.
+function LedgerHud({ status }) {
+  if (!status) return null;
+
+  const dias = status.exists ? Math.floor((status.age_seconds || 0) / 86400) : null;
+  const backup = !status.exists
+    ? { tone: "var(--warn)", text: "sem backup", title: "Nenhum snapshot na pasta de backup." }
+    : dias > 40
+      ? { tone: "var(--warn)", text: `backup há ${dias} dias`, title: status.name }
+      : { tone: "var(--pos)", text: "backup em dia", title: `${status.name} · ${dias <= 0 ? "hoje" : dias === 1 ? "ontem" : `há ${dias} dias`}` };
+
+  const chip = (tone, text, title) => h("span", { className: "hud-chip", title },
+    h("span", { className: "hud-led", style: { background: tone } }),
+    text);
+
+  return h("div", { className: "hud" },
+    status.last_tx_date && chip("var(--fg-faint)",
+      `dados até ${fmtDateBR(status.last_tx_date)}`,
+      "Data do lançamento mais recente no ledger."),
+    chip(backup.tone, backup.text, backup.title),
+  );
+}
+
 function App() {
-  const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   const [editTx, setEditTx] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -81,6 +106,7 @@ function App() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [monthly, setMonthly] = useState([]);
   const [monthSel, setMonthSel] = useState(null);
+  const [ledgerStatus, setLedgerStatus] = useState(null);
   // As cores de banco vivem num mapa de módulo (domain/bank.js), fora do
   // React — então preenchê-lo não repinta nada sozinho. Este contador existe
   // só pra dar o empurrão, uma vez, quando as cores chegam: sem ele a primeira
@@ -130,6 +156,25 @@ function App() {
     return () => { clearTimeout(debounce); es?.close(); };
   }, []);
 
+  useEffect(() => {
+    fetchBackupStatus().then(setLedgerStatus).catch(() => {});
+  }, [refreshKey]);
+
+  // O aviso de backup vencido é a única coisa aqui que merece interromper: o
+  // chip âmbar informa quem olha, o toast alcança quem não olhou.
+  const backupWarned = useRef(false);
+  useEffect(() => {
+    if (!ledgerStatus || backupWarned.current) return;
+    const dias = Math.floor((ledgerStatus.age_seconds || 0) / 86400);
+    if (!ledgerStatus.exists) {
+      backupWarned.current = true;
+      push("Nenhum backup encontrado. Seu ledger existe num arquivo só.", "error");
+    } else if (dias > 40) {
+      backupWarned.current = true;
+      push(`Último backup há ${dias} dias.`, "info");
+    }
+  }, [ledgerStatus, push]);
+
   useEffect(() => { window.BS.juice.boot(document.getElementById("app")); }, []);
 
   async function handleDeleteTx(id) {
@@ -158,6 +203,7 @@ function App() {
       h(BrokerSharkLogo, { size: 24 }),
       h(MonthNav, { monthly, monthSel, onPick: setMonthSel }),
       h("div", { style: { flex: 1 } }),
+      h(LedgerHud, { status: ledgerStatus }),
       h("button", { className: "px-btn px-btn--primary", onClick: () => setImportOpen(true) },
         h(window.BS.IconImport, { size: 14 }), "Importar"
       ),
@@ -200,17 +246,19 @@ function App() {
         setRefreshKey(k => k + 1);
       },
     }),
-    categoriesOpen && h(window.BS.Overlay, {
-      open: categoriesOpen, onClose: () => setCategoriesOpen(false), width: 720
-    }, h(window.BS.CategoriesPanel, { refreshKey, onRefresh: () => setRefreshKey(k => k + 1), onClose: () => setCategoriesOpen(false) })),
+    categoriesOpen && h(window.BS.CategoriesPanel, {
+      refreshKey, onRefresh: () => setRefreshKey(k => k + 1), onClose: () => setCategoriesOpen(false),
+    }),
 
+    // Overlay de tela cheia, e largo: aqui há ficha, medições e histórico —
+    // é análise, não um cartãozinho de identidade.
     position && h(window.BS.Overlay, {
-      open: true, onClose: () => setPosition(null), width: 820
+      open: true, onClose: () => setPosition(null), width: 1080
     }, h(window.BS.InvestmentPanel, { ids: position.ids, title: position.name, onClose: () => setPosition(null) })),
 
-    accountsOpen && h(window.BS.Overlay, {
-      open: accountsOpen, onClose: () => setAccountsOpen(false), width: 720
-    }, h(window.BS.AccountsPanel, { onRefresh: () => setRefreshKey(k => k + 1), onClose: () => setAccountsOpen(false) })),
+    accountsOpen && h(window.BS.AccountsPanel, {
+      onRefresh: () => setRefreshKey(k => k + 1), onClose: () => setAccountsOpen(false),
+    }),
 
     h(window.BS.CategoryEditor, {
       tx: editTx, onClose: () => setEditTx(null),
@@ -224,7 +272,8 @@ function App() {
           const parts = [];
           if (result?.category) parts.push(`Categoria: ${result.category}`);
           if ("display_name" in (result || {})) parts.push(result.display_name ? `Nome: ${result.display_name}` : "Nome fantasia removido");
-          if ("is_third_party" in (result || {})) parts.push(result.is_third_party ? "Excluído dos gastos" : "Incluído nos gastos");
+          if ("is_third_party" in (result || {})) parts.push(result.is_third_party ? "Marcado em nome de terceiros" : "De volta aos seus totais");
+          if ("recurring" in (result || {})) parts.push(result.recurring ? "Marcado como recorrente" : "Não é mais recorrente");
           push(parts.length ? parts.join(" · ") : "Salvo", "success");
           setRefreshKey(k => k + 1);
         }

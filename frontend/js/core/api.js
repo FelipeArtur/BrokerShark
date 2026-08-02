@@ -84,7 +84,6 @@ async function patchRule(id, fields)       { return _patch(`/api/rules/${id}`, f
 
 async function deleteRule(id)              { return _del(`/api/rules/${id}`); }
 
-async function fetchExpenseCategories()         { return _get("/api/expense-categories"); }
 
 async function fetchCategoriesFull(flow = "expense", month) { return _get(`/api/categories-full${_params({ flow, month })}`); }
 
@@ -92,7 +91,7 @@ async function fetchMonthTransactions({ month, year } = {}) { return _get(`/api/
 
 async function fetchLiquidityHistory()     { return _get("/api/liquidity-history"); }
 
-async function fetchCommitments()           { return _get("/api/commitments"); }
+async function fetchCommitments({ month, year } = {}) { return _get(`/api/commitments${_params({ month, year })}`); }
 
 async function fetchMonthlyFull(bank)      { return _get(`/api/monthly${_params({ bank, present: 1 })}`); }
 

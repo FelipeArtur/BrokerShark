@@ -74,6 +74,24 @@ export function accountRoutes(db: DatabaseSync): Route[] {
     return cents < 0 ? `a conta está com saldo devedor de ${fmtCents(-cents)}` : null;
   }
 
+  /**
+   * Fatura em aberto por cartão — o que ainda falta pagar e quando vence.
+   *
+   * Viaja junto da conta porque cartão não é conta irmã: é a fatura de uma
+   * conta. Enquanto os dois eram linhas independentes na tela, o painel pedia
+   * pra quem lê somar de cabeça o saldo de um com a dívida do outro.
+   *
+   * Um cartão pode ter mais de uma fatura em aberto (mês corrente e um atraso).
+   * O total soma todas; a data é a mais próxima, que é a que cobra primeiro.
+   */
+  function openInvoicesByAccount(): Map<string, { total: number; due_date: string | null }> {
+    const rows = db.prepare(
+      `SELECT account_id, SUM(total_cents) AS cents, MIN(due_date) AS due
+       FROM invoices WHERE payment_tx_id IS NULL GROUP BY account_id`,
+    ).all() as { account_id: string; cents: number; due: string | null }[];
+    return new Map(rows.map(r => [r.account_id, { total: r.cents / 100, due_date: r.due }]));
+  }
+
   function getAccounts(req: Req, res: Res) {
     const bank = qsStr(req, "bank");
     // Por padrão a lista é o que existe hoje; ?closed=1 traz as encerradas junto,
@@ -96,9 +114,12 @@ export function accountRoutes(db: DatabaseSync): Route[] {
       ORDER BY a.closed_at IS NOT NULL, a.bank, a.type, a.name
     `).all(...params) as any[];
 
+    const openInvoices = openInvoicesByAccount();
+
     json(res, rows.map(r => ({
       id: r.id,
       bank: r.bank,
+      open_invoice: openInvoices.get(r.id) ?? null,
       // Cor declarada na config, ou null — a tela deriva do nome quando falta.
       // Vem por conta porque é aqui que a UI já carrega no boot; a chave real
       // é o banco, e duas contas do mesmo banco trazem a mesma cor.

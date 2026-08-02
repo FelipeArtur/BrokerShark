@@ -1,5 +1,7 @@
 (function () {
 
+const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
+
 const { useState: _s2St, useEffect: _s2Ef, useMemo: _s2Memo, useCallback: _s2Cb } = React;
 const { fmtBRL, PT_MONTHS, isConsumptionExpense, isRevenue, isInvest } = window.BS;
 
@@ -22,14 +24,12 @@ const loadCollapsed = () => {
 
 function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkConsumed, monthTx, setMonthTx,
                          filter, setFilterField, onToggleFacet, accounts, catsIndex, isLatestMonth }) {
-  const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   const [bulkGroups, setBulkGroups] = _s2St([]);
   const [bulkOpen, setBulkOpen] = _s2St(false);
   const [sort, setSort] = _s2St({ key: "date", dir: -1 });
   const [catsByFlow, setCatsByFlow] = _s2St({ expense: [], income: [] });
   const [grouped, setGrouped] = _s2St(true);
   const [collapsed, setCollapsed] = _s2St(loadCollapsed);
-  const [selected, setSelected] = _s2St(() => new Set());
 
   _s2Ef(() => {
     Promise.all([fetchCategoriesFull("expense"), fetchCategoriesFull("income")])
@@ -137,23 +137,6 @@ function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkC
     .reduce((s, t) => s + (t.flow === "expense" ? t.amount : -t.amount), 0);
   const hasFilter = window.BS.facetCount(filter) > 0;
 
-  const toggleSelect = _s2Cb((t) => {
-    setSelected(prev => {
-      const next = new Set(prev);
-      next.has(t.id) ? next.delete(t.id) : next.add(t.id);
-      return next;
-    });
-  }, []);
-
-  const toggleSelectGroup = (g) => {
-    setSelected(prev => {
-      const next = new Set(prev);
-      const all = g.txs.every(t => next.has(t.id));
-      g.txs.forEach(t => all ? next.delete(t.id) : next.add(t.id));
-      return next;
-    });
-  };
-
   const Th = (key, label, style) => h("th", {
     className: "sortable", style,
     onClick: () => toggleSort(key),
@@ -163,13 +146,11 @@ function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkC
 
   const cols = ["date", "desc", "cat", "account", "method", "amount"];
   if (showBalance) cols.push("balance");
-  const colSpan = cols.length + 1;
+  const colSpan = cols.length;
 
   const rowFor = (t, g) => h(window.BS.TxRow, {
     key: t.id, t, cols,
     amountSize: g ? window.BS.scaleFor(t.amount, g.maxAmount) : undefined,
-    selected: selected.has(t.id),
-    onToggleSelect: toggleSelect,
     runningBalance: balanceById ? balanceById.get(t.id) : undefined,
     onEditCategory,
     catsByFlow,
@@ -232,7 +213,6 @@ function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkC
     h("div", { className: "table-scroll" },
       h("table", { className: "grid-table" },
         h("thead", null, h("tr", null,
-          h("th", { style: { width: 28 } }),
           Th("date", "Data", { width: 70 }),
           Th("desc", "Descrição"),
           Th("cat", "Categoria", { width: 150 }),
@@ -251,8 +231,6 @@ function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkC
                 const rows = [h(GroupHeader, {
                   key: g.key, g, isOpen, colSpan,
                   onToggle: () => toggleCollapse(g.key),
-                  onToggleSelect: () => toggleSelectGroup(g),
-                  allSelected: g.txs.every(t => selected.has(t.id)),
                   onFacet: g.isCat && onToggleFacet ? () => onToggleFacet("categories", g.label) : null,
                 })];
                 if (isOpen) g.txs.forEach(t => rows.push(rowFor(t, g)));
@@ -263,30 +241,14 @@ function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkC
       )
     ),
 
-    selected.size > 0 && h(SelectionBar, {
-      count: selected.size,
-      onClear: () => setSelected(new Set()),
-      catsByFlow,
-      onCategorize: async (categoryId) => {
-        const ids = [...selected];
-        const all = [...(catsByFlow.expense || []), ...(catsByFlow.income || [])];
-        const catName = all.find(c => c.id === categoryId)?.name || "";
-        try {
-          await categorizeBulk(ids, categoryId);
-          setMonthTx(prev => prev.map(x => ids.includes(x.id) ? { ...x, category_id: categoryId, category: catName } : x));
-          setSelected(new Set());
-          window.dispatchEvent(new CustomEvent("bs-toast", { detail: { msg: `${ids.length} categorizados: ${catName}`, kind: "success" } }));
-        } catch {
-          window.dispatchEvent(new CustomEvent("bs-toast", { detail: { msg: "Erro ao categorizar em lote", kind: "error" } }));
-        }
-      },
-    }),
-
+    // Ordem: investido, entradas, saídas, saldo. O investido vem primeiro
+    // porque é o único que NÃO entra na conta do saldo — deixá-lo entre as
+    // saídas e o resultado sugeria que ele fosse abatido ali.
     h("div", { className: "table-totals" },
+      h("span", { title: "Aplicações menos resgates. Fora do saldo: investir não é gastar nem ganhar." },
+        "Investido ", h(window.BS.Money, { value: Math.abs(filtInv), kind: "invest", emphasis: true, t: { flow: filtInv >= 0 ? "expense" : "income" } })),
       h("span", null, "Entradas ", h(window.BS.Money, { value: filtInc, kind: "revenue", emphasis: true, t: { flow: "income" } })),
       h("span", null, "Saídas ", h(window.BS.Money, { value: filtExp, kind: "expense", emphasis: true, t: { flow: "expense" } })),
-      h("span", { title: "Aplicações menos resgates. Fora do Saldo: investir não é gastar nem ganhar." },
-        "Investido ", h(window.BS.Money, { value: Math.abs(filtInv), kind: "invest", emphasis: true, t: { flow: filtInv >= 0 ? "expense" : "income" } })),
       h("span", null, "Saldo ", h(window.BS.Money, {
         value: Math.abs(filtInc - filtExp), emphasis: true,
         kind: (filtInc - filtExp) >= 0 ? "revenue" : "expense",
@@ -309,18 +271,13 @@ function TxTableWidget({ monthSel, refreshKey, onEditCategory, openBulk, onBulkC
   );
 }
 
-function GroupHeader({ g, isOpen, colSpan, onToggle, onToggleSelect, allSelected, onFacet }) {
-  const h = React.createElement;
+function GroupHeader({ g, isOpen, colSpan, onToggle, onFacet }) {
   const st = window.BS.budgetState(g.total, g.budget);
   const delta = window.BS.groupDelta(g);
   const color = window.BS.KIND_COLOR[g.kind];
 
   return h("tr", { className: "group-header" },
-    h("td", { style: { width: 28 }, onClick: e => e.stopPropagation() },
-      h("input", { type: "checkbox", checked: allSelected, onChange: onToggleSelect,
-        "aria-label": `Selecionar grupo ${g.label}`, style: { cursor: "pointer" } })
-    ),
-    h("td", { colSpan: colSpan - 1, onClick: onToggle, style: { cursor: "pointer" } },
+    h("td", { colSpan, onClick: onToggle, style: { cursor: "pointer" } },
       h("div", { style: { display: "flex", alignItems: "center", gap: 10, width: "100%" } },
         h("span", { className: "mono", style: { color: "var(--fg-3)", fontSize: 11, width: 8 } }, isOpen ? "▾" : "▸"),
         h("span", {
@@ -359,23 +316,6 @@ function GroupHeader({ g, isOpen, colSpan, onToggle, onToggleSelect, allSelected
         }, `${delta > 0 ? "+" : ""}${Math.round(delta * 100)}% vs. mês anterior`)
       )
     )
-  );
-}
-
-function SelectionBar({ count, onClear, catsByFlow, onCategorize }) {
-  const h = React.createElement;
-  const all = [...(catsByFlow.expense || []), ...(catsByFlow.income || [])];
-  return h("div", { className: "selection-bar" },
-    h("span", { style: { fontWeight: 700, fontSize: 11 } }, `${count} selecionado${count > 1 ? "s" : ""}`),
-    h("select", {
-      className: "select", defaultValue: "", "aria-label": "Categorizar selecionados",
-      onChange: e => { if (e.target.value) { onCategorize(parseInt(e.target.value, 10)); e.target.value = ""; } },
-      style: { height: 26, fontSize: 11 },
-    },
-      h("option", { value: "" }, "Categorizar…"),
-      all.map(c => h("option", { key: c.id, value: c.id }, c.name))
-    ),
-    h("button", { className: "px-btn px-btn--ghost px-btn--sm", onClick: onClear }, "Limpar")
   );
 }
 

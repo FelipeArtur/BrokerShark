@@ -1,168 +1,115 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { Req, Res } from "../http/respond.ts";
-import { json } from "../http/respond.ts";
+import { json, qsInt } from "../http/respond.ts";
 import type { Route } from "../http/router.ts";
 import { compilePath } from "../http/router.ts";
-import { currentMonth } from "../domain/dates.ts";
-import { addMonths, projectInstallments } from "../domain/commitments.ts";
+import { currentMonth, monthRange } from "../domain/dates.ts";
 import { normalizeMerchant } from "../domain/merchant.ts";
-import { detectRecurrences, projectRecurrences } from "../domain/recurrence.ts";
-import type { Recurrence } from "../domain/recurrence.ts";
-import { consumptionExpense, realIncome } from "../db/ledgerSql.ts";
 
-const HORIZON_MONTHS = 12;
-// Nada mais velho que isto pode passar no filtro de staleness — varrer o
-// histórico inteiro seria trabalho jogado fora.
-const RECURRENCE_LOOKBACK_MONTHS = 18;
+// O que está comprometido no mês — e SÓ o que o ledger sabe de verdade.
+//
+// A versão anterior projetava doze meses à frente somando recorrência detectada
+// sozinha do histórico. Num ledger sem fatura em aberto, o card inteiro era
+// palpite: as parcelas reais não apareciam (a projeção só olhava fatura aberta)
+// e o total vinha de um comerciante que o detector achou que ia se repetir.
+// Mostrava o inventado e escondia o medido.
+//
+// Aqui há duas fontes, as duas ancoradas em dado:
+//   PARCELA     — o banco escreveu "2 de 3" na fatura. É contrato, não previsão.
+//   RECORRENTE  — você apontou um lançamento e disse que se repete. É declaração,
+//                 não dedução.
 
-const SQL_RECURRENCE_ROWS = `
-  SELECT date, amount_cents AS amountCents, flow, description
+const SQL_INSTALLMENTS = `
+  SELECT t.id, t.date, t.description, t.display_name, t.amount_cents, t.flow,
+         t.installment_seq, t.installment_total, a.bank
+  FROM transactions t
+  LEFT JOIN accounts a ON a.id = t.account_id
+  WHERE t.date >= ? AND t.date <= ? AND t.installment_total IS NOT NULL
+  ORDER BY t.date`;
+
+const SQL_MARKS = `
+  SELECT t.id, t.date, t.description, t.display_name, t.amount_cents, t.flow, a.bank
+  FROM recurring_marks rm
+  JOIN transactions t ON t.id = rm.transaction_id
+  LEFT JOIN accounts a ON a.id = t.account_id
+  ORDER BY t.amount_cents DESC`;
+
+const SQL_MONTH_TX = `
+  SELECT id, date, description, display_name, amount_cents, flow
   FROM transactions
-  WHERE date >= ? AND ((${consumptionExpense()}) OR (${realIncome()}))
+  WHERE date >= ? AND date <= ?
   ORDER BY date`;
 
-const SQL_LAST_LEDGER_MONTH = `SELECT MAX(substr(date, 1, 7)) AS ym FROM transactions`;
-
-// Vencimento de posição aberta: evento de ENTRADA na visão de futuro.
-// O valor é o do último snapshot — projetar rendimento até o vencimento seria
-// chute, e a regra da casa é que yield se computa, não se estima.
-const SQL_MATURITIES = `
-  SELECT i.name, i.type, i.bank, i.group_name, i.maturity_date AS maturityDate,
-         ps.net_cents AS netCents
-  FROM investments i
-  LEFT JOIN (
-    SELECT ps1.*
-    FROM position_snapshots ps1
-    INNER JOIN (
-      SELECT investment_id, MAX(ref_date) AS max_date
-      FROM position_snapshots GROUP BY investment_id
-    ) ps2 ON ps1.investment_id = ps2.investment_id AND ps1.ref_date = ps2.max_date
-  ) ps ON ps.investment_id = i.id
-  WHERE i.closed_at IS NULL AND i.maturity_date IS NOT NULL AND i.maturity_date >= ?
-  ORDER BY i.maturity_date`;
+const rotulo = (r: { display_name?: string | null; description: string }) =>
+  r.display_name ?? r.description;
 
 export function commitmentRoutes(db: DatabaseSync): Route[] {
 
-  function getCommitments(_req: Req, res: Res) {
-    const open = db.prepare(
-      `SELECT id, ref_month, due_date, account_id, total_cents
-       FROM invoices WHERE payment_tx_id IS NULL ORDER BY ref_month`,
-    ).all() as any[];
+  function getCommitments(req: Req, res: Res) {
+    const { month: cm, year: cy } = currentMonth();
+    const month = qsInt(req, "month") ?? cm;
+    const year = qsInt(req, "year") ?? cy;
+    const { start, end } = monthRange(month, year);
+    const ym = `${year}-${String(month).padStart(2, "0")}`;
 
-    const openIds = open.map(o => o.id);
-    let projRows: any[] = [];
-    if (openIds.length) {
-      const ph = openIds.map(() => "?").join(",");
-      projRows = db.prepare(
-        `SELECT i.ref_month AS refMonth, t.amount_cents AS amountCents,
-                t.installment_seq AS installmentSeq, t.installment_total AS installmentTotal,
-                t.description AS description
-         FROM transactions t JOIN invoices i ON i.id = t.invoice_id
-         WHERE t.invoice_id IN (${ph})
-           AND t.installment_total IS NOT NULL
-           AND t.installment_seq IS NOT NULL
-           AND t.installment_seq < t.installment_total`,
-      ).all(...openIds) as any[];
-    }
-    const projected = projectInstallments(projRows.map(r => ({
-      description: r.description, refMonth: r.refMonth, amountCents: r.amountCents,
-      installmentSeq: r.installmentSeq, installmentTotal: r.installmentTotal,
-    })));
-
-    const invByMonth = new Map<string, number>();
-    for (const o of open) {
-      if (!o.due_date) continue;
-      const ym = String(o.due_date).slice(0, 7);
-      invByMonth.set(ym, (invByMonth.get(ym) ?? 0) + o.total_cents);
-    }
-    const projByMonth = new Map(projected.map(p => [p.month, p.amountCents]));
-
-    const { month, year } = currentMonth();
-    const startYm = `${year}-${String(month).padStart(2, "0")}`;
-
-    const maturities = (db.prepare(SQL_MATURITIES).all(`${startYm}-01`) as any[]).map(m => ({
-      name: m.name, type: m.type, bank: m.bank, group_name: m.group_name,
-      maturity_date: m.maturityDate, value: (m.netCents ?? 0) / 100,
+    const installments = (db.prepare(SQL_INSTALLMENTS).all(start, end) as any[]).map(r => ({
+      transaction_id: r.id,
+      date: r.date,
+      label: rotulo(r),
+      description: r.description,
+      amount: r.amount_cents / 100,
+      flow: r.flow,
+      bank: r.bank ?? null,
+      seq: r.installment_seq,
+      total: r.installment_total,
+      // Quantas ainda vêm depois desta. O banco declarou o total, então isto é
+      // leitura do contrato — não uma aposta sobre o que você vai gastar.
+      remaining: Math.max(0, (r.installment_total ?? 0) - (r.installment_seq ?? 0)),
     }));
-    const matByMonth = new Map<string, number>();
-    for (const m of maturities) {
-      const ym = String(m.maturity_date).slice(0, 7);
-      matByMonth.set(ym, (matByMonth.get(ym) ?? 0) + m.value);
+
+    // Índice do mês por núcleo de comerciante, pra saber se a recorrência
+    // declarada JÁ caiu. Sem ele o card mostraria "previsto" ao lado de um
+    // lançamento que está logo abaixo, na tabela, já cobrado.
+    const doMes = new Map<string, any>();
+    for (const t of db.prepare(SQL_MONTH_TX).all(start, end) as any[]) {
+      const chave = normalizeMerchant(rotulo(t));
+      if (chave && !doMes.has(chave)) doMes.set(chave, t);
     }
+    const jaContado = new Set(installments.map(i => i.transaction_id));
 
-    const series: any[] = [];
-    for (let k = 0; k < HORIZON_MONTHS; k++) {
-      const ym = addMonths(startYm, k);
-      const invoice = invByMonth.get(ym) ?? 0;
-      const proj = projByMonth.get(ym) ?? 0;
-      const maturity = matByMonth.get(ym) ?? 0;
-      if (invoice === 0 && proj === 0 && maturity === 0) continue;
-      const [y, m] = ym.split("-");
-      series.push({
-        month: ym, label: `${m}/${y}`,
-        invoice: invoice / 100, projected: proj / 100, total: (invoice + proj) / 100,
-        maturity,
-      });
-    }
-
-    json(res, {
-      open_invoices: open.map(o => ({
-        ref_month: o.ref_month, due_date: o.due_date,
-        account_id: o.account_id, total: o.total_cents / 100,
-      })),
-      series,
-      maturities,
-      recurring: buildRecurring(startYm),
-    });
-  }
-
-  // Camada PREVISTA — separada da `series`, que é só compromisso DURO.
-  // Detecta contra o último mês COM dados (a mesma convenção do seletor de mês);
-  // projeta a partir do mês-calendário corrente, pra alinhar com a série dura e
-  // nunca emitir mês passado.
-  function buildRecurring(startYm: string) {
-    const lastLedgerYm =
-      (db.prepare(SQL_LAST_LEDGER_MONTH).get() as any)?.ym as string | null;
-    if (!lastLedgerYm) {
-      return { items: [], expense_monthly: 0, income_monthly: 0, series: [] };
-    }
-
-    const cutoff = `${addMonths(lastLedgerYm, -RECURRENCE_LOOKBACK_MONTHS)}-01`;
-    const rows = db.prepare(SQL_RECURRENCE_ROWS).all(cutoff) as any[];
-
-    const recs = detectRecurrences(
-      rows.map(r => ({
-        date: String(r.date),
-        amountCents: r.amountCents,
-        flow: r.flow as "expense" | "income",
-        merchant: normalizeMerchant(r.description),
-      })),
-      lastLedgerYm,
-    );
-
-    const monthlyTotal = (flow: Recurrence["flow"]) =>
-      recs.filter(r => r.flow === flow).reduce((n, r) => n + r.monthlyCents, 0) / 100;
-
-    return {
-      items: recs.map(r => ({
-        merchant: r.merchant,
-        flow: r.flow,
-        monthly: r.monthlyCents / 100,
-        cadence_months: r.cadenceMonths,
-        occurrences: r.occurrences,
-        last_month: r.lastMonth,
-        stale_months: r.staleMonths,
-      })),
-      expense_monthly: monthlyTotal("expense"),
-      income_monthly: monthlyTotal("income"),
-      series: projectRecurrences(recs, startYm, HORIZON_MONTHS).map(m => {
-        const [y, mm] = m.month.split("-");
+    const recurring = (db.prepare(SQL_MARKS).all() as any[])
+      // Recorrência declarada não vale para trás: o mês anterior ao lançamento
+      // que a originou não a teve, e afirmar o contrário inventaria passado.
+      .filter(r => String(r.date).slice(0, 7) <= ym)
+      .map(r => {
+        const real = doMes.get(normalizeMerchant(rotulo(r)));
         return {
-          month: m.month, label: `${mm}/${y}`,
-          expense: m.expenseCents / 100, income: m.incomeCents / 100,
+          transaction_id: r.id,
+          label: rotulo(r),
+          flow: r.flow,
+          bank: r.bank ?? null,
+          // Já caiu: valor e dia são os do lançamento de verdade. Ainda não:
+          // repete o que você declarou, que é a única coisa que se pode afirmar.
+          confirmed: !!real,
+          date: real ? real.date : null,
+          day: Number(String(r.date).slice(8, 10)),
+          amount: (real ? real.amount_cents : r.amount_cents) / 100,
+          since: String(r.date).slice(0, 7),
+          duplicate_of_installment: real ? jaContado.has(real.id) : false,
         };
-      }),
-    };
+      });
+
+    // Soma em CENTAVOS e divide uma vez só. Somando os reais já divididos,
+    // 31,27 + 31,25 devolvia 62,519999999999996 — float no total de dinheiro é
+    // exatamente o que o ledger inteiro existe pra não fazer.
+    const saidaCents = (v: { flow: string; amount: number }) =>
+      (v.flow === "expense" ? Math.round(v.amount * 100) : 0);
+    const total_out = (
+      installments.reduce((s, i) => s + saidaCents(i), 0) +
+      recurring.filter(r => !r.duplicate_of_installment).reduce((s, r) => s + saidaCents(r), 0)
+    ) / 100;
+
+    json(res, { month: ym, installments, recurring, total_out });
   }
 
   return [{ method: "GET", ...compilePath("/api/commitments"), handler: getCommitments }];

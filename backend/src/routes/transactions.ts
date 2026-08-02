@@ -26,10 +26,12 @@ export function learnCategoryRule(db: DatabaseSync, description: string, categor
 // e sem esse campo o chip cai no id cru ("conta-a"). Antes o frontend adivinhava
 // pelo prefixo do id, o que só funcionava para as contas do autor.
 const TX_SELECT = `
-  SELECT t.*, c.name AS category_name, a.bank AS bank
+  SELECT t.*, c.name AS category_name, a.bank AS bank,
+         (rm.transaction_id IS NOT NULL) AS is_recurring
   FROM transactions t
   LEFT JOIN categories c ON c.id = t.category_id
   LEFT JOIN accounts a ON a.id = t.account_id
+  LEFT JOIN recurring_marks rm ON rm.transaction_id = t.id
 `;
 
 function txToJson(r: any): Record<string, unknown> {
@@ -50,6 +52,7 @@ function txToJson(r: any): Record<string, unknown> {
     is_revenue: r.is_revenue,
     is_settlement: r.is_settlement,
     is_third_party: r.is_third_party,
+    is_recurring: r.is_recurring ?? 0,
     external_id: r.external_id,
     display_name: r.display_name,
     original_amount: r.original_amount_cents != null ? r.original_amount_cents / 100 : null,
@@ -122,11 +125,33 @@ export function transactionRoutes(db: DatabaseSync): Route[] {
       if (v !== 0 && v !== 1) return error(res, "is_third_party deve ser 0|1");
       updates.push("is_third_party = ?"); params.push(v);
     }
-    if (!updates.length) return error(res, "nenhum campo para atualizar");
 
-    params.push(id);
-    const r = db.prepare(`UPDATE transactions SET ${updates.join(", ")} WHERE id = ?`).run(...params);
-    if (r.changes === 0) return error(res, "transação não encontrada", 404);
+    // `recurring` mora noutra tabela, então sai do UPDATE e vira insert/delete.
+    // Pode vir sozinho no corpo — marcar recorrente sem mexer em mais nada é o
+    // caso comum —, por isso é contado junto com os updates lá embaixo.
+    const marcaRecorrente = "recurring" in body;
+    if (marcaRecorrente) {
+      const v = (body as any).recurring;
+      if (v !== 0 && v !== 1) return error(res, "recurring deve ser 0|1");
+      if (!db.prepare("SELECT 1 FROM transactions WHERE id = ?").get(id)) {
+        return error(res, "transação não encontrada", 404);
+      }
+    }
+    if (!updates.length && !marcaRecorrente) return error(res, "nenhum campo para atualizar");
+
+    if (marcaRecorrente) {
+      if ((body as any).recurring === 1) {
+        db.prepare("INSERT OR IGNORE INTO recurring_marks (transaction_id) VALUES (?)").run(id);
+      } else {
+        db.prepare("DELETE FROM recurring_marks WHERE transaction_id = ?").run(id);
+      }
+    }
+
+    if (updates.length) {
+      params.push(id);
+      const r = db.prepare(`UPDATE transactions SET ${updates.join(", ")} WHERE id = ?`).run(...params);
+      if (r.changes === 0) return error(res, "transação não encontrada", 404);
+    }
     if ("category_id" in body && (body as any).category_id != null) {
       const row = db.prepare("SELECT display_name, description FROM transactions WHERE id = ?").get(id) as any;
       if (row) learnCategoryRule(db, row.display_name ?? row.description, Number((body as any).category_id));

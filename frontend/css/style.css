@@ -161,6 +161,19 @@ button.data-tag:hover { border-color: var(--fg-2); color: var(--fg-0); backgroun
 }
 .month-nav-today:hover { background: color-mix(in oklch, var(--accent) 20%, transparent); }
 
+/* HUD da barra superior — estado do ledger, não dinheiro. Fica no canto, em
+   tom apagado: só a cor do LED muda quando algo precisa de atenção. */
+.hud { display: flex; align-items: center; gap: var(--s-4); flex-shrink: 0; }
+.hud-chip {
+  display: inline-flex; align-items: center; gap: var(--s-3);
+  padding: 3px var(--s-4);
+  font-family: var(--ff-mono); font-size: var(--fz-9); color: var(--fg-3);
+  background: var(--bg-1); border: 1px solid var(--line-1);
+  white-space: nowrap; cursor: default;
+}
+.hud-led { width: 7px; height: 7px; flex-shrink: 0; }
+@media (max-width: 1024px) { .hud { display: none; } }
+
 .kpi-strip {
   position: sticky; top: 52px; z-index: var(--z-sticky);
   display: grid; grid-template-columns: 1.35fr 1fr 1fr 0.95fr;
@@ -219,11 +232,13 @@ button.data-tag:hover { border-color: var(--fg-2); color: var(--fg-0); backgroun
 .wg-4 { grid-column: span 4; }
 .wg-6 { grid-column: span 6; }
 .wg-7 { grid-column: span 7; }
+.wg-14 { grid-column: span 14; }
 @media (max-width: 1500px) {
 
   .widget-row { grid-template-columns: repeat(6, 1fr); grid-auto-rows: 250px; }
   .wg-4 { grid-column: span 2; }
   .wg-6, .wg-7 { grid-column: span 4; }
+  .wg-14 { grid-column: span 6; }
 }
 @media (max-width: 1024px) {
 
@@ -232,6 +247,7 @@ button.data-tag:hover { border-color: var(--fg-2); color: var(--fg-0); backgroun
   .kpi:nth-child(2) { border-right: none; }
   .widget-row { grid-template-columns: repeat(2, 1fr); grid-auto-rows: 250px; }
   .wg-4, .wg-6, .wg-7 { grid-column: span 1; }
+  .wg-14 { grid-column: span 2; }
 }
 @media (max-width: 640px) {
 
@@ -285,6 +301,40 @@ th.sortable { cursor: pointer; user-select: none; transition: color 0.1s; }
 th.sortable:hover { color: var(--fg-0); }
 .sort-ind { margin-left: 4px; font-size: var(--fz-8); color: var(--accent); }
 
+/* Comprometido no mês: uma linha por parcela ou recorrente. Lista, não gráfico
+   — são poucos itens e cada um é um lançamento que se pode abrir. */
+.cmt-secao {
+  font-family: var(--ff-sans); font-size: var(--fz-9); letter-spacing: 1px;
+  text-transform: uppercase; color: var(--fg-3);
+  padding: var(--s-4) var(--s-3) var(--s-2); flex-shrink: 0;
+}
+.cmt-row {
+  display: flex; align-items: baseline; gap: var(--s-5);
+  width: 100%; padding: 5px var(--s-3);
+  background: none; border: none; text-align: left; cursor: pointer;
+  border-bottom: 1px dashed var(--line-1); flex-shrink: 0;
+}
+.cmt-row:hover:not(:disabled) { background: var(--bg-2); }
+.cmt-row:disabled { cursor: default; }
+.cmt-quando { font-size: var(--fz-8); color: var(--fg-3); width: 62px; flex-shrink: 0; }
+.cmt-titulo {
+  flex: 1; min-width: 0; font-size: var(--fz-7); color: var(--fg-1);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cmt-selo {
+  flex-shrink: 0; padding: 1px var(--s-3);
+  font-family: var(--ff-mono); font-size: var(--fz-9);
+  border: 1px solid; white-space: nowrap;
+}
+.cmt-valor {
+  font-size: var(--fz-7); font-weight: 700; flex-shrink: 0;
+  width: 108px; text-align: right; font-variant-numeric: tabular-nums;
+}
+.cmt-nota {
+  padding: var(--s-3) var(--s-3) 0; font-size: var(--fz-9);
+  color: var(--fg-3); flex-shrink: 0;
+}
+
 .stat-row {
   display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
   padding: 5px 0; border-bottom: 1px dashed var(--line-1); font-size: 11px;
@@ -297,18 +347,37 @@ th.sortable:hover { color: var(--fg-0); }
   flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px;
   padding: 6px 2px 5px;
   border: 1px solid transparent; transition: all 0.1s; min-width: 0;
+  position: relative; /* âncora do balão de hover */
 }
-.tl-slot:hover:not(:disabled) { background: var(--bg-2); }
-.tl-slot:disabled { cursor: default; opacity: 0.35; }
+.tl-slot:hover:not(.tl-slot--empty) { background: var(--bg-2); }
+.tl-slot--empty { cursor: default; opacity: 0.35; }
 .tl-slot.picked {
   background: var(--accent-bg);
   border-color: color-mix(in oklch, var(--accent) 40%, transparent);
 }
-.tl-bars { display: flex; align-items: flex-end; gap: 2px; height: 56px; width: 100%; justify-content: center; }
-.tl-bar { width: 38%; max-width: 12px; min-height: 2px; }
+/* `flex-shrink: 0` é o que mantém a fileira alinhada. Sem ele o container das
+   barras é um item de coluna flex que encolhe até a barra mais alta daquele
+   mês — 36px num mês fraco, 52px num forte — e a sigla e o saldo abaixo
+   flutuavam junto, subindo e descendo de coluna pra coluna. A altura é uma
+   moldura fixa; quem varia é a barra dentro dela. */
+.tl-bars {
+  display: flex; align-items: flex-end; gap: 2px;
+  height: 56px; flex-shrink: 0;
+  width: 100%; justify-content: center;
+}
+/* Sem `min-height`: o piso de altura já é do domínio (`scaleBar` devolve no
+   mínimo BAR_MIN_PX para qualquer valor positivo, e exatamente 0 para "não
+   houve"). Repetir o piso aqui aplicava-o também ao zero, e mês sem dado
+   nenhum desenhava dois tracinhos que pareciam medição. */
+.tl-bar { width: 38%; max-width: 12px; }
+/* Zero MEDIDO: o mês foi contado e nada entrou (ou nada saiu). Neutro de
+   propósito — em verde ou vermelho voltaria a parecer dinheiro pouco, que é
+   justamente a leitura errada que o tracinho antigo produzia. */
+.tl-bar--zero { height: 2px; background: var(--fg-faint); opacity: 0.55; }
 .tl-mon {
   font-size: var(--fz-8); font-family: var(--ff-mono); text-transform: uppercase;
   color: var(--fg-3); font-weight: 500; letter-spacing: 0.02em;
+  flex-shrink: 0; line-height: 14px;
 }
 .tl-slot.picked .tl-mon { color: var(--accent); font-weight: 700; }
 /* `nowrap` é estrutural: são 12 fatias dividindo a largura do widget, então o
@@ -318,7 +387,39 @@ th.sortable:hover { color: var(--fg-0); }
    numa fileira só custam a largura que o número precisa. */
 .tl-net {
   font-size: var(--fz-8); font-family: var(--ff-mono); font-weight: 600;
-  white-space: nowrap;
+  white-space: nowrap; flex-shrink: 0;
+  width: 100%; text-align: center; line-height: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Balão de NPC: o que o `title=` do navegador dizia, dito na linguagem da tela.
+   Borda dura, sombra em degrau e rabicho em escada — sem raio, sem gradiente.
+   Fica sobre as abas de ano porque é ali que sobra espaço; some no ponteiro
+   saindo da coluna. */
+.tl-tip {
+  position: absolute; bottom: calc(100% + 9px); z-index: 3;
+  width: max-content; pointer-events: none;
+  padding: 4px 10px 5px;
+  display: flex; align-items: baseline;
+  background: var(--bg-0); border: 2px solid var(--fg-1);
+  box-shadow: 3px 3px 0 var(--line-1);
+  font-family: var(--ff-mono); font-size: var(--fz-8);
+  color: var(--fg-1); white-space: nowrap;
+}
+.tl-tip-h {
+  font-family: var(--ff-sans); font-size: var(--fz-9);
+  letter-spacing: 1px; text-transform: uppercase; color: var(--fg-0);
+}
+/* Rabicho em escada, do tamanho de um sprite. Solto do balão porque posiciona
+   por % da fileira: assim aponta a coluna certa sem medir pixel nenhum. */
+.tl-tip-tail {
+  position: absolute; bottom: 100%; left: 50%; z-index: 3;
+  margin-left: -6px; width: 12px; height: 9px;
+  background: var(--fg-1); pointer-events: none;
+  clip-path: polygon(0 0, 12px 0, 12px 3px, 8px 3px, 8px 6px, 4px 6px, 4px 9px, 0 9px);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .tl-tip, .tl-tip-tail { animation: fade-in 0.09s steps(2); }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -23,227 +23,166 @@ function freshDb(): DatabaseSync {
   return db;
 }
 
-function getCommitments(db: DatabaseSync): any {
+/** O card é do MÊS: sem mês na query ele responde pelo corrente. */
+function getCommitments(db: DatabaseSync, ym?: string): any {
   const route = commitmentRoutes(db).find(r => r.method === "GET")!;
   let payload: any;
   const res: any = { setHeader() {}, end(s: string) { payload = JSON.parse(s); }, writeHead() {} };
-  route.handler({ url: "/api/commitments", params: {} } as any, res);
+  const qs = ym ? `?year=${ym.slice(0, 4)}&month=${Number(ym.slice(5, 7))}` : "";
+  route.handler({ url: `/api/commitments${qs}`, params: {} } as any, res);
   return payload;
 }
 
-function openInvoice(db: DatabaseSync, refMonth: string, dueDate: string | null, totalCents: number): number {
-  return Number(db.prepare(
-    "INSERT INTO invoices (account_id, ref_month, due_date, total_cents, source_file) VALUES ('cartao-b', ?, ?, ?, 'ui')",
-  ).run(refMonth, dueDate, totalCents).lastInsertRowid);
+function parcela(
+  db: DatabaseSync, date: string, amountCents: number, seq: number, total: number, desc = "Steam",
+): number {
+  return Number(db.prepare(`INSERT INTO transactions
+    (date, flow, method, account_id, amount_cents, description, installment_seq, installment_total, import_batch_id)
+    VALUES (?, 'expense', 'credit', 'cartao-b', ?, ?, ?, ?, 'sess-1')`)
+    .run(date, amountCents, desc, seq, total).lastInsertRowid);
 }
 
-function installmentItem(db: DatabaseSync, invoiceId: number, date: string, amountCents: number, seq: number, total: number) {
-  db.prepare(`INSERT INTO transactions
-    (date, flow, method, account_id, amount_cents, description, invoice_id, installment_seq, installment_total, import_batch_id)
-    VALUES (?, 'expense', 'credit', 'cartao-b', ?, 'Steam', ?, ?, ?, 'sess-1')`)
-    .run(date, amountCents, invoiceId, seq, total);
+function lancamento(
+  db: DatabaseSync, date: string, amountCents: number, desc: string, flow = "expense",
+): number {
+  return Number(db.prepare(`INSERT INTO transactions
+    (date, flow, method, account_id, amount_cents, description)
+    VALUES (?, ?, 'pix', 'conta-a', ?, ?)`)
+    .run(date, flow, amountCents, desc).lastInsertRowid);
 }
 
-test("commitments: fatura aberta entra na série pelo mês do vencimento", () => {
-  const db = freshDb();
+const marcarRecorrente = (db: DatabaseSync, id: number) =>
+  db.prepare("INSERT INTO recurring_marks (transaction_id) VALUES (?)").run(id);
 
-  const now = new Date();
-  const dd = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-15`;
-  openInvoice(db, "2026-07", dd, 50000);
-  const out = getCommitments(db);
-  assert.equal(out.open_invoices.length, 1);
-  assert.equal(out.open_invoices[0].total, 500);
-  const hit = out.series.find((s: any) => s.month === dd.slice(0, 7));
-  assert.ok(hit, "mês do vencimento presente na série");
-  assert.equal(hit.invoice, 500);
+// ── parcelas ────────────────────────────────────────────────────────────────
+
+test("parcela do mês aparece com a posição que o banco declarou", () => {
+  const db = freshDb();
+  parcela(db, "2026-04-11", 14000, 2, 3, "LUBRIPREMIUM");
+  const out = getCommitments(db, "2026-04");
+
+  assert.equal(out.installments.length, 1);
+  const p = out.installments[0];
+  assert.equal(p.amount, 140);
+  assert.equal(p.seq, 2);
+  assert.equal(p.total, 3);
+  assert.equal(p.remaining, 1, "de 3, já caíram 2, falta 1");
 });
 
-test("commitments: itens parcelados projetam meses futuros", () => {
+test("parcela de outro mês não entra — o card é do mês selecionado", () => {
   const db = freshDb();
-  const inv = openInvoice(db, "2026-07", null, 1000);
-  installmentItem(db, inv, "2026-07-10", 1000, 2, 5);
-  const out = getCommitments(db);
-  const projMonths = out.series.filter((s: any) => s.projected > 0);
-
-  const totalProjected = out.series.reduce((n: number, s: any) => n + s.projected, 0);
-  assert.ok(totalProjected >= 0);
-  assert.ok(projMonths.every((s: any) => s.projected > 0));
+  parcela(db, "2026-04-11", 14000, 2, 3);
+  assert.equal(getCommitments(db, "2026-05").installments.length, 0);
+  assert.equal(getCommitments(db, "2026-04").installments.length, 1);
 });
 
-test("commitments: fatura sem due_date não entra na série (mas lista em open_invoices)", () => {
+test("compra à vista não é parcela", () => {
   const db = freshDb();
-  openInvoice(db, "2026-07", null, 30000);
-  const out = getCommitments(db);
-  assert.equal(out.open_invoices.length, 1);
-  assert.ok(out.series.every((s: any) => s.invoice === 0));
+  lancamento(db, "2026-04-10", 5000, "Padaria");
+  assert.equal(getCommitments(db, "2026-04").installments.length, 0);
 });
 
-test("commitments: DB vazio → série vazia", () => {
+test("última parcela não deixa resto", () => {
   const db = freshDb();
-  const out = getCommitments(db);
-  assert.deepEqual(out.open_invoices, []);
-  assert.deepEqual(out.series, []);
-  assert.deepEqual(out.recurring.items, []);
-  assert.deepEqual(out.recurring.series, []);
-  assert.equal(out.recurring.expense_monthly, 0);
-  assert.equal(out.recurring.income_monthly, 0);
+  parcela(db, "2026-04-11", 14000, 3, 3);
+  assert.equal(getCommitments(db, "2026-04").installments[0].remaining, 0);
 });
 
-// ---- recurring ----
+// ── recorrência DECLARADA ───────────────────────────────────────────────────
 
-function ym(offsetMonths: number): string {
-  const now = new Date();
-  const idx = now.getFullYear() * 12 + now.getMonth() + offsetMonths;
-  return `${Math.floor(idx / 12)}-${String((idx % 12) + 1).padStart(2, "0")}`;
-}
-
-function checkingExpense(db: DatabaseSync, date: string, amountCents: number, description: string) {
-  db.prepare(`INSERT INTO transactions
-    (date, flow, method, account_id, amount_cents, description, is_revenue, is_settlement, is_third_party)
-    VALUES (?, 'expense', 'pix', 'conta-a', ?, ?, 0, 0, 0)`).run(date, amountCents, description);
-}
-
-function checkingIncome(db: DatabaseSync, date: string, amountCents: number, description: string) {
-  db.prepare(`INSERT INTO transactions
-    (date, flow, method, account_id, amount_cents, description, is_revenue, is_settlement, is_third_party)
-    VALUES (?, 'income', 'ted', 'conta-a', ?, ?, 1, 0, 0)`).run(date, amountCents, description);
-}
-
-test("recurring: três meses de saída estável viram recorrência projetada", () => {
+test("nada é recorrente sem você declarar", () => {
   const db = freshDb();
-  for (const k of [-2, -1, 0]) checkingExpense(db, `${ym(k)}-10`, 171119, "Aluguel Fulano");
-
-  const out = getCommitments(db);
-  assert.equal(out.recurring.items.length, 1);
-  assert.equal(out.recurring.items[0].flow, "expense");
-  assert.equal(out.recurring.items[0].monthly, 1711.19);
-  assert.equal(out.recurring.expense_monthly, 1711.19);
-  assert.ok(out.recurring.series.length > 0);
-  assert.equal(out.recurring.series[0].month, ym(1), "projeção começa no mês seguinte");
-  assert.equal(out.recurring.series[0].expense, 1711.19);
+  // Três meses do mesmo comerciante, valor idêntico: o detector antigo chamaria
+  // de recorrência. Sem marca, o card não afirma nada.
+  for (const d of ["2026-02-10", "2026-03-10", "2026-04-10"]) lancamento(db, d, 120000, "Aluguel");
+  assert.equal(getCommitments(db, "2026-05").recurring.length, 0);
 });
 
-test("recurring: receita recorrente vai pra banda de entrada, não some com a saída", () => {
+test("declarada, repete nos meses seguintes com o dia e o valor do lançamento", () => {
   const db = freshDb();
-  for (const k of [-2, -1, 0]) {
-    checkingExpense(db, `${ym(k)}-10`, 100000, "Aluguel Fulano");
-    checkingIncome(db, `${ym(k)}-05`, 385000, "Transferência recebida - empresa exemplo");
-  }
+  marcarRecorrente(db, lancamento(db, "2026-04-10", 120000, "Aluguel"));
+  const r = getCommitments(db, "2026-06").recurring;
 
-  const out = getCommitments(db);
-  assert.equal(out.recurring.expense_monthly, 1000);
-  assert.equal(out.recurring.income_monthly, 3850);
-  assert.equal(out.recurring.series[0].expense, 1000);
-  assert.equal(out.recurring.series[0].income, 3850);
+  assert.equal(r.length, 1);
+  assert.equal(r[0].amount, 1200);
+  assert.equal(r[0].day, 10);
+  assert.equal(r[0].confirmed, false, "junho não tem o lançamento, então é previsto");
+  assert.equal(r[0].since, "2026-04");
 });
 
-test("recurring: liquidação de fatura não conta como recorrência de consumo", () => {
+test("não vale para trás: mês anterior ao lançamento não a teve", () => {
   const db = freshDb();
-  for (const k of [-2, -1, 0]) {
-    db.prepare(`INSERT INTO transactions
-      (date, flow, method, account_id, amount_cents, description, is_revenue, is_settlement, is_third_party)
-      VALUES (?, 'expense', 'credit', 'conta-b', 100000, 'Pagamento de fatura', 0, 1, 0)`).run(`${ym(k)}-10`);
-  }
-  const out = getCommitments(db);
-  assert.deepEqual(out.recurring.items, []);
+  marcarRecorrente(db, lancamento(db, "2026-04-10", 120000, "Aluguel"));
+  assert.equal(getCommitments(db, "2026-03").recurring.length, 0);
+  assert.equal(getCommitments(db, "2026-04").recurring.length, 1);
 });
 
-test("recurring: terceiro não conta como recorrência", () => {
+test("mês em que já caiu usa o valor e a data reais, não os declarados", () => {
   const db = freshDb();
-  for (const k of [-2, -1, 0]) {
-    db.prepare(`INSERT INTO transactions
-      (date, flow, method, account_id, amount_cents, description, is_revenue, is_settlement, is_third_party)
-      VALUES (?, 'expense', 'pix', 'conta-a', 50000, 'Compra do vizinho', 0, 0, 1)`).run(`${ym(k)}-10`);
-  }
-  const out = getCommitments(db);
-  assert.deepEqual(out.recurring.items, []);
+  marcarRecorrente(db, lancamento(db, "2026-04-10", 120000, "Aluguel"));
+  lancamento(db, "2026-05-12", 125000, "Aluguel");
+
+  const r = getCommitments(db, "2026-05").recurring[0];
+  assert.equal(r.confirmed, true);
+  assert.equal(r.amount, 1250, "o reajuste real manda, não o valor da declaração");
+  assert.equal(r.date, "2026-05-12");
 });
 
-test("recurring: perna de investimento (transfer) não conta como recorrência", () => {
+test("desmarcar tira do card", () => {
   const db = freshDb();
-  for (const k of [-2, -1, 0]) {
-    db.prepare(`INSERT INTO transactions
-      (date, flow, method, account_id, amount_cents, description, is_revenue, is_settlement, is_third_party)
-      VALUES (?, 'expense', 'transfer', 'conta-a', 80000, 'Aplicação RDB', 0, 0, 0)`).run(`${ym(k)}-10`);
-  }
-  const out = getCommitments(db);
-  assert.deepEqual(out.recurring.items, []);
+  const id = lancamento(db, "2026-04-10", 120000, "Aluguel");
+  marcarRecorrente(db, id);
+  assert.equal(getCommitments(db, "2026-06").recurring.length, 1);
+  db.prepare("DELETE FROM recurring_marks WHERE transaction_id = ?").run(id);
+  assert.equal(getCommitments(db, "2026-06").recurring.length, 0);
 });
 
-// ---- maturities ----
-
-function position(db: DatabaseSync, name: string, maturityDate: string | null, netCents: number, closedAt: string | null = null): number {
-  const id = Number(db.prepare(
-    `INSERT INTO investments (name, match_key, type, bank, maturity_date, source, closed_at)
-     VALUES (?, ?, 'cdb', 'Banco B', ?, 'b3', ?)`,
-  ).run(name, name, maturityDate, closedAt).lastInsertRowid);
-  db.prepare(
-    `INSERT INTO position_snapshots (investment_id, ref_date, net_cents, source)
-     VALUES (?, '2026-06-30', ?, 'b3')`,
-  ).run(id, netCents);
-  return id;
-}
-
-test("maturities: posição aberta com vencimento entra na lista com o valor do último snapshot", () => {
+test("apagar o lançamento leva a marca junto", () => {
   const db = freshDb();
-  position(db, "CDB 2028", "2028-04-03", 21648);
-
-  const out = getCommitments(db);
-  assert.equal(out.maturities.length, 1);
-  assert.equal(out.maturities[0].name, "CDB 2028");
-  assert.equal(out.maturities[0].maturity_date, "2028-04-03");
-  assert.equal(out.maturities[0].value, 216.48);
+  const id = lancamento(db, "2026-04-10", 120000, "Aluguel");
+  marcarRecorrente(db, id);
+  db.prepare("DELETE FROM transactions WHERE id = ?").run(id);
+  assert.equal(
+    (db.prepare("SELECT COUNT(*) n FROM recurring_marks").get() as any).n, 0,
+    "sem CASCADE a marca viraria órfã apontando pra um id morto",
+  );
 });
 
-test("maturities: posição fechada não vence", () => {
+// ── total ───────────────────────────────────────────────────────────────────
+
+test("o total soma só o que sai", () => {
   const db = freshDb();
-  position(db, "CDB resgatado", "2028-04-03", 21648, "2026-05-01");
-  assert.deepEqual(getCommitments(db).maturities, []);
+  parcela(db, "2026-04-11", 14000, 2, 3);
+  marcarRecorrente(db, lancamento(db, "2026-04-10", 120000, "Aluguel"));
+  marcarRecorrente(db, lancamento(db, "2026-04-05", 400000, "Salário", "income"));
+
+  const out = getCommitments(db, "2026-04");
+  assert.equal(out.total_out, 1340, "140 da parcela + 1200 do aluguel; salário não é compromisso");
+  assert.equal(out.recurring.length, 2, "mas a entrada continua visível na lista");
 });
 
-test("maturities: posição sem data de vencimento fica de fora", () => {
+test("recorrente que também é parcela não conta duas vezes", () => {
   const db = freshDb();
-  position(db, "Reserva", null, 900000);
-  assert.deepEqual(getCommitments(db).maturities, []);
+  const id = parcela(db, "2026-04-11", 14000, 2, 3, "Academia");
+  marcarRecorrente(db, id);
+
+  const out = getCommitments(db, "2026-04");
+  assert.equal(out.recurring[0].duplicate_of_installment, true);
+  assert.equal(out.total_out, 140, "a mesma linha entra uma vez só");
 });
 
-test("maturities: vencimento passado não é evento futuro", () => {
-  const db = freshDb();
-  position(db, "Tesouro 2020", "2020-01-01", 10000);
-  assert.deepEqual(getCommitments(db).maturities, []);
+test("mês vazio devolve listas vazias e total zero", () => {
+  const out = getCommitments(freshDb(), "2026-04");
+  assert.deepEqual(out.installments, []);
+  assert.deepEqual(out.recurring, []);
+  assert.equal(out.total_out, 0);
+  assert.equal(out.month, "2026-04");
 });
 
-test("maturities: ordenadas da mais próxima pra mais distante", () => {
+test("o total não acumula erro de float", () => {
   const db = freshDb();
-  position(db, "longe", "2029-05-15", 17985);
-  position(db, "perto", "2028-04-03", 21648);
-  assert.deepEqual(getCommitments(db).maturities.map((m: any) => m.name), ["perto", "longe"]);
-});
-
-test("maturities: vencimento fora da janela de 12 meses NÃO entra na série", () => {
-  const db = freshDb();
-  position(db, "CDB 2028", "2028-04-03", 21648);
-  const out = getCommitments(db);
-  assert.equal(out.maturities.length, 1, "continua listado");
-  assert.ok(out.series.every((s: any) => !s.maturity), "mas não vira barra");
-});
-
-test("maturities: vencimento dentro da janela entra na série como entrada", () => {
-  const db = freshDb();
-  const due = ym(3);
-  position(db, "CDB curto", `${due}-15`, 50000);
-
-  const out = getCommitments(db);
-  const hit = out.series.find((s: any) => s.month === due);
-  assert.ok(hit, "mês do vencimento presente na série");
-  assert.equal(hit.maturity, 500);
-  assert.equal(hit.total, 0, "vencimento é entrada — não infla o comprometido");
-});
-
-test("recurring: série dura (fatura/parcela) não é contaminada pela recorrência", () => {
-  const db = freshDb();
-  for (const k of [-2, -1, 0]) checkingExpense(db, `${ym(k)}-10`, 171119, "Aluguel Fulano");
-  const out = getCommitments(db);
-  assert.ok(out.series.every((s: any) => s.total === s.invoice + s.projected),
-    "series continua sendo só compromisso duro");
+  // 31,27 + 31,25 somados como reais dão 62,519999999999996.
+  parcela(db, "2026-02-05", 3127, 1, 3);
+  parcela(db, "2026-02-05", 3125, 2, 3);
+  assert.equal(getCommitments(db, "2026-02").total_out, 62.52);
 });

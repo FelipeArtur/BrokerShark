@@ -106,9 +106,9 @@ node backend/src/jobs/backup.ts
 
 - **Dashboard web** — tela única, sem abas: faixa KPI fixa (Disponível pra gastar ·
   Patrimônio · Saldo livre do mês · Investido) + grid de widgets (visão geral do mês,
-  fluxo mês a mês clicável = seletor de mês global, contas, categorias, investimentos,
-  fatura do cartão, visão de futuro). Detalhe abre em **overlay de drill-down**,
-  nunca navegação.
+  fluxo mês a mês clicável = seletor de mês global, contas com os cartões e faturas
+  aninhados, categorias, investimentos, o que já está comprometido). Detalhe abre em
+  **overlay de drill-down**, nunca navegação.
 - **Orçamento por categoria** — alvo fixo por categoria, com override opcional por mês.
 - **Ledger novo nasce sem categoria nenhuma** — taxonomia de gasto é decisão de quem usa,
   não estrutura do domínio. Lançamento importado nasce sem categoria (estado que a tela

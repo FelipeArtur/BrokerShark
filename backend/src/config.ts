@@ -151,7 +151,7 @@ function validate(c: BrokerSharkConfig, where: string): void {
 
 let cached: BrokerSharkConfig | null = null;
 
-export function loadConfig(path?: string): BrokerSharkConfig {
+function loadConfig(path?: string): BrokerSharkConfig {
   const file = path ?? configPath();
   const raw = JSON.parse(readFileSync(file, "utf8")) as BrokerSharkConfig;
   validate(raw, file);
@@ -174,7 +174,7 @@ export function setConfig(c: BrokerSharkConfig | null): void {
 export const checkingAccounts = (): AccountConfig[] =>
   config().accounts.filter(a => a.type === "checking");
 
-export const cardAccounts = (): AccountConfig[] =>
+const cardAccounts = (): AccountConfig[] =>
   config().accounts.filter(a => a.type === "credit_card");
 
 export const accountById = (id: string): AccountConfig | undefined =>

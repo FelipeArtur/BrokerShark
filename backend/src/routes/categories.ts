@@ -99,10 +99,6 @@ export function categoryRoutes(db: DatabaseSync): Route[] {
     json(res, { ok: true });
   }
 
-  function getExpenseCategories(_req: Req, res: Res) {
-    json(res, db.prepare("SELECT id, name FROM categories WHERE flow='expense' ORDER BY name").all());
-  }
-
   async function createCategory(req: Req, res: Res) {
     const body = await readBody<{ name?: unknown; flow?: unknown }>(req);
     if (!isShortText(body.name, 60)) return error(res, "name obrigatório (≤60 chars)");
@@ -115,15 +111,31 @@ export function categoryRoutes(db: DatabaseSync): Route[] {
     json(res, { ok: true, id: result.lastInsertRowid }, 201);
   }
 
+  /**
+   * Excluir categoria. Sem `reassign_to_id`, os lançamentos dela ficam sem
+   * categoria — que é uma escolha legítima, não um pedido incompleto: é a única
+   * saída quando se apaga a última categoria de um fluxo.
+   *
+   * O destino precisa ser do MESMO fluxo. Sem essa guarda, uma receita podia
+   * cair numa categoria de despesa e passar a aparecer no widget de categorias
+   * (que separa por fluxo) e a poder receber alvo de gasto, que só existe pra
+   * despesa. O cliente já oferece só as irmãs do fluxo; aqui é onde a regra
+   * vale de verdade.
+   */
   async function deleteCategory(req: Req, res: Res) {
     const id = Number(req.params!.id);
     if (!isIntId(id)) return error(res, "id inválido");
+    const cat = db.prepare("SELECT flow FROM categories WHERE id = ?").get(id) as { flow: string } | undefined;
+    if (!cat) return error(res, "categoria não encontrada", 404);
     const body = await readBody<{ reassign_to_id?: unknown }>(req);
 
     if (body.reassign_to_id != null) {
-      if (!isIntId(body.reassign_to_id) || body.reassign_to_id === id
-        || !db.prepare("SELECT 1 FROM categories WHERE id = ?").get(body.reassign_to_id)) {
-        return error(res, "categoria de destino inválida");
+      const alvo = isIntId(body.reassign_to_id) && body.reassign_to_id !== id
+        ? db.prepare("SELECT flow FROM categories WHERE id = ?").get(body.reassign_to_id) as { flow: string } | undefined
+        : undefined;
+      if (!alvo) return error(res, "categoria de destino inválida");
+      if (alvo.flow !== cat.flow) {
+        return error(res, `a categoria de destino é de ${alvo.flow === "expense" ? "despesa" : "receita"} e esta é de ${cat.flow === "expense" ? "despesa" : "receita"}`);
       }
       db.prepare("UPDATE transactions SET category_id = ? WHERE category_id = ?")
         .run(body.reassign_to_id, id);
@@ -153,7 +165,6 @@ export function categoryRoutes(db: DatabaseSync): Route[] {
   const cp = compilePath;
   return [
     { method: "GET", ...cp("/api/categories-full"), handler: getCategoriesFull },
-    { method: "GET", ...cp("/api/expense-categories"), handler: getExpenseCategories },
     { method: "PUT", ...cp("/api/category-budget"), handler: putCategoryBudget },
     { method: "DELETE", ...cp("/api/category-budget"), handler: deleteCategoryBudget },
     { method: "POST", ...cp("/api/categories"), handler: createCategory },

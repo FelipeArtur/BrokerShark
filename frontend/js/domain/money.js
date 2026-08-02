@@ -14,12 +14,23 @@
     EXPENSE:     "expense",
   };
 
+  // A ordem é load-bearing. Liquidação antes de despesa senão o consumo dobra;
+  // SELF antes de investimento senão transferência entre contas vira aplicação;
+  // e terceiro antes de investimento porque dinheiro que não é seu não vira
+  // patrimônio seu ao ser aplicado — o tesoureiro que aplica a arrecadação de
+  // uma vaquinha não ficou mais rico.
   function moneyKind(t) {
     if (!t) return null;
     if (t.is_settlement) return KIND.SETTLEMENT;
     if (t.counterpart === "SELF" || t.dest_account_id != null) return KIND.TRANSFER;
-    if (t.method === "transfer" || (t.flow === "income" && !t.is_revenue)) return KIND.INVEST;
     if (t.is_third_party) return KIND.THIRD_PARTY;
+    // Entrada só é resgate quando `is_revenue` diz que não é renda nova. O
+    // método sozinho não basta: `method='transfer'` com `is_revenue=1` é
+    // receita real pro backend (`realIncome`), e chamá-la de investimento aqui
+    // tirava dinheiro de "Entradas" sem tirar do total do servidor.
+    if (t.flow === "expense" ? t.method === "transfer" : (!t.is_revenue && t.method === "transfer")) {
+      return KIND.INVEST;
+    }
     return t.flow === "income" ? KIND.REVENUE : KIND.EXPENSE;
   }
 
@@ -36,7 +47,7 @@
     [KIND.SETTLEMENT]:  "Liquidações",
     [KIND.TRANSFER]:    "Transferências",
     [KIND.INVEST]:      "Investimentos",
-    [KIND.THIRD_PARTY]: "De terceiros",
+    [KIND.THIRD_PARTY]: "Em nome de terceiros",
     [KIND.REVENUE]:     "Receitas",
     [KIND.EXPENSE]:     "Despesas",
   };
@@ -45,7 +56,7 @@
     [KIND.SETTLEMENT]:  "liquidação de fatura — os gastos reais são os itens da fatura; contar o pagamento dobraria o consumo",
     [KIND.TRANSFER]:    "transferência entre suas contas — não conta como despesa nem receita",
     [KIND.INVEST]:      "movimento de investimento — não conta como despesa nem receita",
-    [KIND.THIRD_PARTY]: "gasto de terceiro — fora dos seus totais",
+    [KIND.THIRD_PARTY]: "dinheiro que passou pela sua conta sem ser seu — fora de todos os seus totais",
     [KIND.REVENUE]:     "receita real",
     [KIND.EXPENSE]:     "despesa de consumo",
   };
@@ -54,11 +65,10 @@
     return (t && t.flow === "income") ? "+" : "−";
   }
 
-  function fmtParts(v, opts = {}) {
-    const { decimals = 2 } = opts;
+  function fmtParts(v) {
     const n = Math.abs(v ?? 0);
     const full = n.toLocaleString("pt-BR", {
-      minimumFractionDigits: decimals, maximumFractionDigits: decimals,
+      minimumFractionDigits: 2, maximumFractionDigits: 2,
     });
     const cut = full.lastIndexOf(",");
     return cut < 0 ? { int: full, cents: "" }

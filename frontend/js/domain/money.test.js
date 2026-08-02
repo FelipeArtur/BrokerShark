@@ -95,6 +95,47 @@ test("equivale à regra consumo-despesa do CLAUDE.md em toda linha alcançável"
   assert.ok(checked > 100, `varredura rasa demais: ${checked}`);
 });
 
+test("equivale às regras de perna de investimento em toda linha alcançável", () => {
+
+  // Espelho de investmentOut()/investmentIn() em backend/src/db/ledgerSql.ts.
+  // Sem `self_pair_tx_id` aqui: a perna SELF chega pelo `counterpart`, que é o
+  // que o cliente recebe.
+  const isSelf = (t) => t.counterpart === "SELF" || t.dest_account_id != null;
+  const out = (t) => t.flow === "expense" && t.method === "transfer" && !isSelf(t)
+    && !t.is_settlement && !t.is_third_party;
+  const inn = (t) => t.flow === "income" && !t.is_revenue && t.method === "transfer"
+    && !isSelf(t) && !t.is_settlement && !t.is_third_party;
+
+  // `is_revenue` só é zerado por quem também marca a linha: `selfPairs` põe
+  // counterpart SELF, e a classificação de investimento reescreve o método pra
+  // 'transfer'. Entrada com is_revenue=0 fora dos dois não é produzível.
+  const reachable = (t) =>
+    !(t.counterpart === "SELF" && t.method !== "transfer" && t.flow === "expense") &&
+    !(t.flow === "income" && !t.is_revenue && t.method !== "transfer" && t.counterpart !== "SELF");
+
+  let checked = 0;
+  for (const flow of ["expense", "income"])
+    for (const method of ["pix", "credit", "transfer", "ted"])
+      for (const is_settlement of [0, 1])
+        for (const is_third_party of [0, 1])
+          for (const is_revenue of [0, 1])
+            for (const dest of [null, "conta-b"])
+              for (const cp of [null, "SELF"]) {
+                const t = { flow, method, is_settlement, is_third_party, is_revenue,
+                  dest_account_id: dest, counterpart: cp };
+                if (!reachable(t)) continue;
+                assert.equal(M.moneyKind(t) === M.KIND.INVEST, out(t) || inn(t),
+                  `divergiu: ${JSON.stringify(t)}`);
+                checked++;
+              }
+  assert.ok(checked > 100, `varredura rasa demais: ${checked}`);
+});
+
+test("dinheiro de terceiro aplicado não vira investimento seu", () => {
+  const t = tx({ flow: "expense", method: "transfer", is_third_party: 1 });
+  assert.equal(M.moneyKind(t), M.KIND.THIRD_PARTY);
+});
+
 test("perna SELF de saída fora de 'transfer' é inalcançável — se aparecer, é bug de ingestão", () => {
 
   const t = { flow: "expense", method: "pix", counterpart: "SELF", is_settlement: 0,
@@ -108,10 +149,6 @@ test("fmtParts separa centavos do inteiro", () => {
   assert.deepEqual(M.fmtParts(-99.9), { int: "99", cents: ",90" });
   assert.deepEqual(M.fmtParts(0), { int: "0", cents: ",00" });
   assert.deepEqual(M.fmtParts(null), { int: "0", cents: ",00" });
-});
-
-test("fmtParts sem decimais não inventa vírgula", () => {
-  assert.deepEqual(M.fmtParts(1240, { decimals: 0 }), { int: "1.240", cents: "" });
 });
 
 test("kindSign segue o flow", () => {

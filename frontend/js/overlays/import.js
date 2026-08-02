@@ -1,9 +1,10 @@
 (function () {
 
+const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
+
 const { useState, useEffect, useRef } = React;
 
 function EditableCell({ value, kind, render, onCommit, onError, align = "left", color }) {
-  const h = React.createElement;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
@@ -74,7 +75,6 @@ function _parseAmountInput(raw) {
 }
 
 function ImportModal({ onClose, onDone }) {
-  const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   const { Modal, BankChip, isSelf, isInvest, fmtDateBR, fmtBRL, fmtBRLCompact, IconImport } = window.BS;
   // Os destinos vêm do servidor, não de uma lista literal: conta nova aparece
   // aqui no minuto em que é criada, e conta encerrada some (o backend recusaria

@@ -50,6 +50,38 @@ test("mês sem dado desenha barras de altura zero, não some", () => {
   assert.deepEqual(specs.map(s => s.height), [0, 0]);
 });
 
+// ── zero medido ≠ mês sem medição ───────────────────────────────────────────
+// A altura é 0 nos dois casos, então quem separa é `measured`. Sem ele a tela
+// desenha o mesmo nada para "não entrou nada este mês" e para "não há dado
+// deste mês" — duas afirmações diferentes, do jeito que alvo de categoria e
+// rendimento de posição também nunca confundem null com zero.
+
+test("mês sem medição não é medido em nenhum dos lados", () => {
+  const specs = B.barSpecs({ data: null, prev: null }, 100, false);
+  assert.deepEqual(specs.map(s => s.measured), [false, false]);
+});
+
+test("mês medido cujo lado deu zero continua medido", () => {
+  // Existe no ledger: mês com gasto e nenhuma entrada.
+  const specs = B.barSpecs(slot(0, 14.09, null), 100, false);
+  const receita = specs.find(s => s.key === "i");
+  assert.equal(receita.height, 0, "nada entrou, então nada a desenhar como barra");
+  assert.equal(receita.measured, true, "mas foi medido, e isso é um fato do mês");
+  assert.equal(specs.find(s => s.key === "e").measured, true);
+});
+
+test("o outro lado também: mês com entrada e nenhuma saída", () => {
+  const specs = B.barSpecs(slot(50, 0, null), 100, false);
+  const despesa = specs.find(s => s.key === "e");
+  assert.equal(despesa.height, 0);
+  assert.equal(despesa.measured, true);
+});
+
+test("fantasma vem de um mês que existiu, então é sempre medido", () => {
+  const specs = B.barSpecs(slot(100, 50, [0, 40]), 100, true);
+  assert.deepEqual(specs.filter(s => s.ghost).map(s => s.measured), [true, true]);
+});
+
 // ── escala ──────────────────────────────────────────────────────────────────
 
 test("zero não vira barra; valor positivo nunca fica invisível", () => {

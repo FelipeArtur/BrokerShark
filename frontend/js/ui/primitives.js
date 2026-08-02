@@ -1,18 +1,19 @@
 (function () {
 
+const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
+
 const { useState: _useState, useEffect: _useEffect, useCallback: _useCallback, useRef: _useRef } = React;
 
-function fmtBRL(v, opts = {}) {
-  const { sign = "auto", decimals = 2 } = opts;
+// Sinal só quando negativo. Quem precisa do "+" o escreve na chamada, que é o
+// que todo chamador já fazia — as opções de sinal e de casas decimais existiam
+// sem ninguém nunca tê-las passado.
+function fmtBRL(v) {
   const n = v ?? 0;
-  const s = "R$ " + Math.abs(n).toLocaleString("pt-BR", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
-  if (sign === "always") return (n >= 0 ? "+" : "−") + s;
-  if (sign === "neg-only") return n < 0 ? "−" + s : s;
-  return n < 0 ? "−" + s : s;
+  return (n < 0 ? "−" : "")
+    + "R$ " + Math.abs(n).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function Money({ t, value, kind, size, emphasis = false, strike = false, title }) {
-  const h = React.createElement;
+function Money({ t, value, kind, size, emphasis = false, title }) {
   const k = kind || (t ? window.BS.moneyKind(t) : null);
   const v = value != null ? value : (t ? t.amount : 0);
 
@@ -26,14 +27,17 @@ function Money({ t, value, kind, size, emphasis = false, strike = false, title }
     title: title || (k ? window.BS.KIND_HINT[k] : undefined),
     style: {
       display: "inline-flex", alignItems: "baseline", gap: 2, opacity: dim,
-      textDecoration: strike ? "line-through" : "none",
       fontSize: size ? `${size}px` : undefined,
       fontVariantNumeric: "tabular-nums",
     },
   },
+    // O número inteiro carrega a cor da espécie, não só o sinal: a coluna de
+    // valor é onde o olho pousa, e um "−" vermelho sobre um número cinza fazia
+    // a operação ser lida depois do valor. Os centavos ficam na mesma matiz,
+    // menores e mais fracos — hierarquia por peso, nunca por cor trocada.
     h("span", { style: { color, fontWeight: 700 } }, sign),
-    h("span", { style: { color: emphasis ? color : "var(--fg-1)", fontWeight: 600 } }, "R$ ", int),
-    cents && h("span", { style: { color: "var(--fg-3)", fontSize: "0.78em", fontWeight: 500 } }, cents)
+    h("span", { style: { color, fontWeight: emphasis ? 700 : 600 } }, "R$ ", int),
+    cents && h("span", { style: { color, opacity: 0.62, fontSize: "0.78em", fontWeight: 500 } }, cents)
   );
 }
 
@@ -199,7 +203,7 @@ function Modal({ open, onClose, title, children, width = 480 }) {
       style: { width, maxWidth: "92vw", maxHeight: "88vh", display: "flex", flexDirection: "column", background: "var(--bg-1)", border: "1px solid var(--line-2)" }
     },
       React.createElement("div", { style: { padding: "24px 32px 16px 32px", display: "flex", alignItems: "center", justifyContent: "space-between" } },
-        React.createElement("div", { id: titleId, style: { fontWeight: 700, fontSize: "var(--fz-4)", letterSpacing: "-0.01em" } }, title),
+        React.createElement("div", { id: titleId, className: "modal-title" }, title),
         React.createElement("button", {
           onClick: onClose, "aria-label": "Fechar", title: "Fechar",
           style: { width: 32, height: 32, background: "transparent", border: "none", color: "var(--fg-3)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.1s" },
@@ -368,40 +372,45 @@ function BrokerSharkLogo({ size = 28 }) {
 }
 
 const TxRow = React.memo(({ t, cols, onEditCategory, onApplySuggestion, catsByFlow, onInlineCategory,
-                           amountSize, selected, onToggleSelect, runningBalance }) => {
-  const h = React.createElement;
+                           amountSize, runningBalance }) => {
   const K = window.BS.KIND;
   const kind = window.BS.moneyKind(t);
-  const isThirdParty = kind === K.THIRD_PARTY;
+  // Lido do campo, não da espécie: um gasto de terceiro pago no crédito é
+  // liquidação, e uma aplicação com dinheiro de terceiro é transferência — nos
+  // dois casos a espécie some, mas a linha continua não sendo sua.
+  const isThirdParty = !!t.is_third_party;
   const _self   = kind === K.TRANSFER;
   const _invest = kind === K.INVEST;
   const _settle = kind === K.SETTLEMENT;
   const rows = [
     h("tr", {
       key: t.id,
-      className: selected ? "row-active" : undefined,
       onClick: () => onEditCategory && onEditCategory(t),
 
       style: { cursor: "pointer" }
     },
-      onToggleSelect && h("td", { style: { width: 28 }, onClick: e => e.stopPropagation() },
-        h("input", {
-          type: "checkbox", checked: !!selected, "aria-label": "Selecionar lançamento",
-          onChange: () => onToggleSelect(t), style: { cursor: "pointer" },
-        })
-      ),
       cols.includes("date") && h("td", { className: "mono", style: { color: "var(--fg-3)", fontSize: 10 } }, fmtDateBR(t.date)),
       cols.includes("desc") && h("td", { style: { maxWidth: cols.includes("account") ? 260 : "none" } },
         h("div", { style: { display: "flex", flexDirection: "column", gap: 2, overflow: "hidden" } },
           h("div", { style: { display: "flex", alignItems: "center", gap: 6, overflow: "hidden" } },
             h("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--fg-0)", fontWeight: 700, fontSize: 13 } }, t.display_name || prettifyDesc(t.description)),
-            isThirdParty && h("span", { className: "data-tag", title: window.BS.KIND_HINT[K.THIRD_PARTY], style: { borderStyle: "dashed", borderColor: "var(--warn)", color: "var(--warn)", fontWeight: 600, flexShrink: 0 } }, "TERCEIROS")
+            isThirdParty && h("span", {
+              className: "data-tag",
+              title: t.category
+                ? `Em nome de terceiros · ${t.category} — fora de todos os seus totais`
+                : window.BS.KIND_HINT[K.THIRD_PARTY],
+              style: { borderStyle: "dashed", borderColor: "var(--warn)", color: "var(--warn)", fontWeight: 600, flexShrink: 0 },
+            }, t.category ? `EM NOME DE · ${t.category}` : "EM NOME DE TERCEIROS")
           ),
           h("span", { style: { fontSize: 10, color: "var(--fg-3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, t.description)
         )
       ),
+      // Terceiros saiu desta lista de propósito: é justamente onde a categoria
+      // faz mais falta. Sem ela, quem foi tesoureiro de uma vaquinha via a
+      // linha marcada como "de terceiros" e nada mais — sem como separar o que
+      // era daquela arrecadação do que era de outra.
       cols.includes("cat") && h("td", null,
-        (_settle || _self || _invest || isThirdParty)
+        (_settle || _self || _invest)
 
           ? h("span", {
               className: "data-tag",
@@ -411,7 +420,7 @@ const TxRow = React.memo(({ t, cols, onEditCategory, onApplySuggestion, catsByFl
                 color: window.BS.KIND_COLOR[kind],
               },
             }, { settlement: "pagamento de fatura", transfer: "transferência",
-                 invest: "investimento", third_party: "de terceiros" }[kind])
+                 invest: "investimento" }[kind])
             : (onInlineCategory && catsByFlow)
 
               ? h("select", {
@@ -476,9 +485,7 @@ const TxRow = React.memo(({ t, cols, onEditCategory, onApplySuggestion, catsByFl
   prev.t.is_settlement === next.t.is_settlement &&
   prev.t.method === next.t.method &&
   prev.amountSize === next.amountSize &&
-  prev.selected === next.selected &&
   prev.runningBalance === next.runningBalance &&
-  prev.onToggleSelect === next.onToggleSelect &&
   prev.onEditCategory === next.onEditCategory &&
   prev.onApplySuggestion === next.onApplySuggestion &&
   prev.catsByFlow === next.catsByFlow &&
@@ -493,14 +500,14 @@ const isInvest             = t => window.BS.moneyKind(t) === "invest";
 
 const isSelf               = t => window.BS.moneyKind(t) === "transfer";
 
-const isThirdParty         = t => window.BS.moneyKind(t) === "third_party";
 
 function FilterBar({ filter, onRemove, onClear }) {
-  const h = (t, p, ...c) => React.createElement(t, p, ...c);
   const chips = [];
   filter.categories.forEach(v => chips.push(["categories", v, v]));
   filter.banks.forEach(v => chips.push(["banks", v, v]));
-  filter.accounts.forEach(v => chips.push(["accounts", v, v]));
+  // Conta entra na faceta pelo id (é o que a linha do lançamento carrega), mas
+  // quem lê o chip espera o nome. `accountNames` é preenchido no boot do app.
+  filter.accounts.forEach(v => chips.push(["accounts", v, (window.BS.accountNames || {})[v] || v]));
   if (filter.flow !== "all") chips.push(["flow", filter.flow, filter.flow === "expense" ? "Despesas" : "Receitas"]);
   if (filter.method !== "all") chips.push(["method", filter.method, filter.method.toUpperCase()]);
   if (!chips.length && !filter.search) return null;
@@ -519,7 +526,7 @@ Object.assign(window.BS, {
   PT_MONTHS, PT_SHORT,
   Modal, Overlay, useToasts, BankChip, SegmentControl,
   BrokerSharkLogo, TxRow, FilterBar, Money,
-  isSelf, isConsumptionExpense, isRevenue, isInvest, isThirdParty,
+  isSelf, isConsumptionExpense, isRevenue, isInvest,
 });
 
 })();

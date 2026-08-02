@@ -26,23 +26,30 @@
   }
 
   /**
+   * `measured` separa duas coisas que a altura zero não distingue: o mês que
+   * FOI medido e deu zero (nenhuma receita entrou, e isso é um fato) do mês que
+   * não tem medição nenhuma. É a mesma regra que vale no alvo de categoria
+   * (null, nunca zero) e no rendimento de posição (sem aplicado é null, porque
+   * zero diria "rendeu nada", que é outra afirmação). Sem esse campo, a tela
+   * desenha o mesmo nada para os dois casos.
+   *
    * @param slot    { data: {income, expenses}|null, prev: {income, expenses}|null }
    * @param maxV    maior valor da série, pra escala comum entre os meses
    * @param compare toggle "vs ant." ligado
-   * @returns [{ key, kind: 'income'|'expense', ghost: boolean, height }]
+   * @returns [{ key, kind: 'income'|'expense', ghost: boolean, height, measured }]
    */
   function barSpecs(slot, maxV, compare) {
     const d = (slot && slot.data) || null;
     const prev = compare && slot ? slot.prev : null;
     const out = [];
 
-    out.push({ key: "i", kind: "income", ghost: false, height: d ? scaleBar(d.income, maxV) : 0 });
+    out.push({ key: "i", kind: "income", ghost: false, measured: !!d, height: d ? scaleBar(d.income, maxV) : 0 });
     if (prev) {
-      out.push({ key: "gi", kind: "income", ghost: true, height: scaleBar(prev.income, maxV) });
+      out.push({ key: "gi", kind: "income", ghost: true, measured: true, height: scaleBar(prev.income, maxV) });
     }
-    out.push({ key: "e", kind: "expense", ghost: false, height: d ? scaleBar(d.expenses, maxV) : 0 });
+    out.push({ key: "e", kind: "expense", ghost: false, measured: !!d, height: d ? scaleBar(d.expenses, maxV) : 0 });
     if (prev) {
-      out.push({ key: "ge", kind: "expense", ghost: true, height: scaleBar(prev.expenses, maxV) });
+      out.push({ key: "ge", kind: "expense", ghost: true, measured: true, height: scaleBar(prev.expenses, maxV) });
     }
     return out;
   }

@@ -1,5 +1,7 @@
 (function () {
 
+const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
+
 const { useState: _ivSt, useEffect: _ivEf } = React;
 
 // Drill-down de posição: a promessa do Produto.md ("resumo no widget, posições
@@ -11,7 +13,6 @@ const { useState: _ivSt, useEffect: _ivEf } = React;
 // um seletor quando há mais de uma.
 
 function InvestmentPanel({ ids, title, onClose }) {
-  const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   // Toda data aqui atravessa anos (medição e vencimento), então nunca fmtDateBR.
   const { fmtBRL, fullDateBR } = window.BS;
 
@@ -72,7 +73,8 @@ function InvestmentPanel({ ids, title, onClose }) {
         h("div", null,
           h("div", { style: { fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--fg-3)", fontFamily: "var(--ff-sans)" } }, "Valor líquido"),
           h("div", { className: "mono", style: { fontSize: 24, fontWeight: 700, color: "var(--reserve)" } }, fmtBRL(last.net)),
-          h("div", { style: { fontSize: 11, color: "var(--fg-3)" } }, `em ${fullDateBR(last.ref_date)}`)),
+          h("div", { style: { fontSize: 11, color: "var(--fg-3)" } },
+            `medido em ${fullDateBR(last.ref_date)}`)),
         last.yield != null && h("div", null,
           h("div", { style: { fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--fg-3)", fontFamily: "var(--ff-sans)" } }, "Rendimento"),
           h("div", { className: "mono", style: { fontSize: 18, fontWeight: 700, color: last.yield >= 0 ? "var(--pos)" : "var(--neg)" } },
@@ -101,6 +103,18 @@ function InvestmentPanel({ ids, title, onClose }) {
       snaps.length > 0 && h(React.Fragment, null,
         h("div", { style: { padding: "14px 0 8px", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--fg-3)", fontFamily: "var(--ff-sans)" } },
           "Histórico de medições"),
+
+        // A pergunta "de onde vem esse número, sem API de mercado?" tem uma
+        // resposta honesta, e ela precisa estar na tela do número.
+        h("p", { style: { margin: "0 0 10px", fontSize: 11, color: "var(--fg-3)", lineHeight: 1.6, maxWidth: 720 } },
+          pos.source === "ledger"
+            ? ["Esta posição não tem custódia em corretora: o saldo é o que entrou menos o que saiu, ",
+               "direto do extrato. Não há cotação a acompanhar, então o valor é exato."]
+            : ["Cada linha é um relatório da corretora que você importou. O valor é o que estava lá no dia, ",
+               "e o rendimento sai da conta ", h("span", { key: "f", className: "mono", style: { color: "var(--fg-2)" } }, "líquido − aplicado"),
+               " na hora de mostrar, nunca de um número guardado que envelhece. ",
+               "Sem API de mercado, a medição mais nova vale até o próximo relatório chegar: ",
+               "o painel repete a última em vez de inventar uma cotação de hoje."]),
 
         h("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 12 } },
           h("thead", null, h("tr", null,

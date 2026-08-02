@@ -1,9 +1,10 @@
 (function () {
 
+const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
+
 const { fmtBRL } = window.BS;
 
 function BulkCategorizeModal({ groups, catsByFlow, monthLabel, onApply, onClose, onRefreshCats, onToast }) {
-  const h = (t, p, ...c) => React.createElement(t, p, ...c);
   const [creatingFor, setCreatingFor] = React.useState(null);
   const [newCatName, setNewCatName] = React.useState("");
   const [busy, setBusy] = React.useState(null);

@@ -1,5 +1,7 @@
 (function () {
 
+const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
+
 const { useState: _acSt, useEffect: _acEf } = React;
 
 function slugify(s) {
@@ -8,7 +10,6 @@ function slugify(s) {
 }
 
 function AccountsPanel({ onRefresh, onClose }) {
-  const h = (tag, props, ...children) => React.createElement(tag, props, ...children);
   const { fmtBRL, fmtDateBR } = window.BS;
 
   const [accounts, setAccounts] = _acSt([]);
@@ -64,13 +65,17 @@ function AccountsPanel({ onRefresh, onClose }) {
   const hoje = new Date();
   const hojeIso = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}-${String(hoje.getDate()).padStart(2, "0")}`;
 
-  function row(acc) {
+  function row(acc, aninhada) {
     const fechada = !!acc.closed_at;
+    const fat = acc.open_invoice;
     return h("div", {
       key: acc.id, className: "cat-row",
-      style: fechada ? { opacity: 0.6 } : null,
+      style: Object.assign({}, fechada ? { opacity: 0.6 } : null,
+        aninhada ? { paddingLeft: 26 } : null),
     },
-      h("div", { className: "px-swatch", style: { background: window.BS.bankColor(acc.bank, acc.id) } }),
+      aninhada
+        ? h("span", { className: "acct-card-tree" }, "└")
+        : h("div", { className: "px-swatch", style: { background: window.BS.bankColor(acc.bank, acc.id) } }),
 
       editingId === acc.id
         ? h("input", {
@@ -89,14 +94,17 @@ function AccountsPanel({ onRefresh, onClose }) {
             title: "Clique para renomear",
           },
             acc.name,
-            h("span", { style: { marginLeft: 8, fontSize: 10, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.05em" } },
+            // Aninhado já é cartão pela posição; repetir o rótulo é ruído.
+            !aninhada && h("span", { style: { marginLeft: 8, fontSize: 10, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: "0.05em" } },
               acc.type === "checking" ? "conta" : "cartão"),
           ),
 
-      h("span", { className: "cat-count mono" },
+      h("span", { className: "cat-count mono", style: !fechada && fat ? { color: "var(--warn)" } : null },
         fechada
           ? `encerrada em ${fmtDateBR(acc.closed_at)}`
-          : fmtBRL(acc.balance || 0)),
+          : fat
+            ? `fatura −${fmtBRL(Math.abs(fat.total))}${fat.due_date ? ` · vence ${fmtDateBR(fat.due_date)}` : ""}`
+            : acc.type === "credit_card" ? "fatura paga" : fmtBRL(acc.balance || 0)),
 
       editingId !== acc.id && h("div", { className: "cat-actions" },
         fechada
@@ -120,17 +128,11 @@ function AccountsPanel({ onRefresh, onClose }) {
     );
   }
 
-  return h("div", { className: "fade-in", style: { display: "flex", flexDirection: "column", height: "100%", background: "var(--bg-0)" } },
-
-    h("div", { style: { padding: "20px 28px", borderBottom: "1px solid var(--line-1)", flexShrink: 0, display: "flex", flexDirection: "column", gap: 16 } },
-      h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 } },
-        h("h2", { style: { margin: 0, fontFamily: "var(--ff-sans)", fontSize: 15, letterSpacing: "1px", textTransform: "uppercase", color: "var(--fg-0)" } }, "Contas"),
-        onClose && h("button", { className: "px-btn px-btn--ghost px-btn--sm", onClick: onClose, title: "Fechar (Esc)", "aria-label": "Fechar" }, "✕"),
-      ),
-
-      h("p", { style: { margin: 0, fontSize: 12, color: "var(--fg-2)", lineHeight: 1.5 } },
-        "Encerrar tira a conta do ", h("strong", null, "disponível"),
-        " e das opções de import, mas o histórico dela fica inteiro — os meses passados continuam contando o que ela movimentou."),
+  // Caixa que se ajusta ao conteúdo, não coluna de tela cheia: são três linhas.
+  // O painel anterior reservava 720px de altura pra elas e o vazio embaixo era
+  // o que mais chamava atenção na tela.
+  return h(window.BS.Modal, { open: true, onClose, title: "Contas e cartões", width: 560 },
+    h("div", { style: { display: "flex", flexDirection: "column", gap: 14 } },
 
       creating
         ? h("form", { onSubmit: handleCreate, style: { display: "flex", flexDirection: "column", gap: 8 } },
@@ -166,20 +168,27 @@ function AccountsPanel({ onRefresh, onClose }) {
             ),
           )
         : h("button", {
-            className: "px-btn px-btn--primary", onClick: () => { setCreating(true); setErr(""); },
-          }, "+ NOVA CONTA"),
+            className: "px-btn px-btn--primary", style: { alignSelf: "flex-start" },
+            onClick: () => { setCreating(true); setErr(""); },
+          }, "+ NOVA CONTA OU CARTÃO"),
 
       err && h("div", { style: { color: "var(--neg)", fontSize: 12 } }, err),
-    ),
 
-    h("div", { style: { flex: 1, overflowY: "auto" } },
-      h("div", { className: "px-list", style: { padding: "0 12px" } }, abertas.map(row)),
+      abertas.length === 0
+        ? h("div", { className: "px-empty" }, "Nenhuma conta ainda.")
+        : window.BS.groupByBank(abertas).map(g => h("div", { key: g.bank, className: "px-list" },
+            g.contas.map(a => row(a, false)),
+            g.cartoes.map(a => row(a, true)),
+          )),
 
       encerradas.length > 0 && h(React.Fragment, null,
-        h("div", { style: { padding: "16px 18px 6px", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--fg-3)", fontFamily: "var(--ff-sans)" } },
-          "Encerradas — histórico preservado"),
-        h("div", { className: "px-list", style: { padding: "0 12px" } }, encerradas.map(row)),
+        h("div", { style: { paddingTop: 8, fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--fg-3)", fontFamily: "var(--ff-sans)" } },
+          "Encerradas — o histórico continua valendo"),
+        h("div", { className: "px-list" }, encerradas.map(a => row(a, false))),
       ),
+
+      h("p", { style: { margin: 0, fontSize: 11, color: "var(--fg-3)", lineHeight: 1.6, borderTop: "1px dashed var(--line-1)", paddingTop: 12 } },
+        "Encerrar tira a conta do disponível e das opções de import. Nenhum lançamento é apagado: os meses passados continuam contando o que ela movimentou."),
     ),
 
     h(window.BS.Modal, {

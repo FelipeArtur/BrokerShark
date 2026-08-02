@@ -51,6 +51,47 @@ select.px-field { cursor: pointer; appearance: none; padding-right: var(--s-7); 
 .px-btn--ghost:hover { background: var(--bg-2); color: var(--fg-0); }
 .px-btn--sm { height: 24px; padding: 0 var(--s-4); }
 
+/* Ficha do lançamento: o que o arquivo do banco trouxe além do valor.
+   Auto-fit porque o número de campos varia por linha — parcela e categoria do
+   banco só existem em compra de cartão. */
+.ficha {
+  display: grid; gap: var(--s-5) var(--s-7);
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  padding-top: var(--s-5); border-top: 1px dashed var(--line-1);
+}
+.ficha-campo { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+/* `.mono` é `nowrap` por padrão — certo numa célula de tabela, errado aqui:
+   nome de arquivo de extrato passava por cima do campo vizinho. */
+.ficha-campo .mono, .ficha-bruto { white-space: normal; overflow-wrap: anywhere; }
+
+/* Seção que se abre — o `<details>` nativo com a moldura da casa. Serve pro
+   que é consequência, não centro: a lista de regras aprendidas. */
+.px-details { border-top: 1px dashed var(--line-1); padding-top: var(--s-5); }
+.px-details > summary {
+  cursor: pointer; list-style: none;
+  display: flex; align-items: center; gap: var(--s-3);
+  font-family: var(--ff-sans); font-size: var(--fz-9); letter-spacing: 1px;
+  text-transform: uppercase; color: var(--fg-2);
+  padding-bottom: var(--s-4);
+}
+.px-details > summary::-webkit-details-marker { display: none; }
+.px-details > summary::before { content: "▸"; font-family: var(--ff-mono); color: var(--fg-3); }
+.px-details[open] > summary::before { content: "▾"; }
+.px-details > summary:hover { color: var(--fg-0); }
+
+/* Cartão pendurado na conta que paga a fatura dele. Indentado e em tom menor
+   porque é subordinado: a conta guarda dinheiro, o cartão guarda dívida. */
+.acct-card {
+  display: flex; align-items: baseline; gap: var(--s-3);
+  width: 100%; padding: 3px 6px 3px 16px;
+  background: none; border: none; cursor: pointer; text-align: left;
+}
+.acct-card:hover { background: var(--bg-2); }
+.acct-card-tree {
+  font-family: var(--ff-mono); font-size: var(--fz-9);
+  color: var(--fg-faint); flex-shrink: 0;
+}
+
 .px-chip {
   padding: 1px var(--s-3);
   background: var(--bg-2); color: var(--fg-2);

@@ -23,3 +23,23 @@ export function restrictPermissions(path: string): void {
     if (existsSync(p)) chmodSync(p, 0o600);
   }
 }
+
+/**
+ * O caminho do DB nos argumentos de linha de comando, ou `undefined` pra cair
+ * no padrão de quem chama.
+ *
+ * Existe separada e testada porque o modo de falha é o pior que este projeto
+ * tem: escolher errado aqui serve o ledger de PRODUÇÃO em silêncio, com a tela
+ * inteira parecendo normal — quem pede a demo escreve no ledger de verdade sem
+ * nunca ver um aviso.
+ *
+ * A guarda pula o NÚMERO que vem depois de `--port`. Escrita como
+ * `i !== portIdx + 1`, ela virava `i !== 0` quando `--port` estava ausente
+ * (`indexOf` devolve −1), e o índice 0 é justamente onde o caminho aparece em
+ * `npm start -- data/demo.db`. A demo documentada nunca subiu.
+ */
+export function pickDbPath(args: string[]): string | undefined {
+  const portIdx = args.indexOf("--port");
+  const valorDaPorta = portIdx >= 0 ? portIdx + 1 : -1;
+  return args.find((a, i) => !a.startsWith("--") && i !== valorDaPorta);
+}

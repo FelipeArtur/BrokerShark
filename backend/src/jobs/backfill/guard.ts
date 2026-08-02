@@ -55,6 +55,13 @@ const PROBES: Probe[] = [
     table: "rules",
     sql: `SELECT COUNT(*) AS n FROM rules WHERE action = 'category'`,
   },
+  {
+    // Recorrência declarada na ficha do lançamento. Nenhum acervo a contém: é
+    // afirmação de quem usa sobre o futuro, e o extrato só fala do passado.
+    label: "recorrências declaradas por você",
+    table: "recurring_marks",
+    sql: `SELECT COUNT(*) AS n FROM recurring_marks`,
+  },
 ];
 
 function tableColumns(db: DatabaseSync, table: string): Set<string> | null {

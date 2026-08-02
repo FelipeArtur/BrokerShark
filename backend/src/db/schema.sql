@@ -111,3 +111,16 @@ CREATE TABLE IF NOT EXISTS rules (
     priority    INTEGER NOT NULL DEFAULT 100,
     enabled     INTEGER NOT NULL DEFAULT 1
 );
+
+-- Recorrência DECLARADA: você aponta um lançamento e diz "isto se repete todo
+-- mês". Tabela nova em vez de coluna em `transactions` porque é aditivo simples
+-- (a disciplina do baseline manda preferir tabela nova) e porque a marca é
+-- decisão de quem usa, não dado do extrato: separada, fica óbvio o que o
+-- backfill recria e o que ele jamais poderia recriar.
+--
+-- Nada de valor nem de dia guardados aqui: os dois saem do lançamento apontado.
+-- Copiá-los criaria uma segunda verdade que envelhece sozinha.
+CREATE TABLE IF NOT EXISTS recurring_marks (
+    transaction_id INTEGER PRIMARY KEY REFERENCES transactions(id) ON DELETE CASCADE,
+    created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+);
