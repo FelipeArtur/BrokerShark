@@ -45,7 +45,7 @@ test("e2e: fatura aberta abate o disponível; a parcela do mês aparece no card"
 
   const avail = call(accountRoutes(db).filter(r => r.method === "GET")[1]);
   assert.equal(avail.committed_this_month, 200);
-  assert.equal(avail.available_net, avail.available - 200);
+  assert.equal(avail.available_net, avail.checking_total - 200);
 
   const commit = call(commitmentRoutes(db)[0]);
   assert.equal(commit.month, ym);

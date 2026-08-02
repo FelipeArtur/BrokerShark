@@ -5,7 +5,7 @@ import type { Route } from "../http/router.ts";
 import { compilePath } from "../http/router.ts";
 import { broadcast } from "../http/sse.ts";
 import { isIsoDate, isShortText } from "../http/validate.ts";
-import { monthlyPortfolioSeries } from "../domain/positions.ts";
+import { portfolioSeriesFromDb } from "../domain/positions.ts";
 import { monthlyCheckingSeries } from "../domain/accountBalances.ts";
 import { currentMonth, today } from "../domain/dates.ts";
 import { bankColorFor } from "../config.ts";
@@ -139,8 +139,11 @@ export function accountRoutes(db: DatabaseSync): Route[] {
          AND strftime('%Y-%m', due_date) = ?`,
     ).get(curYm) as { c: number }).c;
 
+    //> Dois nomes, dois sentidos, sem sinônimo no meio: `checking_total` é o caixa
+    //> BRUTO das contas abertas; `available_net` é o que sobra depois do comprometido.
+    //> Havia um `available` idêntico ao bruto, e o nome ambíguo convidava a tela a
+    //> escolher o campo errado ao mexer na regra de gasto.
     json(res, {
-      available: totalCents / 100,
       checking_total: totalCents / 100,
       committed_this_month: committedCents / 100,
       available_net: (totalCents - committedCents) / 100,
@@ -174,22 +177,7 @@ export function accountRoutes(db: DatabaseSync): Route[] {
 
     const checking = monthlyCheckingSeries(accs, deltas);
 
-    const snaps = db.prepare(`
-      SELECT investment_id, ym, net_cents FROM (
-        SELECT ps.investment_id, strftime('%Y-%m', ps.ref_date) AS ym, ps.net_cents,
-          ROW_NUMBER() OVER (
-            PARTITION BY ps.investment_id, strftime('%Y-%m', ps.ref_date)
-            ORDER BY ps.ref_date DESC, ps.id DESC
-          ) AS rn
-        FROM position_snapshots ps
-      ) WHERE rn = 1 ORDER BY ym
-    `).all() as any[];
-    const closedYm = new Map<number, string>(
-      (db.prepare(
-        "SELECT id, strftime('%Y-%m', closed_at) AS ym FROM investments WHERE closed_at IS NOT NULL"
-      ).all() as any[]).map(r => [r.id, r.ym]),
-    );
-    const series = monthlyPortfolioSeries(snaps, closedYm);
+    const series = portfolioSeriesFromDb(db);
     const investMap = new Map(series.map(p => [p.ym, p.total_cents]));
     const lastSnapYm = series.length ? series[series.length - 1].ym : "";
     const lastTotal = series.length ? series[series.length - 1].total_cents : 0;

@@ -72,6 +72,23 @@ export function transactionRoutes(db: DatabaseSync): Route[] {
   const categoryExists = (id: unknown): boolean =>
     isIntId(id) && db.prepare("SELECT 1 FROM categories WHERE id = ?").get(id) !== undefined;
 
+  /**
+   * @brief   A categoria serve pro fluxo destes lançamentos?
+   * @warning Categoria tem `flow`, e o widget agrega por ele. Receita numa categoria
+   *          de despesa entra no total de gasto daquela categoria e some do de receita:
+   *          os dois números passam a discordar sem nada ficar vermelho.
+   */
+  function categoryFlowMismatch(categoryId: number, txIds: number[]): string | null {
+    const cat = db.prepare("SELECT flow FROM categories WHERE id = ?").get(categoryId) as { flow: string };
+    const ph = txIds.map(() => "?").join(",");
+    const conflita = db.prepare(
+      `SELECT COUNT(*) AS n FROM transactions WHERE id IN (${ph}) AND flow != ?`,
+    ).get(...txIds, cat.flow) as { n: number };
+    if (!conflita.n) return null;
+    const oQue = cat.flow === "expense" ? "despesa" : "receita";
+    return `a categoria é de ${oQue}, e ${conflita.n === 1 ? "o lançamento não é" : `${conflita.n} lançamentos não são`}`;
+  }
+
   function getMonthTransactions(req: Req, res: Res) {
     const { month: cm, year: cy } = currentMonth();
     const month = qsInt(req, "month") ?? cm;
@@ -113,6 +130,10 @@ export function transactionRoutes(db: DatabaseSync): Route[] {
     if ("category_id" in body) {
       const v = (body as any).category_id;
       if (v !== null && !categoryExists(v)) return error(res, "categoria inexistente");
+      if (v !== null) {
+        const erro = categoryFlowMismatch(v as number, [id]);
+        if (erro) return error(res, erro);
+      }
       updates.push("category_id = ?"); params.push(v);
     }
     if ("display_name" in body) {
@@ -176,6 +197,12 @@ export function transactionRoutes(db: DatabaseSync): Route[] {
     json(res, { ok: true, deleted: deleted.length, restore: deleted });
   }
 
+  /**
+   * @brief   Desfaz uma exclusão, recolocando as linhas como estavam.
+   * @warning Tudo numa transação só. Sem ela, uma linha inválida no meio do lote
+   *          deixava as anteriores gravadas e o undo virava restauração PARCIAL —
+   *          pior que não ter desfeito, porque a tela diz que desfez.
+   */
   async function restoreTransactions(req: Req, res: Res) {
     const body = await readBody<{ restore: any[] }>(req);
     if (!Array.isArray(body.restore) || !body.restore.length) return error(res, "nada para restaurar");
@@ -190,7 +217,15 @@ export function transactionRoutes(db: DatabaseSync): Route[] {
     const stmt = db.prepare(
       `INSERT OR REPLACE INTO transactions (${cols.join(",")}) VALUES (${cols.map(() => "?").join(",")})`,
     );
-    for (const tx of body.restore) stmt.run(...cols.map(c => tx[c] ?? null));
+
+    db.prepare("BEGIN").run();
+    try {
+      for (const tx of body.restore) stmt.run(...cols.map(c => tx[c] ?? null));
+      db.prepare("COMMIT").run();
+    } catch (e) {
+      db.prepare("ROLLBACK").run();
+      return error(res, e instanceof Error ? e.message : "falha ao restaurar", 500);
+    }
     broadcast();
     json(res, { ok: true, restored: body.restore.length });
   }
@@ -199,6 +234,8 @@ export function transactionRoutes(db: DatabaseSync): Route[] {
     const body = await readBody<{ ids: unknown; category_id: unknown }>(req);
     if (!isIntIdArray(body.ids)) return error(res, "ids inválidos");
     if (!categoryExists(body.category_id)) return error(res, "categoria inexistente");
+    const erro = categoryFlowMismatch(body.category_id as number, body.ids);
+    if (erro) return error(res, erro);
 
     const placeholders = body.ids.map(() => "?").join(",");
     db.prepare(`UPDATE transactions SET category_id = ? WHERE id IN (${placeholders})`)

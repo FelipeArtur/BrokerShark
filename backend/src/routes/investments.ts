@@ -4,18 +4,7 @@ import { json, error, qsStr } from "../http/respond.ts";
 import { isIntId } from "../http/validate.ts";
 import type { Route } from "../http/router.ts";
 import { compilePath } from "../http/router.ts";
-import { monthlyPortfolioSeries } from "../domain/positions.ts";
-
-const MONTHLY_SNAPS = `
-  SELECT investment_id, ym, net_cents FROM (
-    SELECT ps.investment_id, strftime('%Y-%m', ps.ref_date) AS ym, ps.net_cents,
-      ROW_NUMBER() OVER (
-        PARTITION BY ps.investment_id, strftime('%Y-%m', ps.ref_date)
-        ORDER BY ps.ref_date DESC, ps.id DESC
-      ) AS rn
-    FROM position_snapshots ps
-  ) WHERE rn = 1 ORDER BY ym
-`;
+import { portfolioSeriesFromDb } from "../domain/positions.ts";
 
 export function investmentRoutes(db: DatabaseSync): Route[] {
 
@@ -54,13 +43,7 @@ export function investmentRoutes(db: DatabaseSync): Route[] {
   }
 
   function getInvestmentEvolution(_req: Req, res: Res) {
-    const snaps = db.prepare(MONTHLY_SNAPS).all() as any[];
-    const closedYm = new Map<number, string>(
-      (db.prepare(
-        "SELECT id, strftime('%Y-%m', closed_at) AS ym FROM investments WHERE closed_at IS NOT NULL"
-      ).all() as any[]).map(r => [r.id, r.ym]),
-    );
-    json(res, monthlyPortfolioSeries(snaps, closedYm).map(p => {
+    json(res, portfolioSeriesFromDb(db).map(p => {
       const [y, m] = p.ym.split("-");
       return { label: `${m}/${y}`, cumulative: p.total_cents / 100 };
     }));

@@ -34,3 +34,32 @@ export function monthlyPortfolioSeries(
   }
   return out;
 }
+
+/**
+ * @brief   Série mensal da carteira, lida direto do banco.
+ * @details A consulta de snapshots, o mapa de fechadas e o carry-forward viviam
+ *          copiados em `/api/liquidity-history` e `/api/investment-evolution`. Duas
+ *          cópias divergindo fariam o gráfico de patrimônio e o de investimentos
+ *          discordarem sobre o mesmo mês.
+ */
+export function portfolioSeriesFromDb(db: {
+  prepare: (sql: string) => { all: (...a: unknown[]) => unknown[] };
+}): { ym: string; total_cents: number }[] {
+  const snaps = db.prepare(`
+    SELECT investment_id, ym, net_cents FROM (
+      SELECT ps.investment_id, strftime('%Y-%m', ps.ref_date) AS ym, ps.net_cents,
+        ROW_NUMBER() OVER (
+          PARTITION BY ps.investment_id, strftime('%Y-%m', ps.ref_date)
+          ORDER BY ps.ref_date DESC, ps.id DESC
+        ) AS rn
+      FROM position_snapshots ps
+    ) WHERE rn = 1 ORDER BY ym
+  `).all() as never[];
+
+  const closedYm = new Map<number, string>(
+    (db.prepare(
+      "SELECT id, strftime('%Y-%m', closed_at) AS ym FROM investments WHERE closed_at IS NOT NULL",
+    ).all() as { id: number; ym: string }[]).map(r => [r.id, r.ym]),
+  );
+  return monthlyPortfolioSeries(snaps, closedYm);
+}

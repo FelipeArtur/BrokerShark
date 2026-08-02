@@ -164,3 +164,20 @@ test("escala é local ao grupo — aluguel não achata o café de outro grupo", 
   const mercado = gs.find(g => g.label === "Mercado");
   assert.equal(G.scaleFor(100, mercado.maxAmount), G.SCALE_MAX);
 });
+
+test("alvo cravado não nasce estourado por float", () => {
+  //> 0,10 três vezes soma 0.30000000000000004 em ponto flutuante.
+  const gasto = [0.10, 0.10, 0.10].reduce((s, v) => s + v, 0);
+  const st = G.budgetState(gasto, 0.30);
+  assert.equal(st.over, false, "exatamente 30 centavos não é estouro");
+  assert.equal(st.ratio, 1);
+});
+
+test("um centavo acima do alvo é estouro", () => {
+  assert.equal(G.budgetState(0.31, 0.30).over, true);
+});
+
+test("a faixa de alerta começa em 80% sem depender de float", () => {
+  assert.match(G.budgetState(0.24, 0.30).color, /warn/);
+  assert.match(G.budgetState(0.23, 0.30).color, /accent/);
+});

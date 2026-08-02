@@ -207,3 +207,38 @@ test("cada violação reporta contagem e mensagem legível", () => {
   assert.equal(v.count, 2);
   assert.ok(v.message.length > 10);
 });
+
+test("liquidação lançada como entrada é violação", () => {
+  const db = freshDb();
+  //> `realIncome()` não olha `is_settlement`: sem este check, o pagamento de fatura
+  //> marcado como income vira receita e o KPI de entradas sobe sozinho.
+  tx(db, { flow: "income", is_revenue: 1, is_settlement: 1, amount_cents: 10000 });
+  assert.ok(checks(db).includes("liquidacao-como-entrada"));
+});
+
+test("liquidação normal (saída) não acusa", () => {
+  const db = freshDb();
+  tx(db, { flow: "expense", is_settlement: 1, amount_cents: 10000 });
+  assert.ok(!checks(db).includes("liquidacao-como-entrada"));
+});
+
+test("par SELF ligado sem counterpart é violação", () => {
+  const db = freshDb();
+  //> O backend exclui pelo id do par; a tela decide pelo counterpart. Sem o rótulo,
+  //> o total ignora a linha e a tabela a mostra como investimento.
+  const a = tx(db, { flow: "expense", method: "transfer", description: "a" });
+  const b = tx(db, { flow: "income", method: "transfer", account_id: "conta-b", description: "b" });
+  db.prepare("UPDATE transactions SET self_pair_tx_id=? WHERE id=?").run(b, a);
+  db.prepare("UPDATE transactions SET self_pair_tx_id=? WHERE id=?").run(a, b);
+  assert.ok(checks(db).includes("self-par-sem-rotulo"));
+});
+
+test("par SELF com o rótulo nos dois lados passa", () => {
+  const db = freshDb();
+  const a = tx(db, { flow: "expense", method: "transfer", counterpart: "SELF", description: "a" });
+  const b = tx(db, { flow: "income", method: "transfer", counterpart: "SELF",
+    account_id: "conta-b", description: "b" });
+  db.prepare("UPDATE transactions SET self_pair_tx_id=? WHERE id=?").run(b, a);
+  db.prepare("UPDATE transactions SET self_pair_tx_id=? WHERE id=?").run(a, b);
+  assert.ok(!checks(db).includes("self-par-sem-rotulo"));
+});

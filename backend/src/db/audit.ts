@@ -52,6 +52,24 @@ const CHECKS: Check[] = [
           WHERE is_settlement = 1 AND (method = 'transfer' OR is_third_party = 1)`,
   },
   {
+    //> Pagar fatura é dinheiro SAINDO. Marcada como entrada, `realIncome()` a soma
+    //> como receita real (a regra não olha `is_settlement`) e o KPI de entradas
+    //> sobe sozinho, enquanto a tela a rotula como liquidação.
+    check: "liquidacao-como-entrada",
+    message: "liquidação de fatura lançada como entrada — infla a receita e a tela discorda do total",
+    sql: `SELECT COUNT(*) AS n FROM transactions
+          WHERE is_settlement = 1 AND flow != 'expense'`,
+  },
+  {
+    //> A tela decide a espécie pelo `counterpart`; o backend, pelo `self_pair_tx_id`.
+    //> Um par ligado sem o rótulo faz os dois discordarem: o total exclui a linha,
+    //> a tabela a mostra como investimento.
+    check: "self-par-sem-rotulo",
+    message: "par SELF ligado sem counterpart='SELF' — a tabela e os totais discordam",
+    sql: `SELECT COUNT(*) AS n FROM transactions
+          WHERE self_pair_tx_id IS NOT NULL AND (counterpart IS NULL OR counterpart != 'SELF')`,
+  },
+  {
     check: "item-fatura-conta-errada",
     message: "item de fatura lançado em conta diferente da fatura",
     sql: `SELECT COUNT(*) AS n FROM transactions t JOIN invoices i ON i.id = t.invoice_id

@@ -59,7 +59,7 @@ const tx = (db: DatabaseSync, accountId: string, date: string, cents: number, fl
 test("available: sem fatura aberta → net == bruto, committed 0", async () => {
   const out = (await call(freshDb(), "GET", "/api/available")).payload;
   assert.equal(out.committed_this_month, 0);
-  assert.equal(out.available_net, out.available);
+  assert.equal(out.available_net, out.checking_total);
 });
 
 test("available: fatura aberta vencendo este mês abate no net", async () => {
@@ -71,7 +71,7 @@ test("available: fatura aberta vencendo este mês abate no net", async () => {
   ).run(dd);
   const out = (await call(db, "GET", "/api/available")).payload;
   assert.equal(out.committed_this_month, 100);
-  assert.equal(out.available_net, out.available - 100);
+  assert.equal(out.available_net, out.checking_total - 100);
 });
 
 test("available: fatura sem due_date não abate", async () => {
@@ -81,17 +81,17 @@ test("available: fatura sem due_date não abate", async () => {
   ).run();
   const out = (await call(db, "GET", "/api/available")).payload;
   assert.equal(out.committed_this_month, 0);
-  assert.equal(out.available_net, out.available);
+  assert.equal(out.available_net, out.checking_total);
 });
 
 test("encerrar conta tira o saldo dela do disponível", async () => {
   const db = freshDb();
   tx(db, "conta-a", "2026-01-10", 30000, "income");
   tx(db, "conta-b", "2026-01-10", 50000, "income");
-  assert.equal((await call(db, "GET", "/api/available")).payload.available, 800);
+  assert.equal((await call(db, "GET", "/api/available")).payload.checking_total, 800);
 
   await call(db, "PATCH", "/api/accounts/conta-b", { closed_at: "2026-02-01" });
-  assert.equal((await call(db, "GET", "/api/available")).payload.available, 300);
+  assert.equal((await call(db, "GET", "/api/available")).payload.checking_total, 300);
 });
 
 test("encerrar conta NÃO apaga o histórico dela", async () => {
@@ -125,10 +125,10 @@ test("reabrir devolve a conta ao disponível", async () => {
   const db = freshDb();
   tx(db, "conta-b", "2026-01-10", 50000, "income");
   await call(db, "PATCH", "/api/accounts/conta-b", { closed_at: "2026-02-01" });
-  assert.equal((await call(db, "GET", "/api/available")).payload.available, 0);
+  assert.equal((await call(db, "GET", "/api/available")).payload.checking_total, 0);
 
   await call(db, "PATCH", "/api/accounts/conta-b", { closed_at: null });
-  assert.equal((await call(db, "GET", "/api/available")).payload.available, 500);
+  assert.equal((await call(db, "GET", "/api/available")).payload.checking_total, 500);
 });
 
 test("liquidez: a conta encerrada conta no passado e some no mês do fim", async () => {
@@ -255,23 +255,23 @@ test("apagar conta sem nenhum lançamento é permitido (desfazer engano)", async
 
 test("conta nova entra no disponível com o saldo inicial", async () => {
   const db = freshDb();
-  const antes = (await call(db, "GET", "/api/available")).payload.available;
+  const antes = (await call(db, "GET", "/api/available")).payload.checking_total;
   const r = await call(db, "POST", "/api/accounts", {
     id: "c6-db", bank: "c6", type: "checking", name: "C6 Conta",
     initial_balance_cents: 25000, opened_at: "2026-07-01",
   });
   assert.equal(r.status, 201);
-  assert.equal((await call(db, "GET", "/api/available")).payload.available, antes + 250);
+  assert.equal((await call(db, "GET", "/api/available")).payload.checking_total, antes + 250);
 });
 
 test("cartão de crédito novo não entra no disponível", async () => {
   const db = freshDb();
-  const antes = (await call(db, "GET", "/api/available")).payload.available;
+  const antes = (await call(db, "GET", "/api/available")).payload.checking_total;
   await call(db, "POST", "/api/accounts", {
     id: "c6-cc", bank: "c6", type: "credit_card", name: "C6 Cartão",
     initial_balance_cents: 25000,
   });
-  assert.equal((await call(db, "GET", "/api/available")).payload.available, antes);
+  assert.equal((await call(db, "GET", "/api/available")).payload.checking_total, antes);
 });
 
 test("id duplicado é recusado com 409, não sobrescreve", async () => {
@@ -304,11 +304,11 @@ test("id, type e name são validados", async () => {
 test("renomear não mexe em saldo nem em histórico", async () => {
   const db = freshDb();
   tx(db, "conta-a", "2026-01-10", 30000, "income");
-  const antes = (await call(db, "GET", "/api/available")).payload.available;
+  const antes = (await call(db, "GET", "/api/available")).payload.checking_total;
   await call(db, "PATCH", "/api/accounts/conta-a", { name: "Conta Principal" });
   const lista = (await call(db, "GET", "/api/accounts")).payload;
   assert.equal(lista.find((a: any) => a.id === "conta-a").name, "Conta Principal");
-  assert.equal((await call(db, "GET", "/api/available")).payload.available, antes);
+  assert.equal((await call(db, "GET", "/api/available")).payload.checking_total, antes);
 });
 
 test("conta inexistente devolve 404 em PATCH e DELETE", async () => {

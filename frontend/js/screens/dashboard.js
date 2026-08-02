@@ -22,7 +22,7 @@ function Delta({ value, suffix = "vs mês anterior", invert = false }) {
 }
 
 const KpiStrip = React.memo(function KpiStrip({ available, availErr, accounts, cashflow, investTotal,
-                    liquidityHistory, evolution, monthLabel, monthly }) {
+                    liquidityHistory, evolution }) {
 
   const checkingTotal = available ? available.checking_total : 0;
   const patrimonio = checkingTotal + investTotal;
@@ -32,7 +32,7 @@ const KpiStrip = React.memo(function KpiStrip({ available, availErr, accounts, c
   const invDelta = (evolution && evolution.length > 1)
     ? evolution[evolution.length - 1].cumulative - evolution[evolution.length - 2].cumulative : null;
 
-  const netValue = available ? (available.available_net != null ? available.available_net : available.available) : null;
+  const netValue = available ? available.available_net : null;
   const committed = available && available.committed_this_month ? available.committed_this_month : 0;
   const availValue = netValue;
   const availNeg = availValue != null && availValue < 0;
@@ -537,9 +537,6 @@ const InvestmentsWidget = React.memo(function InvestmentsWidget({ investments, e
   );
 });
 
-const CADENCE_LABEL = { 1: "todo mês", 2: "a cada 2 meses", 3: "a cada 3 meses" };
-const cadenceLabel = (n) => CADENCE_LABEL[n] || `a cada ${n} meses`;
-
 // O que está comprometido no mês selecionado. Duas fontes, as duas ancoradas em
 // dado real: parcela que o banco declarou na fatura ("2 de 3") e recorrência que
 // VOCÊ apontou na ficha de um lançamento. Nada é deduzido do histórico.
@@ -726,10 +723,9 @@ function DashboardView({ monthSel, monthly, onPickMonth, refreshKey, onEditCateg
   );
 
   const investTotal = investments.reduce((s, i) => s + (i.balance || 0), 0);
-  const monthLabel = monthSel ? `${PT_SHORT[monthSel.month]}/${String(monthSel.year).slice(2)}` : "—";
 
   return h(React.Fragment, null,
-    h(KpiStrip, { available, availErr, accounts, cashflow, investTotal, liquidityHistory, evolution, monthLabel, monthly }),
+    h(KpiStrip, { available, availErr, accounts, cashflow, investTotal, liquidityHistory, evolution }),
     h("div", { className: "dash-main fade-in" },
       h("div", { className: "widget-band" },
         h("div", { className: "widget-row" },

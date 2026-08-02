@@ -75,13 +75,20 @@
     return Math.round((SCALE_MIN + (SCALE_MAX - SCALE_MIN) * Math.sqrt(share)) * 10) / 10;
   }
 
+  /**
+   * @brief   Onde o gasto está em relação ao alvo.
+   * @warning Compara em CENTAVOS INTEIROS. A API entrega reais, e somá-los em float
+   *          fazia 0,10 três vezes darem 0.30000000000000004 — um alvo de R$ 0,30
+   *          nascia "estourado" com exatamente 30 centavos gastos.
+   */
   function budgetState(spent, budget) {
     if (budget == null || budget <= 0) return null;
-    const ratio = spent / budget;
+    const gastoC = Math.round(spent * 100);
+    const alvoC = Math.round(budget * 100);
     return {
-      ratio,
-      over: ratio > 1,
-      color: ratio > 1 ? "var(--neg)" : ratio >= 0.8 ? "var(--warn)" : "var(--accent)",
+      ratio: gastoC / alvoC,
+      over: gastoC > alvoC,
+      color: gastoC > alvoC ? "var(--neg)" : gastoC * 10 >= alvoC * 8 ? "var(--warn)" : "var(--accent)",
     };
   }
 
